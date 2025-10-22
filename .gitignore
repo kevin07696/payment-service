@@ -1,0 +1,11 @@
+# Binaries
+bin/
+
+# Environment
+.env
+
+# Documentation
+/docs
+
+# Claude Code
+.claude
