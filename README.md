@@ -57,7 +57,7 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Go 1.21+
+- Go 1.24+
 - PostgreSQL 15+
 - protoc (Protocol Buffers compiler)
 
@@ -143,19 +143,37 @@ make sqlc              # Generate SQLC code
 
 ```
 payment-service/
+├── cmd/
+│   ├── server/              # gRPC server entry point
+│   └── migrate/             # Database migration CLI
 ├── internal/
 │   ├── domain/
-│   │   ├── models/          # Domain entities (Transaction, Subscription)
+│   │   ├── models/          # Domain entities (Transaction, Subscription, etc.)
 │   │   └── ports/           # Interface contracts (Gateway, Logger, HTTPClient)
 │   ├── adapters/
-│   │   └── north/           # North payment gateway implementations
-│   └── application/         # Use cases (planned)
-│       └── services/
+│   │   ├── north/           # North payment gateway implementations
+│   │   └── postgres/        # PostgreSQL repository implementations
+│   ├── api/grpc/
+│   │   ├── payment/         # Payment gRPC handlers
+│   │   └── subscription/    # Subscription gRPC handlers
+│   ├── services/
+│   │   ├── payment/         # Payment business logic
+│   │   └── subscription/    # Subscription business logic
+│   ├── db/
+│   │   ├── migrations/      # SQL migration files
+│   │   ├── queries/         # SQL queries for SQLC
+│   │   └── sqlc/            # Generated SQLC code
+│   └── config/              # Configuration management
+├── api/proto/
+│   ├── payment/v1/          # Payment service protobuf definitions
+│   └── subscription/v1/     # Subscription service protobuf definitions
 ├── pkg/
 │   ├── errors/              # Custom error types
-│   └── security/            # Logger adapters, encryption utilities
+│   ├── security/            # Logger adapters, security utilities
+│   └── observability/       # Metrics, health checks
 ├── test/
-│   └── mocks/               # Mock implementations for testing
+│   ├── mocks/               # Mock implementations for testing
+│   └── integration/         # Integration tests with PostgreSQL
 ├── docs/                    # Architecture documentation
 ├── CHANGELOG.md             # Change history
 ├── SYSTEM_DESIGN.md         # System design document
