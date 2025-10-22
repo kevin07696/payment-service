@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: payment-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment_service
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./internal/db/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: payment-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: payment_service
+      DB_SSL_MODE: disable
+    command: ["./migrate", "up"]
+    restart: "no"
+
+  payment-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: payment-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      # Server
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 50051
+
+      # Database
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: payment_service
+      DB_SSL_MODE: disable
+      DB_MAX_CONNS: 25
+      DB_MIN_CONNS: 5
+
+      # North Gateway (replace with your credentials)
+      NORTH_BASE_URL: https://sandbox.north.com/api
+      NORTH_EPI_KEY: ${NORTH_EPI_KEY:-your_epi_key_here}
+      NORTH_USERNAME: ${NORTH_USERNAME:-your_username_here}
+      NORTH_PASSWORD: ${NORTH_PASSWORD:-your_password_here}
+
+      # Logging
+      LOG_LEVEL: info
+      LOG_DEVELOPMENT: false
+
+      # Observability
+      METRICS_PORT: 9090
+    ports:
+      - "50051:50051"
+      - "9090:9090"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

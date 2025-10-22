@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option go_package = "github.com/kevin07696/payment-service/api/proto/payment/v1;paymentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// PaymentService handles all payment operations
+service PaymentService {
+  // Authorize holds funds on a payment method without capturing
+  rpc Authorize(AuthorizeRequest) returns (PaymentResponse);
+
+  // Capture completes a previously authorized payment
+  rpc Capture(CaptureRequest) returns (PaymentResponse);
+
+  // Sale combines authorize and capture in one operation
+  rpc Sale(SaleRequest) returns (PaymentResponse);
+
+  // Void cancels an authorized or captured payment
+  rpc Void(VoidRequest) returns (PaymentResponse);
+
+  // Refund returns funds to the customer
+  rpc Refund(RefundRequest) returns (PaymentResponse);
+
+  // GetTransaction retrieves transaction details
+  rpc GetTransaction(GetTransactionRequest) returns (Transaction);
+
+  // ListTransactions lists transactions for a merchant or customer
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
+}
+
+// AuthorizeRequest authorizes a payment without capturing
+message AuthorizeRequest {
+  string merchant_id = 1;
+  string customer_id = 2;
+  string amount = 3; // Decimal as string (e.g., "29.99")
+  string currency = 4; // ISO 4217 code (e.g., "USD")
+  string token = 5; // BRIC token from tokenization
+  BillingInfo billing_info = 6;
+  string idempotency_key = 7;
+  map<string, string> metadata = 8;
+}
+
+// CaptureRequest captures a previously authorized payment
+message CaptureRequest {
+  string transaction_id = 1; // Original authorization transaction ID
+  string amount = 2; // Optional: partial capture amount
+  string idempotency_key = 3;
+}
+
+// SaleRequest combines authorize and capture
+message SaleRequest {
+  string merchant_id = 1;
+  string customer_id = 2;
+  string amount = 3; // Decimal as string
+  string currency = 4;
+  string token = 5;
+  BillingInfo billing_info = 6;
+  string idempotency_key = 7;
+  map<string, string> metadata = 8;
+}
+
+// VoidRequest cancels an authorized or captured payment
+message VoidRequest {
+  string transaction_id = 1;
+  string idempotency_key = 2;
+}
+
+// RefundRequest refunds a captured payment
+message RefundRequest {
+  string transaction_id = 1;
+  string amount = 2; // Optional: partial refund amount
+  string reason = 3;
+  string idempotency_key = 4;
+}
+
+// GetTransactionRequest retrieves a transaction
+message GetTransactionRequest {
+  string transaction_id = 1;
+}
+
+// ListTransactionsRequest lists transactions
+message ListTransactionsRequest {
+  string merchant_id = 1;
+  string customer_id = 2; // Optional: filter by customer
+  int32 limit = 3; // Default: 100
+  int32 offset = 4;
+}
+
+// ListTransactionsResponse contains transaction list
+message ListTransactionsResponse {
+  repeated Transaction transactions = 1;
+  int32 total_count = 2;
+}
+
+// BillingInfo contains customer billing information
+message BillingInfo {
+  string first_name = 1;
+  string last_name = 2;
+  string email = 3;
+  string phone = 4;
+  Address address = 5;
+}
+
+// Address contains street address information
+message Address {
+  string street1 = 1;
+  string street2 = 2;
+  string city = 3;
+  string state = 4;
+  string postal_code = 5;
+  string country = 6;
+}
+
+// PaymentResponse is returned from payment operations
+message PaymentResponse {
+  string transaction_id = 1;
+  string merchant_id = 2;
+  string customer_id = 3;
+  string amount = 4; // Decimal as string
+  string currency = 5;
+  TransactionStatus status = 6;
+  TransactionType type = 7;
+  PaymentMethodType payment_method_type = 8;
+  string gateway_transaction_id = 9;
+  string response_code = 10;
+  string response_message = 11;
+  bool is_approved = 12;
+  google.protobuf.Timestamp created_at = 13;
+  map<string, string> metadata = 14;
+  string avs_response = 15; // AVS verification result (Y=match, N=no match, etc.)
+  string cvv_response = 16; // CVV verification result
+}
+
+// Transaction represents a complete transaction record
+message Transaction {
+  string id = 1;
+  string merchant_id = 2;
+  string customer_id = 3;
+  string amount = 4;
+  string currency = 5;
+  TransactionStatus status = 6;
+  TransactionType type = 7;
+  PaymentMethodType payment_method_type = 8;
+  string gateway_transaction_id = 9;
+  string parent_transaction_id = 10;
+  string payment_method_token = 11;
+  string response_code = 12;
+  string response_message = 13;
+  string idempotency_key = 14;
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+  map<string, string> metadata = 17;
+}
+
+// TransactionStatus represents the current state of a transaction
+enum TransactionStatus {
+  TRANSACTION_STATUS_UNSPECIFIED = 0;
+  TRANSACTION_STATUS_PENDING = 1;
+  TRANSACTION_STATUS_AUTHORIZED = 2;
+  TRANSACTION_STATUS_CAPTURED = 3;
+  TRANSACTION_STATUS_VOIDED = 4;
+  TRANSACTION_STATUS_REFUNDED = 5;
+  TRANSACTION_STATUS_FAILED = 6;
+  TRANSACTION_STATUS_DECLINED = 7;
+  TRANSACTION_STATUS_PARTIALLY_CAPTURED = 8;
+  TRANSACTION_STATUS_PARTIALLY_REFUNDED = 9;
+}
+
+// TransactionType represents the type of transaction
+enum TransactionType {
+  TRANSACTION_TYPE_UNSPECIFIED = 0;
+  TRANSACTION_TYPE_AUTHORIZATION = 1;
+  TRANSACTION_TYPE_CAPTURE = 2;
+  TRANSACTION_TYPE_SALE = 3;
+  TRANSACTION_TYPE_VOID = 4;
+  TRANSACTION_TYPE_REFUND = 5;
+}
+
+// PaymentMethodType represents the payment method used
+enum PaymentMethodType {
+  PAYMENT_METHOD_TYPE_UNSPECIFIED = 0;
+  PAYMENT_METHOD_TYPE_CREDIT_CARD = 1;
+  PAYMENT_METHOD_TYPE_ACH = 2;
+  PAYMENT_METHOD_TYPE_BROWSER_POST = 3;
+}

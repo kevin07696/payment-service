@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+package subscription.v1;
+
+option go_package = "github.com/kevin07696/payment-service/api/proto/subscription/v1;subscriptionv1";
+
+import "google/protobuf/timestamp.proto";
+
+// SubscriptionService handles recurring billing operations
+service SubscriptionService {
+  // CreateSubscription creates a new recurring billing subscription
+  rpc CreateSubscription(CreateSubscriptionRequest) returns (SubscriptionResponse);
+
+  // UpdateSubscription updates subscription properties
+  rpc UpdateSubscription(UpdateSubscriptionRequest) returns (SubscriptionResponse);
+
+  // CancelSubscription cancels an active subscription
+  rpc CancelSubscription(CancelSubscriptionRequest) returns (SubscriptionResponse);
+
+  // PauseSubscription pauses an active subscription
+  rpc PauseSubscription(PauseSubscriptionRequest) returns (SubscriptionResponse);
+
+  // ResumeSubscription resumes a paused subscription
+  rpc ResumeSubscription(ResumeSubscriptionRequest) returns (SubscriptionResponse);
+
+  // GetSubscription retrieves subscription details
+  rpc GetSubscription(GetSubscriptionRequest) returns (Subscription);
+
+  // ListCustomerSubscriptions lists all subscriptions for a customer
+  rpc ListCustomerSubscriptions(ListCustomerSubscriptionsRequest) returns (ListCustomerSubscriptionsResponse);
+
+  // ProcessDueBilling processes subscriptions due for billing (internal/admin use)
+  rpc ProcessDueBilling(ProcessDueBillingRequest) returns (ProcessDueBillingResponse);
+}
+
+// CreateSubscriptionRequest creates a new subscription
+message CreateSubscriptionRequest {
+  string merchant_id = 1;
+  string customer_id = 2;
+  string amount = 3; // Decimal as string
+  string currency = 4;
+  BillingFrequency frequency = 5;
+  string payment_method_token = 6; // BRIC token for recurring charges
+  google.protobuf.Timestamp start_date = 7;
+  int32 max_retries = 8; // Default: 3
+  FailureOption failure_option = 9;
+  map<string, string> metadata = 10;
+  string idempotency_key = 11;
+}
+
+// UpdateSubscriptionRequest updates subscription properties
+message UpdateSubscriptionRequest {
+  string subscription_id = 1;
+  optional string amount = 2; // Optional: update amount
+  optional BillingFrequency frequency = 3; // Optional: update frequency
+  optional string payment_method_token = 4; // Optional: update payment method
+  string idempotency_key = 5;
+}
+
+// CancelSubscriptionRequest cancels a subscription
+message CancelSubscriptionRequest {
+  string subscription_id = 1;
+  bool cancel_at_period_end = 2; // If true, cancel after current billing period
+  string reason = 3;
+  string idempotency_key = 4;
+}
+
+// PauseSubscriptionRequest pauses a subscription
+message PauseSubscriptionRequest {
+  string subscription_id = 1;
+}
+
+// ResumeSubscriptionRequest resumes a subscription
+message ResumeSubscriptionRequest {
+  string subscription_id = 1;
+}
+
+// GetSubscriptionRequest retrieves a subscription
+message GetSubscriptionRequest {
+  string subscription_id = 1;
+}
+
+// ListCustomerSubscriptionsRequest lists customer subscriptions
+message ListCustomerSubscriptionsRequest {
+  string merchant_id = 1;
+  string customer_id = 2;
+}
+
+// ListCustomerSubscriptionsResponse contains subscription list
+message ListCustomerSubscriptionsResponse {
+  repeated Subscription subscriptions = 1;
+}
+
+// ProcessDueBillingRequest processes billing batch
+message ProcessDueBillingRequest {
+  google.protobuf.Timestamp as_of_date = 1;
+  int32 batch_size = 2; // Default: 100
+}
+
+// ProcessDueBillingResponse contains billing results
+message ProcessDueBillingResponse {
+  int32 processed_count = 1;
+  int32 success_count = 2;
+  int32 failed_count = 3;
+  int32 skipped_count = 4;
+  repeated BillingError errors = 5;
+}
+
+// BillingError represents a billing failure
+message BillingError {
+  string subscription_id = 1;
+  string customer_id = 2;
+  string error = 3;
+  bool retriable = 4;
+}
+
+// SubscriptionResponse is returned from subscription operations
+message SubscriptionResponse {
+  string subscription_id = 1;
+  string merchant_id = 2;
+  string customer_id = 3;
+  string amount = 4;
+  string currency = 5;
+  BillingFrequency frequency = 6;
+  SubscriptionStatus status = 7;
+  string payment_method_token = 8;
+  google.protobuf.Timestamp next_billing_date = 9;
+  string gateway_subscription_id = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+  optional google.protobuf.Timestamp cancelled_at = 13;
+}
+
+// Subscription represents a complete subscription record
+message Subscription {
+  string id = 1;
+  string merchant_id = 2;
+  string customer_id = 3;
+  string amount = 4;
+  string currency = 5;
+  BillingFrequency frequency = 6;
+  SubscriptionStatus status = 7;
+  string payment_method_token = 8;
+  google.protobuf.Timestamp next_billing_date = 9;
+  string gateway_subscription_id = 10;
+  int32 failure_retry_count = 11;
+  int32 max_retries = 12;
+  FailureOption failure_option = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+  optional google.protobuf.Timestamp cancelled_at = 16;
+  map<string, string> metadata = 17;
+}
+
+// BillingFrequency defines how often to bill
+enum BillingFrequency {
+  BILLING_FREQUENCY_UNSPECIFIED = 0;
+  BILLING_FREQUENCY_WEEKLY = 1;
+  BILLING_FREQUENCY_BIWEEKLY = 2;
+  BILLING_FREQUENCY_MONTHLY = 3;
+  BILLING_FREQUENCY_YEARLY = 4;
+}
+
+// SubscriptionStatus represents the subscription state
+enum SubscriptionStatus {
+  SUBSCRIPTION_STATUS_UNSPECIFIED = 0;
+  SUBSCRIPTION_STATUS_ACTIVE = 1;
+  SUBSCRIPTION_STATUS_PAUSED = 2;
+  SUBSCRIPTION_STATUS_CANCELLED = 3;
+  SUBSCRIPTION_STATUS_PAST_DUE = 4;
+}
+
+// FailureOption defines what to do when billing fails
+enum FailureOption {
+  FAILURE_OPTION_UNSPECIFIED = 0;
+  FAILURE_OPTION_FORWARD = 1; // Reschedule to next period
+  FAILURE_OPTION_SKIP = 2; // Skip this period
+  FAILURE_OPTION_PAUSE = 3; // Pause subscription
+}
