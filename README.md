@@ -4,11 +4,11 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 
 ## 🎯 Features
 
-- ✅ **Credit Card Payments**: One-time, auth/capture flows
+- ✅ **Credit Card Payments**: One-time, auth/capture flows (Custom Pay & Browser Post)
 - ✅ **Recurring Billing**: Subscription management
-- 🚧 **ACH Payments**: Bank transfers (in progress)
+- ✅ **ACH Payments**: Bank transfers (checking/savings accounts)
 - 🚧 **Invoice Payments**: (planned)
-- ✅ **PCI-Compliant**: Tokenization with BRIC tokens
+- ✅ **PCI-Compliant**: Browser Post tokenization with BRIC tokens (frontend-to-backend)
 - ✅ **Response Code Handling**: 40+ mapped codes with user-friendly messages
 - ✅ **HMAC Authentication**: Secure API communication
 - ✅ **Database Migrations**: Goose-based schema management
@@ -46,8 +46,9 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐   │
 │  │ North Adapters │  │   PostgreSQL   │  │     Logging    │   │
 │  │ - Custom Pay ✅│  │ - Repos ✅     │  │ - Zap Logger ✅│   │
-│  │ - Recurring ✅ │  │ - SQLC ✅      │  │                │   │
-│  │ - ACH 🚧       │  │ - Pooling ✅   │  │                │   │
+│  │ - Browser Post✅│  │ - SQLC ✅      │  │                │   │
+│  │ - Recurring ✅ │  │ - Pooling ✅   │  │                │   │
+│  │ - ACH ✅       │  │                │  │                │   │
 │  └────────────────┘  └────────────────┘  └────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -415,9 +416,19 @@ Migrations run automatically when using docker-compose.
 - `GET /subscription/{id}` - Get subscription details
 - `GET /subscription/list` - List customer subscriptions
 
-### ACH API 🚧
+### ACH API ✅
 
-- In progress
+- `POST /ach/payment` - Process ACH payment (debit checking/savings)
+- `POST /ach/refund/{id}` - Refund ACH payment (credit checking/savings)
+- `POST /ach/verify` - Verify bank account routing/account numbers
+
+### Browser Post API ✅
+
+- `POST /sale` - Authorize or sale with BRIC token
+- `POST /sale/{id}/capture` - Capture authorized payment
+- `POST /void/{id}` - Void transaction
+- `POST /refund/{id}` - Refund payment
+- `POST /verify` - Verify BRIC token
 
 ## 🛠️ Development
 
@@ -521,11 +532,12 @@ func TestMyAdapter_Process(t *testing.T) {
 - [ ] Kubernetes manifests (optional)
 - [ ] CI/CD pipeline (optional)
 
-### Phase 7: Remaining Adapters 🚧
+### Phase 7: Payment Adapters ✅
+- [x] North Custom Pay adapter
 - [x] North Recurring Billing adapter
-- [ ] ACH adapter
-- [ ] Browser Post adapter
-- [ ] Webhook handler
+- [x] ACH adapter (Pay-by-Bank)
+- [x] Browser Post adapter (BRIC tokenization)
+- [ ] Webhook handler (optional)
 
 ### Phase 8: Testing & Integration 🚧
 - [x] Integration tests with PostgreSQL
