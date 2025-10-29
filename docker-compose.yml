@@ -12,30 +12,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./internal/db/migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: payment-migrate
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: payment_service
-      DB_SSL_MODE: disable
-    command: ["./migrate", "up"]
-    restart: "no"
 
   payment-server:
     build:
@@ -45,12 +26,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+    volumes:
+      - ./secrets:/root/secrets:ro  # Mount secrets directory (read-only for security)
     environment:
       # Server
-      SERVER_HOST: 0.0.0.0
-      SERVER_PORT: 50051
+      PORT: 8080
+      HTTP_PORT: 8081
 
       # Database
       DB_HOST: postgres
@@ -62,21 +43,23 @@ services:
       DB_MAX_CONNS: 25
       DB_MIN_CONNS: 5
 
-      # North Gateway (replace with your credentials)
-      NORTH_BASE_URL: https://sandbox.north.com/api
-      NORTH_EPI_KEY: ${NORTH_EPI_KEY:-your_epi_key_here}
-      NORTH_USERNAME: ${NORTH_USERNAME:-your_username_here}
-      NORTH_PASSWORD: ${NORTH_PASSWORD:-your_password_here}
+      # EPX Gateway (for payment processing)
+      EPX_BASE_URL: ${EPX_BASE_URL:-https://sandbox.north.com}
+      EPX_TIMEOUT: 30
 
-      # Logging
-      LOG_LEVEL: info
-      LOG_DEVELOPMENT: false
+      # North API (for dispute/chargeback reporting - read-only)
+      NORTH_API_URL: ${NORTH_API_URL:-https://api.north.com}
+      NORTH_TIMEOUT: 30
 
-      # Observability
-      METRICS_PORT: 9090
+      # Cron authentication secret
+      CRON_SECRET: ${CRON_SECRET:-change-me-in-production}
+
+      # Environment
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+
     ports:
-      - "50051:50051"
-      - "9090:9090"
+      - "8080:8080"   # gRPC server
+      - "8081:8081"   # HTTP cron endpoints
     restart: unless-stopped
 
 volumes:
