@@ -4,7 +4,7 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 
 ## 🎯 Features
 
-- ✅ **Credit Card Payments**: One-time, auth/capture flows (Custom Pay & Browser Post)
+- ✅ **Credit Card Payments**: One-time, auth/capture flows (Server Post & Browser Post)
 - ✅ **Recurring Billing**: Subscription management with automatic cron billing
 - ✅ **ACH Payments**: Bank transfers (checking/savings accounts)
 - ✅ **Chargeback Management**: Automated polling from North API, local storage, webhook notifications
@@ -46,11 +46,10 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 ┌─────────────────────────────────────────────────────────────────┐
 │                   Infrastructure Layer ✅                       │
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐   │
-│  │ North Adapters │  │   PostgreSQL   │  │     Logging    │   │
-│  │ - Custom Pay ✅│  │ - Repos ✅     │  │ - Zap Logger ✅│   │
+│  │  EPX Adapters  │  │   PostgreSQL   │  │     Logging    │   │
+│  │ - Server Post ✅│  │ - Repos ✅     │  │ - Zap Logger ✅│   │
 │  │ - Browser Post✅│  │ - SQLC ✅      │  │                │   │
-│  │ - Recurring ✅ │  │ - Pooling ✅   │  │                │   │
-│  │ - ACH ✅       │  │                │  │                │   │
+│  │ - Key Exch. ✅ │  │ - Pooling ✅   │  │                │   │
 │  └────────────────┘  └────────────────┘  └────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -338,19 +337,19 @@ All dependencies are injected through interfaces, enabling:
 ```go
 // Development: verbose logging
 devLogger, _ := security.NewZapLoggerDevelopment()
-adapter := north.NewCustomPayAdapter(config, url, httpClient, devLogger)
+adapter := epx.NewServerPostAdapter(url, httpClient, devLogger)
 
 // Production: structured JSON logging
 prodLogger, _ := security.NewZapLoggerProduction()
-adapter := north.NewCustomPayAdapter(config, url, httpClient, prodLogger)
+adapter := epx.NewServerPostAdapter(url, httpClient, prodLogger)
 
 // Testing: mock logger
 mockLogger := mocks.NewMockLogger()
-adapter := north.NewCustomPayAdapter(config, url, httpClient, mockLogger)
+adapter := epx.NewServerPostAdapter(url, httpClient, mockLogger)
 
 // Custom: your own implementation
 customLogger := MyLogger{}
-adapter := north.NewCustomPayAdapter(config, url, httpClient, customLogger)
+adapter := epx.NewServerPostAdapter(url, httpClient, customLogger)
 ```
 
 See [docs/ARCHITECTURE_BENEFITS.md](docs/ARCHITECTURE_BENEFITS.md) for detailed benefits and examples.
@@ -451,37 +450,37 @@ goose -dir internal/db/migrations create add_users_table sql
 
 ## 📝 API Endpoints Implemented
 
-### Custom Pay API ✅
+### Server Post API ✅
 
-- `POST /sale/{token}` - Authorize or sale with BRIC token
-- `PUT /sale/{id}/capture` - Capture authorized payment
-- `PUT /void/{id}` - Void transaction
-- `POST /refund/{id}` - Refund payment
-- `POST /avs` - Verify account
+- `Authorize()` - Authorize payment with token
+- `Capture()` - Capture authorized payment
+- `Sale()` - One-step authorize and capture
+- `Void()` - Void transaction
+- `Refund()` - Refund payment
 
-### Recurring Billing API ✅
+### Subscription Service ✅
 
-- `POST /subscription` - Create new subscription
-- `PUT /subscription/{id}` - Update subscription
-- `POST /subscription/cancel` - Cancel subscription
-- `POST /subscription/pause` - Pause subscription
-- `POST /subscription/resume` - Resume subscription
-- `GET /subscription/{id}` - Get subscription details
-- `GET /subscription/list` - List customer subscriptions
+- `CreateSubscription()` - Create new recurring subscription
+- `UpdateSubscription()` - Update subscription details
+- `CancelSubscription()` - Cancel subscription
+- `PauseSubscription()` - Pause subscription billing
+- `ResumeSubscription()` - Resume paused subscription
+- `GetSubscription()` - Get subscription details
+- `ListSubscriptions()` - List customer subscriptions
 
-### ACH API ✅
+### ACH Payments (via Server Post) ✅
 
-- `POST /ach/payment` - Process ACH payment (debit checking/savings)
-- `POST /ach/refund/{id}` - Refund ACH payment (credit checking/savings)
-- `POST /ach/verify` - Verify bank account routing/account numbers
+- ACH debit transactions (checking/savings)
+- ACH credit transactions (refunds)
+- Bank account verification
+- Pre-note verification for new accounts
 
 ### Browser Post API ✅
 
-- `POST /sale` - Authorize or sale with BRIC token
-- `POST /sale/{id}/capture` - Capture authorized payment
-- `POST /void/{id}` - Void transaction
-- `POST /refund/{id}` - Refund payment
-- `POST /verify` - Verify BRIC token
+- `GeneratePaymentForm()` - Generate hosted payment form
+- `ProcessCallback()` - Process payment callback
+- `GetToken()` - Retrieve BRIC token from response
+- Frontend tokenization for PCI compliance
 
 ## 🛠️ Development
 
@@ -603,11 +602,11 @@ Comprehensive documentation covering:
 - [ ] CI/CD pipeline (optional)
 
 ### Phase 7: Payment Adapters ✅
-- [x] North Custom Pay adapter
-- [x] North Recurring Billing adapter
-- [x] ACH adapter (Pay-by-Bank)
-- [x] Browser Post adapter (BRIC tokenization)
-- [ ] Webhook handler (optional)
+- [x] EPX Server Post adapter (card & ACH payments)
+- [x] EPX Browser Post adapter (PCI-compliant tokenization)
+- [x] EPX Key Exchange adapter (credential management)
+- [x] North Merchant Reporting adapter (read-only disputes)
+- [x] Webhook delivery system with retries
 
 ### Phase 8: Testing & Integration 🚧
 - [x] Integration tests with PostgreSQL

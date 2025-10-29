@@ -1081,19 +1081,19 @@ go test -cover ./internal/adapters/north
 **Test Structure:**
 
 ```go
-func TestCustomPayAdapter_Authorize(t *testing.T) {
+func TestServerPostAdapter_Authorize(t *testing.T) {
     // Setup mocks
     mockHTTP := mocks.NewMockHTTPClient(...)
     mockLogger := mocks.NewMockLogger()
 
-    adapter := NewCustomPayAdapter(config, url, mockHTTP, mockLogger)
+    adapter := epx.NewServerPostAdapter(url, mockHTTP, mockLogger)
 
     // Test
     result, err := adapter.Authorize(ctx, request)
 
     // Assertions
     assert.NoError(t, err)
-    assert.Equal(t, "00", result.ResponseCode)
+    assert.Equal(t, "approved", result.Status)
 }
 ```
 
