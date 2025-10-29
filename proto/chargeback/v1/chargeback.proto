@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package chargeback.v1;
+
+option go_package = "github.com/kevin07696/payment-service/proto/chargeback/v1;chargebackv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ChargebackStatus represents the chargeback state
+// Matches database constraint: ('new', 'pending', 'responded', 'won', 'lost', 'accepted')
+enum ChargebackStatus {
+  CHARGEBACK_STATUS_UNSPECIFIED = 0;
+  CHARGEBACK_STATUS_NEW = 1;
+  CHARGEBACK_STATUS_PENDING = 2;
+  CHARGEBACK_STATUS_RESPONDED = 3;
+  CHARGEBACK_STATUS_WON = 4;
+  CHARGEBACK_STATUS_LOST = 5;
+  CHARGEBACK_STATUS_ACCEPTED = 6;
+}
+
+// ChargebackService handles dispute management operations (read-only)
+// Note: North API does not provide write operations for disputes.
+// Merchants must respond to chargebacks through North's web portal.
+service ChargebackService {
+  // GetChargeback retrieves a specific chargeback by ID
+  rpc GetChargeback(GetChargebackRequest) returns (Chargeback);
+
+  // ListChargebacks lists chargebacks with filters
+  rpc ListChargebacks(ListChargebacksRequest) returns (ListChargebacksResponse);
+}
+
+// GetChargebackRequest retrieves a chargeback by ID
+message GetChargebackRequest {
+  string chargeback_id = 1; // UUID
+  string agent_id = 2;      // For authorization
+}
+
+// ListChargebacksRequest lists chargebacks with flexible filters
+message ListChargebacksRequest {
+  string agent_id = 1;                                  // Required: merchant/agent ID
+  optional string customer_id = 2;                       // Optional: filter by customer
+  optional string group_id = 3;                          // Optional: filter by transaction group
+  optional ChargebackStatus status = 4;                  // Optional: filter by status
+  optional google.protobuf.Timestamp dispute_date_from = 5; // Optional: date range
+  optional google.protobuf.Timestamp dispute_date_to = 6;
+  int32 limit = 7;  // Default: 100
+  int32 offset = 8;
+}
+
+// ListChargebacksResponse contains chargeback list
+message ListChargebacksResponse {
+  repeated Chargeback chargebacks = 1;
+  int32 total_count = 2;
+}
+
+// Chargeback represents a complete chargeback record (read-only)
+message Chargeback {
+  string id = 1;
+  string group_id = 2; // Links to transaction group
+  string agent_id = 3;
+  string customer_id = 4;
+
+  // North API fields
+  string case_number = 5; // North's caseNumber
+  google.protobuf.Timestamp dispute_date = 6;
+  google.protobuf.Timestamp chargeback_date = 7;
+  string chargeback_amount = 8; // Decimal as string
+  string currency = 9;
+  string reason_code = 10; // North's reasonCode (e.g., "P22", "F10")
+  string reason_description = 11; // North's reasonDescription
+
+  // Status and timeline
+  ChargebackStatus status = 12;
+  optional google.protobuf.Timestamp respond_by_date = 13;
+  optional google.protobuf.Timestamp response_submitted_at = 14;
+  optional google.protobuf.Timestamp resolved_at = 15;
+
+  // Evidence and response (read-only - merchants respond via North portal)
+  repeated string evidence_file_urls = 16; // File URLs if North API provides them
+  optional string response_text = 17;      // Response text if submitted via North portal
+  optional string internal_notes = 18;     // Internal notes (local tracking only)
+
+  google.protobuf.Timestamp created_at = 19;
+  google.protobuf.Timestamp updated_at = 20;
+}

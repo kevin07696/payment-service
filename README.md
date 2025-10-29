@@ -5,15 +5,17 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 ## 🎯 Features
 
 - ✅ **Credit Card Payments**: One-time, auth/capture flows (Custom Pay & Browser Post)
-- ✅ **Recurring Billing**: Subscription management
+- ✅ **Recurring Billing**: Subscription management with automatic cron billing
 - ✅ **ACH Payments**: Bank transfers (checking/savings accounts)
+- ✅ **Chargeback Management**: Automated polling from North API, local storage, webhook notifications
+- ✅ **Webhook System**: Outbound webhooks with HMAC signatures, automatic retries
 - 🚧 **Invoice Payments**: (planned)
 - ✅ **PCI-Compliant**: Browser Post tokenization with BRIC tokens (frontend-to-backend)
 - ✅ **Response Code Handling**: 40+ mapped codes with user-friendly messages
-- ✅ **HMAC Authentication**: Secure API communication
-- ✅ **Database Migrations**: Goose-based schema management
-- ✅ **Observability**: Prometheus metrics & health checks
-- ✅ **Comprehensive Testing**: 85.7% test coverage on adapters
+- ✅ **HMAC Authentication**: Secure API communication & webhook signatures
+- ✅ **Database Migrations**: SQL-based schema management
+- ✅ **Observability**: Prometheus metrics, health checks, structured logging
+- ✅ **Comprehensive Testing**: 85%+ test coverage with unit and integration tests
 
 ## 🏗️ Architecture
 
@@ -86,13 +88,19 @@ go build -o bin/payment-server ./cmd/server
 ./bin/payment-server
 ```
 
-The server will start on `0.0.0.0:50051` (configurable via `SERVER_PORT`).
+The server will start on `0.0.0.0:8080` for gRPC and `0.0.0.0:8081` for HTTP/cron endpoints.
 
 ### Docker Setup (Recommended)
 
-The easiest way to run the entire stack:
+The easiest way to run the entire stack (PostgreSQL + migrations + payment server):
 
 ```bash
+# Copy environment variables template
+cp .env.example .env
+
+# Edit .env with your EPX and North credentials (if needed)
+# nano .env
+
 # Start PostgreSQL and payment server
 make docker-up
 
@@ -106,11 +114,10 @@ make docker-down
 Or using docker-compose directly:
 
 ```bash
-# Set your North gateway credentials
-export NORTH_EPI_KEY="your_key_here"
-export NORTH_USERNAME="your_username"
+# Copy environment file
+cp .env.example .env
 
-# Start services
+# Start all services (postgres + migrations + payment-server)
 docker-compose up -d
 
 # View logs
@@ -118,12 +125,18 @@ docker-compose logs -f payment-server
 
 # Stop services
 docker-compose down
+
+# Clean up volumes
+docker-compose down -v
 ```
 
 Services will be available at:
-- **gRPC API**: `localhost:50051`
-- **Prometheus Metrics**: `http://localhost:9090/metrics`
-- **Health Check**: `http://localhost:9090/health`
+- **gRPC API**: `localhost:8080`
+- **HTTP Cron Endpoints**: `http://localhost:8081`
+  - `POST /cron/process-billing` - Process recurring billing
+  - `POST /cron/sync-disputes` - Sync chargebacks from North API
+  - `GET /cron/health` - Health check
+  - `GET /cron/stats` - Billing statistics
 - **PostgreSQL**: `localhost:5432`
 
 ### Using the Makefile
@@ -142,74 +155,100 @@ make sqlc              # Generate SQLC code
 
 ## 📦 Project Structure
 
+Clean layered architecture (Handlers → Services → Adapters):
+
 ```
 payment-service/
 ├── cmd/
-│   ├── server/              # gRPC server entry point
-│   └── migrate/             # Database migration CLI
+│   └── server/              # gRPC/HTTP server entry point
 ├── internal/
-│   ├── domain/
-│   │   ├── models/          # Domain entities (Transaction, Subscription, etc.)
-│   │   └── ports/           # Interface contracts (Gateway, Logger, HTTPClient)
-│   ├── adapters/
-│   │   ├── north/           # North payment gateway implementations
-│   │   └── postgres/        # PostgreSQL repository implementations
-│   ├── api/grpc/
-│   │   ├── payment/         # Payment gRPC handlers
-│   │   └── subscription/    # Subscription gRPC handlers
-│   ├── services/
-│   │   ├── payment/         # Payment business logic
-│   │   └── subscription/    # Subscription business logic
+│   ├── handlers/            # 🌐 Presentation Layer (gRPC/HTTP)
+│   │   ├── payment/         # Payment API handlers
+│   │   ├── subscription/    # Subscription API handlers
+│   │   ├── payment_method/  # Payment method handlers
+│   │   ├── agent/           # Multi-tenant agent handlers
+│   │   ├── chargeback/      # Chargeback/dispute handlers
+│   │   ├── cron/            # Cron job HTTP endpoints
+│   │   └── webhook/         # Webhook delivery handlers
+│   ├── services/            # 💼 Business Logic Layer
+│   │   ├── payment/         # Payment processing
+│   │   ├── subscription/    # Recurring billing
+│   │   ├── payment_method/  # Payment method management
+│   │   ├── agent/           # Multi-tenant agent service
+│   │   ├── webhook/         # Webhook delivery service
+│   │   └── ports/           # Service interfaces
+│   ├── adapters/            # 🔌 Infrastructure Layer
+│   │   ├── epx/             # EPX Gateway (Browser Post, Server Post)
+│   │   ├── north/           # North Merchant Reporting (disputes)
+│   │   ├── database/        # Database adapter
+│   │   ├── secrets/         # Secret management (AWS/Vault/Local)
+│   │   └── ports/           # Adapter interfaces
+│   ├── domain/              # 📦 Domain Models (Core Entities)
+│   │   ├── agent.go         # Multi-tenant agent
+│   │   ├── chargeback.go    # Dispute/chargeback
+│   │   ├── payment_method.go
+│   │   ├── subscription.go
+│   │   ├── transaction.go
+│   │   └── errors.go
 │   ├── db/
-│   │   ├── migrations/      # SQL migration files
+│   │   ├── migrations/      # SQL migration files (Goose)
 │   │   ├── queries/         # SQL queries for SQLC
 │   │   └── sqlc/            # Generated SQLC code
 │   └── config/              # Configuration management
-├── api/proto/
-│   ├── payment/v1/          # Payment service protobuf definitions
-│   └── subscription/v1/     # Subscription service protobuf definitions
+├── proto/               # Protocol Buffer Definitions
+│   ├── payment/v1/
+│   ├── subscription/v1/
+│   ├── payment_method/v1/
+│   ├── agent/v1/
+│   └── chargeback/v1/
 ├── pkg/
 │   ├── errors/              # Custom error types
-│   ├── security/            # Logger adapters, security utilities
-│   └── observability/       # Metrics, health checks
+│   ├── security/            # Logger, crypto utilities
+│   └── observability/       # Metrics, tracing
 ├── test/
-│   ├── mocks/               # Mock implementations for testing
-│   └── integration/         # Integration tests with PostgreSQL
-├── docs/                    # Architecture documentation
-├── CHANGELOG.md             # Change history
-├── SYSTEM_DESIGN.md         # System design document
+│   └── integration/         # Integration tests
+│       └── testdb/          # Test database utilities
+├── .env.example             # Environment variables template
+├── docker-compose.yml       # Local development stack
+├── docker-compose.test.yml  # Test database
+├── Dockerfile               # Production image
+├── Makefile                 # Build & dev commands
+├── CHANGELOG.md             # Version history
+├── DOCUMENTATION.md         # Complete documentation
 └── README.md
 ```
 
 ## 🔧 Usage Example
 
-### Creating a Custom Pay Adapter
+### Using EPX Payment Adapters
 
 ```go
 import (
-    "github.com/kevin07696/payment-service/internal/adapters/north"
-    "github.com/kevin07696/payment-service/internal/domain/ports"
+    "github.com/kevin07696/payment-service/internal/adapters/epx"
+    "github.com/kevin07696/payment-service/internal/adapters/ports"
     "github.com/kevin07696/payment-service/pkg/security"
 )
 
-// Setup
-config := north.AuthConfig{
-    EPIId:  "CUST_NBR-MERCH_NBR-DBA_NBR-TERMINAL_NBR",
-    EPIKey: "your-secret-key",
-}
-
+// Setup logger and HTTP client
 logger, _ := security.NewZapLoggerProduction()
 httpClient := &http.Client{Timeout: 30 * time.Second}
 
-adapter := north.NewCustomPayAdapter(
-    config,
+// Create EPX Browser Post adapter for hosted payment pages
+browserAdapter := epx.NewBrowserPostAdapter(
     "https://api.epxuap.com",
     httpClient,
     logger,
 )
 
-// Authorize a payment
-req := &ports.AuthorizeRequest{
+// Or create EPX Server Post adapter for direct API integration
+serverAdapter := epx.NewServerPostAdapter(
+    "https://api.epxuap.com",
+    httpClient,
+    logger,
+)
+
+// Use the adapter (example with Server Post)
+req := &ports.ServerPostRequest{
     Amount:   decimal.NewFromFloat(100.00),
     Currency: "USD",
     Token:    "bric-token-from-browser-post",
@@ -376,25 +415,39 @@ curl http://localhost:9090/ready
 
 ### Database Migrations
 
-Run migrations manually:
-```bash
-# Build the migrate binary
-go build -o bin/migrate ./cmd/migrate
+We use [Goose](https://github.com/pressly/goose) for database migrations.
 
-# Run migrations
-./bin/migrate up
+**Using Makefile (recommended):**
+```bash
+# Run all pending migrations
+make migrate-up
 
 # Check migration status
-./bin/migrate status
+make migrate-status
 
 # Rollback last migration
-./bin/migrate down
+make migrate-down
 
 # Create new migration
-./bin/migrate create add_new_table sql
+make migrate-create NAME=add_users_table
 ```
 
-Migrations run automatically when using docker-compose.
+**Using goose CLI directly:**
+```bash
+# Install goose
+go install github.com/pressly/goose/v3/cmd/goose@latest
+
+# Run migrations
+goose -dir internal/db/migrations postgres "host=localhost port=5432 user=postgres password=postgres dbname=payment_service sslmode=disable" up
+
+# Check status
+goose -dir internal/db/migrations postgres "host=localhost port=5432 user=postgres password=postgres dbname=payment_service sslmode=disable" status
+
+# Create new migration
+goose -dir internal/db/migrations create add_users_table sql
+```
+
+**Docker:** Migrations run automatically when using `docker-compose up`
 
 ## 📝 API Endpoints Implemented
 
@@ -450,7 +503,7 @@ go build ./...
 
 ### Adding a New Adapter
 
-1. Define the port interface in `internal/domain/ports/`
+1. Define the port interface in `internal/adapters/ports/` (for adapters) or `internal/services/ports/` (for services)
 2. Create implementation in `internal/adapters/{vendor}/`
 3. Inject dependencies through constructor
 4. Write unit tests with mocks
@@ -459,18 +512,24 @@ go build ./...
 Example:
 
 ```go
-// 1. Define port
+// 1. Define port in internal/adapters/ports/
+package ports
+
 type MyGateway interface {
     Process(ctx context.Context, req *Request) (*Result, error)
 }
 
-// 2. Create adapter
+// 2. Create adapter in internal/adapters/myvendor/
+package myvendor
+
+import "github.com/kevin07696/payment-service/internal/adapters/ports"
+
 type MyAdapter struct {
     httpClient ports.HTTPClient
     logger     ports.Logger
 }
 
-func NewMyAdapter(httpClient ports.HTTPClient, logger ports.Logger) *MyAdapter {
+func NewMyAdapter(httpClient ports.HTTPClient, logger ports.Logger) ports.MyGateway {
     return &MyAdapter{httpClient: httpClient, logger: logger}
 }
 
@@ -490,9 +549,20 @@ func TestMyAdapter_Process(t *testing.T) {
 
 ## 📚 Documentation
 
-- [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) - Comprehensive system design
-- [docs/ARCHITECTURE_BENEFITS.md](docs/ARCHITECTURE_BENEFITS.md) - Ports & adapters benefits
-- [CHANGELOG.md](CHANGELOG.md) - Version history and changes
+**[DOCUMENTATION.md](DOCUMENTATION.md)** - **Complete Guide (START HERE)**
+
+Comprehensive documentation covering:
+- Quick Start & Setup
+- Architecture & Design Patterns
+- Frontend & Backend Integration
+- North Gateway APIs
+- Chargeback Management (READ-ONLY)
+- Webhook System
+- Testing & Deployment
+- API Reference
+- Troubleshooting
+
+**[CHANGELOG.md](CHANGELOG.md)** - Version history and changes
 
 ## 🗺️ Roadmap
 

@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/kevin07696/payment-service/proto/agent/v1;agentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// Environment represents the EPX environment
+enum Environment {
+  ENVIRONMENT_UNSPECIFIED = 0;
+  ENVIRONMENT_SANDBOX = 1;
+  ENVIRONMENT_PRODUCTION = 2;
+}
+
+// AgentService handles multi-tenant agent/merchant credential management
+// This is typically an internal/admin-only service
+service AgentService {
+  // RegisterAgent adds a new agent/merchant to the system
+  rpc RegisterAgent(RegisterAgentRequest) returns (AgentResponse);
+
+  // GetAgent retrieves agent credentials (internal use only)
+  rpc GetAgent(GetAgentRequest) returns (Agent);
+
+  // ListAgents lists all registered agents
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+
+  // UpdateAgent updates agent credentials
+  rpc UpdateAgent(UpdateAgentRequest) returns (AgentResponse);
+
+  // DeactivateAgent deactivates an agent
+  rpc DeactivateAgent(DeactivateAgentRequest) returns (AgentResponse);
+
+  // RotateMAC rotates MAC secret in secret manager
+  rpc RotateMAC(RotateMACRequest) returns (RotateMACResponse);
+}
+
+// RegisterAgentRequest registers a new agent
+message RegisterAgentRequest {
+  string agent_id = 1; // Unique identifier for this agent/merchant
+  string mac_secret = 2; // MAC secret (will be stored in secret manager)
+  string cust_nbr = 3; // EPX customer number
+  string merch_nbr = 4; // EPX merchant number
+  string dba_nbr = 5; // EPX DBA number
+  string terminal_nbr = 6; // EPX terminal number
+  Environment environment = 7; // sandbox or production
+  map<string, string> metadata = 8; // Additional merchant info
+  string idempotency_key = 9;
+}
+
+// GetAgentRequest retrieves agent credentials
+message GetAgentRequest {
+  string agent_id = 1;
+}
+
+// ListAgentsRequest lists agents
+message ListAgentsRequest {
+  optional Environment environment = 1; // Optional: filter by environment
+  optional bool is_active = 2; // Optional: filter by active status
+  int32 limit = 3; // Default: 100
+  int32 offset = 4;
+}
+
+// ListAgentsResponse contains agent list
+message ListAgentsResponse {
+  repeated AgentSummary agents = 1;
+  int32 total_count = 2;
+}
+
+// UpdateAgentRequest updates agent credentials
+message UpdateAgentRequest {
+  string agent_id = 1;
+  optional string mac_secret = 2; // Optional: update MAC secret
+  optional string cust_nbr = 3; // Optional: update customer number
+  optional string merch_nbr = 4; // Optional: update merchant number
+  optional string dba_nbr = 5; // Optional: update DBA number
+  optional string terminal_nbr = 6; // Optional: update terminal number
+  optional Environment environment = 7; // Optional: update environment
+  map<string, string> metadata = 8; // Optional: update metadata (empty map if not updating)
+  string idempotency_key = 9;
+}
+
+// DeactivateAgentRequest deactivates an agent
+message DeactivateAgentRequest {
+  string agent_id = 1;
+  string reason = 2;
+}
+
+// RotateMACRequest rotates MAC secret
+message RotateMACRequest {
+  string agent_id = 1;
+  string new_mac_secret = 2;
+}
+
+// RotateMACResponse confirms MAC rotation
+message RotateMACResponse {
+  string agent_id = 1;
+  string mac_secret_path = 2; // New secret manager path
+  google.protobuf.Timestamp rotated_at = 3;
+}
+
+// AgentResponse is returned from agent operations
+message AgentResponse {
+  string agent_id = 1;
+  string mac_secret_path = 2; // Reference to secret manager (NOT the secret itself)
+  string cust_nbr = 3;
+  string merch_nbr = 4;
+  string dba_nbr = 5;
+  string terminal_nbr = 6;
+  Environment environment = 7;
+  bool is_active = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// Agent represents complete agent credentials (internal use only)
+message Agent {
+  string id = 1;
+  string agent_id = 2;
+  string mac_secret_path = 3; // Reference to secret manager
+  string cust_nbr = 4;
+  string merch_nbr = 5;
+  string dba_nbr = 6;
+  string terminal_nbr = 7;
+  Environment environment = 8;
+  bool is_active = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  map<string, string> metadata = 12;
+}
+
+// AgentSummary is a lightweight agent representation for lists
+message AgentSummary {
+  string agent_id = 1;
+  string merch_nbr = 2;
+  Environment environment = 3;
+  bool is_active = 4;
+  google.protobuf.Timestamp created_at = 5;
+}

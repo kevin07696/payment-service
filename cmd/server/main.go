@@ -16,86 +16,111 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	paymentv1 "github.com/kevin07696/payment-service/api/proto/payment/v1"
-	subscriptionv1 "github.com/kevin07696/payment-service/api/proto/subscription/v1"
+	agentv1 "github.com/kevin07696/payment-service/proto/agent/v1"
+	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
+	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
+	paymentmethodv1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
+	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
+	"github.com/kevin07696/payment-service/internal/adapters/database"
+	"github.com/kevin07696/payment-service/internal/adapters/epx"
 	"github.com/kevin07696/payment-service/internal/adapters/north"
-	"github.com/kevin07696/payment-service/internal/adapters/postgres"
-	grpcPayment "github.com/kevin07696/payment-service/internal/api/grpc/payment"
-	grpcSubscription "github.com/kevin07696/payment-service/internal/api/grpc/subscription"
-	"github.com/kevin07696/payment-service/internal/config"
-	"github.com/kevin07696/payment-service/internal/services/payment"
-	"github.com/kevin07696/payment-service/internal/services/subscription"
-	"github.com/kevin07696/payment-service/pkg/observability"
+	"github.com/kevin07696/payment-service/internal/adapters/secrets"
 	"github.com/kevin07696/payment-service/pkg/security"
+	agentHandler "github.com/kevin07696/payment-service/internal/handlers/agent"
+	chargebackHandler "github.com/kevin07696/payment-service/internal/handlers/chargeback"
+	cronHandler "github.com/kevin07696/payment-service/internal/handlers/cron"
+	paymentHandler "github.com/kevin07696/payment-service/internal/handlers/payment"
+	paymentmethodHandler "github.com/kevin07696/payment-service/internal/handlers/payment_method"
+	subscriptionHandler "github.com/kevin07696/payment-service/internal/handlers/subscription"
+	agentService "github.com/kevin07696/payment-service/internal/services/agent"
+	paymentService "github.com/kevin07696/payment-service/internal/services/payment"
+	paymentmethodService "github.com/kevin07696/payment-service/internal/services/payment_method"
+	subscriptionService "github.com/kevin07696/payment-service/internal/services/subscription"
+	webhookService "github.com/kevin07696/payment-service/internal/services/webhook"
 )
 
 func main() {
-	// Load configuration
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Initialize logger
-	logger := initLogger(cfg.Logger)
+	logger := initLogger()
 	defer logger.Sync()
 
 	logger.Info("Starting payment service",
 		zap.String("version", "0.1.0"),
-		zap.Int("port", cfg.Server.Port))
+	)
+
+	// Load configuration from environment
+	cfg := loadConfig(logger)
 
 	// Initialize database connection pool
-	dbPool, err := initDatabase(cfg.Database, logger)
+	dbPool, err := initDatabase(cfg, logger)
 	if err != nil {
 		logger.Fatal("Failed to initialize database", zap.Error(err))
 	}
 	defer dbPool.Close()
 
 	logger.Info("Database connection established",
-		zap.String("host", cfg.Database.Host),
-		zap.Int("port", cfg.Database.Port))
+		zap.String("database", cfg.DBName),
+	)
 
 	// Initialize dependencies
 	deps := initDependencies(dbPool, cfg, logger)
 
-	// Start metrics and health check server
-	healthChecker := observability.NewHealthChecker(dbPool)
-	metricsServer := observability.StartMetricsServer(
-		fmt.Sprintf("%d", cfg.Server.MetricsPort),
-		healthChecker,
-	)
-	logger.Info("Metrics server started",
-		zap.Int("port", cfg.Server.MetricsPort),
-		zap.String("metrics", fmt.Sprintf("http://localhost:%d/metrics", cfg.Server.MetricsPort)),
-		zap.String("health", fmt.Sprintf("http://localhost:%d/health", cfg.Server.MetricsPort)))
-
-	// Initialize gRPC server with chained interceptors
+	// Initialize gRPC server with interceptors
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
-			observability.UnaryServerInterceptor(),
 			loggingInterceptor(logger),
+			recoveryInterceptor(logger),
 		),
 	)
 
-	// Register services
+	// Register all gRPC services
 	paymentv1.RegisterPaymentServiceServer(grpcServer, deps.paymentHandler)
 	subscriptionv1.RegisterSubscriptionServiceServer(grpcServer, deps.subscriptionHandler)
+	paymentmethodv1.RegisterPaymentMethodServiceServer(grpcServer, deps.paymentMethodHandler)
+	agentv1.RegisterAgentServiceServer(grpcServer, deps.agentHandler)
+	chargebackv1.RegisterChargebackServiceServer(grpcServer, deps.chargebackHandler)
 
 	// Register reflection service (for tools like grpcurl)
 	reflection.Register(grpcServer)
 
-	// Start server
-	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port))
+	// Setup HTTP server for cron endpoints
+	httpMux := http.NewServeMux()
+
+	// Cron endpoints
+	httpMux.HandleFunc("/cron/process-billing", deps.billingCronHandler.ProcessBilling)
+	httpMux.HandleFunc("/cron/sync-disputes", deps.disputeSyncCronHandler.SyncDisputes)
+	httpMux.HandleFunc("/cron/health", deps.billingCronHandler.HealthCheck)
+	httpMux.HandleFunc("/cron/stats", deps.billingCronHandler.Stats)
+
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
+		Handler: httpMux,
+	}
+
+	// Start gRPC server
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
 	if err != nil {
 		logger.Fatal("Failed to listen", zap.Error(err))
 	}
 
-	// Graceful shutdown
+	// Start gRPC server in goroutine
 	go func() {
-		logger.Info("gRPC server listening", zap.String("address", listener.Addr().String()))
+		logger.Info("gRPC server listening",
+			zap.String("address", listener.Addr().String()),
+			zap.Int("port", cfg.Port),
+		)
 		if err := grpcServer.Serve(listener); err != nil {
 			logger.Fatal("Failed to serve", zap.Error(err))
+		}
+	}()
+
+	// Start HTTP server for cron in goroutine
+	go func() {
+		logger.Info("HTTP cron server listening",
+			zap.Int("port", cfg.HTTPPort),
+		)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Failed to serve HTTP", zap.Error(err))
 		}
 	}()
 
@@ -104,61 +129,120 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Info("Shutting down server...")
+	logger.Info("Shutting down servers...")
 
-	// Graceful shutdown with timeout
+	// Graceful shutdown
 	grpcServer.GracefulStop()
 
-	// Shutdown metrics server
-	if err := observability.ShutdownMetricsServer(metricsServer); err != nil {
-		logger.Error("Error shutting down metrics server", zap.Error(err))
+	// Shutdown HTTP server
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error("HTTP server shutdown error", zap.Error(err))
 	}
 
-	logger.Info("Server stopped")
+	logger.Info("Servers stopped")
+}
+
+// Config holds application configuration
+type Config struct {
+	Port     int
+	HTTPPort int // HTTP port for cron endpoints
+
+	// Database
+	DBHost     string
+	DBPort     int
+	DBUser     string
+	DBPassword string
+	DBName     string
+	DBSSLMode  string
+	MaxConns   int32
+	MinConns   int32
+
+	// EPX Gateway
+	EPXBaseURL string
+	EPXTimeout int
+
+	// North API (Merchant Reporting)
+	NorthAPIURL  string
+	NorthTimeout int
+
+	// Cron authentication
+	CronSecret string
 }
 
 // Dependencies holds all initialized services and handlers
 type Dependencies struct {
-	paymentHandler      *grpcPayment.Handler
-	subscriptionHandler *grpcSubscription.Handler
+	paymentHandler         paymentv1.PaymentServiceServer
+	subscriptionHandler    subscriptionv1.SubscriptionServiceServer
+	paymentMethodHandler   paymentmethodv1.PaymentMethodServiceServer
+	agentHandler           agentv1.AgentServiceServer
+	chargebackHandler      chargebackv1.ChargebackServiceServer
+	billingCronHandler     *cronHandler.BillingHandler
+	disputeSyncCronHandler *cronHandler.DisputeSyncHandler
 }
 
-// initLogger initializes the logger based on configuration
-func initLogger(cfg config.LoggerConfig) *zap.Logger {
-	if cfg.Development {
-		logger, _ := zap.NewDevelopment()
+// loadConfig loads configuration from environment variables
+func loadConfig(logger *zap.Logger) *Config {
+	cfg := &Config{
+		Port:         getEnvInt("PORT", 8080),
+		HTTPPort:     getEnvInt("HTTP_PORT", 8081),
+		DBHost:       getEnv("DB_HOST", "localhost"),
+		DBPort:       getEnvInt("DB_PORT", 5432),
+		DBUser:       getEnv("DB_USER", "postgres"),
+		DBPassword:   getEnv("DB_PASSWORD", "postgres"),
+		DBName:       getEnv("DB_NAME", "payment_service"),
+		DBSSLMode:    getEnv("DB_SSL_MODE", "disable"),
+		MaxConns:     int32(getEnvInt("DB_MAX_CONNS", 25)),
+		MinConns:     int32(getEnvInt("DB_MIN_CONNS", 5)),
+		EPXBaseURL:   getEnv("EPX_BASE_URL", "https://sandbox.north.com"),
+		EPXTimeout:   getEnvInt("EPX_TIMEOUT", 30),
+		NorthAPIURL:  getEnv("NORTH_API_URL", "https://api.north.com"),
+		NorthTimeout: getEnvInt("NORTH_TIMEOUT", 30),
+		CronSecret:   getEnv("CRON_SECRET", "change-me-in-production"),
+	}
+
+	logger.Info("Configuration loaded",
+		zap.Int("port", cfg.Port),
+		zap.String("db_host", cfg.DBHost),
+		zap.Int("db_port", cfg.DBPort),
+		zap.String("epx_base_url", cfg.EPXBaseURL),
+	)
+
+	return cfg
+}
+
+// initLogger initializes the logger
+func initLogger() *zap.Logger {
+	env := getEnv("ENVIRONMENT", "development")
+
+	if env == "production" {
+		zapCfg := zap.NewProductionConfig()
+		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+		logger, _ := zapCfg.Build()
 		return logger
 	}
 
-	zapCfg := zap.NewProductionConfig()
-	zapCfg.Level = zap.NewAtomicLevelAt(parseLogLevel(cfg.Level))
-
-	logger, _ := zapCfg.Build()
+	logger, _ := zap.NewDevelopment()
 	return logger
 }
 
-// parseLogLevel converts string log level to zapcore level
-func parseLogLevel(level string) zapcore.Level {
-	switch level {
-	case "debug":
-		return zapcore.DebugLevel
-	case "info":
-		return zapcore.InfoLevel
-	case "warn":
-		return zapcore.WarnLevel
-	case "error":
-		return zapcore.ErrorLevel
-	default:
-		return zapcore.InfoLevel
-	}
-}
-
 // initDatabase initializes the PostgreSQL connection pool
-func initDatabase(cfg config.DatabaseConfig, logger *zap.Logger) (*pgxpool.Pool, error) {
+func initDatabase(cfg *Config, logger *zap.Logger) (*pgxpool.Pool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	poolConfig, err := pgxpool.ParseConfig(cfg.ConnectionString())
+	connString := fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		cfg.DBUser,
+		cfg.DBPassword,
+		cfg.DBHost,
+		cfg.DBPort,
+		cfg.DBName,
+		cfg.DBSSLMode,
+	)
+
+	poolConfig, err := pgxpool.ParseConfig(connString)
 	if err != nil {
 		return nil, fmt.Errorf("parse database config: %w", err)
 	}
@@ -181,74 +265,105 @@ func initDatabase(cfg config.DatabaseConfig, logger *zap.Logger) (*pgxpool.Pool,
 }
 
 // initDependencies initializes all services and handlers with dependency injection
-func initDependencies(dbPool *pgxpool.Pool, cfg *config.Config, zapLogger *zap.Logger) *Dependencies {
-	// Create logger adapter
-	logger := security.NewZapLogger(zapLogger)
+func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *Dependencies {
+	// Initialize database adapter
+	dbCfg := database.DefaultPostgreSQLConfig(
+		fmt.Sprintf(
+			"postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			cfg.DBUser,
+			cfg.DBPassword,
+			cfg.DBHost,
+			cfg.DBPort,
+			cfg.DBName,
+			cfg.DBSSLMode,
+		),
+	)
 
-	// Initialize database port
-	dbPort := postgres.NewDBExecutor(dbPool)
-
-	// Initialize repositories
-	txRepo := postgres.NewTransactionRepository(dbPort)
-	subRepo := postgres.NewSubscriptionRepository(dbPort)
-
-	// Initialize North payment gateway adapter
-	authConfig := north.AuthConfig{
-		EPIId:  cfg.Gateway.EPIId,
-		EPIKey: cfg.Gateway.EPIKey,
+	dbAdapter, err := database.NewPostgreSQLAdapter(context.Background(), dbCfg, logger)
+	if err != nil {
+		logger.Fatal("Failed to initialize database adapter", zap.Error(err))
 	}
 
-	// Create HTTP client for gateway adapters
-	httpClient := &http.Client{
-		Timeout: time.Duration(cfg.Gateway.Timeout) * time.Second,
+	// Initialize EPX adapters
+	epxEnv := "sandbox"
+	if getEnv("ENVIRONMENT", "development") == "production" {
+		epxEnv = "production"
 	}
 
-	// Use BrowserPostAdapter for PCI-compliant tokenized payments
-	// Frontend uses North JavaScript SDK to tokenize cards → returns BRIC token
-	// Backend receives BRIC token and processes payment (never touches raw card data)
-	creditCardGateway := north.NewBrowserPostAdapter(
-		authConfig,
-		cfg.Gateway.BaseURL,
-		httpClient,
+	browserPostCfg := epx.DefaultBrowserPostConfig(epxEnv)
+	browserPost := epx.NewBrowserPostAdapter(browserPostCfg, logger)
+
+	serverPostCfg := epx.DefaultServerPostConfig(epxEnv)
+	serverPost := epx.NewServerPostAdapter(serverPostCfg, logger)
+
+	// Initialize secret manager (using local file system for development)
+	secretManager := secrets.NewLocalSecretManager("./secrets", logger)
+
+	// Initialize North merchant reporting adapter
+	merchantReportingCfg := &north.MerchantReportingConfig{
+		BaseURL: cfg.NorthAPIURL,
+		Timeout: time.Duration(cfg.NorthTimeout) * time.Second,
+	}
+	httpClient := &http.Client{Timeout: time.Duration(cfg.NorthTimeout) * time.Second}
+	loggerAdapter := security.NewZapLogger(logger)
+	merchantReporting := north.NewMerchantReportingAdapter(merchantReportingCfg, httpClient, loggerAdapter)
+
+	// Initialize services
+	paymentSvc := paymentService.NewPaymentService(
+		dbAdapter,
+		serverPost,
+		secretManager,
 		logger,
 	)
 
-	// Initialize North Recurring Billing adapter
-	recurringGateway := north.NewRecurringBillingAdapter(
-		authConfig,
-		cfg.Gateway.BaseURL,
-		httpClient,
+	subscriptionSvc := subscriptionService.NewSubscriptionService(
+		dbAdapter,
+		serverPost,
+		secretManager,
 		logger,
 	)
 
-	// Initialize Payment Service (business logic)
-	paymentService := payment.NewService(
-		dbPort,
-		txRepo,
-		creditCardGateway,
+	paymentMethodSvc := paymentmethodService.NewPaymentMethodService(
+		dbAdapter,
+		browserPost,
+		serverPost,
+		secretManager,
 		logger,
 	)
 
-	// Initialize Subscription Service (business logic)
-	subscriptionService := subscription.NewService(
-		dbPort,
-		subRepo,
-		paymentService,
-		recurringGateway,
+	agentSvc := agentService.NewAgentService(
+		dbAdapter,
+		secretManager,
 		logger,
 	)
 
-	// Initialize gRPC handlers
-	paymentHandler := grpcPayment.NewHandler(paymentService, logger)
-	subscriptionHandler := grpcSubscription.NewHandler(subscriptionService, logger)
+	// Initialize webhook delivery service
+	webhookSvc := webhookService.NewWebhookDeliveryService(dbAdapter, nil, logger)
+
+	// Initialize handlers
+	paymentHdlr := paymentHandler.NewHandler(paymentSvc, logger)
+	subscriptionHdlr := subscriptionHandler.NewHandler(subscriptionSvc, logger)
+	paymentMethodHdlr := paymentmethodHandler.NewHandler(paymentMethodSvc, logger)
+	agentHdlr := agentHandler.NewHandler(agentSvc, logger)
+	chargebackHdlr := chargebackHandler.NewHandler(dbAdapter, logger)
+
+	// Initialize cron handlers (for HTTP endpoints)
+	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, logger, cfg.CronSecret)
+	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
 
 	return &Dependencies{
-		paymentHandler:      paymentHandler,
-		subscriptionHandler: subscriptionHandler,
+		paymentHandler:       paymentHdlr,
+		subscriptionHandler:  subscriptionHdlr,
+		paymentMethodHandler: paymentMethodHdlr,
+		agentHandler:         agentHdlr,
+		chargebackHandler:    chargebackHdlr,
+		billingCronHandler:   billingCronHdlr,
+		disputeSyncCronHandler: disputeSyncCronHdlr,
 	}
 }
 
-// loggingInterceptor logs all gRPC requests
+// Interceptors
+
 func loggingInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
@@ -262,12 +377,58 @@ func loggingInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 
 		// Log the request
-		logger.Info("gRPC request",
-			zap.String("method", info.FullMethod),
-			zap.Duration("duration", time.Since(start)),
-			zap.Error(err),
-		)
+		if err != nil {
+			logger.Error("gRPC request failed",
+				zap.String("method", info.FullMethod),
+				zap.Duration("duration", time.Since(start)),
+				zap.Error(err),
+			)
+		} else {
+			logger.Info("gRPC request",
+				zap.String("method", info.FullMethod),
+				zap.Duration("duration", time.Since(start)),
+			)
+		}
 
 		return resp, err
 	}
+}
+
+func recoveryInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (resp interface{}, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Panic recovered in gRPC handler",
+					zap.String("method", info.FullMethod),
+					zap.Any("panic", r),
+				)
+				err = fmt.Errorf("internal server error")
+			}
+		}()
+
+		return handler(ctx, req)
+	}
+}
+
+// Helper functions
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		var intValue int
+		fmt.Sscanf(value, "%d", &intValue)
+		return intValue
+	}
+	return defaultValue
 }

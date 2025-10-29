@@ -2,529 +2,756 @@ package subscription
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/kevin07696/payment-service/internal/domain/models"
-	"github.com/kevin07696/payment-service/internal/domain/ports"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/kevin07696/payment-service/internal/adapters/database"
+	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/shopspring/decimal"
+	"go.uber.org/zap"
 )
 
-// Service implements ports.SubscriptionService
-type Service struct {
-	db              ports.DBPort
-	subRepo         ports.SubscriptionRepository
-	paymentService  ports.PaymentService
-	recurringGateway ports.RecurringBillingGateway
-	logger          ports.Logger
+// subscriptionService implements the SubscriptionService port
+type subscriptionService struct {
+	db            *database.PostgreSQLAdapter
+	serverPost    adapterports.ServerPostAdapter
+	secretManager adapterports.SecretManagerAdapter
+	logger        *zap.Logger
 }
 
-// NewService creates a new subscription service
-func NewService(
-	db ports.DBPort,
-	subRepo ports.SubscriptionRepository,
-	paymentService ports.PaymentService,
-	recurringGateway ports.RecurringBillingGateway,
-	logger ports.Logger,
-) *Service {
-	return &Service{
-		db:              db,
-		subRepo:         subRepo,
-		paymentService:  paymentService,
-		recurringGateway: recurringGateway,
-		logger:          logger,
+// NewSubscriptionService creates a new subscription service
+func NewSubscriptionService(
+	db *database.PostgreSQLAdapter,
+	serverPost adapterports.ServerPostAdapter,
+	secretManager adapterports.SecretManagerAdapter,
+	logger *zap.Logger,
+) ports.SubscriptionService {
+	return &subscriptionService{
+		db:            db,
+		serverPost:    serverPost,
+		secretManager: secretManager,
+		logger:        logger,
 	}
 }
 
 // CreateSubscription creates a new recurring billing subscription
-func (s *Service) CreateSubscription(ctx context.Context, req ports.ServiceCreateSubscriptionRequest) (*ports.ServiceSubscriptionResponse, error) {
-	// Calculate first billing date
-	nextBillingDate := s.calculateNextBillingDate(req.StartDate, req.Frequency)
+func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports.CreateSubscriptionRequest) (*domain.Subscription, error) {
+	s.logger.Info("Creating subscription",
+		zap.String("agent_id", req.AgentID),
+		zap.String("customer_id", req.CustomerID),
+		zap.String("amount", req.Amount),
+	)
 
-	subscription := &models.Subscription{
-		ID:                 uuid.New().String(),
-		MerchantID:         req.MerchantID,
-		CustomerID:         req.CustomerID,
-		Amount:             req.Amount,
-		Currency:           req.Currency,
-		Frequency:          req.Frequency,
-		Status:             models.SubStatusActive,
-		PaymentMethodToken: req.PaymentMethodToken,
-		NextBillingDate:    nextBillingDate,
-		FailureRetryCount:  0,
-		MaxRetries:         req.MaxRetries,
-		FailureOption:      req.FailureOption,
-		Metadata:           req.Metadata,
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+	// Check idempotency
+	if req.IdempotencyKey != nil {
+		existing, err := s.getSubscriptionByIdempotencyKey(ctx, *req.IdempotencyKey)
+		if err == nil {
+			s.logger.Info("Idempotent request, returning existing subscription",
+				zap.String("subscription_id", existing.ID),
+			)
+			return existing, nil
+		}
 	}
 
-	var response *ports.ServiceSubscriptionResponse
+	// Parse and validate payment method ID
+	pmID, err := uuid.Parse(req.PaymentMethodID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
+	}
 
-	err := s.db.WithTransaction(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		// Create subscription in database
-		if err := s.subRepo.Create(ctx, tx, subscription); err != nil {
-			return fmt.Errorf("create subscription: %w", err)
+	// Verify payment method exists and belongs to customer
+	pm, err := s.db.Queries().GetPaymentMethodByID(ctx, pmID)
+	if err != nil {
+		return nil, fmt.Errorf("payment method not found: %w", err)
+	}
+
+	if pm.AgentID != req.AgentID || pm.CustomerID != req.CustomerID {
+		return nil, fmt.Errorf("payment method does not belong to customer")
+	}
+
+	if !pm.IsActive.Valid || !pm.IsActive.Bool {
+		return nil, fmt.Errorf("payment method is not active")
+	}
+
+	// Parse amount
+	amount, err := decimal.NewFromString(req.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("invalid amount format: %w", err)
+	}
+
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil, fmt.Errorf("amount must be greater than zero")
+	}
+
+	// Calculate next billing date
+	nextBillingDate := calculateNextBillingDate(req.StartDate, req.IntervalValue, req.IntervalUnit)
+
+	// Create subscription in database
+	var subscription *domain.Subscription
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Marshal metadata
+		metadataJSON, err := json.Marshal(req.Metadata)
+		if err != nil {
+			s.logger.Warn("Failed to marshal metadata", zap.Error(err))
+			metadataJSON = []byte("{}")
 		}
 
-		// Optionally create gateway subscription (for gateway-managed recurring billing)
-		if s.recurringGateway != nil {
-			gatewayReq := &ports.SubscriptionRequest{
-				CustomerID:       req.CustomerID,
-				Amount:           req.Amount,
-				Currency:         req.Currency,
-				Frequency:        req.Frequency,
-				PaymentToken:     req.PaymentMethodToken,
-				StartDate:        req.StartDate,
-				MaxRetries:       req.MaxRetries,
-				FailureOption:    req.FailureOption,
-				Metadata:         req.Metadata,
-			}
-
-			gatewayResp, err := s.recurringGateway.CreateSubscription(ctx, gatewayReq)
-			if err != nil {
-				s.logger.Warn("gateway subscription creation failed, continuing with local subscription",
-					ports.String("subscription_id", subscription.ID),
-					ports.String("error", err.Error()))
-			} else {
-				subscription.GatewaySubscriptionID = gatewayResp.GatewaySubscriptionID
-				// Update subscription with gateway ID
-				if err := s.subRepo.Update(ctx, tx, subscription); err != nil {
-					return fmt.Errorf("update subscription with gateway ID: %w", err)
-				}
-			}
+		params := sqlc.CreateSubscriptionParams{
+			ID:                    uuid.New(),
+			AgentID:               req.AgentID,
+			CustomerID:            req.CustomerID,
+			Amount:                toNumeric(amount),
+			Currency:              req.Currency,
+			IntervalValue:         int32(req.IntervalValue),
+			IntervalUnit:          string(req.IntervalUnit),
+			Status:                string(domain.SubscriptionStatusActive),
+			PaymentMethodID:       pmID,
+			NextBillingDate:       pgtype.Date{Time: nextBillingDate, Valid: true},
+			FailureRetryCount:     0,
+			MaxRetries:            int32(req.MaxRetries),
+			GatewaySubscriptionID: pgtype.Text{Valid: false}, // EPX doesn't use gateway subscription IDs
+			Metadata:              metadataJSON,
 		}
 
-		response = s.toSubscriptionResponse(subscription)
+		dbSub, err := q.CreateSubscription(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to create subscription: %w", err)
+		}
+
+		subscription = sqlcSubscriptionToDomain(&dbSub)
 		return nil
 	})
 
 	if err != nil {
-		s.logger.Error("create subscription failed",
-			ports.String("merchant_id", req.MerchantID),
-			ports.String("customer_id", req.CustomerID),
-			ports.String("error", err.Error()))
 		return nil, err
 	}
 
-	s.logger.Info("subscription created",
-		ports.String("subscription_id", subscription.ID),
-		ports.String("customer_id", req.CustomerID),
-		ports.String("frequency", string(req.Frequency)),
-		ports.String("next_billing", nextBillingDate.Format(time.RFC3339)))
+	s.logger.Info("Subscription created",
+		zap.String("subscription_id", subscription.ID),
+		zap.Time("next_billing_date", subscription.NextBillingDate),
+	)
 
-	return response, nil
+	return subscription, nil
 }
 
+// Rest of methods will be added in next part...
+
 // UpdateSubscription updates subscription properties
-func (s *Service) UpdateSubscription(ctx context.Context, req ports.ServiceUpdateSubscriptionRequest) (*ports.ServiceSubscriptionResponse, error) {
-	// Get existing subscription
+func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports.UpdateSubscriptionRequest) (*domain.Subscription, error) {
+	s.logger.Info("Updating subscription",
+		zap.String("subscription_id", req.SubscriptionID),
+	)
+
+	// Check idempotency
+	if req.IdempotencyKey != nil {
+		existing, err := s.getSubscriptionByIdempotencyKey(ctx, *req.IdempotencyKey)
+		if err == nil {
+			return existing, nil
+		}
+	}
+
+	// Parse subscription ID
 	subID, err := uuid.Parse(req.SubscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription ID: %w", err)
+		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
 	}
 
-	subscription, err := s.subRepo.GetByID(ctx, nil, subID)
+	// Get existing subscription
+	existing, err := s.db.Queries().GetSubscriptionByID(ctx, subID)
 	if err != nil {
-		return nil, fmt.Errorf("get subscription: %w", err)
+		return nil, fmt.Errorf("subscription not found: %w", err)
 	}
 
-	// Validate subscription can be updated
-	if subscription.Status == models.SubStatusCancelled {
-		return nil, fmt.Errorf("cannot update cancelled subscription")
+	// Ensure subscription is active or past_due
+	if existing.Status != string(domain.SubscriptionStatusActive) &&
+		existing.Status != string(domain.SubscriptionStatusPastDue) {
+		return nil, fmt.Errorf("cannot update subscription in %s status", existing.Status)
 	}
 
-	var response *ports.ServiceSubscriptionResponse
+	var subscription *domain.Subscription
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Build update params
+		params := sqlc.UpdateSubscriptionParams{
+			ID: subID,
+		}
 
-	err = s.db.WithTransaction(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		// Update fields if provided
+		// Update amount if provided
 		if req.Amount != nil {
-			subscription.Amount = *req.Amount
-		}
-		if req.Frequency != nil {
-			subscription.Frequency = *req.Frequency
-			// Recalculate next billing date with new frequency
-			subscription.NextBillingDate = s.calculateNextBillingDate(time.Now(), subscription.Frequency)
-		}
-		if req.PaymentMethodToken != nil {
-			subscription.PaymentMethodToken = *req.PaymentMethodToken
-		}
-
-		subscription.UpdatedAt = time.Now()
-
-		// Update in database
-		if err := s.subRepo.Update(ctx, tx, subscription); err != nil {
-			return fmt.Errorf("update subscription: %w", err)
-		}
-
-		// Update gateway subscription if exists
-		if s.recurringGateway != nil && subscription.GatewaySubscriptionID != "" {
-			updateReq := &ports.UpdateSubscriptionRequest{
-				Amount:       req.Amount,
-				Frequency:    req.Frequency,
-				PaymentToken: req.PaymentMethodToken,
-			}
-
-			_, err := s.recurringGateway.UpdateSubscription(ctx, subscription.GatewaySubscriptionID, updateReq)
+			amount, err := decimal.NewFromString(*req.Amount)
 			if err != nil {
-				s.logger.Warn("gateway subscription update failed",
-					ports.String("subscription_id", subscription.ID),
-					ports.String("error", err.Error()))
+				return fmt.Errorf("invalid amount format: %w", err)
 			}
+			if amount.LessThanOrEqual(decimal.Zero) {
+				return fmt.Errorf("amount must be greater than zero")
+			}
+			params.Amount = toNumeric(amount)
+		} else {
+			params.Amount = existing.Amount
 		}
 
-		response = s.toSubscriptionResponse(subscription)
+		// Update interval if provided
+		if req.IntervalValue != nil {
+			params.IntervalValue = int32(*req.IntervalValue)
+		} else {
+			params.IntervalValue = existing.IntervalValue
+		}
+
+		if req.IntervalUnit != nil {
+			params.IntervalUnit = string(*req.IntervalUnit)
+		} else {
+			params.IntervalUnit = existing.IntervalUnit
+		}
+
+		// Update payment method if provided
+		if req.PaymentMethodID != nil {
+			pmID, err := uuid.Parse(*req.PaymentMethodID)
+			if err != nil {
+				return fmt.Errorf("invalid payment_method_id format: %w", err)
+			}
+
+			// Verify payment method exists and belongs to customer
+			pm, err := q.GetPaymentMethodByID(ctx, pmID)
+			if err != nil {
+				return fmt.Errorf("payment method not found: %w", err)
+			}
+
+			if pm.AgentID != existing.AgentID || pm.CustomerID != existing.CustomerID {
+				return fmt.Errorf("payment method does not belong to customer")
+			}
+
+			if !pm.IsActive.Valid || !pm.IsActive.Bool {
+				return fmt.Errorf("payment method is not active")
+			}
+
+			params.PaymentMethodID = pmID
+		} else {
+			params.PaymentMethodID = existing.PaymentMethodID
+		}
+
+		dbSub, err := q.UpdateSubscription(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to update subscription: %w", err)
+		}
+
+		subscription = sqlcSubscriptionToDomain(&dbSub)
 		return nil
 	})
 
 	if err != nil {
-		s.logger.Error("update subscription failed",
-			ports.String("subscription_id", req.SubscriptionID),
-			ports.String("error", err.Error()))
 		return nil, err
 	}
 
-	s.logger.Info("subscription updated",
-		ports.String("subscription_id", subscription.ID))
+	s.logger.Info("Subscription updated",
+		zap.String("subscription_id", subscription.ID),
+	)
 
-	return response, nil
+	return subscription, nil
 }
 
 // CancelSubscription cancels an active subscription
-func (s *Service) CancelSubscription(ctx context.Context, req ports.ServiceCancelSubscriptionRequest) (*ports.ServiceSubscriptionResponse, error) {
+func (s *subscriptionService) CancelSubscription(ctx context.Context, req *ports.CancelSubscriptionRequest) (*domain.Subscription, error) {
+	s.logger.Info("Canceling subscription",
+		zap.String("subscription_id", req.SubscriptionID),
+		zap.Bool("cancel_at_period_end", req.CancelAtPeriodEnd),
+	)
+
+	// Check idempotency
+	if req.IdempotencyKey != nil {
+		existing, err := s.getSubscriptionByIdempotencyKey(ctx, *req.IdempotencyKey)
+		if err == nil {
+			return existing, nil
+		}
+	}
+
+	// Parse subscription ID
 	subID, err := uuid.Parse(req.SubscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription ID: %w", err)
+		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
 	}
 
-	subscription, err := s.subRepo.GetByID(ctx, nil, subID)
-	if err != nil {
-		return nil, fmt.Errorf("get subscription: %w", err)
-	}
-
-	// Validate subscription can be cancelled
-	if subscription.Status == models.SubStatusCancelled {
-		return nil, fmt.Errorf("subscription already cancelled")
-	}
-
-	var response *ports.ServiceSubscriptionResponse
-
-	err = s.db.WithTransaction(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		now := time.Now()
-		subscription.Status = models.SubStatusCancelled
-		subscription.CancelledAt = &now
-		subscription.UpdatedAt = now
-
-		if err := s.subRepo.Update(ctx, tx, subscription); err != nil {
-			return fmt.Errorf("update subscription: %w", err)
+	var subscription *domain.Subscription
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Get existing subscription
+		existing, err := q.GetSubscriptionByID(ctx, subID)
+		if err != nil {
+			return fmt.Errorf("subscription not found: %w", err)
 		}
 
-		// Cancel gateway subscription if exists
-		if s.recurringGateway != nil && subscription.GatewaySubscriptionID != "" {
-			_, err := s.recurringGateway.CancelSubscription(ctx, subscription.GatewaySubscriptionID, true)
-			if err != nil {
-				s.logger.Warn("gateway subscription cancellation failed",
-					ports.String("subscription_id", subscription.ID),
-					ports.String("error", err.Error()))
-			}
+		// Check if already cancelled
+		if existing.Status == string(domain.SubscriptionStatusCancelled) {
+			subscription = sqlcSubscriptionToDomain(&existing)
+			return nil
 		}
 
-		response = s.toSubscriptionResponse(subscription)
+		var newStatus string
+		var cancelledAt pgtype.Timestamptz
+
+		if req.CancelAtPeriodEnd {
+			// Mark for cancellation at period end
+			newStatus = string(domain.SubscriptionStatusActive)
+			cancelledAt = pgtype.Timestamptz{Valid: false}
+		} else {
+			// Cancel immediately
+			newStatus = string(domain.SubscriptionStatusCancelled)
+			cancelledAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+		}
+
+		params := sqlc.CancelSubscriptionParams{
+			ID:         subID,
+			Status:     newStatus,
+			CanceledAt: cancelledAt,
+		}
+
+		dbSub, err := q.CancelSubscription(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to cancel subscription: %w", err)
+		}
+
+		subscription = sqlcSubscriptionToDomain(&dbSub)
 		return nil
 	})
 
 	if err != nil {
-		s.logger.Error("cancel subscription failed",
-			ports.String("subscription_id", req.SubscriptionID),
-			ports.String("error", err.Error()))
 		return nil, err
 	}
 
-	s.logger.Info("subscription cancelled",
-		ports.String("subscription_id", subscription.ID),
-		ports.String("reason", req.Reason))
+	s.logger.Info("Subscription canceled",
+		zap.String("subscription_id", subscription.ID),
+		zap.String("status", string(subscription.Status)),
+	)
 
-	return response, nil
+	return subscription, nil
 }
 
 // PauseSubscription pauses an active subscription
-func (s *Service) PauseSubscription(ctx context.Context, subscriptionID string) (*ports.ServiceSubscriptionResponse, error) {
+func (s *subscriptionService) PauseSubscription(ctx context.Context, subscriptionID string) (*domain.Subscription, error) {
+	s.logger.Info("Pausing subscription",
+		zap.String("subscription_id", subscriptionID),
+	)
+
+	// Parse subscription ID
 	subID, err := uuid.Parse(subscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription ID: %w", err)
+		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
 	}
 
-	subscription, err := s.subRepo.GetByID(ctx, nil, subID)
-	if err != nil {
-		return nil, fmt.Errorf("get subscription: %w", err)
-	}
-
-	if subscription.Status != models.SubStatusActive {
-		return nil, fmt.Errorf("can only pause active subscriptions")
-	}
-
-	var response *ports.ServiceSubscriptionResponse
-
-	err = s.db.WithTransaction(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		subscription.Status = models.SubStatusPaused
-		subscription.UpdatedAt = time.Now()
-
-		if err := s.subRepo.Update(ctx, tx, subscription); err != nil {
-			return fmt.Errorf("update subscription: %w", err)
+	var subscription *domain.Subscription
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Get existing subscription
+		existing, err := q.GetSubscriptionByID(ctx, subID)
+		if err != nil {
+			return fmt.Errorf("subscription not found: %w", err)
 		}
 
-		// Pause gateway subscription if exists
-		if s.recurringGateway != nil && subscription.GatewaySubscriptionID != "" {
-			_, err := s.recurringGateway.PauseSubscription(ctx, subscription.GatewaySubscriptionID)
-			if err != nil {
-				s.logger.Warn("gateway subscription pause failed",
-					ports.String("subscription_id", subscription.ID),
-					ports.String("error", err.Error()))
-			}
+		// Can only pause active subscriptions
+		if existing.Status != string(domain.SubscriptionStatusActive) {
+			return fmt.Errorf("cannot pause subscription in %s status", existing.Status)
 		}
 
-		response = s.toSubscriptionResponse(subscription)
+		params := sqlc.UpdateSubscriptionStatusParams{
+			ID:     subID,
+			Status: string(domain.SubscriptionStatusPaused),
+		}
+
+		dbSub, err := q.UpdateSubscriptionStatus(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to pause subscription: %w", err)
+		}
+
+		subscription = sqlcSubscriptionToDomain(&dbSub)
 		return nil
 	})
 
 	if err != nil {
-		s.logger.Error("pause subscription failed",
-			ports.String("subscription_id", subscriptionID),
-			ports.String("error", err.Error()))
 		return nil, err
 	}
 
-	s.logger.Info("subscription paused",
-		ports.String("subscription_id", subscription.ID))
+	s.logger.Info("Subscription paused",
+		zap.String("subscription_id", subscription.ID),
+	)
 
-	return response, nil
+	return subscription, nil
 }
 
 // ResumeSubscription resumes a paused subscription
-func (s *Service) ResumeSubscription(ctx context.Context, subscriptionID string) (*ports.ServiceSubscriptionResponse, error) {
+func (s *subscriptionService) ResumeSubscription(ctx context.Context, subscriptionID string) (*domain.Subscription, error) {
+	s.logger.Info("Resuming subscription",
+		zap.String("subscription_id", subscriptionID),
+	)
+
+	// Parse subscription ID
 	subID, err := uuid.Parse(subscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription ID: %w", err)
+		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
 	}
 
-	subscription, err := s.subRepo.GetByID(ctx, nil, subID)
-	if err != nil {
-		return nil, fmt.Errorf("get subscription: %w", err)
-	}
-
-	if subscription.Status != models.SubStatusPaused {
-		return nil, fmt.Errorf("can only resume paused subscriptions")
-	}
-
-	var response *ports.ServiceSubscriptionResponse
-
-	err = s.db.WithTransaction(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		subscription.Status = models.SubStatusActive
-		subscription.UpdatedAt = time.Now()
-		// Recalculate next billing date from now
-		subscription.NextBillingDate = s.calculateNextBillingDate(time.Now(), subscription.Frequency)
-
-		if err := s.subRepo.Update(ctx, tx, subscription); err != nil {
-			return fmt.Errorf("update subscription: %w", err)
+	var subscription *domain.Subscription
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Get existing subscription
+		existing, err := q.GetSubscriptionByID(ctx, subID)
+		if err != nil {
+			return fmt.Errorf("subscription not found: %w", err)
 		}
 
-		// Resume gateway subscription if exists
-		if s.recurringGateway != nil && subscription.GatewaySubscriptionID != "" {
-			_, err := s.recurringGateway.ResumeSubscription(ctx, subscription.GatewaySubscriptionID)
-			if err != nil {
-				s.logger.Warn("gateway subscription resume failed",
-					ports.String("subscription_id", subscription.ID),
-					ports.String("error", err.Error()))
-			}
+		// Can only resume paused subscriptions
+		if existing.Status != string(domain.SubscriptionStatusPaused) {
+			return fmt.Errorf("cannot resume subscription in %s status", existing.Status)
 		}
 
-		response = s.toSubscriptionResponse(subscription)
+		params := sqlc.UpdateSubscriptionStatusParams{
+			ID:     subID,
+			Status: string(domain.SubscriptionStatusActive),
+		}
+
+		dbSub, err := q.UpdateSubscriptionStatus(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to resume subscription: %w", err)
+		}
+
+		subscription = sqlcSubscriptionToDomain(&dbSub)
 		return nil
 	})
 
 	if err != nil {
-		s.logger.Error("resume subscription failed",
-			ports.String("subscription_id", subscriptionID),
-			ports.String("error", err.Error()))
 		return nil, err
 	}
 
-	s.logger.Info("subscription resumed",
-		ports.String("subscription_id", subscription.ID),
-		ports.String("next_billing", subscription.NextBillingDate.Format(time.RFC3339)))
+	s.logger.Info("Subscription resumed",
+		zap.String("subscription_id", subscription.ID),
+	)
 
-	return response, nil
+	return subscription, nil
 }
 
-// GetSubscription retrieves a subscription by ID
-func (s *Service) GetSubscription(ctx context.Context, subscriptionID string) (*models.Subscription, error) {
+// GetSubscription retrieves subscription details
+func (s *subscriptionService) GetSubscription(ctx context.Context, subscriptionID string) (*domain.Subscription, error) {
 	subID, err := uuid.Parse(subscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription ID: %w", err)
+		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
 	}
 
-	return s.subRepo.GetByID(ctx, nil, subID)
+	dbSub, err := s.db.Queries().GetSubscriptionByID(ctx, subID)
+	if err != nil {
+		s.logger.Debug("Subscription not found",
+			zap.String("subscription_id", subscriptionID),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("subscription not found: %w", err)
+	}
+
+	return sqlcSubscriptionToDomain(&dbSub), nil
 }
 
 // ListCustomerSubscriptions lists all subscriptions for a customer
-func (s *Service) ListCustomerSubscriptions(ctx context.Context, merchantID, customerID string) ([]*models.Subscription, error) {
-	return s.subRepo.ListByCustomer(ctx, nil, merchantID, customerID)
+func (s *subscriptionService) ListCustomerSubscriptions(ctx context.Context, agentID, customerID string) ([]*domain.Subscription, error) {
+	params := sqlc.ListSubscriptionsByCustomerParams{
+		AgentID:    agentID,
+		CustomerID: customerID,
+	}
+
+	dbSubs, err := s.db.Queries().ListSubscriptionsByCustomer(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list subscriptions: %w", err)
+	}
+
+	subscriptions := make([]*domain.Subscription, len(dbSubs))
+	for i, dbSub := range dbSubs {
+		subscriptions[i] = sqlcSubscriptionToDomain(&dbSub)
+	}
+
+	return subscriptions, nil
 }
 
-// ProcessDueBilling processes all subscriptions due for billing
-func (s *Service) ProcessDueBilling(ctx context.Context, asOfDate time.Time, batchSize int) (*ports.BillingBatchResult, error) {
-	result := &ports.BillingBatchResult{
-		Errors: make([]ports.BillingError, 0),
-	}
+// ProcessDueBilling processes subscriptions due for billing (cron/admin)
+func (s *subscriptionService) ProcessDueBilling(ctx context.Context, asOfDate time.Time, batchSize int) (processed, success, failed int, errors []error) {
+	s.logger.Info("Processing due billing",
+		zap.Time("as_of_date", asOfDate),
+		zap.Int("batch_size", batchSize),
+	)
 
 	// Get subscriptions due for billing
-	subscriptions, err := s.subRepo.ListActiveSubscriptionsDueForBilling(ctx, nil, asOfDate, int32(batchSize))
-	if err != nil {
-		return nil, fmt.Errorf("list subscriptions due for billing: %w", err)
+	params := sqlc.ListSubscriptionsDueForBillingParams{
+		NextBillingDate: pgtype.Date{Time: asOfDate, Valid: true},
+		LimitVal:        int32(batchSize),
 	}
 
-	result.ProcessedCount = len(subscriptions)
+	dueSubs, err := s.db.Queries().ListSubscriptionsDueForBilling(ctx, params)
+	if err != nil {
+		s.logger.Error("Failed to list due subscriptions", zap.Error(err))
+		return 0, 0, 0, []error{err}
+	}
 
-	s.logger.Info("processing billing batch",
-		ports.String("as_of_date", asOfDate.Format(time.RFC3339)),
-		ports.String("count", fmt.Sprintf("%d", len(subscriptions))))
+	processed = len(dueSubs)
+	s.logger.Info("Found subscriptions due for billing",
+		zap.Int("count", processed),
+	)
 
 	// Process each subscription
-	for _, sub := range subscriptions {
-		err := s.processSingleBilling(ctx, sub)
-		if err != nil {
-			result.FailedCount++
-			result.Errors = append(result.Errors, ports.BillingError{
-				SubscriptionID: sub.ID,
-				CustomerID:     sub.CustomerID,
-				Error:          err.Error(),
-				Retriable:      true,
-			})
-			s.logger.Error("billing failed for subscription",
-				ports.String("subscription_id", sub.ID),
-				ports.String("customer_id", sub.CustomerID),
-				ports.String("error", err.Error()))
+	for _, sub := range dueSubs {
+		if err := s.processSubscriptionBilling(ctx, &sub); err != nil {
+			failed++
+			errors = append(errors, fmt.Errorf("subscription %s: %w", sub.ID.String(), err))
+			s.logger.Error("Failed to process subscription billing",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.Error(err),
+			)
 		} else {
-			result.SuccessCount++
+			success++
+			s.logger.Info("Successfully processed subscription billing",
+				zap.String("subscription_id", sub.ID.String()),
+			)
 		}
 	}
 
-	s.logger.Info("billing batch completed",
-		ports.String("processed", fmt.Sprintf("%d", result.ProcessedCount)),
-		ports.String("success", fmt.Sprintf("%d", result.SuccessCount)),
-		ports.String("failed", fmt.Sprintf("%d", result.FailedCount)))
+	s.logger.Info("Billing processing completed",
+		zap.Int("processed", processed),
+		zap.Int("success", success),
+		zap.Int("failed", failed),
+	)
 
-	return result, nil
+	return processed, success, failed, errors
 }
 
-// processSingleBilling processes billing for a single subscription
-func (s *Service) processSingleBilling(ctx context.Context, sub *models.Subscription) error {
-	// Charge the customer using Payment Service
-	saleReq := ports.ServiceSaleRequest{
-		MerchantID: sub.MerchantID,
-		CustomerID: sub.CustomerID,
-		Amount:     sub.Amount,
-		Currency:   sub.Currency,
-		Token:      sub.PaymentMethodToken,
-		BillingInfo: models.BillingInfo{}, // Subscription already has customer info
-		IdempotencyKey: fmt.Sprintf("sub-%s-%s", sub.ID, sub.NextBillingDate.Format("2006-01-02")),
-		Metadata: map[string]string{
-			"subscription_id":   sub.ID,
-			"billing_period":    sub.NextBillingDate.Format("2006-01-02"),
-			"billing_frequency": string(sub.Frequency),
-		},
+// processSubscriptionBilling handles billing for a single subscription
+func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, sub *sqlc.Subscription) error {
+	// Get agent credentials
+	agent, err := s.db.Queries().GetAgentByAgentID(ctx, sub.AgentID)
+	if err != nil {
+		return fmt.Errorf("failed to get agent: %w", err)
 	}
 
-	paymentResp, err := s.paymentService.Sale(ctx, saleReq)
-	if err != nil || (paymentResp != nil && !paymentResp.IsApproved) {
-		// Update subscription failure state
-		updateErr := s.handleBillingFailure(ctx, sub, err)
-		if updateErr != nil {
-			return fmt.Errorf("payment failed and failed to update subscription: %w", updateErr)
+	if !agent.IsActive.Valid || !agent.IsActive.Bool {
+		return fmt.Errorf("agent is not active")
+	}
+
+	// Get payment method
+	pm, err := s.db.Queries().GetPaymentMethodByID(ctx, sub.PaymentMethodID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment method: %w", err)
+	}
+
+	if !pm.IsActive.Valid || !pm.IsActive.Bool {
+		return fmt.Errorf("payment method is not active")
+	}
+
+	// Get MAC secret for EPX request signing
+	_, err = s.secretManager.GetSecret(ctx, agent.MacSecretPath)
+	if err != nil {
+		return fmt.Errorf("failed to get MAC secret: %w", err)
+	}
+
+	// Prepare EPX request
+	amount := decimal.NewFromBigInt(sub.Amount.Int, sub.Amount.Exp)
+	epxReq := &adapterports.ServerPostRequest{
+		CustNbr:         agent.CustNbr,
+		MerchNbr:        agent.MerchNbr,
+		DBAnbr:          agent.DbaNbr,
+		TerminalNbr:     agent.TerminalNbr,
+		TransactionType: adapterports.TransactionTypeSale,
+		Amount:          amount.String(),
+		PaymentType:     adapterports.PaymentMethodType(pm.PaymentType),
+		AuthGUID:        pm.PaymentToken,
+		TranNbr:         uuid.New().String(),
+		TranGroup:       uuid.New().String(),
+		CustomerID:      sub.CustomerID,
+	}
+
+	// Process transaction through EPX
+	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
+	if err != nil {
+		// Handle billing failure
+		return s.handleBillingFailure(ctx, sub, err)
+	}
+
+	if !epxResp.IsApproved {
+		// Handle declined transaction
+		return s.handleBillingFailure(ctx, sub, fmt.Errorf("transaction declined: %s", epxResp.AuthRespText))
+	}
+
+	// Save transaction and update subscription
+	return s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Create transaction record
+		status := domain.TransactionStatusCompleted
+		pmIDStr := pm.ID.String()
+		txParams := sqlc.CreateTransactionParams{
+			ID:                uuid.New(),
+			GroupID:           uuid.MustParse(epxResp.TranGroup),
+			AgentID:           sub.AgentID,
+			CustomerID:        toNullableText(&sub.CustomerID),
+			Amount:            sub.Amount,
+			Currency:          sub.Currency,
+			Status:            string(status),
+			Type:              string(domain.TransactionTypeCharge),
+			PaymentMethodType: pm.PaymentType,
+			PaymentMethodID:   toNullableUUID(&pmIDStr),
+			AuthGuid:          toNullableText(&epxResp.AuthGUID),
+			AuthResp:          toNullableText(&epxResp.AuthResp),
+			AuthCode:          toNullableText(&epxResp.AuthCode),
+			AuthRespText:      toNullableText(&epxResp.AuthRespText),
+			AuthCardType:      toNullableText(&epxResp.AuthCardType),
+			AuthAvs:           toNullableText(&epxResp.AuthAVS),
+			AuthCvv2:          toNullableText(&epxResp.AuthCVV2),
+			IdempotencyKey:    pgtype.Text{Valid: false},
+			Metadata:          []byte(fmt.Sprintf(`{"subscription_id":"%s"}`, sub.ID.String())),
 		}
-		// Return the original payment error so ProcessDueBilling counts this as failed
+
+		_, err := q.CreateTransaction(ctx, txParams)
 		if err != nil {
-			return fmt.Errorf("payment failed: %w", err)
+			return fmt.Errorf("failed to create transaction: %w", err)
 		}
-		return fmt.Errorf("payment declined")
-	}
 
-	// Billing successful - update subscription
-	return s.handleBillingSuccess(ctx, sub)
-}
-
-// handleBillingSuccess updates subscription after successful billing
-func (s *Service) handleBillingSuccess(ctx context.Context, sub *models.Subscription) error {
-	return s.db.WithTransaction(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		// Reset failure count
-		sub.FailureRetryCount = 0
 		// Calculate next billing date
-		sub.NextBillingDate = s.calculateNextBillingDate(sub.NextBillingDate, sub.Frequency)
-		sub.UpdatedAt = time.Now()
+		nextBillingDate := calculateNextBillingDate(
+			sub.NextBillingDate.Time,
+			int(sub.IntervalValue),
+			domain.IntervalUnit(sub.IntervalUnit),
+		)
 
-		return s.subRepo.Update(ctx, tx, sub)
-	})
-}
-
-// handleBillingFailure handles subscription billing failures
-func (s *Service) handleBillingFailure(ctx context.Context, sub *models.Subscription, billingErr error) error {
-	return s.db.WithTransaction(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		sub.FailureRetryCount++
-		sub.UpdatedAt = time.Now()
-
-		// Check if max retries exceeded
-		if sub.FailureRetryCount >= sub.MaxRetries {
-			switch sub.FailureOption {
-			case models.FailureForward:
-				// Move billing date forward
-				sub.NextBillingDate = s.calculateNextBillingDate(sub.NextBillingDate, sub.Frequency)
-				sub.FailureRetryCount = 0 // Reset for next period
-			case models.FailureSkip:
-				// Skip this billing cycle
-				sub.NextBillingDate = s.calculateNextBillingDate(sub.NextBillingDate, sub.Frequency)
-				sub.FailureRetryCount = 0
-			case models.FailurePause:
-				// Pause subscription
-				sub.Status = models.SubStatusPaused
-			}
+		// Update subscription with new billing date and reset failure count
+		updateParams := sqlc.UpdateSubscriptionBillingParams{
+			ID:                sub.ID,
+			NextBillingDate:   pgtype.Date{Time: nextBillingDate, Valid: true},
+			FailureRetryCount: 0,
+			Status:            string(domain.SubscriptionStatusActive),
 		}
 
-		return s.subRepo.Update(ctx, tx, sub)
+		_, err = q.UpdateSubscriptionBilling(ctx, updateParams)
+		if err != nil {
+			return fmt.Errorf("failed to update subscription: %w", err)
+		}
+
+		return nil
 	})
 }
 
-// calculateNextBillingDate calculates the next billing date based on frequency
-func (s *Service) calculateNextBillingDate(fromDate time.Time, frequency models.BillingFrequency) time.Time {
-	switch frequency {
-	case models.FrequencyWeekly:
-		return fromDate.AddDate(0, 0, 7)
-	case models.FrequencyBiWeekly:
-		return fromDate.AddDate(0, 0, 14)
-	case models.FrequencyMonthly:
-		return fromDate.AddDate(0, 1, 0)
-	case models.FrequencyYearly:
-		return fromDate.AddDate(1, 0, 0)
+// handleBillingFailure handles a failed billing attempt
+func (s *subscriptionService) handleBillingFailure(ctx context.Context, sub *sqlc.Subscription, billingErr error) error {
+	return s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		newRetryCount := sub.FailureRetryCount + 1
+		var newStatus string
+
+		if newRetryCount >= sub.MaxRetries {
+			// Max retries reached - mark as past_due
+			newStatus = string(domain.SubscriptionStatusPastDue)
+			s.logger.Warn("Subscription billing failed - max retries reached",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.Int32("retry_count", newRetryCount),
+				zap.Error(billingErr),
+			)
+		} else {
+			// Still have retries remaining
+			newStatus = string(domain.SubscriptionStatusActive)
+			s.logger.Warn("Subscription billing failed - will retry",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.Int32("retry_count", newRetryCount),
+				zap.Int32("max_retries", sub.MaxRetries),
+				zap.Error(billingErr),
+			)
+		}
+
+		params := sqlc.IncrementSubscriptionFailureCountParams{
+			ID:                sub.ID,
+			FailureRetryCount: newRetryCount,
+			Status:            newStatus,
+		}
+
+		_, err := q.IncrementSubscriptionFailureCount(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to update failure count: %w", err)
+		}
+
+		return billingErr
+	})
+}
+
+// getSubscriptionByIdempotencyKey retrieves a subscription by idempotency key
+func (s *subscriptionService) getSubscriptionByIdempotencyKey(ctx context.Context, key string) (*domain.Subscription, error) {
+	// Note: This would require a separate SQL query if we want to support idempotency for subscriptions
+	// For now, returning not found error
+	return nil, fmt.Errorf("subscription not found")
+}
+
+// Helper functions
+
+func calculateNextBillingDate(currentDate time.Time, intervalValue int, intervalUnit domain.IntervalUnit) time.Time {
+	switch intervalUnit {
+	case domain.IntervalUnitDay:
+		return currentDate.AddDate(0, 0, intervalValue)
+	case domain.IntervalUnitWeek:
+		return currentDate.AddDate(0, 0, intervalValue*7)
+	case domain.IntervalUnitMonth:
+		return currentDate.AddDate(0, intervalValue, 0)
+	case domain.IntervalUnitYear:
+		return currentDate.AddDate(intervalValue, 0, 0)
 	default:
-		return fromDate.AddDate(0, 1, 0) // Default to monthly
+		return currentDate.AddDate(0, 1, 0) // Default to monthly
 	}
 }
 
-// toSubscriptionResponse converts a subscription model to a response
-func (s *Service) toSubscriptionResponse(sub *models.Subscription) *ports.ServiceSubscriptionResponse {
-	return &ports.ServiceSubscriptionResponse{
-		SubscriptionID:        sub.ID,
-		MerchantID:            sub.MerchantID,
-		CustomerID:            sub.CustomerID,
-		Amount:                sub.Amount,
-		Currency:              sub.Currency,
-		Frequency:             sub.Frequency,
-		Status:                sub.Status,
-		PaymentMethodToken:    sub.PaymentMethodToken,
-		NextBillingDate:       sub.NextBillingDate,
-		GatewaySubscriptionID: sub.GatewaySubscriptionID,
-		CreatedAt:             sub.CreatedAt,
-		UpdatedAt:             sub.UpdatedAt,
-		CancelledAt:           sub.CancelledAt,
+func sqlcSubscriptionToDomain(dbSub *sqlc.Subscription) *domain.Subscription {
+	sub := &domain.Subscription{
+		ID:                dbSub.ID.String(),
+		AgentID:           dbSub.AgentID,
+		CustomerID:        dbSub.CustomerID,
+		Amount:            decimal.NewFromBigInt(dbSub.Amount.Int, dbSub.Amount.Exp),
+		Currency:          dbSub.Currency,
+		IntervalValue:     int(dbSub.IntervalValue),
+		IntervalUnit:      domain.IntervalUnit(dbSub.IntervalUnit),
+		Status:            domain.SubscriptionStatus(dbSub.Status),
+		PaymentMethodID:   dbSub.PaymentMethodID.String(),
+		NextBillingDate:   dbSub.NextBillingDate.Time,
+		FailureRetryCount: int(dbSub.FailureRetryCount),
+		MaxRetries:        int(dbSub.MaxRetries),
+		CreatedAt:         dbSub.CreatedAt,
+		UpdatedAt:         dbSub.UpdatedAt,
+	}
+
+	if dbSub.CancelledAt.Valid {
+		sub.CancelledAt = &dbSub.CancelledAt.Time
+	}
+
+	if dbSub.GatewaySubscriptionID.Valid {
+		sub.GatewaySubscriptionID = &dbSub.GatewaySubscriptionID.String
+	}
+
+	if len(dbSub.Metadata) > 0 {
+		if err := json.Unmarshal(dbSub.Metadata, &sub.Metadata); err != nil {
+			// Metadata unmarshal failed - set to nil
+			sub.Metadata = nil
+		}
+	}
+
+	return sub
+}
+
+func toNullableText(s *string) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{Valid: false}
+	}
+	return pgtype.Text{String: *s, Valid: true}
+}
+
+func toNullableUUID(s *string) pgtype.UUID {
+	if s == nil {
+		return pgtype.UUID{Valid: false}
+	}
+	id, err := uuid.Parse(*s)
+	if err != nil {
+		return pgtype.UUID{Valid: false}
+	}
+	return pgtype.UUID{Bytes: id, Valid: true}
+}
+
+func toNumeric(d decimal.Decimal) pgtype.Numeric {
+	return pgtype.Numeric{
+		Int:   d.Coefficient(),
+		Exp:   d.Exponent(),
+		Valid: true,
 	}
 }

@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option go_package = "github.com/kevin07696/payment-service/proto/payment/v1;paymentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// PaymentService handles all payment operations
+service PaymentService {
+  // Authorize holds funds on a payment method without capturing
+  rpc Authorize(AuthorizeRequest) returns (PaymentResponse);
+
+  // Capture completes a previously authorized payment
+  rpc Capture(CaptureRequest) returns (PaymentResponse);
+
+  // Sale combines authorize and capture in one operation
+  rpc Sale(SaleRequest) returns (PaymentResponse);
+
+  // Void cancels an authorized or captured payment
+  rpc Void(VoidRequest) returns (PaymentResponse);
+
+  // Refund returns funds to the customer
+  rpc Refund(RefundRequest) returns (PaymentResponse);
+
+  // GetTransaction retrieves transaction details
+  rpc GetTransaction(GetTransactionRequest) returns (Transaction);
+
+  // ListTransactions lists transactions for a merchant or customer
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
+}
+
+// AuthorizeRequest authorizes a payment without capturing
+message AuthorizeRequest {
+  string agent_id = 1; // Multi-tenant: which agent/merchant
+  string customer_id = 2; // Customer ID (nullable for guest transactions)
+  string amount = 3; // Decimal as string (e.g., "29.99")
+  string currency = 4; // ISO 4217 code (e.g., "USD")
+
+  // Payment method - exactly one required
+  oneof payment_method {
+    string payment_method_id = 5; // UUID of saved payment method
+    string payment_token = 6; // EPX token (AUTH_GUID/BRIC) for one-time use
+  }
+
+  string idempotency_key = 7;
+  map<string, string> metadata = 8;
+}
+
+// CaptureRequest captures a previously authorized payment
+message CaptureRequest {
+  string transaction_id = 1; // Original authorization transaction ID
+  string amount = 2; // Optional: partial capture amount
+  string idempotency_key = 3;
+}
+
+// SaleRequest combines authorize and capture
+message SaleRequest {
+  string agent_id = 1;
+  string customer_id = 2; // Nullable for guest transactions
+  string amount = 3; // Decimal as string
+  string currency = 4;
+
+  // Payment method - exactly one required
+  oneof payment_method {
+    string payment_method_id = 5; // UUID of saved payment method
+    string payment_token = 6; // EPX token (AUTH_GUID/BRIC) for one-time use
+  }
+
+  string idempotency_key = 7;
+  map<string, string> metadata = 8;
+}
+
+// VoidRequest cancels an authorized or captured payment
+message VoidRequest {
+  string transaction_id = 1;
+  string idempotency_key = 2;
+}
+
+// RefundRequest refunds a captured payment
+message RefundRequest {
+  string transaction_id = 1;
+  string amount = 2; // Optional: partial refund amount
+  string reason = 3;
+  string idempotency_key = 4;
+}
+
+// GetTransactionRequest retrieves a transaction
+message GetTransactionRequest {
+  string transaction_id = 1;
+}
+
+// ListTransactionsRequest lists transactions
+message ListTransactionsRequest {
+  string agent_id = 1;
+  string customer_id = 2; // Optional: filter by customer
+  string group_id = 3; // Optional: get all transactions in a group
+  TransactionStatus status = 4; // Optional: filter by status
+  int32 limit = 5; // Default: 100
+  int32 offset = 6;
+}
+
+// ListTransactionsResponse contains transaction list
+message ListTransactionsResponse {
+  repeated Transaction transactions = 1;
+  int32 total_count = 2;
+}
+
+// PaymentResponse is returned from payment operations
+message PaymentResponse {
+  string transaction_id = 1;
+  string group_id = 2; // Transaction group ID (links related transactions)
+  string agent_id = 3;
+  string customer_id = 4;
+  string amount = 5; // Decimal as string
+  string currency = 6;
+  TransactionStatus status = 7;
+  TransactionType type = 8;
+  PaymentMethodType payment_method_type = 9;
+
+  // EPX Gateway response fields
+  string auth_guid = 10; // EPX token for this transaction
+  string auth_resp = 11; // EPX approval code ("00" = approved)
+  string auth_code = 12; // Bank authorization code
+  string auth_resp_text = 13; // Human-readable response message
+  string auth_card_type = 14; // Card brand (V/M/A/D)
+  string auth_avs = 15; // Address verification result
+  string auth_cvv2 = 16; // CVV verification result
+
+  bool is_approved = 17;
+  google.protobuf.Timestamp created_at = 18;
+  map<string, string> metadata = 19;
+}
+
+// Transaction represents a complete transaction record
+message Transaction {
+  string id = 1;
+  string group_id = 2; // Links related transactions (auth → capture → refund)
+  string agent_id = 3;
+  string customer_id = 4; // Nullable for guest transactions
+  string amount = 5;
+  string currency = 6;
+  TransactionStatus status = 7;
+  TransactionType type = 8;
+  PaymentMethodType payment_method_type = 9;
+  string payment_method_id = 10; // Saved payment method used (if any)
+
+  // EPX Gateway response fields
+  string auth_guid = 11; // EPX token for this transaction
+  string auth_resp = 12; // EPX approval code
+  string auth_code = 13; // Bank authorization code
+  string auth_resp_text = 14; // Human-readable response
+  string auth_card_type = 15; // Card brand
+  string auth_avs = 16; // Address verification
+  string auth_cvv2 = 17; // CVV verification
+
+  string idempotency_key = 18;
+  google.protobuf.Timestamp created_at = 19;
+  google.protobuf.Timestamp updated_at = 20;
+  map<string, string> metadata = 21;
+}
+
+// TransactionStatus represents the current state of a transaction
+// Matches database constraint: ('pending', 'completed', 'failed', 'refunded', 'voided')
+enum TransactionStatus {
+  TRANSACTION_STATUS_UNSPECIFIED = 0;
+  TRANSACTION_STATUS_PENDING = 1;
+  TRANSACTION_STATUS_COMPLETED = 2;
+  TRANSACTION_STATUS_FAILED = 3;
+  TRANSACTION_STATUS_REFUNDED = 4;
+  TRANSACTION_STATUS_VOIDED = 5;
+}
+
+// TransactionType represents the type of transaction
+// Matches database constraint: ('charge', 'refund', 'pre_note', 'auth', 'capture')
+enum TransactionType {
+  TRANSACTION_TYPE_UNSPECIFIED = 0;
+  TRANSACTION_TYPE_AUTH = 1; // Authorization only
+  TRANSACTION_TYPE_CAPTURE = 2; // Capture authorized funds
+  TRANSACTION_TYPE_CHARGE = 3; // Combined auth + capture (sale)
+  TRANSACTION_TYPE_REFUND = 4; // Return funds
+  TRANSACTION_TYPE_PRE_NOTE = 5; // ACH verification
+}
+
+// PaymentMethodType represents the payment method used
+enum PaymentMethodType {
+  PAYMENT_METHOD_TYPE_UNSPECIFIED = 0;
+  PAYMENT_METHOD_TYPE_CREDIT_CARD = 1;
+  PAYMENT_METHOD_TYPE_ACH = 2;
+}

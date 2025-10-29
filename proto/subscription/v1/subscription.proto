@@ -2,9 +2,29 @@ syntax = "proto3";
 
 package subscription.v1;
 
-option go_package = "github.com/kevin07696/payment-service/api/proto/subscription/v1;subscriptionv1";
+option go_package = "github.com/kevin07696/payment-service/proto/subscription/v1;subscriptionv1";
 
 import "google/protobuf/timestamp.proto";
+
+// IntervalUnit defines the time unit for billing intervals
+// Matches database constraint: ('day', 'week', 'month', 'year')
+enum IntervalUnit {
+  INTERVAL_UNIT_UNSPECIFIED = 0;
+  INTERVAL_UNIT_DAY = 1;
+  INTERVAL_UNIT_WEEK = 2;
+  INTERVAL_UNIT_MONTH = 3;
+  INTERVAL_UNIT_YEAR = 4;
+}
+
+// SubscriptionStatus represents the subscription state
+// Matches database constraint: ('active', 'paused', 'cancelled', 'past_due')
+enum SubscriptionStatus {
+  SUBSCRIPTION_STATUS_UNSPECIFIED = 0;
+  SUBSCRIPTION_STATUS_ACTIVE = 1;
+  SUBSCRIPTION_STATUS_PAUSED = 2;
+  SUBSCRIPTION_STATUS_CANCELLED = 3;
+  SUBSCRIPTION_STATUS_PAST_DUE = 4;
+}
 
 // SubscriptionService handles recurring billing operations
 service SubscriptionService {
@@ -35,15 +55,18 @@ service SubscriptionService {
 
 // CreateSubscriptionRequest creates a new subscription
 message CreateSubscriptionRequest {
-  string merchant_id = 1;
+  string agent_id = 1;
   string customer_id = 2;
   string amount = 3; // Decimal as string
   string currency = 4;
-  BillingFrequency frequency = 5;
-  string payment_method_token = 6; // BRIC token for recurring charges
-  google.protobuf.Timestamp start_date = 7;
-  int32 max_retries = 8; // Default: 3
-  FailureOption failure_option = 9;
+
+  // Billing interval (e.g., 1 month, 2 weeks, 3 months)
+  int32 interval_value = 5; // 1, 2, 3, etc.
+  IntervalUnit interval_unit = 6; // day, week, month, year
+
+  string payment_method_id = 7; // UUID of saved payment method
+  google.protobuf.Timestamp start_date = 8;
+  int32 max_retries = 9; // Default: 3
   map<string, string> metadata = 10;
   string idempotency_key = 11;
 }
@@ -52,9 +75,10 @@ message CreateSubscriptionRequest {
 message UpdateSubscriptionRequest {
   string subscription_id = 1;
   optional string amount = 2; // Optional: update amount
-  optional BillingFrequency frequency = 3; // Optional: update frequency
-  optional string payment_method_token = 4; // Optional: update payment method
-  string idempotency_key = 5;
+  optional int32 interval_value = 3; // Optional: update interval value
+  optional IntervalUnit interval_unit = 4; // Optional: update interval unit
+  optional string payment_method_id = 5; // Optional: update payment method
+  string idempotency_key = 6;
 }
 
 // CancelSubscriptionRequest cancels a subscription
@@ -82,8 +106,9 @@ message GetSubscriptionRequest {
 
 // ListCustomerSubscriptionsRequest lists customer subscriptions
 message ListCustomerSubscriptionsRequest {
-  string merchant_id = 1;
+  string agent_id = 1;
   string customer_id = 2;
+  optional SubscriptionStatus status = 3; // Optional: filter by status
 }
 
 // ListCustomerSubscriptionsResponse contains subscription list
@@ -117,63 +142,44 @@ message BillingError {
 // SubscriptionResponse is returned from subscription operations
 message SubscriptionResponse {
   string subscription_id = 1;
-  string merchant_id = 2;
+  string agent_id = 2;
   string customer_id = 3;
   string amount = 4;
   string currency = 5;
-  BillingFrequency frequency = 6;
-  SubscriptionStatus status = 7;
-  string payment_method_token = 8;
-  google.protobuf.Timestamp next_billing_date = 9;
-  string gateway_subscription_id = 10;
-  google.protobuf.Timestamp created_at = 11;
-  google.protobuf.Timestamp updated_at = 12;
-  optional google.protobuf.Timestamp cancelled_at = 13;
+
+  // Billing interval
+  int32 interval_value = 6;
+  IntervalUnit interval_unit = 7;
+
+  SubscriptionStatus status = 8;
+  string payment_method_id = 9; // UUID of saved payment method
+  google.protobuf.Timestamp next_billing_date = 10;
+  string gateway_subscription_id = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  optional google.protobuf.Timestamp cancelled_at = 14;
 }
 
 // Subscription represents a complete subscription record
 message Subscription {
   string id = 1;
-  string merchant_id = 2;
+  string agent_id = 2;
   string customer_id = 3;
   string amount = 4;
   string currency = 5;
-  BillingFrequency frequency = 6;
-  SubscriptionStatus status = 7;
-  string payment_method_token = 8;
-  google.protobuf.Timestamp next_billing_date = 9;
-  string gateway_subscription_id = 10;
-  int32 failure_retry_count = 11;
-  int32 max_retries = 12;
-  FailureOption failure_option = 13;
+
+  // Billing interval
+  int32 interval_value = 6;
+  IntervalUnit interval_unit = 7;
+
+  SubscriptionStatus status = 8;
+  string payment_method_id = 9; // UUID of saved payment method
+  google.protobuf.Timestamp next_billing_date = 10;
+  string gateway_subscription_id = 11;
+  int32 failure_retry_count = 12;
+  int32 max_retries = 13;
   google.protobuf.Timestamp created_at = 14;
   google.protobuf.Timestamp updated_at = 15;
   optional google.protobuf.Timestamp cancelled_at = 16;
   map<string, string> metadata = 17;
-}
-
-// BillingFrequency defines how often to bill
-enum BillingFrequency {
-  BILLING_FREQUENCY_UNSPECIFIED = 0;
-  BILLING_FREQUENCY_WEEKLY = 1;
-  BILLING_FREQUENCY_BIWEEKLY = 2;
-  BILLING_FREQUENCY_MONTHLY = 3;
-  BILLING_FREQUENCY_YEARLY = 4;
-}
-
-// SubscriptionStatus represents the subscription state
-enum SubscriptionStatus {
-  SUBSCRIPTION_STATUS_UNSPECIFIED = 0;
-  SUBSCRIPTION_STATUS_ACTIVE = 1;
-  SUBSCRIPTION_STATUS_PAUSED = 2;
-  SUBSCRIPTION_STATUS_CANCELLED = 3;
-  SUBSCRIPTION_STATUS_PAST_DUE = 4;
-}
-
-// FailureOption defines what to do when billing fails
-enum FailureOption {
-  FAILURE_OPTION_UNSPECIFIED = 0;
-  FAILURE_OPTION_FORWARD = 1; // Reschedule to next period
-  FAILURE_OPTION_SKIP = 2; // Skip this period
-  FAILURE_OPTION_PAUSE = 3; // Pause subscription
 }

@@ -48,7 +48,8 @@ docker-up: ## Start services with docker-compose
 	@echo "Starting services..."
 	@docker-compose up -d
 	@echo "✓ Services started"
-	@echo "  Payment Server: localhost:50051"
+	@echo "  Payment Server (gRPC): localhost:8080"
+	@echo "  Payment Server (HTTP/Cron): localhost:8081"
 	@echo "  PostgreSQL: localhost:5432"
 
 docker-down: ## Stop services
@@ -64,7 +65,7 @@ docker-rebuild: docker-down docker-build docker-up ## Rebuild and restart servic
 test-db-up: ## Start test database
 	@echo "Starting test database..."
 	@docker-compose -f docker-compose.test.yml up -d
-	@echo "✓ Test database started on port 5433"
+	@echo "✓ Test database started on port 5434"
 
 test-db-down: ## Stop test database
 	@echo "Stopping test database..."
@@ -78,10 +79,11 @@ proto: ## Generate protobuf code
 	@echo "Generating protobuf code..."
 	@protoc --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-		api/proto/payment/v1/payment.proto
-	@protoc --go_out=. --go_opt=paths=source_relative \
-		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-		api/proto/subscription/v1/subscription.proto
+		proto/agent/v1/agent.proto \
+		proto/chargeback/v1/chargeback.proto \
+		proto/payment_method/v1/payment_method.proto \
+		proto/payment/v1/payment.proto \
+		proto/subscription/v1/subscription.proto
 	@echo "✓ Protobuf code generated"
 
 clean: ## Clean build artifacts
@@ -94,6 +96,27 @@ sqlc: ## Generate SQLC code
 	@echo "Generating SQLC code..."
 	@sqlc generate
 	@echo "✓ SQLC code generated"
+
+migrate-up: ## Run all pending migrations
+	@echo "Running migrations..."
+	@goose -dir internal/db/migrations postgres "host=localhost port=5432 user=postgres password=postgres dbname=payment_service sslmode=disable" up
+	@echo "✓ Migrations complete"
+
+migrate-down: ## Rollback last migration
+	@echo "Rolling back migration..."
+	@goose -dir internal/db/migrations postgres "host=localhost port=5432 user=postgres password=postgres dbname=payment_service sslmode=disable" down
+	@echo "✓ Rollback complete"
+
+migrate-status: ## Show migration status
+	@goose -dir internal/db/migrations postgres "host=localhost port=5432 user=postgres password=postgres dbname=payment_service sslmode=disable" status
+
+migrate-create: ## Create new migration (usage: make migrate-create NAME=add_users_table)
+	@if [ -z "$(NAME)" ]; then \
+		echo "Error: NAME is required. Usage: make migrate-create NAME=add_users_table"; \
+		exit 1; \
+	fi
+	@goose -dir internal/db/migrations create $(NAME) sql
+	@echo "✓ Migration created: internal/db/migrations/$(NAME).sql"
 
 lint: ## Run linters
 	@echo "Running linters..."

@@ -1,7 +1,7 @@
 package security
 
 import (
-	"github.com/kevin07696/payment-service/internal/domain/ports"
+	"github.com/kevin07696/payment-service/internal/adapters/ports"
 	"go.uber.org/zap"
 )
 

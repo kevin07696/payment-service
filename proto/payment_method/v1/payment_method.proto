@@ -1,0 +1,178 @@
+syntax = "proto3";
+
+package payment_method.v1;
+
+option go_package = "github.com/kevin07696/payment-service/proto/payment_method/v1;paymentmethodv1";
+
+import "google/protobuf/timestamp.proto";
+
+// PaymentMethodType represents the type of payment method
+enum PaymentMethodType {
+  PAYMENT_METHOD_TYPE_UNSPECIFIED = 0;
+  PAYMENT_METHOD_TYPE_CREDIT_CARD = 1;
+  PAYMENT_METHOD_TYPE_ACH = 2;
+}
+
+// PaymentMethodService handles saved payment method operations
+service PaymentMethodService {
+  // SavePaymentMethod tokenizes and saves a payment method
+  rpc SavePaymentMethod(SavePaymentMethodRequest) returns (PaymentMethodResponse);
+
+  // GetPaymentMethod retrieves a specific payment method
+  rpc GetPaymentMethod(GetPaymentMethodRequest) returns (PaymentMethod);
+
+  // ListPaymentMethods lists all payment methods for a customer
+  rpc ListPaymentMethods(ListPaymentMethodsRequest) returns (ListPaymentMethodsResponse);
+
+  // UpdatePaymentMethodStatus updates the active status of a payment method
+  rpc UpdatePaymentMethodStatus(UpdatePaymentMethodStatusRequest) returns (PaymentMethodResponse);
+
+  // DeletePaymentMethod soft deletes a payment method (sets deleted_at)
+  rpc DeletePaymentMethod(DeletePaymentMethodRequest) returns (DeletePaymentMethodResponse);
+
+  // SetDefaultPaymentMethod marks a payment method as default
+  rpc SetDefaultPaymentMethod(SetDefaultPaymentMethodRequest) returns (PaymentMethodResponse);
+
+  // VerifyACHAccount sends pre-note for ACH verification
+  rpc VerifyACHAccount(VerifyACHAccountRequest) returns (VerifyACHAccountResponse);
+}
+
+// SavePaymentMethodRequest saves a new payment method
+message SavePaymentMethodRequest {
+  string agent_id = 1;
+  string customer_id = 2;
+  string payment_token = 3; // EPX token (AUTH_GUID from tokenization)
+  PaymentMethodType payment_type = 4;
+
+  // Display metadata
+  string last_four = 5; // Last 4 digits
+
+  // Credit card specific (optional)
+  optional string card_brand = 6; // "visa", "mastercard", "amex", "discover"
+  optional int32 card_exp_month = 7; // 1-12
+  optional int32 card_exp_year = 8; // 2025, 2026, etc.
+
+  // ACH specific (optional)
+  optional string bank_name = 9; // "Chase", "Bank of America", etc.
+  optional string account_type = 10; // "checking" or "savings"
+
+  bool is_default = 11; // Mark as default payment method
+  string idempotency_key = 12;
+}
+
+// GetPaymentMethodRequest retrieves a payment method
+message GetPaymentMethodRequest {
+  string payment_method_id = 1; // UUID
+}
+
+// ListPaymentMethodsRequest lists payment methods
+message ListPaymentMethodsRequest {
+  string agent_id = 1;
+  string customer_id = 2;
+  optional PaymentMethodType payment_type = 3; // Optional: filter by type
+  optional bool is_active = 4; // Optional: filter by active status
+}
+
+// ListPaymentMethodsResponse contains payment method list
+message ListPaymentMethodsResponse {
+  repeated PaymentMethod payment_methods = 1;
+}
+
+// UpdatePaymentMethodStatusRequest updates payment method status
+message UpdatePaymentMethodStatusRequest {
+  string payment_method_id = 1;
+  string agent_id = 2;
+  string customer_id = 3;
+  bool is_active = 4; // true = activate, false = deactivate
+}
+
+// DeletePaymentMethodRequest soft deletes a payment method
+message DeletePaymentMethodRequest {
+  string payment_method_id = 1;
+  string idempotency_key = 2;
+}
+
+// DeletePaymentMethodResponse confirms deletion
+message DeletePaymentMethodResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// SetDefaultPaymentMethodRequest sets default payment method
+message SetDefaultPaymentMethodRequest {
+  string payment_method_id = 1;
+  string agent_id = 2;
+  string customer_id = 3;
+}
+
+// VerifyACHAccountRequest initiates ACH verification
+message VerifyACHAccountRequest {
+  string payment_method_id = 1; // ACH payment method to verify
+  string agent_id = 2;
+  string customer_id = 3;
+}
+
+// VerifyACHAccountResponse contains verification status
+message VerifyACHAccountResponse {
+  string payment_method_id = 1;
+  string transaction_id = 2; // Pre-note transaction ID
+  string status = 3; // "pending", "verified", "failed"
+  string message = 4;
+}
+
+// PaymentMethodResponse is returned from payment method operations
+message PaymentMethodResponse {
+  string payment_method_id = 1;
+  string agent_id = 2;
+  string customer_id = 3;
+  PaymentMethodType payment_type = 4;
+
+  // Display metadata
+  string last_four = 5;
+
+  // Credit card specific
+  optional string card_brand = 6;
+  optional int32 card_exp_month = 7;
+  optional int32 card_exp_year = 8;
+
+  // ACH specific
+  optional string bank_name = 9;
+  optional string account_type = 10;
+
+  // Status
+  bool is_default = 11;
+  bool is_active = 12;
+  bool is_verified = 13; // For ACH pre-note verification
+
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp last_used_at = 15;
+}
+
+// PaymentMethod represents a complete payment method record
+message PaymentMethod {
+  string id = 1;
+  string agent_id = 2;
+  string customer_id = 3;
+  PaymentMethodType payment_type = 4;
+
+  // Display metadata (NEVER include full card/account numbers)
+  string last_four = 5;
+
+  // Credit card specific
+  optional string card_brand = 6;
+  optional int32 card_exp_month = 7;
+  optional int32 card_exp_year = 8;
+
+  // ACH specific
+  optional string bank_name = 9;
+  optional string account_type = 10;
+
+  // Status
+  bool is_default = 11;
+  bool is_active = 12;
+  bool is_verified = 13;
+
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+  google.protobuf.Timestamp last_used_at = 16;
+}
