@@ -12,55 +12,128 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createTransaction = `-- name: CreateTransaction :exec
+const countTransactions = `-- name: CountTransactions :one
+SELECT COUNT(*) FROM transactions
+WHERE
+    ($1::varchar IS NULL OR agent_id = $1) AND
+    ($2::varchar IS NULL OR customer_id = $2) AND
+    ($3::uuid IS NULL OR group_id = $3) AND
+    ($4::varchar IS NULL OR status = $4) AND
+    ($5::varchar IS NULL OR type = $5) AND
+    ($6::uuid IS NULL OR payment_method_id = $6)
+`
+
+type CountTransactionsParams struct {
+	AgentID         pgtype.Text `json:"agent_id"`
+	CustomerID      pgtype.Text `json:"customer_id"`
+	GroupID         pgtype.UUID `json:"group_id"`
+	Status          pgtype.Text `json:"status"`
+	Type            pgtype.Text `json:"type"`
+	PaymentMethodID pgtype.UUID `json:"payment_method_id"`
+}
+
+func (q *Queries) CountTransactions(ctx context.Context, arg CountTransactionsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countTransactions,
+		arg.AgentID,
+		arg.CustomerID,
+		arg.GroupID,
+		arg.Status,
+		arg.Type,
+		arg.PaymentMethodID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createTransaction = `-- name: CreateTransaction :one
 INSERT INTO transactions (
-    id, merchant_id, customer_id, amount, currency, status, type,
-    payment_method_type, payment_method_token, gateway_transaction_id,
-    gateway_response_code, gateway_response_message, idempotency_key, metadata
+    id, group_id, agent_id, customer_id,
+    amount, currency, status, type, payment_method_type, payment_method_id,
+    auth_guid, auth_resp, auth_code, auth_resp_text, auth_card_type, auth_avs, auth_cvv2,
+    idempotency_key, metadata
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-)
+    $1, $2, $3, $4,
+    $5, $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16, $17,
+    $18, $19
+) RETURNING id, group_id, agent_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_id, auth_guid, auth_resp, auth_code, auth_resp_text, auth_card_type, auth_avs, auth_cvv2, idempotency_key, metadata, deleted_at, created_at, updated_at
 `
 
 type CreateTransactionParams struct {
-	ID                     uuid.UUID      `json:"id"`
-	MerchantID             string         `json:"merchant_id"`
-	CustomerID             pgtype.Text    `json:"customer_id"`
-	Amount                 pgtype.Numeric `json:"amount"`
-	Currency               string         `json:"currency"`
-	Status                 string         `json:"status"`
-	Type                   string         `json:"type"`
-	PaymentMethodType      string         `json:"payment_method_type"`
-	PaymentMethodToken     pgtype.Text    `json:"payment_method_token"`
-	GatewayTransactionID   pgtype.Text    `json:"gateway_transaction_id"`
-	GatewayResponseCode    pgtype.Text    `json:"gateway_response_code"`
-	GatewayResponseMessage pgtype.Text    `json:"gateway_response_message"`
-	IdempotencyKey         pgtype.Text    `json:"idempotency_key"`
-	Metadata               []byte         `json:"metadata"`
+	ID                uuid.UUID      `json:"id"`
+	GroupID           uuid.UUID      `json:"group_id"`
+	AgentID           string         `json:"agent_id"`
+	CustomerID        pgtype.Text    `json:"customer_id"`
+	Amount            pgtype.Numeric `json:"amount"`
+	Currency          string         `json:"currency"`
+	Status            string         `json:"status"`
+	Type              string         `json:"type"`
+	PaymentMethodType string         `json:"payment_method_type"`
+	PaymentMethodID   pgtype.UUID    `json:"payment_method_id"`
+	AuthGuid          pgtype.Text    `json:"auth_guid"`
+	AuthResp          pgtype.Text    `json:"auth_resp"`
+	AuthCode          pgtype.Text    `json:"auth_code"`
+	AuthRespText      pgtype.Text    `json:"auth_resp_text"`
+	AuthCardType      pgtype.Text    `json:"auth_card_type"`
+	AuthAvs           pgtype.Text    `json:"auth_avs"`
+	AuthCvv2          pgtype.Text    `json:"auth_cvv2"`
+	IdempotencyKey    pgtype.Text    `json:"idempotency_key"`
+	Metadata          []byte         `json:"metadata"`
 }
 
-func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionParams) error {
-	_, err := q.db.Exec(ctx, createTransaction,
+func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, createTransaction,
 		arg.ID,
-		arg.MerchantID,
+		arg.GroupID,
+		arg.AgentID,
 		arg.CustomerID,
 		arg.Amount,
 		arg.Currency,
 		arg.Status,
 		arg.Type,
 		arg.PaymentMethodType,
-		arg.PaymentMethodToken,
-		arg.GatewayTransactionID,
-		arg.GatewayResponseCode,
-		arg.GatewayResponseMessage,
+		arg.PaymentMethodID,
+		arg.AuthGuid,
+		arg.AuthResp,
+		arg.AuthCode,
+		arg.AuthRespText,
+		arg.AuthCardType,
+		arg.AuthAvs,
+		arg.AuthCvv2,
 		arg.IdempotencyKey,
 		arg.Metadata,
 	)
-	return err
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.AgentID,
+		&i.CustomerID,
+		&i.Amount,
+		&i.Currency,
+		&i.Status,
+		&i.Type,
+		&i.PaymentMethodType,
+		&i.PaymentMethodID,
+		&i.AuthGuid,
+		&i.AuthResp,
+		&i.AuthCode,
+		&i.AuthRespText,
+		&i.AuthCardType,
+		&i.AuthAvs,
+		&i.AuthCvv2,
+		&i.IdempotencyKey,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getTransactionByID = `-- name: GetTransactionByID :one
-SELECT id, merchant_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_token, gateway_transaction_id, gateway_response_code, gateway_response_message, idempotency_key, metadata, created_at, updated_at FROM transactions
+SELECT id, group_id, agent_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_id, auth_guid, auth_resp, auth_code, auth_resp_text, auth_card_type, auth_avs, auth_cvv2, idempotency_key, metadata, deleted_at, created_at, updated_at FROM transactions
 WHERE id = $1
 `
 
@@ -69,19 +142,25 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 	var i Transaction
 	err := row.Scan(
 		&i.ID,
-		&i.MerchantID,
+		&i.GroupID,
+		&i.AgentID,
 		&i.CustomerID,
 		&i.Amount,
 		&i.Currency,
 		&i.Status,
 		&i.Type,
 		&i.PaymentMethodType,
-		&i.PaymentMethodToken,
-		&i.GatewayTransactionID,
-		&i.GatewayResponseCode,
-		&i.GatewayResponseMessage,
+		&i.PaymentMethodID,
+		&i.AuthGuid,
+		&i.AuthResp,
+		&i.AuthCode,
+		&i.AuthRespText,
+		&i.AuthCardType,
+		&i.AuthAvs,
+		&i.AuthCvv2,
 		&i.IdempotencyKey,
 		&i.Metadata,
+		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -89,7 +168,7 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 }
 
 const getTransactionByIdempotencyKey = `-- name: GetTransactionByIdempotencyKey :one
-SELECT id, merchant_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_token, gateway_transaction_id, gateway_response_code, gateway_response_message, idempotency_key, metadata, created_at, updated_at FROM transactions
+SELECT id, group_id, agent_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_id, auth_guid, auth_resp, auth_code, auth_resp_text, auth_card_type, auth_avs, auth_cvv2, idempotency_key, metadata, deleted_at, created_at, updated_at FROM transactions
 WHERE idempotency_key = $1
 `
 
@@ -98,45 +177,114 @@ func (q *Queries) GetTransactionByIdempotencyKey(ctx context.Context, idempotenc
 	var i Transaction
 	err := row.Scan(
 		&i.ID,
-		&i.MerchantID,
+		&i.GroupID,
+		&i.AgentID,
 		&i.CustomerID,
 		&i.Amount,
 		&i.Currency,
 		&i.Status,
 		&i.Type,
 		&i.PaymentMethodType,
-		&i.PaymentMethodToken,
-		&i.GatewayTransactionID,
-		&i.GatewayResponseCode,
-		&i.GatewayResponseMessage,
+		&i.PaymentMethodID,
+		&i.AuthGuid,
+		&i.AuthResp,
+		&i.AuthCode,
+		&i.AuthRespText,
+		&i.AuthCardType,
+		&i.AuthAvs,
+		&i.AuthCvv2,
 		&i.IdempotencyKey,
 		&i.Metadata,
+		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const listTransactionsByCustomer = `-- name: ListTransactionsByCustomer :many
-SELECT id, merchant_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_token, gateway_transaction_id, gateway_response_code, gateway_response_message, idempotency_key, metadata, created_at, updated_at FROM transactions
-WHERE merchant_id = $1 AND customer_id = $2
-ORDER BY created_at DESC
-LIMIT $3 OFFSET $4
+const getTransactionsByGroupID = `-- name: GetTransactionsByGroupID :many
+SELECT id, group_id, agent_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_id, auth_guid, auth_resp, auth_code, auth_resp_text, auth_card_type, auth_avs, auth_cvv2, idempotency_key, metadata, deleted_at, created_at, updated_at FROM transactions
+WHERE group_id = $1
+ORDER BY created_at ASC
 `
 
-type ListTransactionsByCustomerParams struct {
-	MerchantID string      `json:"merchant_id"`
-	CustomerID pgtype.Text `json:"customer_id"`
-	Limit      int32       `json:"limit"`
-	Offset     int32       `json:"offset"`
+func (q *Queries) GetTransactionsByGroupID(ctx context.Context, groupID uuid.UUID) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, getTransactionsByGroupID, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Transaction{}
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.AgentID,
+			&i.CustomerID,
+			&i.Amount,
+			&i.Currency,
+			&i.Status,
+			&i.Type,
+			&i.PaymentMethodType,
+			&i.PaymentMethodID,
+			&i.AuthGuid,
+			&i.AuthResp,
+			&i.AuthCode,
+			&i.AuthRespText,
+			&i.AuthCardType,
+			&i.AuthAvs,
+			&i.AuthCvv2,
+			&i.IdempotencyKey,
+			&i.Metadata,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-func (q *Queries) ListTransactionsByCustomer(ctx context.Context, arg ListTransactionsByCustomerParams) ([]Transaction, error) {
-	rows, err := q.db.Query(ctx, listTransactionsByCustomer,
-		arg.MerchantID,
+const listTransactions = `-- name: ListTransactions :many
+SELECT id, group_id, agent_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_id, auth_guid, auth_resp, auth_code, auth_resp_text, auth_card_type, auth_avs, auth_cvv2, idempotency_key, metadata, deleted_at, created_at, updated_at FROM transactions
+WHERE
+    ($1::varchar IS NULL OR agent_id = $1) AND
+    ($2::varchar IS NULL OR customer_id = $2) AND
+    ($3::uuid IS NULL OR group_id = $3) AND
+    ($4::varchar IS NULL OR status = $4) AND
+    ($5::varchar IS NULL OR type = $5) AND
+    ($6::uuid IS NULL OR payment_method_id = $6)
+ORDER BY created_at DESC
+LIMIT $8 OFFSET $7
+`
+
+type ListTransactionsParams struct {
+	AgentID         pgtype.Text `json:"agent_id"`
+	CustomerID      pgtype.Text `json:"customer_id"`
+	GroupID         pgtype.UUID `json:"group_id"`
+	Status          pgtype.Text `json:"status"`
+	Type            pgtype.Text `json:"type"`
+	PaymentMethodID pgtype.UUID `json:"payment_method_id"`
+	OffsetVal       int32       `json:"offset_val"`
+	LimitVal        int32       `json:"limit_val"`
+}
+
+func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, listTransactions,
+		arg.AgentID,
 		arg.CustomerID,
-		arg.Limit,
-		arg.Offset,
+		arg.GroupID,
+		arg.Status,
+		arg.Type,
+		arg.PaymentMethodID,
+		arg.OffsetVal,
+		arg.LimitVal,
 	)
 	if err != nil {
 		return nil, err
@@ -147,19 +295,25 @@ func (q *Queries) ListTransactionsByCustomer(ctx context.Context, arg ListTransa
 		var i Transaction
 		if err := rows.Scan(
 			&i.ID,
-			&i.MerchantID,
+			&i.GroupID,
+			&i.AgentID,
 			&i.CustomerID,
 			&i.Amount,
 			&i.Currency,
 			&i.Status,
 			&i.Type,
 			&i.PaymentMethodType,
-			&i.PaymentMethodToken,
-			&i.GatewayTransactionID,
-			&i.GatewayResponseCode,
-			&i.GatewayResponseMessage,
+			&i.PaymentMethodID,
+			&i.AuthGuid,
+			&i.AuthResp,
+			&i.AuthCode,
+			&i.AuthRespText,
+			&i.AuthCardType,
+			&i.AuthAvs,
+			&i.AuthCvv2,
 			&i.IdempotencyKey,
 			&i.Metadata,
+			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -173,80 +327,74 @@ func (q *Queries) ListTransactionsByCustomer(ctx context.Context, arg ListTransa
 	return items, nil
 }
 
-const listTransactionsByMerchant = `-- name: ListTransactionsByMerchant :many
-SELECT id, merchant_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_token, gateway_transaction_id, gateway_response_code, gateway_response_message, idempotency_key, metadata, created_at, updated_at FROM transactions
-WHERE merchant_id = $1
-ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
+const updateTransaction = `-- name: UpdateTransaction :one
+UPDATE transactions
+SET
+    status = $1,
+    auth_resp = $2,
+    auth_code = $3,
+    auth_resp_text = $4,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $5
+RETURNING id, group_id, agent_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_id, auth_guid, auth_resp, auth_code, auth_resp_text, auth_card_type, auth_avs, auth_cvv2, idempotency_key, metadata, deleted_at, created_at, updated_at
 `
 
-type ListTransactionsByMerchantParams struct {
-	MerchantID string `json:"merchant_id"`
-	Limit      int32  `json:"limit"`
-	Offset     int32  `json:"offset"`
+type UpdateTransactionParams struct {
+	Status       string      `json:"status"`
+	AuthResp     pgtype.Text `json:"auth_resp"`
+	AuthCode     pgtype.Text `json:"auth_code"`
+	AuthRespText pgtype.Text `json:"auth_resp_text"`
+	ID           uuid.UUID   `json:"id"`
 }
 
-func (q *Queries) ListTransactionsByMerchant(ctx context.Context, arg ListTransactionsByMerchantParams) ([]Transaction, error) {
-	rows, err := q.db.Query(ctx, listTransactionsByMerchant, arg.MerchantID, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Transaction{}
-	for rows.Next() {
-		var i Transaction
-		if err := rows.Scan(
-			&i.ID,
-			&i.MerchantID,
-			&i.CustomerID,
-			&i.Amount,
-			&i.Currency,
-			&i.Status,
-			&i.Type,
-			&i.PaymentMethodType,
-			&i.PaymentMethodToken,
-			&i.GatewayTransactionID,
-			&i.GatewayResponseCode,
-			&i.GatewayResponseMessage,
-			&i.IdempotencyKey,
-			&i.Metadata,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, updateTransaction,
+		arg.Status,
+		arg.AuthResp,
+		arg.AuthCode,
+		arg.AuthRespText,
+		arg.ID,
+	)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.AgentID,
+		&i.CustomerID,
+		&i.Amount,
+		&i.Currency,
+		&i.Status,
+		&i.Type,
+		&i.PaymentMethodType,
+		&i.PaymentMethodID,
+		&i.AuthGuid,
+		&i.AuthResp,
+		&i.AuthCode,
+		&i.AuthRespText,
+		&i.AuthCardType,
+		&i.AuthAvs,
+		&i.AuthCvv2,
+		&i.IdempotencyKey,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const updateTransactionStatus = `-- name: UpdateTransactionStatus :exec
 UPDATE transactions
-SET status = $2,
-    gateway_transaction_id = COALESCE($3, gateway_transaction_id),
-    gateway_response_code = COALESCE($4, gateway_response_code),
-    gateway_response_message = COALESCE($5, gateway_response_message)
-WHERE id = $1
+SET status = $1, updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
 `
 
 type UpdateTransactionStatusParams struct {
-	ID                     uuid.UUID   `json:"id"`
-	Status                 string      `json:"status"`
-	GatewayTransactionID   pgtype.Text `json:"gateway_transaction_id"`
-	GatewayResponseCode    pgtype.Text `json:"gateway_response_code"`
-	GatewayResponseMessage pgtype.Text `json:"gateway_response_message"`
+	Status string    `json:"status"`
+	ID     uuid.UUID `json:"id"`
 }
 
 func (q *Queries) UpdateTransactionStatus(ctx context.Context, arg UpdateTransactionStatusParams) error {
-	_, err := q.db.Exec(ctx, updateTransactionStatus,
-		arg.ID,
-		arg.Status,
-		arg.GatewayTransactionID,
-		arg.GatewayResponseCode,
-		arg.GatewayResponseMessage,
-	)
+	_, err := q.db.Exec(ctx, updateTransactionStatus, arg.Status, arg.ID)
 	return err
 }

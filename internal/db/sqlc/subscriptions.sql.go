@@ -12,53 +12,142 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createSubscription = `-- name: CreateSubscription :exec
+const cancelSubscription = `-- name: CancelSubscription :one
+UPDATE subscriptions
+SET status = $1, cancelled_at = $2, updated_at = CURRENT_TIMESTAMP
+WHERE id = $3
+RETURNING id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+`
+
+type CancelSubscriptionParams struct {
+	Status     string             `json:"status"`
+	CanceledAt pgtype.Timestamptz `json:"canceled_at"`
+	ID         uuid.UUID          `json:"id"`
+}
+
+func (q *Queries) CancelSubscription(ctx context.Context, arg CancelSubscriptionParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, cancelSubscription, arg.Status, arg.CanceledAt, arg.ID)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.CustomerID,
+		&i.Amount,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+	)
+	return i, err
+}
+
+const countSubscriptions = `-- name: CountSubscriptions :one
+SELECT COUNT(*) FROM subscriptions
+WHERE
+    ($1::varchar IS NULL OR agent_id = $1) AND
+    ($2::varchar IS NULL OR customer_id = $2) AND
+    ($3::varchar IS NULL OR status = $3)
+`
+
+type CountSubscriptionsParams struct {
+	AgentID    pgtype.Text `json:"agent_id"`
+	CustomerID pgtype.Text `json:"customer_id"`
+	Status     pgtype.Text `json:"status"`
+}
+
+func (q *Queries) CountSubscriptions(ctx context.Context, arg CountSubscriptionsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countSubscriptions, arg.AgentID, arg.CustomerID, arg.Status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createSubscription = `-- name: CreateSubscription :one
 INSERT INTO subscriptions (
-    id, merchant_id, customer_id, amount, currency, frequency, status,
-    payment_method_token, next_billing_date, max_retries, failure_option,
+    id, agent_id, customer_id, amount, currency,
+    interval_value, interval_unit, status,
+    payment_method_id, next_billing_date,
+    failure_retry_count, max_retries,
     gateway_subscription_id, metadata
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-)
+    $1, $2, $3, $4, $5,
+    $6, $7, $8,
+    $9, $10,
+    $11, $12,
+    $13, $14
+) RETURNING id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
 `
 
 type CreateSubscriptionParams struct {
 	ID                    uuid.UUID      `json:"id"`
-	MerchantID            string         `json:"merchant_id"`
+	AgentID               string         `json:"agent_id"`
 	CustomerID            string         `json:"customer_id"`
 	Amount                pgtype.Numeric `json:"amount"`
 	Currency              string         `json:"currency"`
-	Frequency             string         `json:"frequency"`
+	IntervalValue         int32          `json:"interval_value"`
+	IntervalUnit          string         `json:"interval_unit"`
 	Status                string         `json:"status"`
-	PaymentMethodToken    string         `json:"payment_method_token"`
+	PaymentMethodID       uuid.UUID      `json:"payment_method_id"`
 	NextBillingDate       pgtype.Date    `json:"next_billing_date"`
+	FailureRetryCount     int32          `json:"failure_retry_count"`
 	MaxRetries            int32          `json:"max_retries"`
-	FailureOption         string         `json:"failure_option"`
 	GatewaySubscriptionID pgtype.Text    `json:"gateway_subscription_id"`
 	Metadata              []byte         `json:"metadata"`
 }
 
-func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) error {
-	_, err := q.db.Exec(ctx, createSubscription,
+func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, createSubscription,
 		arg.ID,
-		arg.MerchantID,
+		arg.AgentID,
 		arg.CustomerID,
 		arg.Amount,
 		arg.Currency,
-		arg.Frequency,
+		arg.IntervalValue,
+		arg.IntervalUnit,
 		arg.Status,
-		arg.PaymentMethodToken,
+		arg.PaymentMethodID,
 		arg.NextBillingDate,
+		arg.FailureRetryCount,
 		arg.MaxRetries,
-		arg.FailureOption,
 		arg.GatewaySubscriptionID,
 		arg.Metadata,
 	)
-	return err
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.CustomerID,
+		&i.Amount,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+	)
+	return i, err
 }
 
 const getSubscriptionByID = `-- name: GetSubscriptionByID :one
-SELECT id, merchant_id, customer_id, amount, currency, frequency, status, payment_method_token, next_billing_date, failure_retry_count, max_retries, failure_option, gateway_subscription_id, metadata, created_at, updated_at, cancelled_at FROM subscriptions
+SELECT id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
 WHERE id = $1
 `
 
@@ -67,19 +156,20 @@ func (q *Queries) GetSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscr
 	var i Subscription
 	err := row.Scan(
 		&i.ID,
-		&i.MerchantID,
+		&i.AgentID,
 		&i.CustomerID,
 		&i.Amount,
 		&i.Currency,
-		&i.Frequency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
 		&i.Status,
-		&i.PaymentMethodToken,
+		&i.PaymentMethodID,
 		&i.NextBillingDate,
 		&i.FailureRetryCount,
 		&i.MaxRetries,
-		&i.FailureOption,
 		&i.GatewaySubscriptionID,
 		&i.Metadata,
+		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelledAt,
@@ -87,21 +177,73 @@ func (q *Queries) GetSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscr
 	return i, err
 }
 
-const listActiveSubscriptionsDueForBilling = `-- name: ListActiveSubscriptionsDueForBilling :many
-SELECT id, merchant_id, customer_id, amount, currency, frequency, status, payment_method_token, next_billing_date, failure_retry_count, max_retries, failure_option, gateway_subscription_id, metadata, created_at, updated_at, cancelled_at FROM subscriptions
-WHERE status = 'active'
-  AND next_billing_date <= $1
+const incrementSubscriptionFailureCount = `-- name: IncrementSubscriptionFailureCount :one
+UPDATE subscriptions
+SET
+    failure_retry_count = $1,
+    status = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $3
+RETURNING id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+`
+
+type IncrementSubscriptionFailureCountParams struct {
+	FailureRetryCount int32     `json:"failure_retry_count"`
+	Status            string    `json:"status"`
+	ID                uuid.UUID `json:"id"`
+}
+
+func (q *Queries) IncrementSubscriptionFailureCount(ctx context.Context, arg IncrementSubscriptionFailureCountParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, incrementSubscriptionFailureCount, arg.FailureRetryCount, arg.Status, arg.ID)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.CustomerID,
+		&i.Amount,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+	)
+	return i, err
+}
+
+const incrementSubscriptionRetryCount = `-- name: IncrementSubscriptionRetryCount :exec
+UPDATE subscriptions
+SET failure_retry_count = failure_retry_count + 1, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+func (q *Queries) IncrementSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, incrementSubscriptionRetryCount, id)
+	return err
+}
+
+const listDueSubscriptions = `-- name: ListDueSubscriptions :many
+SELECT id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
+WHERE status = 'active' AND next_billing_date <= $1
 ORDER BY next_billing_date ASC
 LIMIT $2
 `
 
-type ListActiveSubscriptionsDueForBillingParams struct {
-	NextBillingDate pgtype.Date `json:"next_billing_date"`
-	Limit           int32       `json:"limit"`
+type ListDueSubscriptionsParams struct {
+	AsOfDate pgtype.Date `json:"as_of_date"`
+	LimitVal int32       `json:"limit_val"`
 }
 
-func (q *Queries) ListActiveSubscriptionsDueForBilling(ctx context.Context, arg ListActiveSubscriptionsDueForBillingParams) ([]Subscription, error) {
-	rows, err := q.db.Query(ctx, listActiveSubscriptionsDueForBilling, arg.NextBillingDate, arg.Limit)
+func (q *Queries) ListDueSubscriptions(ctx context.Context, arg ListDueSubscriptionsParams) ([]Subscription, error) {
+	rows, err := q.db.Query(ctx, listDueSubscriptions, arg.AsOfDate, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
@@ -111,19 +253,83 @@ func (q *Queries) ListActiveSubscriptionsDueForBilling(ctx context.Context, arg 
 		var i Subscription
 		if err := rows.Scan(
 			&i.ID,
-			&i.MerchantID,
+			&i.AgentID,
 			&i.CustomerID,
 			&i.Amount,
 			&i.Currency,
-			&i.Frequency,
+			&i.IntervalValue,
+			&i.IntervalUnit,
 			&i.Status,
-			&i.PaymentMethodToken,
+			&i.PaymentMethodID,
 			&i.NextBillingDate,
 			&i.FailureRetryCount,
 			&i.MaxRetries,
-			&i.FailureOption,
 			&i.GatewaySubscriptionID,
 			&i.Metadata,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSubscriptions = `-- name: ListSubscriptions :many
+SELECT id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
+WHERE
+    ($1::varchar IS NULL OR agent_id = $1) AND
+    ($2::varchar IS NULL OR customer_id = $2) AND
+    ($3::varchar IS NULL OR status = $3)
+ORDER BY created_at DESC
+LIMIT $5 OFFSET $4
+`
+
+type ListSubscriptionsParams struct {
+	AgentID    pgtype.Text `json:"agent_id"`
+	CustomerID pgtype.Text `json:"customer_id"`
+	Status     pgtype.Text `json:"status"`
+	OffsetVal  int32       `json:"offset_val"`
+	LimitVal   int32       `json:"limit_val"`
+}
+
+func (q *Queries) ListSubscriptions(ctx context.Context, arg ListSubscriptionsParams) ([]Subscription, error) {
+	rows, err := q.db.Query(ctx, listSubscriptions,
+		arg.AgentID,
+		arg.CustomerID,
+		arg.Status,
+		arg.OffsetVal,
+		arg.LimitVal,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Subscription{}
+	for rows.Next() {
+		var i Subscription
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.CustomerID,
+			&i.Amount,
+			&i.Currency,
+			&i.IntervalValue,
+			&i.IntervalUnit,
+			&i.Status,
+			&i.PaymentMethodID,
+			&i.NextBillingDate,
+			&i.FailureRetryCount,
+			&i.MaxRetries,
+			&i.GatewaySubscriptionID,
+			&i.Metadata,
+			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CancelledAt,
@@ -139,18 +345,18 @@ func (q *Queries) ListActiveSubscriptionsDueForBilling(ctx context.Context, arg 
 }
 
 const listSubscriptionsByCustomer = `-- name: ListSubscriptionsByCustomer :many
-SELECT id, merchant_id, customer_id, amount, currency, frequency, status, payment_method_token, next_billing_date, failure_retry_count, max_retries, failure_option, gateway_subscription_id, metadata, created_at, updated_at, cancelled_at FROM subscriptions
-WHERE merchant_id = $1 AND customer_id = $2
+SELECT id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
+WHERE agent_id = $1 AND customer_id = $2
 ORDER BY created_at DESC
 `
 
 type ListSubscriptionsByCustomerParams struct {
-	MerchantID string `json:"merchant_id"`
+	AgentID    string `json:"agent_id"`
 	CustomerID string `json:"customer_id"`
 }
 
 func (q *Queries) ListSubscriptionsByCustomer(ctx context.Context, arg ListSubscriptionsByCustomerParams) ([]Subscription, error) {
-	rows, err := q.db.Query(ctx, listSubscriptionsByCustomer, arg.MerchantID, arg.CustomerID)
+	rows, err := q.db.Query(ctx, listSubscriptionsByCustomer, arg.AgentID, arg.CustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -160,19 +366,20 @@ func (q *Queries) ListSubscriptionsByCustomer(ctx context.Context, arg ListSubsc
 		var i Subscription
 		if err := rows.Scan(
 			&i.ID,
-			&i.MerchantID,
+			&i.AgentID,
 			&i.CustomerID,
 			&i.Amount,
 			&i.Currency,
-			&i.Frequency,
+			&i.IntervalValue,
+			&i.IntervalUnit,
 			&i.Status,
-			&i.PaymentMethodToken,
+			&i.PaymentMethodID,
 			&i.NextBillingDate,
 			&i.FailureRetryCount,
 			&i.MaxRetries,
-			&i.FailureOption,
 			&i.GatewaySubscriptionID,
 			&i.Metadata,
+			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CancelledAt,
@@ -187,42 +394,219 @@ func (q *Queries) ListSubscriptionsByCustomer(ctx context.Context, arg ListSubsc
 	return items, nil
 }
 
-const updateSubscription = `-- name: UpdateSubscription :exec
+const listSubscriptionsDueForBilling = `-- name: ListSubscriptionsDueForBilling :many
+SELECT id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
+WHERE status = 'active' AND next_billing_date <= $1
+ORDER BY next_billing_date ASC
+LIMIT $2
+`
+
+type ListSubscriptionsDueForBillingParams struct {
+	NextBillingDate pgtype.Date `json:"next_billing_date"`
+	LimitVal        int32       `json:"limit_val"`
+}
+
+func (q *Queries) ListSubscriptionsDueForBilling(ctx context.Context, arg ListSubscriptionsDueForBillingParams) ([]Subscription, error) {
+	rows, err := q.db.Query(ctx, listSubscriptionsDueForBilling, arg.NextBillingDate, arg.LimitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Subscription{}
+	for rows.Next() {
+		var i Subscription
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.CustomerID,
+			&i.Amount,
+			&i.Currency,
+			&i.IntervalValue,
+			&i.IntervalUnit,
+			&i.Status,
+			&i.PaymentMethodID,
+			&i.NextBillingDate,
+			&i.FailureRetryCount,
+			&i.MaxRetries,
+			&i.GatewaySubscriptionID,
+			&i.Metadata,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resetSubscriptionRetryCount = `-- name: ResetSubscriptionRetryCount :exec
 UPDATE subscriptions
-SET amount = COALESCE($2, amount),
-    frequency = COALESCE($3, frequency),
-    status = COALESCE($4, status),
-    payment_method_token = COALESCE($5, payment_method_token),
-    next_billing_date = COALESCE($6, next_billing_date),
-    failure_retry_count = COALESCE($7, failure_retry_count),
-    gateway_subscription_id = COALESCE($8, gateway_subscription_id),
-    cancelled_at = $9
+SET failure_retry_count = 0, updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
 `
 
-type UpdateSubscriptionParams struct {
-	ID                    uuid.UUID          `json:"id"`
-	Amount                pgtype.Numeric     `json:"amount"`
-	Frequency             pgtype.Text        `json:"frequency"`
-	Status                pgtype.Text        `json:"status"`
-	PaymentMethodToken    pgtype.Text        `json:"payment_method_token"`
-	NextBillingDate       pgtype.Date        `json:"next_billing_date"`
-	FailureRetryCount     pgtype.Int4        `json:"failure_retry_count"`
-	GatewaySubscriptionID pgtype.Text        `json:"gateway_subscription_id"`
-	CancelledAt           pgtype.Timestamptz `json:"cancelled_at"`
+func (q *Queries) ResetSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, resetSubscriptionRetryCount, id)
+	return err
 }
 
-func (q *Queries) UpdateSubscription(ctx context.Context, arg UpdateSubscriptionParams) error {
-	_, err := q.db.Exec(ctx, updateSubscription,
-		arg.ID,
+const updateNextBillingDate = `-- name: UpdateNextBillingDate :exec
+UPDATE subscriptions
+SET next_billing_date = $1, updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+`
+
+type UpdateNextBillingDateParams struct {
+	NextBillingDate pgtype.Date `json:"next_billing_date"`
+	ID              uuid.UUID   `json:"id"`
+}
+
+func (q *Queries) UpdateNextBillingDate(ctx context.Context, arg UpdateNextBillingDateParams) error {
+	_, err := q.db.Exec(ctx, updateNextBillingDate, arg.NextBillingDate, arg.ID)
+	return err
+}
+
+const updateSubscription = `-- name: UpdateSubscription :one
+UPDATE subscriptions
+SET
+    amount = $1,
+    interval_value = $2,
+    interval_unit = $3,
+    payment_method_id = $4,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $5
+RETURNING id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+`
+
+type UpdateSubscriptionParams struct {
+	Amount          pgtype.Numeric `json:"amount"`
+	IntervalValue   int32          `json:"interval_value"`
+	IntervalUnit    string         `json:"interval_unit"`
+	PaymentMethodID uuid.UUID      `json:"payment_method_id"`
+	ID              uuid.UUID      `json:"id"`
+}
+
+func (q *Queries) UpdateSubscription(ctx context.Context, arg UpdateSubscriptionParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, updateSubscription,
 		arg.Amount,
-		arg.Frequency,
-		arg.Status,
-		arg.PaymentMethodToken,
+		arg.IntervalValue,
+		arg.IntervalUnit,
+		arg.PaymentMethodID,
+		arg.ID,
+	)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.CustomerID,
+		&i.Amount,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+	)
+	return i, err
+}
+
+const updateSubscriptionBilling = `-- name: UpdateSubscriptionBilling :one
+UPDATE subscriptions
+SET
+    next_billing_date = $1,
+    failure_retry_count = $2,
+    status = $3,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $4
+RETURNING id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+`
+
+type UpdateSubscriptionBillingParams struct {
+	NextBillingDate   pgtype.Date `json:"next_billing_date"`
+	FailureRetryCount int32       `json:"failure_retry_count"`
+	Status            string      `json:"status"`
+	ID                uuid.UUID   `json:"id"`
+}
+
+func (q *Queries) UpdateSubscriptionBilling(ctx context.Context, arg UpdateSubscriptionBillingParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, updateSubscriptionBilling,
 		arg.NextBillingDate,
 		arg.FailureRetryCount,
-		arg.GatewaySubscriptionID,
-		arg.CancelledAt,
+		arg.Status,
+		arg.ID,
 	)
-	return err
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.CustomerID,
+		&i.Amount,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+	)
+	return i, err
+}
+
+const updateSubscriptionStatus = `-- name: UpdateSubscriptionStatus :one
+UPDATE subscriptions
+SET status = $1, updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+RETURNING id, agent_id, customer_id, amount, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+`
+
+type UpdateSubscriptionStatusParams struct {
+	Status string    `json:"status"`
+	ID     uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, updateSubscriptionStatus, arg.Status, arg.ID)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.CustomerID,
+		&i.Amount,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+	)
+	return i, err
 }

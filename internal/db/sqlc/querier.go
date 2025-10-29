@@ -12,17 +12,76 @@ import (
 )
 
 type Querier interface {
-	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) error
-	CreateTransaction(ctx context.Context, arg CreateTransactionParams) error
+	ActivateAgent(ctx context.Context, agentID string) error
+	ActivatePaymentMethod(ctx context.Context, id uuid.UUID) error
+	AddEvidenceFile(ctx context.Context, arg AddEvidenceFileParams) error
+	AgentExists(ctx context.Context, agentID string) (bool, error)
+	CancelSubscription(ctx context.Context, arg CancelSubscriptionParams) (Subscription, error)
+	CountAgents(ctx context.Context, arg CountAgentsParams) (int64, error)
+	CountChargebacks(ctx context.Context, arg CountChargebacksParams) (int64, error)
+	CountSubscriptions(ctx context.Context, arg CountSubscriptionsParams) (int64, error)
+	CountTransactions(ctx context.Context, arg CountTransactionsParams) (int64, error)
+	CreateAgent(ctx context.Context, arg CreateAgentParams) (AgentCredential, error)
+	CreateChargeback(ctx context.Context, arg CreateChargebackParams) (Chargeback, error)
+	CreatePaymentMethod(ctx context.Context, arg CreatePaymentMethodParams) (CustomerPaymentMethod, error)
+	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error)
+	CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error)
+	CreateWebhookDelivery(ctx context.Context, arg CreateWebhookDeliveryParams) (WebhookDelivery, error)
+	CreateWebhookSubscription(ctx context.Context, arg CreateWebhookSubscriptionParams) (WebhookSubscription, error)
+	DeactivateAgent(ctx context.Context, agentID string) error
+	DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error
+	DeletePaymentMethod(ctx context.Context, id uuid.UUID) error
+	DeleteWebhookSubscription(ctx context.Context, arg DeleteWebhookSubscriptionParams) error
+	GetAgentByAgentID(ctx context.Context, agentID string) (AgentCredential, error)
+	GetAgentByID(ctx context.Context, id uuid.UUID) (AgentCredential, error)
+	GetChargebackByCaseNumber(ctx context.Context, arg GetChargebackByCaseNumberParams) (Chargeback, error)
+	GetChargebackByGroupID(ctx context.Context, groupID pgtype.UUID) (Chargeback, error)
+	GetChargebackByID(ctx context.Context, id uuid.UUID) (Chargeback, error)
+	GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPaymentMethodParams) (CustomerPaymentMethod, error)
+	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (CustomerPaymentMethod, error)
 	GetSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscription, error)
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (Transaction, error)
 	GetTransactionByIdempotencyKey(ctx context.Context, idempotencyKey pgtype.Text) (Transaction, error)
-	ListActiveSubscriptionsDueForBilling(ctx context.Context, arg ListActiveSubscriptionsDueForBillingParams) ([]Subscription, error)
+	GetTransactionsByGroupID(ctx context.Context, groupID uuid.UUID) ([]Transaction, error)
+	GetWebhookDeliveryHistory(ctx context.Context, arg GetWebhookDeliveryHistoryParams) ([]WebhookDelivery, error)
+	GetWebhookSubscription(ctx context.Context, id uuid.UUID) (WebhookSubscription, error)
+	IncrementSubscriptionFailureCount(ctx context.Context, arg IncrementSubscriptionFailureCountParams) (Subscription, error)
+	IncrementSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
+	ListActiveAgents(ctx context.Context) ([]AgentCredential, error)
+	ListActiveWebhooksByEvent(ctx context.Context, arg ListActiveWebhooksByEventParams) ([]WebhookSubscription, error)
+	ListAgents(ctx context.Context, arg ListAgentsParams) ([]AgentCredential, error)
+	ListChargebacks(ctx context.Context, arg ListChargebacksParams) ([]Chargeback, error)
+	ListDueSubscriptions(ctx context.Context, arg ListDueSubscriptionsParams) ([]Subscription, error)
+	ListPaymentMethods(ctx context.Context, arg ListPaymentMethodsParams) ([]CustomerPaymentMethod, error)
+	ListPaymentMethodsByCustomer(ctx context.Context, arg ListPaymentMethodsByCustomerParams) ([]CustomerPaymentMethod, error)
+	ListPendingWebhookDeliveries(ctx context.Context, limitVal int32) ([]WebhookDelivery, error)
+	ListSubscriptions(ctx context.Context, arg ListSubscriptionsParams) ([]Subscription, error)
 	ListSubscriptionsByCustomer(ctx context.Context, arg ListSubscriptionsByCustomerParams) ([]Subscription, error)
-	ListTransactionsByCustomer(ctx context.Context, arg ListTransactionsByCustomerParams) ([]Transaction, error)
-	ListTransactionsByMerchant(ctx context.Context, arg ListTransactionsByMerchantParams) ([]Transaction, error)
-	UpdateSubscription(ctx context.Context, arg UpdateSubscriptionParams) error
+	ListSubscriptionsDueForBilling(ctx context.Context, arg ListSubscriptionsDueForBillingParams) ([]Subscription, error)
+	ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error)
+	ListWebhookSubscriptions(ctx context.Context, arg ListWebhookSubscriptionsParams) ([]WebhookSubscription, error)
+	MarkChargebackResolved(ctx context.Context, arg MarkChargebackResolvedParams) error
+	// Then set the specified one as default
+	MarkPaymentMethodAsDefault(ctx context.Context, id uuid.UUID) error
+	MarkPaymentMethodUsed(ctx context.Context, id uuid.UUID) error
+	MarkPaymentMethodVerified(ctx context.Context, id uuid.UUID) error
+	ResetSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
+	// First unset all defaults for this customer
+	SetPaymentMethodAsDefault(ctx context.Context, arg SetPaymentMethodAsDefaultParams) error
+	UpdateAgent(ctx context.Context, arg UpdateAgentParams) (AgentCredential, error)
+	UpdateAgentMACPath(ctx context.Context, arg UpdateAgentMACPathParams) error
+	UpdateChargeback(ctx context.Context, arg UpdateChargebackParams) (Chargeback, error)
+	UpdateChargebackNotes(ctx context.Context, arg UpdateChargebackNotesParams) error
+	UpdateChargebackResponse(ctx context.Context, arg UpdateChargebackResponseParams) error
+	UpdateChargebackStatus(ctx context.Context, arg UpdateChargebackStatusParams) (Chargeback, error)
+	UpdateNextBillingDate(ctx context.Context, arg UpdateNextBillingDateParams) error
+	UpdateSubscription(ctx context.Context, arg UpdateSubscriptionParams) (Subscription, error)
+	UpdateSubscriptionBilling(ctx context.Context, arg UpdateSubscriptionBillingParams) (Subscription, error)
+	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) (Subscription, error)
+	UpdateTransaction(ctx context.Context, arg UpdateTransactionParams) (Transaction, error)
 	UpdateTransactionStatus(ctx context.Context, arg UpdateTransactionStatusParams) error
+	UpdateWebhookDeliveryStatus(ctx context.Context, arg UpdateWebhookDeliveryStatusParams) (WebhookDelivery, error)
+	UpdateWebhookSubscription(ctx context.Context, arg UpdateWebhookSubscriptionParams) (WebhookSubscription, error)
 }
 
 var _ Querier = (*Queries)(nil)

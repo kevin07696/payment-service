@@ -5,6 +5,7 @@
 package sqlc
 
 import (
+	"encoding/json"
 	"net/netip"
 	"time"
 
@@ -12,12 +13,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AgentCredential struct {
+	ID            uuid.UUID          `json:"id"`
+	AgentID       string             `json:"agent_id"`
+	MacSecretPath string             `json:"mac_secret_path"`
+	CustNbr       string             `json:"cust_nbr"`
+	MerchNbr      string             `json:"merch_nbr"`
+	DbaNbr        string             `json:"dba_nbr"`
+	TerminalNbr   string             `json:"terminal_nbr"`
+	Environment   string             `json:"environment"`
+	AgentName     string             `json:"agent_name"`
+	IsActive      pgtype.Bool        `json:"is_active"`
+	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+}
+
 type AuditLog struct {
 	ID          int64       `json:"id"`
 	EventType   string      `json:"event_type"`
 	EntityType  string      `json:"entity_type"`
 	EntityID    string      `json:"entity_id"`
-	MerchantID  string      `json:"merchant_id"`
+	AgentID     string      `json:"agent_id"`
 	UserID      pgtype.Text `json:"user_id"`
 	Action      string      `json:"action"`
 	BeforeState []byte      `json:"before_state"`
@@ -28,41 +45,121 @@ type AuditLog struct {
 	CreatedAt   time.Time   `json:"created_at"`
 }
 
+type Chargeback struct {
+	ID                  uuid.UUID          `json:"id"`
+	GroupID             pgtype.UUID        `json:"group_id"`
+	AgentID             string             `json:"agent_id"`
+	CustomerID          pgtype.Text        `json:"customer_id"`
+	CaseNumber          string             `json:"case_number"`
+	DisputeDate         time.Time          `json:"dispute_date"`
+	ChargebackDate      time.Time          `json:"chargeback_date"`
+	ChargebackAmount    string             `json:"chargeback_amount"`
+	Currency            string             `json:"currency"`
+	ReasonCode          string             `json:"reason_code"`
+	ReasonDescription   pgtype.Text        `json:"reason_description"`
+	Status              string             `json:"status"`
+	RespondByDate       pgtype.Date        `json:"respond_by_date"`
+	ResponseSubmittedAt pgtype.Timestamptz `json:"response_submitted_at"`
+	ResolvedAt          pgtype.Timestamptz `json:"resolved_at"`
+	EvidenceFiles       []string           `json:"evidence_files"`
+	ResponseNotes       pgtype.Text        `json:"response_notes"`
+	InternalNotes       pgtype.Text        `json:"internal_notes"`
+	RawData             json.RawMessage    `json:"raw_data"`
+	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt           time.Time          `json:"created_at"`
+	UpdatedAt           time.Time          `json:"updated_at"`
+}
+
+type CustomerPaymentMethod struct {
+	ID           uuid.UUID          `json:"id"`
+	AgentID      string             `json:"agent_id"`
+	CustomerID   string             `json:"customer_id"`
+	PaymentToken string             `json:"payment_token"`
+	PaymentType  string             `json:"payment_type"`
+	LastFour     string             `json:"last_four"`
+	CardBrand    pgtype.Text        `json:"card_brand"`
+	CardExpMonth pgtype.Int4        `json:"card_exp_month"`
+	CardExpYear  pgtype.Int4        `json:"card_exp_year"`
+	BankName     pgtype.Text        `json:"bank_name"`
+	AccountType  pgtype.Text        `json:"account_type"`
+	IsDefault    pgtype.Bool        `json:"is_default"`
+	IsActive     pgtype.Bool        `json:"is_active"`
+	IsVerified   pgtype.Bool        `json:"is_verified"`
+	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
+}
+
 type Subscription struct {
 	ID                    uuid.UUID          `json:"id"`
-	MerchantID            string             `json:"merchant_id"`
+	AgentID               string             `json:"agent_id"`
 	CustomerID            string             `json:"customer_id"`
 	Amount                pgtype.Numeric     `json:"amount"`
 	Currency              string             `json:"currency"`
-	Frequency             string             `json:"frequency"`
+	IntervalValue         int32              `json:"interval_value"`
+	IntervalUnit          string             `json:"interval_unit"`
 	Status                string             `json:"status"`
-	PaymentMethodToken    string             `json:"payment_method_token"`
+	PaymentMethodID       uuid.UUID          `json:"payment_method_id"`
 	NextBillingDate       pgtype.Date        `json:"next_billing_date"`
 	FailureRetryCount     int32              `json:"failure_retry_count"`
 	MaxRetries            int32              `json:"max_retries"`
-	FailureOption         string             `json:"failure_option"`
 	GatewaySubscriptionID pgtype.Text        `json:"gateway_subscription_id"`
 	Metadata              []byte             `json:"metadata"`
+	DeletedAt             pgtype.Timestamptz `json:"deleted_at"`
 	CreatedAt             time.Time          `json:"created_at"`
 	UpdatedAt             time.Time          `json:"updated_at"`
 	CancelledAt           pgtype.Timestamptz `json:"cancelled_at"`
 }
 
 type Transaction struct {
-	ID                     uuid.UUID      `json:"id"`
-	MerchantID             string         `json:"merchant_id"`
-	CustomerID             pgtype.Text    `json:"customer_id"`
-	Amount                 pgtype.Numeric `json:"amount"`
-	Currency               string         `json:"currency"`
-	Status                 string         `json:"status"`
-	Type                   string         `json:"type"`
-	PaymentMethodType      string         `json:"payment_method_type"`
-	PaymentMethodToken     pgtype.Text    `json:"payment_method_token"`
-	GatewayTransactionID   pgtype.Text    `json:"gateway_transaction_id"`
-	GatewayResponseCode    pgtype.Text    `json:"gateway_response_code"`
-	GatewayResponseMessage pgtype.Text    `json:"gateway_response_message"`
-	IdempotencyKey         pgtype.Text    `json:"idempotency_key"`
-	Metadata               []byte         `json:"metadata"`
-	CreatedAt              time.Time      `json:"created_at"`
-	UpdatedAt              time.Time      `json:"updated_at"`
+	ID                uuid.UUID          `json:"id"`
+	GroupID           uuid.UUID          `json:"group_id"`
+	AgentID           string             `json:"agent_id"`
+	CustomerID        pgtype.Text        `json:"customer_id"`
+	Amount            pgtype.Numeric     `json:"amount"`
+	Currency          string             `json:"currency"`
+	Status            string             `json:"status"`
+	Type              string             `json:"type"`
+	PaymentMethodType string             `json:"payment_method_type"`
+	PaymentMethodID   pgtype.UUID        `json:"payment_method_id"`
+	AuthGuid          pgtype.Text        `json:"auth_guid"`
+	AuthResp          pgtype.Text        `json:"auth_resp"`
+	AuthCode          pgtype.Text        `json:"auth_code"`
+	AuthRespText      pgtype.Text        `json:"auth_resp_text"`
+	AuthCardType      pgtype.Text        `json:"auth_card_type"`
+	AuthAvs           pgtype.Text        `json:"auth_avs"`
+	AuthCvv2          pgtype.Text        `json:"auth_cvv2"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Metadata          []byte             `json:"metadata"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+}
+
+// Webhook delivery log for tracking and retries
+type WebhookDelivery struct {
+	ID             uuid.UUID          `json:"id"`
+	SubscriptionID uuid.UUID          `json:"subscription_id"`
+	EventType      string             `json:"event_type"`
+	Payload        json.RawMessage    `json:"payload"`
+	Status         string             `json:"status"`
+	HttpStatusCode pgtype.Int4        `json:"http_status_code"`
+	ErrorMessage   pgtype.Text        `json:"error_message"`
+	Attempts       int32              `json:"attempts"`
+	NextRetryAt    pgtype.Timestamptz `json:"next_retry_at"`
+	DeliveredAt    pgtype.Timestamptz `json:"delivered_at"`
+	CreatedAt      time.Time          `json:"created_at"`
+}
+
+// Merchant webhook subscriptions for chargeback events
+type WebhookSubscription struct {
+	ID         uuid.UUID `json:"id"`
+	AgentID    string    `json:"agent_id"`
+	EventType  string    `json:"event_type"`
+	WebhookUrl string    `json:"webhook_url"`
+	Secret     string    `json:"secret"`
+	IsActive   bool      `json:"is_active"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
