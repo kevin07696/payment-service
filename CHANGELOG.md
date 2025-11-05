@@ -7,6 +7,246 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Storage BRIC Conversion Implementation (2025-11-04)
+
+**Implemented EPX BRIC Storage API for saving payment methods**
+
+- **New BRIC Storage Port Interface** (`internal/adapters/ports/bric_storage.go`):
+  - ✅ Created `BRICStorageAdapter` port for BRIC Storage operations
+  - ✅ Supports converting Financial BRICs to Storage BRICs
+  - ✅ Supports creating Storage BRICs from account information
+  - ✅ Supports updating existing Storage BRIC reference data
+  - **Why**: Storage BRICs never expire and are used for recurring payments and saved payment methods
+  - **Impact**: Enables customers to save payment methods for future use
+
+- **Extended Server Post API Support**:
+  - ✅ Added `TransactionTypeBRICStorageCC` (CCE8) for credit card Storage BRIC
+  - ✅ Added `TransactionTypeBRICStorageACH` (CKC8) for ACH Storage BRIC
+  - ✅ Extended `ServerPostRequest` with BRIC Storage specific fields:
+    - Account information fields (ACCOUNT_NBR, ROUTING_NBR, EXP_DATE, CVV)
+    - Billing information fields (FIRST_NAME, LAST_NAME, ADDRESS, CITY, STATE, ZIP_CODE)
+    - Card entry method (CARD_ENT_METH)
+    - Industry type (INDUSTRY_TYPE)
+  - ✅ Extended `ServerPostResponse` with Network Transaction ID (NTID)
+  - **Why**: EPX BRIC Storage requires additional fields for Account Verification
+  - **Files Changed**: `internal/adapters/ports/server_post.go`
+
+- **Payment Method Service Enhancement**:
+  - ✅ Added `ConvertFinancialBRICToStorageBRIC()` method to `PaymentMethodService` interface
+  - ✅ Created `ConvertFinancialBRICRequest` with billing information for Account Verification
+  - **Use Case**: Customer completes payment and wants to save payment method
+  - **Process Flow**:
+    1. User completes Browser Post transaction → receives Financial BRIC
+    2. User clicks "Save payment method"
+    3. Backend calls `ConvertFinancialBRICToStorageBRIC()`
+    4. For credit cards: EPX performs $0.00 Account Verification with card networks
+    5. For ACH: EPX validates routing number
+    6. If approved: Storage BRIC saved to `customer_payment_methods` table
+  - **Files Changed**: `internal/services/ports/payment_method_service.go`
+
+- **Key Technical Details**:
+  - **Credit Cards**:
+    - EPX routes Storage BRIC requests as $0.00 Account Verification (CCx0) to Visa/MC/Discover/Amex
+    - Issuer must approve for Storage BRIC creation (enforces Network card-on-file requirements)
+    - Returns Storage BRIC + Network Transaction ID (NTID) for compliance
+    - Account Verification validates: ACCOUNT_NBR, EXP_DATE, ADDRESS (AVS), ZIP_CODE (AVS), CVV2
+  - **ACH**:
+    - Simpler process - EPX performs internal routing number validation only
+    - No network validation required
+    - Returns Storage BRIC immediately if routing number valid
+  - **Storage BRIC Lifecycle**:
+    - Never expires (indefinite lifetime)
+    - One-time fee (billed 1 month in arrears by EPX business team)
+    - Can be used for recurring payments and card-on-file
+    - Important: When updating Storage BRIC, keep using original BRIC (new one cannot be used)
+
+- **Documentation**:
+  - ✅ Read and analyzed EPX BRIC Storage specification (19 pages)
+  - ✅ Read and analyzed 3D Secure & 3rd Party Token specification (28 pages)
+  - ✅ Documented conversion fee structure (business billing, not technical charge)
+  - ✅ Documented Account Verification requirements for credit cards
+  - ✅ Documented three BRIC Storage use cases:
+    1. Create from account information
+    2. Update existing Storage BRIC
+    3. Convert Financial BRIC to Storage BRIC
+
+- **EPX BRIC Storage Adapter** (`internal/adapters/epx/bric_storage_adapter.go`):
+  - ✅ Implemented complete BRIC Storage adapter (522 lines)
+  - ✅ `ConvertFinancialBRICToStorage()` - converts Financial BRIC with Account Verification
+  - ✅ `CreateStorageBRICFromAccount()` - creates Storage BRIC from raw card/account data
+  - ✅ `UpdateStorageBRIC()` - updates reference data for existing Storage BRIC
+  - ✅ XML request building for EPX integration
+  - ✅ HTTP request handling with retry logic
+  - ✅ Response parsing and validation
+  - **Files Created**: `internal/adapters/epx/bric_storage_adapter.go`
+
+- **Payment Method Service Implementation**:
+  - ✅ Implemented `ConvertFinancialBRICToStorageBRIC()` service method (168 lines)
+  - ✅ Validates Financial BRIC and billing information
+  - ✅ Retrieves agent credentials from database
+  - ✅ Calls EPX BRIC Storage API via adapter
+  - ✅ Verifies Account Verification approval for credit cards
+  - ✅ Saves Storage BRIC to `customer_payment_methods` table
+  - ✅ Logs Network Transaction ID for compliance
+  - ✅ Returns payment method domain object
+  - **Files Modified**: `internal/services/payment_method/payment_method_service.go`
+
+- **Browser Post Callback Integration**:
+  - ✅ Updated `BrowserPostCallbackHandler` to support saving payment methods
+  - ✅ Added `PaymentMethodService` dependency to handler
+  - ✅ Checks `USER_DATA_1` for `save_payment_method=true` flag
+  - ✅ Extracts customer_id from `USER_DATA_2`
+  - ✅ Parses card details (last four, expiration, brand) from EPX response
+  - ✅ Extracts billing information for Account Verification
+  - ✅ Calls `ConvertFinancialBRICToStorageBRIC()` after successful transaction
+  - ✅ Logs payment method save operation
+  - **Files Modified**: `internal/handlers/payment/browser_post_callback_handler.go`
+
+- **gRPC API Endpoint**:
+  - ✅ Added `ConvertFinancialBRICToStorageBRIC` RPC to proto definition
+  - ✅ Created `ConvertFinancialBRICRequest` message with all required fields
+  - ✅ Implemented gRPC handler with validation
+  - ✅ Converts proto request to service request
+  - ✅ Maps domain errors to gRPC status codes
+  - ✅ Returns `PaymentMethodResponse` with saved payment method details
+  - **Files Modified**:
+    - `proto/payment_method/v1/payment_method.proto`
+    - `internal/handlers/payment_method/payment_method_handler.go`
+
+- **Service Initialization**:
+  - ✅ Created BRIC Storage adapter in `initDependencies()`
+  - ✅ Wired adapter to PaymentMethodService
+  - ✅ Updated BrowserPostCallbackHandler to receive PaymentMethodService
+  - **Files Modified**: `cmd/server/main.go`
+
+- **Implementation Status**:
+  - ✅ Port interfaces defined
+  - ✅ Data structures created
+  - ✅ Adapter implementation completed
+  - ✅ Service implementation completed
+  - ✅ Integration with Browser Post callback handler completed
+  - ✅ gRPC endpoint implemented
+  - ✅ Dependency injection configured
+  - ✅ Code compiles successfully
+
+### Added - Browser Post Callback Endpoint (2025-11-03)
+
+**Implemented EPX Browser Post REDIRECT_URL handler for transaction processing**
+
+- **New HTTP Callback Endpoint**:
+  - ✅ Created `/api/v1/payments/browser-post/callback` endpoint (POST)
+  - ✅ Receives redirect from EPX with transaction results after payment processing
+  - ✅ Parses response using existing `BrowserPostAdapter.ParseRedirectResponse()`
+  - ✅ Validates and extracts AUTH_GUID (BRIC), AUTH_RESP, AUTH_CODE, and card verification fields
+  - **Why**: EPX requires a REDIRECT_URL to send transaction results back to merchant
+  - **Impact**: Completes Browser Post flow for PCI-compliant card tokenization
+
+- **Transaction Storage**:
+  - ✅ Stores transaction in database with AUTH_GUID for refunds/voids/chargebacks
+  - ✅ Uses existing transactions table schema (no migration needed)
+  - ✅ Handles guest checkouts (no customer_id or payment_method_id)
+  - ✅ Implements duplicate detection using TRAN_NBR as idempotency key
+  - **Why**: AUTH_GUID needed for post-transaction operations (refunds, disputes, reconciliation)
+  - **Why Duplicate Detection**: EPX uses PRG pattern - same response may be received multiple times
+
+- **User-Facing Receipt Page**:
+  - ✅ Renders HTML receipt page with transaction details
+  - ✅ Shows success/failure status with appropriate messaging
+  - ✅ Displays masked card number, authorization code, and transaction ID
+  - ✅ Provides error page for validation failures
+  - **Why**: User sees immediate feedback after payment submission
+
+- **Integration**:
+  - ✅ Wired up handler in `cmd/server/main.go` alongside cron endpoints
+  - ✅ Uses HTTP server on port 8081 (same as cron endpoints)
+  - ✅ Dependencies: DatabaseAdapter, BrowserPostAdapter, Logger
+  - **Files Changed**:
+    - `internal/handlers/payment/browser_post_callback_handler.go` (new)
+    - `cmd/server/main.go` (updated)
+    - `README.md` (updated with REDIRECT_URL configuration)
+
+- **REDIRECT_URL Configuration**:
+  - Local Development: `http://localhost:8081/api/v1/payments/browser-post/callback`
+  - Production: `https://yourdomain.com/api/v1/payments/browser-post/callback`
+  - **Action Required**: Provide this URL to EPX when configuring Browser Post credentials
+
+### Added - Comprehensive Transaction Dataflow Documentation (2025-11-03)
+
+**Created detailed dataflow documentation for Browser Post and Server Post transactions**
+
+- **Single Credit Card Transaction Dataflow** (`CREDIT_CARD_BROWSER_POST_DATAFLOW.md`):
+  - ✅ Complete 10-step flow from customer checkout to receipt page
+  - ✅ Detailed explanation of TAC token generation
+  - ✅ PCI-compliant flow where card data never touches merchant backend
+  - ✅ Financial BRIC token storage and usage explained
+  - ✅ Guest checkout implementation details
+  - ✅ Future enhancement path for saved payment methods (Storage BRIC conversion)
+  - ✅ Security and compliance considerations
+  - ✅ Data summary and visual flow diagrams
+  - **Use Case**: One-time credit card payment via browser
+  - **API**: Browser Post API
+  - **Settlement**: Real-time authorization
+
+- **Single ACH Transaction Dataflow** (`ACH_SERVER_POST_DATAFLOW.md`):
+  - ✅ Complete 8-step flow from bank account collection to confirmation
+  - ✅ Server-to-server integration details
+  - ✅ Both HTTPS POST (port 443) and XML Socket (port 8086) methods documented
+  - ✅ ACH-specific processing timeline (1-3 business day settlement)
+  - ✅ Financial BRIC token for bank accounts
+  - ✅ Recurring payment implementation with saved BRIC tokens
+  - ✅ ACH vs Credit Card comparison table
+  - ✅ NACHA compliance requirements
+  - ✅ Common ACH response codes reference
+  - **Use Case**: Bank account debit for recurring payments or invoices
+  - **API**: Server Post API
+  - **Settlement**: 1-3 business days
+
+- **Key Insights Documented**:
+  - ✅ Financial BRIC tokens (13-24 month lifetime) can be used for recurring payments
+  - ✅ Storage BRIC tokens (never expire) for saved payment methods
+  - ✅ Conversion process from Financial to Storage BRIC
+  - ✅ Both credit cards and ACH bank accounts generate BRIC tokens
+  - ✅ Server Post API used with BRIC tokens eliminates need to collect payment info again
+  - ✅ PCI compliance differences between Browser Post and Server Post
+
+- **Documentation Structure**:
+  - Overview and use case
+  - Complete transaction flow with visual diagrams
+  - Detailed step-by-step walkthrough
+  - Code examples and SQL queries
+  - Security and compliance notes
+  - Implementation status checklist
+  - Testing guidelines
+
+### Fixed - Browser Post Dataflow Documentation (2025-11-03)
+
+**Corrected BROWSER_POST_DATAFLOW.md to remove incorrect Key Exchange API references**
+
+- **Removed Key Exchange API Step**:
+  - ❌ Removed incorrect documentation of EPX Key Exchange API as part of Browser Post flow
+  - ✅ Updated Step 1 to "GENERATE TAC TOKEN" with merchant-specific implementation note
+  - **Reason**: User correction - "there is no key exchange api for north payment"
+  - **Impact**: Dataflow documentation now accurately reflects the actual implementation
+
+- **Clarified TAC Token Generation**:
+  - ✅ Documented that TAC generation method depends on merchant's EPX credentials setup
+  - ✅ Kept TAC contents documentation (MAC, REDIRECT_URL, AMOUNT, TRAN_NBR, etc.)
+  - ✅ Maintained 4-hour expiration and encryption details
+  - **Why**: Different merchants may have different TAC provisioning methods
+
+- **Enhanced Financial BRIC Documentation**:
+  - ✅ Added section documenting Financial BRIC token usage
+  - ✅ Clarified current implementation (guest checkout: refunds, voids, chargebacks, reconciliation)
+  - ✅ Documented future enhancement: Converting to Storage BRIC for saved payment methods
+  - ✅ Noted Storage BRIC capabilities: recurring payments, card-on-file, never expires
+  - **Why**: User clarification that BRICs can be used for recurring payments and saved methods
+
+- **Updated Process Flow**:
+  - ✅ Changed flow from 5 steps with Key Exchange to 4 steps starting with TAC generation
+  - ✅ Maintained all EPX validation, processing, and redirect logic
+  - ✅ Kept PRG (POST-REDIRECT-GET) pattern documentation
+  - ✅ Preserved all component verification and testing checklists
+
 ### Fixed - Docker Compose and Migrations (2025-10-29)
 
 **Fixed deployment issues and migration dependencies**

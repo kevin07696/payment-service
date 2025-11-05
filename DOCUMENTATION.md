@@ -631,10 +631,12 @@ North Gateway
 ### Available APIs
 
 **1. Browser Post API** ✅ (One-Time Payments)
-- **Purpose**: Tokenized one-time payments
+- **Purpose**: Tokenized one-time payments with PCI-compliant frontend-to-EPX flow
 - **Adapter**: `BrowserPostAdapter`
-- **Best For**: Checkout, one-time purchases
+- **Callback Handler**: `BrowserPostCallbackHandler` (HTTP endpoint)
+- **Best For**: Checkout, one-time purchases, guest checkouts
 - **Operations**: Authorize, Capture, Void, Refund
+- **Flow**: Browser → EPX (payment) → Backend (via REDIRECT_URL) → User (receipt page)
 
 **2. Recurring Billing API** ✅ (Subscriptions)
 - **Purpose**: Store payment methods & recurring billing
@@ -685,6 +687,121 @@ Common response codes from North:
 | 82 | CVV ERROR | Invalid Card | Yes | Incorrect CVV. Please check the security code. |
 | 59 | SUSPECTED FRAUD | Fraud | No | Transaction declined for security reasons. |
 | 96 | SYSTEM ERROR | System Error | Yes | System error. Please try again. |
+
+### Browser Post Complete Flow
+
+**EPX Browser Post** is a PCI-compliant payment flow where the user's browser posts card data directly to EPX (never touching your backend), and EPX redirects back with transaction results.
+
+#### Flow Diagram
+
+```
+┌──────────────┐
+│  Your Backend│
+│              │  1. Generate TAC Token
+│              │  ← Key Exchange API
+└──────┬───────┘
+       │ 2. Return payment form HTML
+       │    (with TAC + REDIRECT_URL)
+       ▼
+┌──────────────┐
+│ User Browser │
+│              │  3. User enters card details
+│              │  4. Form POSTs to EPX
+│              │  → https://epxnow.com/epx/browser_post
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│     EPX      │
+│              │  5. Process payment
+│              │  6. Redirect browser to REDIRECT_URL
+│              │  → POST to your callback endpoint
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│  Your Backend│
+│  /api/v1/    │  7. Parse transaction results
+│  payments/   │  8. Validate response
+│  browser-    │  9. Store in database (with AUTH_GUID)
+│  post/       │  10. Render HTML receipt page
+│  callback    │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ User Browser │
+│              │  11. See success/failure page
+│              │      with transaction details
+└──────────────┘
+```
+
+#### REDIRECT_URL Configuration
+
+**CRITICAL**: EPX requires a `REDIRECT_URL` to be configured with your Browser Post credentials. This is where EPX sends transaction results.
+
+**For Local Development:**
+```
+http://localhost:8081/api/v1/payments/browser-post/callback
+```
+
+**For Production:**
+```
+https://yourdomain.com/api/v1/payments/browser-post/callback
+```
+
+#### Implementation Details
+
+**1. Backend Callback Handler**
+- **File**: `internal/handlers/payment/browser_post_callback_handler.go`
+- **Endpoint**: `POST /api/v1/payments/browser-post/callback`
+- **Port**: `8081` (HTTP server, same as cron endpoints)
+
+**2. What the Callback Handler Does:**
+```go
+1. Receives POST redirect from EPX with form-encoded transaction results
+2. Parses response using BrowserPostAdapter.ParseRedirectResponse()
+3. Validates AUTH_GUID and AUTH_RESP fields
+4. Checks for duplicate transactions using TRAN_NBR (idempotency)
+5. Stores transaction in database:
+   - AUTH_GUID (BRIC) - Required for refunds, voids, disputes
+   - AUTH_RESP - Approval status ("00" = approved)
+   - AUTH_CODE - Bank authorization code
+   - Card verification fields (AVS, CVV2)
+6. Renders HTML receipt page to user
+   - Success: Shows masked card, auth code, transaction ID
+   - Failure: Shows error message with retry button
+```
+
+**3. Why Store AUTH_GUID for Guest Checkouts?**
+
+Even though Browser Post is typically used for guest checkouts (no saved payment method), we MUST store the `AUTH_GUID` (BRIC token) because it's required for:
+- **Refunds**: Most common post-transaction operation
+- **Voids**: Cancel transaction before settlement
+- **Chargeback Defense**: Reference original transaction
+- **Reconciliation**: Match with EPX settlement reports
+
+**4. Duplicate Detection (PRG Pattern)**
+
+EPX implements the POST-REDIRECT-GET pattern, meaning:
+- Transaction is processed once
+- Browser is redirected to get the response
+- If user clicks "Back" or "Refresh", same response is returned
+- Your handler checks `TRAN_NBR` before inserting to prevent duplicates
+
+**5. Response Fields Received:**
+
+| Field | Description | Example | Purpose |
+|-------|-------------|---------|---------|
+| AUTH_GUID | Transaction token (BRIC) | `0V703LH1HDL006J74W1` | Refunds, voids, tracking |
+| AUTH_RESP | Approval code | `00` (approved) | Determine success/failure |
+| AUTH_CODE | Bank authorization | `123456` | Chargeback defense |
+| AUTH_RESP_TEXT | Human message | `APPROVED` | Display to user |
+| AUTH_CARD_TYPE | Card brand | `V` (Visa) | Reporting, fees |
+| AUTH_AVS | Address verification | `Y` (match) | Fraud scoring |
+| AUTH_CVV2 | CVV verification | `M` (match) | Fraud scoring |
+| TRAN_NBR | Your transaction number | `TXN-12345` | Idempotency |
+| AMOUNT | Transaction amount | `99.99` | Verification |
 
 ---
 

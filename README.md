@@ -131,11 +131,15 @@ docker-compose down -v
 
 Services will be available at:
 - **gRPC API**: `localhost:8080`
-- **HTTP Cron Endpoints**: `http://localhost:8081`
-  - `POST /cron/process-billing` - Process recurring billing
-  - `POST /cron/sync-disputes` - Sync chargebacks from North API
-  - `GET /cron/health` - Health check
-  - `GET /cron/stats` - Billing statistics
+  - Payment, Subscription, PaymentMethod, Agent, Chargeback services
+- **HTTP Endpoints**: `http://localhost:8081`
+  - **Browser Post Callback**:
+    - `POST /api/v1/payments/browser-post/callback` - EPX redirect callback (transaction results)
+  - **Cron Jobs**:
+    - `POST /cron/process-billing` - Process recurring billing
+    - `POST /cron/sync-disputes` - Sync chargebacks from North API
+    - `GET /cron/health` - Health check
+    - `GET /cron/stats` - Billing statistics
 - **PostgreSQL**: `localhost:5432`
 
 ### Using the Makefile
@@ -267,6 +271,92 @@ if err != nil {
 fmt.Printf("Transaction ID: %s\n", result.TransactionID)
 fmt.Printf("Status: %s\n", result.Status)
 ```
+
+### Complete Browser Post Flow Example
+
+**Browser Post** is the recommended PCI-compliant approach where card data goes directly from the user's browser to EPX (never touching your backend). Here's the complete flow:
+
+**1. Backend: Generate TAC Token**
+```go
+// Your backend generates a TAC token via Key Exchange API
+tacResponse, err := keyExchangeAdapter.GenerateTAC(ctx, &ports.KeyExchangeRequest{
+    Amount:      "99.99",
+    TranNbr:     "TXN-12345",     // Your unique transaction ID
+    TranGroup:   "SALE",
+    RedirectURL: "http://localhost:8081/api/v1/payments/browser-post/callback",
+})
+// Returns: TAC token valid for 4 hours
+```
+
+**2. Backend: Build Form Data**
+```go
+// Construct form data for frontend
+formData, err := browserPostAdapter.BuildFormData(
+    tacResponse.TAC,
+    "99.99",
+    "TXN-12345",
+    "SALE",
+    "http://localhost:8081/api/v1/payments/browser-post/callback",
+)
+// Returns: PostURL, TAC, and other form fields
+```
+
+**3. Frontend: Render Payment Form**
+```html
+<!-- User's browser submits card data directly to EPX -->
+<form method="POST" action="{{.PostURL}}">
+    <input type="hidden" name="TAC" value="{{.TAC}}" />
+    <input type="hidden" name="TRAN_NBR" value="TXN-12345" />
+    <input type="hidden" name="AMOUNT" value="99.99" />
+    <input type="hidden" name="TRAN_GROUP" value="SALE" />
+    <input type="hidden" name="REDIRECT_URL" value="http://localhost:8081/api/v1/payments/browser-post/callback" />
+
+    <input type="text" name="CARD_NBR" placeholder="Card Number" required />
+    <input type="text" name="EXP_MONTH" placeholder="MM" required />
+    <input type="text" name="EXP_YEAR" placeholder="YYYY" required />
+    <input type="text" name="CVV" placeholder="CVV" required />
+
+    <button type="submit">Pay $99.99</button>
+</form>
+```
+
+**4. EPX: Process Payment**
+- User's browser POSTs to EPX (card data never touches your server)
+- EPX validates card, processes payment
+- EPX redirects browser back to your REDIRECT_URL with results
+
+**5. Backend: Callback Handler Receives Results**
+```go
+// Automatically handled by BrowserPostCallbackHandler
+// File: internal/handlers/payment/browser_post_callback_handler.go
+
+POST /api/v1/payments/browser-post/callback
+
+// Received fields:
+// - AUTH_GUID: Transaction token for refunds/voids
+// - AUTH_RESP: "00" = approved
+// - AUTH_CODE: Bank authorization code
+// - AUTH_CARD_TYPE, AUTH_AVS, AUTH_CVV2: Verification
+// - TRAN_NBR, AMOUNT: Echo back your values
+
+// Handler:
+// 1. Parses response
+// 2. Validates fields
+// 3. Checks for duplicates (idempotency)
+// 4. Stores in database with AUTH_GUID
+// 5. Renders HTML receipt page to user
+```
+
+**6. User: Sees Receipt Page**
+- Success: Shows masked card, auth code, transaction ID
+- Failure: Shows error message with retry option
+
+**Key Benefits:**
+- ✅ PCI-compliant (card data never hits your server)
+- ✅ No PCI certification needed
+- ✅ Simple integration
+- ✅ AUTH_GUID stored for future refunds/voids
+- ✅ Automatic duplicate detection
 
 ## 🧪 Testing
 
@@ -477,10 +567,22 @@ goose -dir internal/db/migrations create add_users_table sql
 
 ### Browser Post API ✅
 
-- `GeneratePaymentForm()` - Generate hosted payment form
-- `ProcessCallback()` - Process payment callback
-- `GetToken()` - Retrieve BRIC token from response
+- `BuildFormData()` - Generate payment form data with TAC token
+- `ParseRedirectResponse()` - Process payment callback from EPX
+- `ValidateResponseMAC()` - Validate response signature
 - Frontend tokenization for PCI compliance
+
+**REDIRECT_URL Configuration:**
+When configuring your EPX Browser Post credentials, provide this URL where EPX will redirect after processing:
+- **Local Development**: `http://localhost:8081/api/v1/payments/browser-post/callback`
+- **Production**: `https://yourdomain.com/api/v1/payments/browser-post/callback`
+
+The callback endpoint:
+1. Receives POST redirect from EPX with transaction results
+2. Parses and validates the response
+3. Stores transaction in database (including AUTH_GUID for refunds)
+4. Displays HTML receipt page to user
+5. Handles duplicate callbacks (PRG pattern)
 
 ## 🛠️ Development
 
