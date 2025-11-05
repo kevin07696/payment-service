@@ -83,7 +83,7 @@ func main() {
 	// Register reflection service (for tools like grpcurl)
 	reflection.Register(grpcServer)
 
-	// Setup HTTP server for cron endpoints
+	// Setup HTTP server for cron endpoints and Browser Post callback
 	httpMux := http.NewServeMux()
 
 	// Cron endpoints
@@ -91,6 +91,9 @@ func main() {
 	httpMux.HandleFunc("/cron/sync-disputes", deps.disputeSyncCronHandler.SyncDisputes)
 	httpMux.HandleFunc("/cron/health", deps.billingCronHandler.HealthCheck)
 	httpMux.HandleFunc("/cron/stats", deps.billingCronHandler.Stats)
+
+	// Browser Post callback endpoint (EPX redirects here after payment)
+	httpMux.HandleFunc("/api/v1/payments/browser-post/callback", deps.browserPostCallbackHandler.HandleCallback)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -173,13 +176,14 @@ type Config struct {
 
 // Dependencies holds all initialized services and handlers
 type Dependencies struct {
-	paymentHandler         paymentv1.PaymentServiceServer
-	subscriptionHandler    subscriptionv1.SubscriptionServiceServer
-	paymentMethodHandler   paymentmethodv1.PaymentMethodServiceServer
-	agentHandler           agentv1.AgentServiceServer
-	chargebackHandler      chargebackv1.ChargebackServiceServer
-	billingCronHandler     *cronHandler.BillingHandler
-	disputeSyncCronHandler *cronHandler.DisputeSyncHandler
+	paymentHandler            paymentv1.PaymentServiceServer
+	subscriptionHandler       subscriptionv1.SubscriptionServiceServer
+	paymentMethodHandler      paymentmethodv1.PaymentMethodServiceServer
+	agentHandler              agentv1.AgentServiceServer
+	chargebackHandler         chargebackv1.ChargebackServiceServer
+	billingCronHandler        *cronHandler.BillingHandler
+	disputeSyncCronHandler    *cronHandler.DisputeSyncHandler
+	browserPostCallbackHandler *paymentHandler.BrowserPostCallbackHandler
 }
 
 // loadConfig loads configuration from environment variables
@@ -296,6 +300,9 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	serverPostCfg := epx.DefaultServerPostConfig(epxEnv)
 	serverPost := epx.NewServerPostAdapter(serverPostCfg, logger)
 
+	bricStorageCfg := epx.DefaultBRICStorageConfig(epxEnv)
+	bricStorage := epx.NewBRICStorageAdapter(bricStorageCfg, logger)
+
 	// Initialize secret manager (using local file system for development)
 	secretManager := secrets.NewLocalSecretManager("./secrets", logger)
 
@@ -327,6 +334,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 		dbAdapter,
 		browserPost,
 		serverPost,
+		bricStorage,
 		secretManager,
 		logger,
 	)
@@ -351,14 +359,18 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, logger, cfg.CronSecret)
 	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
 
+	// Initialize Browser Post callback handler
+	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(dbAdapter, browserPost, paymentMethodSvc, logger)
+
 	return &Dependencies{
-		paymentHandler:       paymentHdlr,
-		subscriptionHandler:  subscriptionHdlr,
-		paymentMethodHandler: paymentMethodHdlr,
-		agentHandler:         agentHdlr,
-		chargebackHandler:    chargebackHdlr,
-		billingCronHandler:   billingCronHdlr,
-		disputeSyncCronHandler: disputeSyncCronHdlr,
+		paymentHandler:             paymentHdlr,
+		subscriptionHandler:        subscriptionHdlr,
+		paymentMethodHandler:       paymentMethodHdlr,
+		agentHandler:               agentHdlr,
+		chargebackHandler:          chargebackHdlr,
+		billingCronHandler:         billingCronHdlr,
+		disputeSyncCronHandler:     disputeSyncCronHdlr,
+		browserPostCallbackHandler: browserPostCallbackHdlr,
 	}
 }
 
