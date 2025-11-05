@@ -9,12 +9,14 @@ import (
 type TransactionType string
 
 const (
-	TransactionTypeAuthOnly TransactionType = "A" // Authorization only
-	TransactionTypeCapture  TransactionType = "D" // Capture previous authorization
-	TransactionTypeSale     TransactionType = "S" // Sale (auth + capture)
-	TransactionTypeRefund   TransactionType = "C" // Credit/refund
-	TransactionTypeVoid     TransactionType = "V" // Void transaction
-	TransactionTypePreNote  TransactionType = "P" // ACH pre-note verification
+	TransactionTypeAuthOnly       TransactionType = "A"    // Authorization only
+	TransactionTypeCapture        TransactionType = "D"    // Capture previous authorization
+	TransactionTypeSale           TransactionType = "S"    // Sale (auth + capture)
+	TransactionTypeRefund         TransactionType = "C"    // Credit/refund
+	TransactionTypeVoid           TransactionType = "V"    // Void transaction
+	TransactionTypePreNote        TransactionType = "P"    // ACH pre-note verification
+	TransactionTypeBRICStorageCC  TransactionType = "CCE8" // BRIC Storage - Credit Card (Ecommerce)
+	TransactionTypeBRICStorageACH TransactionType = "CKC8" // BRIC Storage - ACH Checking Account
 )
 
 // PaymentMethodType represents the payment method
@@ -50,6 +52,35 @@ type ServerPostRequest struct {
 	OriginalAuthGUID string // AUTH_GUID of transaction to capture/void/refund
 	OriginalAmount   string // Original transaction amount (for partial refunds)
 
+	// For BRIC Storage (tokenization)
+	// When converting Financial BRIC to Storage BRIC, include:
+	//   - ORIG_AUTH_GUID: the Financial BRIC to convert
+	//   - ADDRESS, ZIP_CODE: for Account Verification (credit cards)
+	//   - CARD_ENT_METH: "Z" for BRIC-based, "E" for account-based
+	//
+	// For credit cards: triggers $0.00 Account Verification to card networks
+	// Returns: Storage BRIC (never expires) + Network Transaction ID
+	//
+	// Account information (for creating Storage BRIC from account data)
+	AccountNumber *string // Card number or bank account number
+	RoutingNumber *string // For ACH only
+	ExpirationDate *string // YYMM format for credit cards
+	CVV            *string // CVV for initial validation
+
+	// Billing information (required for Account Verification)
+	FirstName *string
+	LastName  *string
+	Address   *string
+	City      *string
+	State     *string
+	ZipCode   *string
+
+	// Card Entry Method ("E" = ecommerce, "Z" = BRIC/token)
+	CardEntryMethod *string
+
+	// Industry Type ("E" = ecommerce)
+	IndustryType *string
+
 	// Optional metadata
 	CustomerID string            // Our internal customer ID
 	Metadata   map[string]string // Additional metadata
@@ -69,6 +100,9 @@ type ServerPostResponse struct {
 	AuthCardType string // Card brand ("V"/"M"/"A"/"D") - empty for ACH
 	AuthAVS      string // Address verification - empty for ACH
 	AuthCVV2     string // CVV verification - empty for ACH
+
+	// Network Transaction ID (for Storage BRIC - card-on-file compliance)
+	NetworkTransactionID *string // NTID returned from Account Verification
 
 	// Transaction echo-back
 	TranNbr   string // Echo back transaction number
