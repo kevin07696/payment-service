@@ -69,11 +69,13 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 
 **Core Capabilities:**
 - ✅ Credit card payments (one-time, auth/capture)
+- ✅ Saved payment methods (Storage BRIC conversion)
 - ✅ Recurring billing & subscriptions
 - ✅ ACH bank transfers
 - ✅ Chargeback tracking (READ-ONLY polling)
 - ✅ Webhook notifications
 - ✅ PCI-compliant tokenization
+- ✅ Account Verification ($0.00 verification with card networks)
 - ✅ Comprehensive observability
 
 ### Key Features
@@ -83,6 +85,14 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 - **Auth/Capture Flows**: Two-step payment authorization and capture
 - **One-Time Payments**: Immediate sales and purchases
 - **Idempotency**: Prevent duplicate charges with idempotency keys
+
+#### Payment Method Management
+- **Storage BRIC Conversion**: Convert Financial BRICs to Storage BRICs (never expire)
+- **Account Verification**: $0.00 verification with card networks for saved cards
+- **Auto-Save**: Optional payment method saving in Browser Post callback
+- **Card-on-File**: Storage BRICs for recurring payments and subscriptions
+- **Payment Method CRUD**: List, get, update, delete saved payment methods
+- **ACH Support**: Save and verify bank accounts with routing validation
 
 #### Subscription Management
 - **Recurring Billing**: Automatic subscription charging via cron jobs

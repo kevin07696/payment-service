@@ -5,12 +5,14 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 ## 🎯 Features
 
 - ✅ **Credit Card Payments**: One-time, auth/capture flows (Server Post & Browser Post)
+- ✅ **Saved Payment Methods**: Storage BRIC conversion for card-on-file and recurring payments
 - ✅ **Recurring Billing**: Subscription management with automatic cron billing
 - ✅ **ACH Payments**: Bank transfers (checking/savings accounts)
 - ✅ **Chargeback Management**: Automated polling from North API, local storage, webhook notifications
 - ✅ **Webhook System**: Outbound webhooks with HMAC signatures, automatic retries
 - 🚧 **Invoice Payments**: (planned)
 - ✅ **PCI-Compliant**: Browser Post tokenization with BRIC tokens (frontend-to-backend)
+- ✅ **Account Verification**: $0.00 verification with card networks for saved cards
 - ✅ **Response Code Handling**: 40+ mapped codes with user-friendly messages
 - ✅ **HMAC Authentication**: Secure API communication & webhook signatures
 - ✅ **Database Migrations**: SQL-based schema management
@@ -49,7 +51,8 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 │  │  EPX Adapters  │  │   PostgreSQL   │  │     Logging    │   │
 │  │ - Server Post ✅│  │ - Repos ✅     │  │ - Zap Logger ✅│   │
 │  │ - Browser Post✅│  │ - SQLC ✅      │  │                │   │
-│  │ - Key Exch. ✅ │  │ - Pooling ✅   │  │                │   │
+│  │ - BRIC Store ✅│  │ - Pooling ✅   │  │                │   │
+│  │ - Key Exch. ✅ │  │ - Migrations✅ │  │                │   │
 │  └────────────────┘  └────────────────┘  └────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -311,10 +314,26 @@ formData, err := browserPostAdapter.BuildFormData(
     <input type="hidden" name="TRAN_GROUP" value="SALE" />
     <input type="hidden" name="REDIRECT_URL" value="http://localhost:8081/api/v1/payments/browser-post/callback" />
 
+    <!-- Optional: Enable payment method saving -->
+    <input type="hidden" name="USER_DATA_1" value="save_payment_method=true" />
+    <input type="hidden" name="USER_DATA_2" value="{{.CustomerID}}" />
+
     <input type="text" name="CARD_NBR" placeholder="Card Number" required />
     <input type="text" name="EXP_MONTH" placeholder="MM" required />
     <input type="text" name="EXP_YEAR" placeholder="YYYY" required />
     <input type="text" name="CVV" placeholder="CVV" required />
+
+    <!-- Optional: For Account Verification (if saving payment method) -->
+    <input type="text" name="FIRST_NAME" placeholder="First Name" />
+    <input type="text" name="LAST_NAME" placeholder="Last Name" />
+    <input type="text" name="ADDRESS" placeholder="Billing Address" />
+    <input type="text" name="CITY" placeholder="City" />
+    <input type="text" name="STATE" placeholder="State" />
+    <input type="text" name="ZIP_CODE" placeholder="ZIP" />
+
+    <label>
+        <input type="checkbox" id="savePaymentMethod" /> Save for future use
+    </label>
 
     <button type="submit">Pay $99.99</button>
 </form>
@@ -333,18 +352,24 @@ formData, err := browserPostAdapter.BuildFormData(
 POST /api/v1/payments/browser-post/callback
 
 // Received fields:
-// - AUTH_GUID: Transaction token for refunds/voids
+// - AUTH_GUID: Transaction token (Financial BRIC) for refunds/voids
 // - AUTH_RESP: "00" = approved
 // - AUTH_CODE: Bank authorization code
 // - AUTH_CARD_TYPE, AUTH_AVS, AUTH_CVV2: Verification
 // - TRAN_NBR, AMOUNT: Echo back your values
+// - USER_DATA_1, USER_DATA_2: Custom data (save flag, customer_id)
 
-// Handler:
+// Handler Flow:
 // 1. Parses response
 // 2. Validates fields
 // 3. Checks for duplicates (idempotency)
-// 4. Stores in database with AUTH_GUID
-// 5. Renders HTML receipt page to user
+// 4. Stores transaction in database with Financial BRIC (AUTH_GUID)
+// 5. If USER_DATA_1 contains "save_payment_method=true":
+//    a. Converts Financial BRIC to Storage BRIC via EPX
+//    b. For credit cards: EPX performs $0.00 Account Verification
+//    c. Saves Storage BRIC to customer_payment_methods table
+//    d. Storage BRIC never expires (use for recurring payments)
+// 6. Renders HTML receipt page to user
 ```
 
 **6. User: Sees Receipt Page**
@@ -558,6 +583,20 @@ goose -dir internal/db/migrations create add_users_table sql
 - `GetSubscription()` - Get subscription details
 - `ListSubscriptions()` - List customer subscriptions
 
+### Payment Method Service ✅
+
+- `SavePaymentMethod()` - Save payment method with existing token
+- `ConvertFinancialBRICToStorageBRIC()` - Convert Financial BRIC to Storage BRIC
+  - Credit cards: Triggers $0.00 Account Verification with card networks
+  - ACH: Validates routing number
+  - Returns Storage BRIC (never expires) for recurring payments
+- `GetPaymentMethod()` - Get payment method details
+- `ListPaymentMethods()` - List customer payment methods
+- `UpdatePaymentMethodStatus()` - Activate/deactivate payment method
+- `DeletePaymentMethod()` - Soft delete payment method (90-day retention)
+- `SetDefaultPaymentMethod()` - Mark payment method as default
+- `VerifyACHAccount()` - Send pre-note for ACH verification
+
 ### ACH Payments (via Server Post) ✅
 
 - ACH debit transactions (checking/savings)
@@ -706,9 +745,13 @@ Comprehensive documentation covering:
 ### Phase 7: Payment Adapters ✅
 - [x] EPX Server Post adapter (card & ACH payments)
 - [x] EPX Browser Post adapter (PCI-compliant tokenization)
+- [x] EPX BRIC Storage adapter (Storage BRIC conversion)
 - [x] EPX Key Exchange adapter (credential management)
 - [x] North Merchant Reporting adapter (read-only disputes)
 - [x] Webhook delivery system with retries
+- [x] Payment Method Service (saved payment methods)
+- [x] Storage BRIC conversion with Account Verification
+- [x] Auto-save payment methods in Browser Post callback
 
 ### Phase 8: Testing & Integration 🚧
 - [x] Integration tests with PostgreSQL
