@@ -733,6 +733,199 @@ func (x *VerifyACHAccountResponse) GetMessage() string {
 	return ""
 }
 
+// ConvertFinancialBRICRequest converts a Financial BRIC to Storage BRIC
+type ConvertFinancialBRICRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	CustomerId    string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	FinancialBric string                 `protobuf:"bytes,3,opt,name=financial_bric,json=financialBric,proto3" json:"financial_bric,omitempty"` // AUTH_GUID from completed transaction
+	PaymentType   PaymentMethodType      `protobuf:"varint,4,opt,name=payment_type,json=paymentType,proto3,enum=payment_method.v1.PaymentMethodType" json:"payment_type,omitempty"`
+	TransactionId string                 `protobuf:"bytes,5,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // Reference to original transaction
+	// Display metadata
+	LastFour string `protobuf:"bytes,6,opt,name=last_four,json=lastFour,proto3" json:"last_four,omitempty"` // Last 4 digits
+	// Credit card specific (optional)
+	CardBrand    *string `protobuf:"bytes,7,opt,name=card_brand,json=cardBrand,proto3,oneof" json:"card_brand,omitempty"`
+	CardExpMonth *int32  `protobuf:"varint,8,opt,name=card_exp_month,json=cardExpMonth,proto3,oneof" json:"card_exp_month,omitempty"`
+	CardExpYear  *int32  `protobuf:"varint,9,opt,name=card_exp_year,json=cardExpYear,proto3,oneof" json:"card_exp_year,omitempty"`
+	// ACH specific (optional)
+	BankName       *string `protobuf:"bytes,10,opt,name=bank_name,json=bankName,proto3,oneof" json:"bank_name,omitempty"`
+	AccountType    *string `protobuf:"bytes,11,opt,name=account_type,json=accountType,proto3,oneof" json:"account_type,omitempty"`
+	IsDefault      bool    `protobuf:"varint,12,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
+	IdempotencyKey string  `protobuf:"bytes,13,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	// Billing information (required for Account Verification on credit cards)
+	FirstName     *string `protobuf:"bytes,14,opt,name=first_name,json=firstName,proto3,oneof" json:"first_name,omitempty"`
+	LastName      *string `protobuf:"bytes,15,opt,name=last_name,json=lastName,proto3,oneof" json:"last_name,omitempty"`
+	Address       *string `protobuf:"bytes,16,opt,name=address,proto3,oneof" json:"address,omitempty"`
+	City          *string `protobuf:"bytes,17,opt,name=city,proto3,oneof" json:"city,omitempty"`
+	State         *string `protobuf:"bytes,18,opt,name=state,proto3,oneof" json:"state,omitempty"`
+	ZipCode       *string `protobuf:"bytes,19,opt,name=zip_code,json=zipCode,proto3,oneof" json:"zip_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConvertFinancialBRICRequest) Reset() {
+	*x = ConvertFinancialBRICRequest{}
+	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConvertFinancialBRICRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConvertFinancialBRICRequest) ProtoMessage() {}
+
+func (x *ConvertFinancialBRICRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConvertFinancialBRICRequest.ProtoReflect.Descriptor instead.
+func (*ConvertFinancialBRICRequest) Descriptor() ([]byte, []int) {
+	return file_proto_payment_method_v1_payment_method_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ConvertFinancialBRICRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetCustomerId() string {
+	if x != nil {
+		return x.CustomerId
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetFinancialBric() string {
+	if x != nil {
+		return x.FinancialBric
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetPaymentType() PaymentMethodType {
+	if x != nil {
+		return x.PaymentType
+	}
+	return PaymentMethodType_PAYMENT_METHOD_TYPE_UNSPECIFIED
+}
+
+func (x *ConvertFinancialBRICRequest) GetTransactionId() string {
+	if x != nil {
+		return x.TransactionId
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetLastFour() string {
+	if x != nil {
+		return x.LastFour
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetCardBrand() string {
+	if x != nil && x.CardBrand != nil {
+		return *x.CardBrand
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetCardExpMonth() int32 {
+	if x != nil && x.CardExpMonth != nil {
+		return *x.CardExpMonth
+	}
+	return 0
+}
+
+func (x *ConvertFinancialBRICRequest) GetCardExpYear() int32 {
+	if x != nil && x.CardExpYear != nil {
+		return *x.CardExpYear
+	}
+	return 0
+}
+
+func (x *ConvertFinancialBRICRequest) GetBankName() string {
+	if x != nil && x.BankName != nil {
+		return *x.BankName
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetAccountType() string {
+	if x != nil && x.AccountType != nil {
+		return *x.AccountType
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetIsDefault() bool {
+	if x != nil {
+		return x.IsDefault
+	}
+	return false
+}
+
+func (x *ConvertFinancialBRICRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetFirstName() string {
+	if x != nil && x.FirstName != nil {
+		return *x.FirstName
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetLastName() string {
+	if x != nil && x.LastName != nil {
+		return *x.LastName
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetAddress() string {
+	if x != nil && x.Address != nil {
+		return *x.Address
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetCity() string {
+	if x != nil && x.City != nil {
+		return *x.City
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetState() string {
+	if x != nil && x.State != nil {
+		return *x.State
+	}
+	return ""
+}
+
+func (x *ConvertFinancialBRICRequest) GetZipCode() string {
+	if x != nil && x.ZipCode != nil {
+		return *x.ZipCode
+	}
+	return ""
+}
+
 // PaymentMethodResponse is returned from payment method operations
 type PaymentMethodResponse struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -761,7 +954,7 @@ type PaymentMethodResponse struct {
 
 func (x *PaymentMethodResponse) Reset() {
 	*x = PaymentMethodResponse{}
-	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[10]
+	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -773,7 +966,7 @@ func (x *PaymentMethodResponse) String() string {
 func (*PaymentMethodResponse) ProtoMessage() {}
 
 func (x *PaymentMethodResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[10]
+	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -786,7 +979,7 @@ func (x *PaymentMethodResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaymentMethodResponse.ProtoReflect.Descriptor instead.
 func (*PaymentMethodResponse) Descriptor() ([]byte, []int) {
-	return file_proto_payment_method_v1_payment_method_proto_rawDescGZIP(), []int{10}
+	return file_proto_payment_method_v1_payment_method_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *PaymentMethodResponse) GetPaymentMethodId() string {
@@ -923,7 +1116,7 @@ type PaymentMethod struct {
 
 func (x *PaymentMethod) Reset() {
 	*x = PaymentMethod{}
-	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[11]
+	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -935,7 +1128,7 @@ func (x *PaymentMethod) String() string {
 func (*PaymentMethod) ProtoMessage() {}
 
 func (x *PaymentMethod) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[11]
+	mi := &file_proto_payment_method_v1_payment_method_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -948,7 +1141,7 @@ func (x *PaymentMethod) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaymentMethod.ProtoReflect.Descriptor instead.
 func (*PaymentMethod) Descriptor() ([]byte, []int) {
-	return file_proto_payment_method_v1_payment_method_proto_rawDescGZIP(), []int{11}
+	return file_proto_payment_method_v1_payment_method_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PaymentMethod) GetId() string {
@@ -1130,7 +1323,47 @@ const file_proto_payment_method_v1_payment_method_proto_rawDesc = "" +
 	"\x11payment_method_id\x18\x01 \x01(\tR\x0fpaymentMethodId\x12%\n" +
 	"\x0etransaction_id\x18\x02 \x01(\tR\rtransactionId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"\xd0\x05\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"\xec\x06\n" +
+	"\x1bConvertFinancialBRICRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
+	"\vcustomer_id\x18\x02 \x01(\tR\n" +
+	"customerId\x12%\n" +
+	"\x0efinancial_bric\x18\x03 \x01(\tR\rfinancialBric\x12G\n" +
+	"\fpayment_type\x18\x04 \x01(\x0e2$.payment_method.v1.PaymentMethodTypeR\vpaymentType\x12%\n" +
+	"\x0etransaction_id\x18\x05 \x01(\tR\rtransactionId\x12\x1b\n" +
+	"\tlast_four\x18\x06 \x01(\tR\blastFour\x12\"\n" +
+	"\n" +
+	"card_brand\x18\a \x01(\tH\x00R\tcardBrand\x88\x01\x01\x12)\n" +
+	"\x0ecard_exp_month\x18\b \x01(\x05H\x01R\fcardExpMonth\x88\x01\x01\x12'\n" +
+	"\rcard_exp_year\x18\t \x01(\x05H\x02R\vcardExpYear\x88\x01\x01\x12 \n" +
+	"\tbank_name\x18\n" +
+	" \x01(\tH\x03R\bbankName\x88\x01\x01\x12&\n" +
+	"\faccount_type\x18\v \x01(\tH\x04R\vaccountType\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"is_default\x18\f \x01(\bR\tisDefault\x12'\n" +
+	"\x0fidempotency_key\x18\r \x01(\tR\x0eidempotencyKey\x12\"\n" +
+	"\n" +
+	"first_name\x18\x0e \x01(\tH\x05R\tfirstName\x88\x01\x01\x12 \n" +
+	"\tlast_name\x18\x0f \x01(\tH\x06R\blastName\x88\x01\x01\x12\x1d\n" +
+	"\aaddress\x18\x10 \x01(\tH\aR\aaddress\x88\x01\x01\x12\x17\n" +
+	"\x04city\x18\x11 \x01(\tH\bR\x04city\x88\x01\x01\x12\x19\n" +
+	"\x05state\x18\x12 \x01(\tH\tR\x05state\x88\x01\x01\x12\x1e\n" +
+	"\bzip_code\x18\x13 \x01(\tH\n" +
+	"R\azipCode\x88\x01\x01B\r\n" +
+	"\v_card_brandB\x11\n" +
+	"\x0f_card_exp_monthB\x10\n" +
+	"\x0e_card_exp_yearB\f\n" +
+	"\n" +
+	"_bank_nameB\x0f\n" +
+	"\r_account_typeB\r\n" +
+	"\v_first_nameB\f\n" +
+	"\n" +
+	"_last_nameB\n" +
+	"\n" +
+	"\b_addressB\a\n" +
+	"\x05_cityB\b\n" +
+	"\x06_stateB\v\n" +
+	"\t_zip_code\"\xd0\x05\n" +
 	"\x15PaymentMethodResponse\x12*\n" +
 	"\x11payment_method_id\x18\x01 \x01(\tR\x0fpaymentMethodId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1f\n" +
@@ -1194,7 +1427,7 @@ const file_proto_payment_method_v1_payment_method_proto_rawDesc = "" +
 	"\x11PaymentMethodType\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_CREDIT_CARD\x10\x01\x12\x1b\n" +
-	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\xae\x06\n" +
+	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\xad\a\n" +
 	"\x14PaymentMethodService\x12j\n" +
 	"\x11SavePaymentMethod\x12+.payment_method.v1.SavePaymentMethodRequest\x1a(.payment_method.v1.PaymentMethodResponse\x12`\n" +
 	"\x10GetPaymentMethod\x12*.payment_method.v1.GetPaymentMethodRequest\x1a .payment_method.v1.PaymentMethod\x12q\n" +
@@ -1202,7 +1435,8 @@ const file_proto_payment_method_v1_payment_method_proto_rawDesc = "" +
 	"\x19UpdatePaymentMethodStatus\x123.payment_method.v1.UpdatePaymentMethodStatusRequest\x1a(.payment_method.v1.PaymentMethodResponse\x12t\n" +
 	"\x13DeletePaymentMethod\x12-.payment_method.v1.DeletePaymentMethodRequest\x1a..payment_method.v1.DeletePaymentMethodResponse\x12v\n" +
 	"\x17SetDefaultPaymentMethod\x121.payment_method.v1.SetDefaultPaymentMethodRequest\x1a(.payment_method.v1.PaymentMethodResponse\x12k\n" +
-	"\x10VerifyACHAccount\x12*.payment_method.v1.VerifyACHAccountRequest\x1a+.payment_method.v1.VerifyACHAccountResponseBOZMgithub.com/kevin07696/payment-service/proto/payment_method/v1;paymentmethodv1b\x06proto3"
+	"\x10VerifyACHAccount\x12*.payment_method.v1.VerifyACHAccountRequest\x1a+.payment_method.v1.VerifyACHAccountResponse\x12}\n" +
+	"!ConvertFinancialBRICToStorageBRIC\x12..payment_method.v1.ConvertFinancialBRICRequest\x1a(.payment_method.v1.PaymentMethodResponseBOZMgithub.com/kevin07696/payment-service/proto/payment_method/v1;paymentmethodv1b\x06proto3"
 
 var (
 	file_proto_payment_method_v1_payment_method_proto_rawDescOnce sync.Once
@@ -1217,7 +1451,7 @@ func file_proto_payment_method_v1_payment_method_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_payment_method_v1_payment_method_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_payment_method_v1_payment_method_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_proto_payment_method_v1_payment_method_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_proto_payment_method_v1_payment_method_proto_goTypes = []any{
 	(PaymentMethodType)(0),                   // 0: payment_method.v1.PaymentMethodType
 	(*SavePaymentMethodRequest)(nil),         // 1: payment_method.v1.SavePaymentMethodRequest
@@ -1230,40 +1464,44 @@ var file_proto_payment_method_v1_payment_method_proto_goTypes = []any{
 	(*SetDefaultPaymentMethodRequest)(nil),   // 8: payment_method.v1.SetDefaultPaymentMethodRequest
 	(*VerifyACHAccountRequest)(nil),          // 9: payment_method.v1.VerifyACHAccountRequest
 	(*VerifyACHAccountResponse)(nil),         // 10: payment_method.v1.VerifyACHAccountResponse
-	(*PaymentMethodResponse)(nil),            // 11: payment_method.v1.PaymentMethodResponse
-	(*PaymentMethod)(nil),                    // 12: payment_method.v1.PaymentMethod
-	(*timestamppb.Timestamp)(nil),            // 13: google.protobuf.Timestamp
+	(*ConvertFinancialBRICRequest)(nil),      // 11: payment_method.v1.ConvertFinancialBRICRequest
+	(*PaymentMethodResponse)(nil),            // 12: payment_method.v1.PaymentMethodResponse
+	(*PaymentMethod)(nil),                    // 13: payment_method.v1.PaymentMethod
+	(*timestamppb.Timestamp)(nil),            // 14: google.protobuf.Timestamp
 }
 var file_proto_payment_method_v1_payment_method_proto_depIdxs = []int32{
 	0,  // 0: payment_method.v1.SavePaymentMethodRequest.payment_type:type_name -> payment_method.v1.PaymentMethodType
 	0,  // 1: payment_method.v1.ListPaymentMethodsRequest.payment_type:type_name -> payment_method.v1.PaymentMethodType
-	12, // 2: payment_method.v1.ListPaymentMethodsResponse.payment_methods:type_name -> payment_method.v1.PaymentMethod
-	0,  // 3: payment_method.v1.PaymentMethodResponse.payment_type:type_name -> payment_method.v1.PaymentMethodType
-	13, // 4: payment_method.v1.PaymentMethodResponse.created_at:type_name -> google.protobuf.Timestamp
-	13, // 5: payment_method.v1.PaymentMethodResponse.last_used_at:type_name -> google.protobuf.Timestamp
-	0,  // 6: payment_method.v1.PaymentMethod.payment_type:type_name -> payment_method.v1.PaymentMethodType
-	13, // 7: payment_method.v1.PaymentMethod.created_at:type_name -> google.protobuf.Timestamp
-	13, // 8: payment_method.v1.PaymentMethod.updated_at:type_name -> google.protobuf.Timestamp
-	13, // 9: payment_method.v1.PaymentMethod.last_used_at:type_name -> google.protobuf.Timestamp
-	1,  // 10: payment_method.v1.PaymentMethodService.SavePaymentMethod:input_type -> payment_method.v1.SavePaymentMethodRequest
-	2,  // 11: payment_method.v1.PaymentMethodService.GetPaymentMethod:input_type -> payment_method.v1.GetPaymentMethodRequest
-	3,  // 12: payment_method.v1.PaymentMethodService.ListPaymentMethods:input_type -> payment_method.v1.ListPaymentMethodsRequest
-	5,  // 13: payment_method.v1.PaymentMethodService.UpdatePaymentMethodStatus:input_type -> payment_method.v1.UpdatePaymentMethodStatusRequest
-	6,  // 14: payment_method.v1.PaymentMethodService.DeletePaymentMethod:input_type -> payment_method.v1.DeletePaymentMethodRequest
-	8,  // 15: payment_method.v1.PaymentMethodService.SetDefaultPaymentMethod:input_type -> payment_method.v1.SetDefaultPaymentMethodRequest
-	9,  // 16: payment_method.v1.PaymentMethodService.VerifyACHAccount:input_type -> payment_method.v1.VerifyACHAccountRequest
-	11, // 17: payment_method.v1.PaymentMethodService.SavePaymentMethod:output_type -> payment_method.v1.PaymentMethodResponse
-	12, // 18: payment_method.v1.PaymentMethodService.GetPaymentMethod:output_type -> payment_method.v1.PaymentMethod
-	4,  // 19: payment_method.v1.PaymentMethodService.ListPaymentMethods:output_type -> payment_method.v1.ListPaymentMethodsResponse
-	11, // 20: payment_method.v1.PaymentMethodService.UpdatePaymentMethodStatus:output_type -> payment_method.v1.PaymentMethodResponse
-	7,  // 21: payment_method.v1.PaymentMethodService.DeletePaymentMethod:output_type -> payment_method.v1.DeletePaymentMethodResponse
-	11, // 22: payment_method.v1.PaymentMethodService.SetDefaultPaymentMethod:output_type -> payment_method.v1.PaymentMethodResponse
-	10, // 23: payment_method.v1.PaymentMethodService.VerifyACHAccount:output_type -> payment_method.v1.VerifyACHAccountResponse
-	17, // [17:24] is the sub-list for method output_type
-	10, // [10:17] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	13, // 2: payment_method.v1.ListPaymentMethodsResponse.payment_methods:type_name -> payment_method.v1.PaymentMethod
+	0,  // 3: payment_method.v1.ConvertFinancialBRICRequest.payment_type:type_name -> payment_method.v1.PaymentMethodType
+	0,  // 4: payment_method.v1.PaymentMethodResponse.payment_type:type_name -> payment_method.v1.PaymentMethodType
+	14, // 5: payment_method.v1.PaymentMethodResponse.created_at:type_name -> google.protobuf.Timestamp
+	14, // 6: payment_method.v1.PaymentMethodResponse.last_used_at:type_name -> google.protobuf.Timestamp
+	0,  // 7: payment_method.v1.PaymentMethod.payment_type:type_name -> payment_method.v1.PaymentMethodType
+	14, // 8: payment_method.v1.PaymentMethod.created_at:type_name -> google.protobuf.Timestamp
+	14, // 9: payment_method.v1.PaymentMethod.updated_at:type_name -> google.protobuf.Timestamp
+	14, // 10: payment_method.v1.PaymentMethod.last_used_at:type_name -> google.protobuf.Timestamp
+	1,  // 11: payment_method.v1.PaymentMethodService.SavePaymentMethod:input_type -> payment_method.v1.SavePaymentMethodRequest
+	2,  // 12: payment_method.v1.PaymentMethodService.GetPaymentMethod:input_type -> payment_method.v1.GetPaymentMethodRequest
+	3,  // 13: payment_method.v1.PaymentMethodService.ListPaymentMethods:input_type -> payment_method.v1.ListPaymentMethodsRequest
+	5,  // 14: payment_method.v1.PaymentMethodService.UpdatePaymentMethodStatus:input_type -> payment_method.v1.UpdatePaymentMethodStatusRequest
+	6,  // 15: payment_method.v1.PaymentMethodService.DeletePaymentMethod:input_type -> payment_method.v1.DeletePaymentMethodRequest
+	8,  // 16: payment_method.v1.PaymentMethodService.SetDefaultPaymentMethod:input_type -> payment_method.v1.SetDefaultPaymentMethodRequest
+	9,  // 17: payment_method.v1.PaymentMethodService.VerifyACHAccount:input_type -> payment_method.v1.VerifyACHAccountRequest
+	11, // 18: payment_method.v1.PaymentMethodService.ConvertFinancialBRICToStorageBRIC:input_type -> payment_method.v1.ConvertFinancialBRICRequest
+	12, // 19: payment_method.v1.PaymentMethodService.SavePaymentMethod:output_type -> payment_method.v1.PaymentMethodResponse
+	13, // 20: payment_method.v1.PaymentMethodService.GetPaymentMethod:output_type -> payment_method.v1.PaymentMethod
+	4,  // 21: payment_method.v1.PaymentMethodService.ListPaymentMethods:output_type -> payment_method.v1.ListPaymentMethodsResponse
+	12, // 22: payment_method.v1.PaymentMethodService.UpdatePaymentMethodStatus:output_type -> payment_method.v1.PaymentMethodResponse
+	7,  // 23: payment_method.v1.PaymentMethodService.DeletePaymentMethod:output_type -> payment_method.v1.DeletePaymentMethodResponse
+	12, // 24: payment_method.v1.PaymentMethodService.SetDefaultPaymentMethod:output_type -> payment_method.v1.PaymentMethodResponse
+	10, // 25: payment_method.v1.PaymentMethodService.VerifyACHAccount:output_type -> payment_method.v1.VerifyACHAccountResponse
+	12, // 26: payment_method.v1.PaymentMethodService.ConvertFinancialBRICToStorageBRIC:output_type -> payment_method.v1.PaymentMethodResponse
+	19, // [19:27] is the sub-list for method output_type
+	11, // [11:19] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_proto_payment_method_v1_payment_method_proto_init() }
@@ -1275,13 +1513,14 @@ func file_proto_payment_method_v1_payment_method_proto_init() {
 	file_proto_payment_method_v1_payment_method_proto_msgTypes[2].OneofWrappers = []any{}
 	file_proto_payment_method_v1_payment_method_proto_msgTypes[10].OneofWrappers = []any{}
 	file_proto_payment_method_v1_payment_method_proto_msgTypes[11].OneofWrappers = []any{}
+	file_proto_payment_method_v1_payment_method_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_payment_method_v1_payment_method_proto_rawDesc), len(file_proto_payment_method_v1_payment_method_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

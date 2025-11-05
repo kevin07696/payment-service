@@ -270,6 +270,91 @@ func (h *Handler) VerifyACHAccount(ctx context.Context, req *paymentmethodv1.Ver
 	}, nil
 }
 
+// ConvertFinancialBRICToStorageBRIC converts a Financial BRIC to Storage BRIC and saves payment method
+func (h *Handler) ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *paymentmethodv1.ConvertFinancialBRICRequest) (*paymentmethodv1.PaymentMethodResponse, error) {
+	h.logger.Info("ConvertFinancialBRICToStorageBRIC request received",
+		zap.String("agent_id", req.AgentId),
+		zap.String("customer_id", req.CustomerId),
+		zap.String("transaction_id", req.TransactionId),
+		zap.String("payment_type", req.PaymentType.String()),
+	)
+
+	// Validate request
+	if err := validateConvertFinancialBRICRequest(req); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	// Convert to service request
+	serviceReq := &ports.ConvertFinancialBRICRequest{
+		AgentID:       req.AgentId,
+		CustomerID:    req.CustomerId,
+		FinancialBRIC: req.FinancialBric,
+		PaymentType:   paymentMethodTypeFromProto(req.PaymentType),
+		TransactionID: req.TransactionId,
+		LastFour:      req.LastFour,
+		IsDefault:     req.IsDefault,
+	}
+
+	// Credit card fields
+	if req.CardBrand != nil {
+		serviceReq.CardBrand = req.CardBrand
+	}
+	if req.CardExpMonth != nil {
+		month := int(*req.CardExpMonth)
+		serviceReq.CardExpMonth = &month
+	}
+	if req.CardExpYear != nil {
+		year := int(*req.CardExpYear)
+		serviceReq.CardExpYear = &year
+	}
+
+	// ACH fields
+	if req.BankName != nil {
+		serviceReq.BankName = req.BankName
+	}
+	if req.AccountType != nil {
+		serviceReq.AccountType = req.AccountType
+	}
+
+	// Billing information
+	if req.FirstName != nil {
+		serviceReq.FirstName = req.FirstName
+	}
+	if req.LastName != nil {
+		serviceReq.LastName = req.LastName
+	}
+	if req.Address != nil {
+		serviceReq.Address = req.Address
+	}
+	if req.City != nil {
+		serviceReq.City = req.City
+	}
+	if req.State != nil {
+		serviceReq.State = req.State
+	}
+	if req.ZipCode != nil {
+		serviceReq.ZipCode = req.ZipCode
+	}
+
+	if req.IdempotencyKey != "" {
+		serviceReq.IdempotencyKey = &req.IdempotencyKey
+	}
+
+	// Call service
+	pm, err := h.service.ConvertFinancialBRICToStorageBRIC(ctx, serviceReq)
+	if err != nil {
+		return nil, handleServiceError(err)
+	}
+
+	h.logger.Info("Financial BRIC converted to Storage BRIC successfully",
+		zap.String("payment_method_id", pm.ID),
+		zap.String("customer_id", pm.CustomerID),
+	)
+
+	// Convert to proto response
+	return paymentMethodToResponse(pm), nil
+}
+
 // Validation helpers
 
 func validateSavePaymentMethodRequest(req *paymentmethodv1.SavePaymentMethodRequest) error {
@@ -312,6 +397,40 @@ func validateSavePaymentMethodRequest(req *paymentmethodv1.SavePaymentMethodRequ
 		}
 		if req.AccountType == nil || *req.AccountType == "" {
 			return fmt.Errorf("account_type is required for ACH")
+		}
+	}
+
+	return nil
+}
+
+func validateConvertFinancialBRICRequest(req *paymentmethodv1.ConvertFinancialBRICRequest) error {
+	if req.AgentId == "" {
+		return fmt.Errorf("agent_id is required")
+	}
+	if req.CustomerId == "" {
+		return fmt.Errorf("customer_id is required")
+	}
+	if req.FinancialBric == "" {
+		return fmt.Errorf("financial_bric is required")
+	}
+	if req.PaymentType == paymentmethodv1.PaymentMethodType_PAYMENT_METHOD_TYPE_UNSPECIFIED {
+		return fmt.Errorf("payment_type is required")
+	}
+	if req.TransactionId == "" {
+		return fmt.Errorf("transaction_id is required")
+	}
+	if len(req.LastFour) != 4 {
+		return fmt.Errorf("last_four must be exactly 4 digits")
+	}
+
+	// Validate credit card specific fields
+	if req.PaymentType == paymentmethodv1.PaymentMethodType_PAYMENT_METHOD_TYPE_CREDIT_CARD {
+		// Address and zip code are required for Account Verification
+		if req.Address == nil || *req.Address == "" {
+			return fmt.Errorf("address is required for credit card Account Verification")
+		}
+		if req.ZipCode == nil || *req.ZipCode == "" {
+			return fmt.Errorf("zip_code is required for credit card Account Verification")
 		}
 	}
 
