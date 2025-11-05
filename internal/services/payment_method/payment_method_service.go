@@ -3,6 +3,7 @@ package payment_method
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -19,6 +20,7 @@ type paymentMethodService struct {
 	db            *database.PostgreSQLAdapter
 	browserPost   adapterports.BrowserPostAdapter
 	serverPost    adapterports.ServerPostAdapter
+	bricStorage   adapterports.BRICStorageAdapter
 	secretManager adapterports.SecretManagerAdapter
 	logger        *zap.Logger
 }
@@ -28,6 +30,7 @@ func NewPaymentMethodService(
 	db *database.PostgreSQLAdapter,
 	browserPost adapterports.BrowserPostAdapter,
 	serverPost adapterports.ServerPostAdapter,
+	bricStorage adapterports.BRICStorageAdapter,
 	secretManager adapterports.SecretManagerAdapter,
 	logger *zap.Logger,
 ) ports.PaymentMethodService {
@@ -35,6 +38,7 @@ func NewPaymentMethodService(
 		db:            db,
 		browserPost:   browserPost,
 		serverPost:    serverPost,
+		bricStorage:   bricStorage,
 		secretManager: secretManager,
 		logger:        logger,
 	}
@@ -128,6 +132,172 @@ func (s *paymentMethodService) SavePaymentMethod(ctx context.Context, req *ports
 		zap.String("payment_method_id", paymentMethod.ID),
 		zap.Bool("is_default", paymentMethod.IsDefault),
 	)
+
+	return paymentMethod, nil
+}
+
+// ConvertFinancialBRICToStorageBRIC converts a Financial BRIC to a Storage BRIC and saves it
+func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *ports.ConvertFinancialBRICRequest) (*domain.PaymentMethod, error) {
+	s.logger.Info("Converting Financial BRIC to Storage BRIC",
+		zap.String("agent_id", req.AgentID),
+		zap.String("customer_id", req.CustomerID),
+		zap.String("financial_bric", req.FinancialBRIC),
+		zap.String("payment_type", string(req.PaymentType)),
+		zap.String("transaction_id", req.TransactionID),
+	)
+
+	// Check idempotency
+	if req.IdempotencyKey != nil {
+		existing, err := s.getPaymentMethodByIdempotencyKey(ctx, *req.IdempotencyKey)
+		if err == nil {
+			s.logger.Info("Idempotent request, returning existing payment method",
+				zap.String("payment_method_id", existing.ID),
+			)
+			return existing, nil
+		}
+	}
+
+	// Validate required fields
+	if req.FinancialBRIC == "" {
+		return nil, fmt.Errorf("financial_bric is required")
+	}
+	if len(req.LastFour) != 4 {
+		return nil, fmt.Errorf("last_four must be exactly 4 digits")
+	}
+
+	// Type-specific validation
+	if req.PaymentType == domain.PaymentMethodTypeCreditCard {
+		if req.CardBrand == nil || req.CardExpMonth == nil || req.CardExpYear == nil {
+			return nil, fmt.Errorf("card details (brand, exp_month, exp_year) are required for credit cards")
+		}
+		// For credit cards, billing information is required for Account Verification
+		if req.Address == nil || req.ZipCode == nil {
+			return nil, fmt.Errorf("billing address and zip code are required for credit card Storage BRIC conversion")
+		}
+	} else if req.PaymentType == domain.PaymentMethodTypeACH {
+		if req.BankName == nil || req.AccountType == nil {
+			return nil, fmt.Errorf("bank details (bank_name, account_type) are required for ACH")
+		}
+	}
+
+	// Get agent credentials
+	agent, err := s.db.Queries().GetAgentByAgentID(ctx, req.AgentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get agent: %w", err)
+	}
+
+	if !agent.IsActive.Valid || !agent.IsActive.Bool {
+		return nil, fmt.Errorf("agent is not active")
+	}
+
+	// Build BRIC Storage request
+	batchID := fmt.Sprintf("BRIC-%d", time.Now().Unix())
+	tranNbr := uuid.New().String()
+
+	bricReq := &adapterports.BRICStorageRequest{
+		CustNbr:       agent.CustNbr,
+		MerchNbr:      agent.MerchNbr,
+		DBAnbr:        agent.DbaNbr,
+		TerminalNbr:   agent.TerminalNbr,
+		BatchID:       batchID,
+		TranNbr:       tranNbr,
+		PaymentType:   adapterports.PaymentMethodType(req.PaymentType),
+		FinancialBRIC: &req.FinancialBRIC,
+		FirstName:     req.FirstName,
+		LastName:      req.LastName,
+		Address:       req.Address,
+		City:          req.City,
+		State:         req.State,
+		ZipCode:       req.ZipCode,
+	}
+
+	// Add user data with transaction reference
+	userData := fmt.Sprintf("Converted from txn: %s", req.TransactionID)
+	bricReq.UserData1 = &userData
+
+	// Call EPX BRIC Storage API to convert Financial BRIC to Storage BRIC
+	s.logger.Info("Calling EPX BRIC Storage API",
+		zap.String("financial_bric", req.FinancialBRIC),
+		zap.String("payment_type", string(req.PaymentType)),
+	)
+
+	bricResp, err := s.bricStorage.ConvertFinancialBRICToStorage(ctx, bricReq)
+	if err != nil {
+		s.logger.Error("BRIC Storage conversion failed", zap.Error(err))
+		return nil, fmt.Errorf("failed to convert to Storage BRIC: %w", err)
+	}
+
+	if !bricResp.IsApproved {
+		s.logger.Warn("BRIC Storage conversion declined",
+			zap.String("auth_resp", bricResp.AuthResp),
+			zap.String("auth_resp_text", bricResp.AuthRespText),
+		)
+		return nil, fmt.Errorf("Storage BRIC conversion declined: %s", bricResp.AuthRespText)
+	}
+
+	s.logger.Info("Storage BRIC created successfully",
+		zap.String("storage_bric", bricResp.StorageBRIC),
+		zap.String("auth_resp", bricResp.AuthResp),
+	)
+
+	// Save Storage BRIC to payment_methods table
+	var paymentMethod *domain.PaymentMethod
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// If this is set as default, unset all other defaults first
+		if req.IsDefault {
+			err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
+				AgentID:    req.AgentID,
+				CustomerID: req.CustomerID,
+			})
+			if err != nil {
+				s.logger.Warn("Failed to unset existing defaults", zap.Error(err))
+			}
+		}
+
+		// Create payment method with Storage BRIC
+		params := sqlc.CreatePaymentMethodParams{
+			ID:           uuid.New(),
+			AgentID:      req.AgentID,
+			CustomerID:   req.CustomerID,
+			PaymentType:  string(req.PaymentType),
+			PaymentToken: bricResp.StorageBRIC, // Storage BRIC (never expires)
+			LastFour:     req.LastFour,
+			CardBrand:    toNullableText(req.CardBrand),
+			CardExpMonth: toNullableInt32(req.CardExpMonth),
+			CardExpYear:  toNullableInt32(req.CardExpYear),
+			BankName:     toNullableText(req.BankName),
+			AccountType:  toNullableText(req.AccountType),
+			IsDefault:    pgtype.Bool{Bool: req.IsDefault, Valid: true},
+			IsActive:     pgtype.Bool{Bool: true, Valid: true},
+			IsVerified:   pgtype.Bool{Bool: req.PaymentType == domain.PaymentMethodTypeCreditCard, Valid: true}, // Credit cards verified via Account Verification
+		}
+
+		dbPM, err := q.CreatePaymentMethod(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to create payment method: %w", err)
+		}
+
+		paymentMethod = sqlcPaymentMethodToDomain(&dbPM)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	s.logger.Info("Payment method saved with Storage BRIC",
+		zap.String("payment_method_id", paymentMethod.ID),
+		zap.String("storage_bric", bricResp.StorageBRIC),
+		zap.Bool("is_default", paymentMethod.IsDefault),
+	)
+
+	// Log Network Transaction ID if present (for compliance)
+	if bricResp.NetworkTransactionID != nil {
+		s.logger.Info("Network Transaction ID obtained for card-on-file compliance",
+			zap.String("ntid", *bricResp.NetworkTransactionID),
+			zap.String("payment_method_id", paymentMethod.ID),
+		)
+	}
 
 	return paymentMethod, nil
 }
