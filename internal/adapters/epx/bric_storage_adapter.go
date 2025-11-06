@@ -38,7 +38,7 @@ type BRICStorageConfig struct {
 func DefaultBRICStorageConfig(environment string) *BRICStorageConfig {
 	baseURL := "https://epxnow.com/epx/server_post" // Production
 	if environment == "sandbox" {
-		baseURL = "https://epxnow.com/epx/server_post_sandbox"
+		baseURL = "https://secure.epxuap.com"
 	}
 
 	return &BRICStorageConfig{

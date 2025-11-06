@@ -49,8 +49,8 @@ func DefaultServerPostConfig(environment string) *ServerPostConfig {
 	baseURL := "https://epxnow.com/epx/server_post" // Production
 	socketEndpoint := "epxnow.com:8086"              // Production
 	if environment == "sandbox" {
-		baseURL = "https://epxnow.com/epx/server_post_sandbox"
-		socketEndpoint = "epxnow.com:8087"
+		baseURL = "https://secure.epxuap.com"
+		socketEndpoint = "secure.epxuap.com:8087"
 	}
 
 	return &ServerPostConfig{
@@ -308,26 +308,41 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 	if req.TerminalNbr == "" {
 		return fmt.Errorf("terminal_nbr is required")
 	}
-	if req.Amount == "" {
-		return fmt.Errorf("amount is required")
-	}
 	if req.TranNbr == "" {
 		return fmt.Errorf("tran_nbr is required")
 	}
 
-	// Validate amount format
-	if _, err := strconv.ParseFloat(req.Amount, 64); err != nil {
-		return fmt.Errorf("amount must be numeric: %w", err)
+	// Amount is optional for BRIC Storage (uses $0.00 Account Verification)
+	if req.TransactionType != ports.TransactionTypeBRICStorageCC && req.TransactionType != ports.TransactionTypeBRICStorageACH {
+		if req.Amount == "" {
+			return fmt.Errorf("amount is required")
+		}
+		// Validate amount format
+		if _, err := strconv.ParseFloat(req.Amount, 64); err != nil {
+			return fmt.Errorf("amount must be numeric: %w", err)
+		}
+	} else if req.Amount != "" {
+		// If amount is provided for BRIC Storage, validate it
+		if _, err := strconv.ParseFloat(req.Amount, 64); err != nil {
+			return fmt.Errorf("amount must be numeric: %w", err)
+		}
 	}
 
 	// Validate transaction type
 	validTypes := map[ports.TransactionType]bool{
-		ports.TransactionTypeAuthOnly: true,
-		ports.TransactionTypeCapture:  true,
-		ports.TransactionTypeSale:     true,
-		ports.TransactionTypeRefund:   true,
-		ports.TransactionTypeVoid:     true,
-		ports.TransactionTypePreNote:  true,
+		// Credit Card
+		ports.TransactionTypeSale:           true,
+		ports.TransactionTypeAuthOnly:       true,
+		ports.TransactionTypeCapture:        true,
+		ports.TransactionTypeRefund:         true,
+		ports.TransactionTypeVoid:           true,
+		ports.TransactionTypeReversal:       true,
+		ports.TransactionTypeBRICStorageCC:  true,
+		// ACH
+		ports.TransactionTypeACHDebit:       true,
+		ports.TransactionTypeACHCredit:      true,
+		ports.TransactionTypePreNote:        true,
+		ports.TransactionTypeBRICStorageACH: true,
 	}
 	if !validTypes[req.TransactionType] {
 		return fmt.Errorf("invalid transaction type: %s", req.TransactionType)
@@ -361,7 +376,7 @@ func (a *serverPostAdapter) buildFormData(req *ports.ServerPostRequest) url.Valu
 	data.Set("TRAN_NBR", req.TranNbr)
 
 	if req.TranGroup != "" {
-		data.Set("TRAN_GROUP", req.TranGroup)
+		data.Set("BATCH_ID", req.TranGroup) // TranGroup is used as BATCH_ID
 	}
 
 	// Payment token (BRIC)
@@ -372,6 +387,62 @@ func (a *serverPostAdapter) buildFormData(req *ports.ServerPostRequest) url.Valu
 	// For capture/void/refund
 	if req.OriginalAuthGUID != "" {
 		data.Set("ORIG_AUTH_GUID", req.OriginalAuthGUID)
+	}
+
+	// Account information (for new card transactions)
+	if req.AccountNumber != nil && *req.AccountNumber != "" {
+		data.Set("ACCOUNT_NBR", *req.AccountNumber)
+	}
+
+	if req.RoutingNumber != nil && *req.RoutingNumber != "" {
+		data.Set("ROUTING_NBR", *req.RoutingNumber)
+	}
+
+	if req.ExpirationDate != nil && *req.ExpirationDate != "" {
+		data.Set("EXP_DATE", *req.ExpirationDate)
+	}
+
+	if req.CVV != nil && *req.CVV != "" {
+		data.Set("CVV2", *req.CVV)
+	}
+
+	// Card entry method and industry type
+	if req.CardEntryMethod != nil && *req.CardEntryMethod != "" {
+		data.Set("CARD_ENT_METH", *req.CardEntryMethod)
+	}
+
+	if req.IndustryType != nil && *req.IndustryType != "" {
+		data.Set("INDUSTRY_TYPE", *req.IndustryType)
+	}
+
+	// Authorization Characteristics Indicator Extension (for COF, MIT, Recurring)
+	if req.ACIExt != nil && *req.ACIExt != "" {
+		data.Set("ACI_EXT", *req.ACIExt)
+	}
+
+	// Billing information
+	if req.FirstName != nil && *req.FirstName != "" {
+		data.Set("FIRST_NAME", *req.FirstName)
+	}
+
+	if req.LastName != nil && *req.LastName != "" {
+		data.Set("LAST_NAME", *req.LastName)
+	}
+
+	if req.Address != nil && *req.Address != "" {
+		data.Set("ADDRESS", *req.Address)
+	}
+
+	if req.City != nil && *req.City != "" {
+		data.Set("CITY", *req.City)
+	}
+
+	if req.State != nil && *req.State != "" {
+		data.Set("STATE", *req.State)
+	}
+
+	if req.ZipCode != nil && *req.ZipCode != "" {
+		data.Set("ZIP_CODE", *req.ZipCode)
 	}
 
 	return data
@@ -405,18 +476,19 @@ func (a *serverPostAdapter) buildXMLRequest(req *ports.ServerPostRequest) string
 }
 
 // EPXResponse represents the XML response structure from EPX
+// EPX returns responses in <FIELD KEY="xxx">value</FIELD> format
 type EPXResponse struct {
-	XMLName      xml.Name `xml:"response"`
-	AuthGUID     string   `xml:"AUTH_GUID"`
-	AuthResp     string   `xml:"AUTH_RESP"`
-	AuthCode     string   `xml:"AUTH_CODE"`
-	AuthRespText string   `xml:"AUTH_RESP_TEXT"`
-	AuthCardType string   `xml:"AUTH_CARD_TYPE"`
-	AuthAVS      string   `xml:"AUTH_AVS"`
-	AuthCVV2     string   `xml:"AUTH_CVV2"`
-	TranNbr      string   `xml:"TRAN_NBR"`
-	TranGroup    string   `xml:"TRAN_GROUP"`
-	Amount       string   `xml:"AMOUNT"`
+	XMLName xml.Name   `xml:"RESPONSE"`
+	Fields  EPXFields  `xml:"FIELDS"`
+}
+
+type EPXFields struct {
+	Fields []EPXField `xml:"FIELD"`
+}
+
+type EPXField struct {
+	Key   string `xml:"KEY,attr"`
+	Value string `xml:",chardata"`
 }
 
 // parseResponse parses key-value response from HTTPS POST
@@ -424,13 +496,21 @@ func (a *serverPostAdapter) parseResponse(body []byte, req *ports.ServerPostRequ
 	// Parse response (could be XML or key-value pairs)
 	responseStr := strings.TrimSpace(string(body))
 
-	// Try parsing as URL-encoded key-value pairs first
+	// Check if response is XML
+	if strings.HasPrefix(responseStr, "<") {
+		a.logger.Info("Parsing as XML response")
+		return a.parseXMLResponse(body, req)
+	}
+
+	// Try parsing as URL-encoded key-value pairs
 	params, err := url.ParseQuery(responseStr)
 	if err == nil && len(params) > 0 {
+		a.logger.Info("Parsing as key-value response")
 		return a.parseKeyValueResponse(params, req)
 	}
 
-	// Try parsing as XML
+	// Default to XML if parsing fails
+	a.logger.Info("Defaulting to XML parsing")
 	return a.parseXMLResponse(body, req)
 }
 
@@ -472,27 +552,36 @@ func (a *serverPostAdapter) parseXMLResponse(body []byte, req *ports.ServerPostR
 		return nil, fmt.Errorf("failed to unmarshal XML: %w", err)
 	}
 
-	if epxResp.AuthGUID == "" {
+	// Convert field array to map for easy lookup
+	fieldMap := make(map[string]string)
+	for _, field := range epxResp.Fields.Fields {
+		fieldMap[field.Key] = field.Value
+	}
+
+	authGUID := fieldMap["AUTH_GUID"]
+	authResp := fieldMap["AUTH_RESP"]
+
+	if authGUID == "" {
 		return nil, fmt.Errorf("AUTH_GUID is missing from XML response")
 	}
-	if epxResp.AuthResp == "" {
+	if authResp == "" {
 		return nil, fmt.Errorf("AUTH_RESP is missing from XML response")
 	}
 
-	isApproved := epxResp.AuthResp == "00"
+	isApproved := authResp == "00"
 
 	return &ports.ServerPostResponse{
-		AuthGUID:     epxResp.AuthGUID,
-		AuthResp:     epxResp.AuthResp,
-		AuthCode:     epxResp.AuthCode,
-		AuthRespText: epxResp.AuthRespText,
+		AuthGUID:     authGUID,
+		AuthResp:     authResp,
+		AuthCode:     fieldMap["AUTH_CODE"],
+		AuthRespText: fieldMap["AUTH_RESP_TEXT"],
 		IsApproved:   isApproved,
-		AuthCardType: epxResp.AuthCardType,
-		AuthAVS:      epxResp.AuthAVS,
-		AuthCVV2:     epxResp.AuthCVV2,
-		TranNbr:      epxResp.TranNbr,
-		TranGroup:    epxResp.TranGroup,
-		Amount:       epxResp.Amount,
+		AuthCardType: fieldMap["AUTH_CARD_TYPE"],
+		AuthAVS:      fieldMap["AUTH_AVS"],
+		AuthCVV2:     fieldMap["AUTH_CVV2"],
+		TranNbr:      fieldMap["TRAN_NBR"],
+		TranGroup:    fieldMap["TRAN_GROUP"],
+		Amount:       fieldMap["AMOUNT"],
 		ProcessedAt:  time.Now(),
 		RawXML:       string(body),
 	}, nil

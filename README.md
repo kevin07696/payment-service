@@ -17,7 +17,7 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 - ✅ **HMAC Authentication**: Secure API communication & webhook signatures
 - ✅ **Database Migrations**: SQL-based schema management
 - ✅ **Observability**: Prometheus metrics, health checks, structured logging
-- ✅ **Comprehensive Testing**: 85%+ test coverage with unit and integration tests
+- ✅ **Comprehensive Testing**: Unit and integration test suites for EPX payment gateway
 
 ## 🏗️ Architecture
 
@@ -431,10 +431,22 @@ See [test/integration/README.md](test/integration/README.md) for detailed docume
 
 ### Test Coverage
 
-- **North Adapters**: 85.7%
-- **HMAC Authentication**: 100%
-- **Response Code Mapper**: 100%
-- **Integration Tests**: Repository, Payment Service, Subscription Service
+- **EPX Adapter Unit Tests**: 13.5% (focused on business logic, not HTTP/API calls)
+- **EPX Adapter Integration Tests**: 9 comprehensive tests covering all 7 transaction types
+- **Chargeback Handler Tests**: 72.6%
+
+**EPX Integration Tests:**
+- ✅ Sale (CCE1) - Authorization + Capture
+- ✅ Authorization Only (CCE2)
+- ✅ Complete Auth → Capture flow
+- ✅ Complete Sale → Refund flow
+- ✅ Complete Sale → Void flow
+- ✅ BRIC Storage (CCE8) tokenization
+- ✅ Complete recurring payment flow
+- ✅ Error handling (invalid cards, declines)
+- ✅ Performance validation (response times)
+
+See [TESTING.md](TESTING.md) for complete testing guide.
 
 ## 🏛️ Architecture Benefits
 

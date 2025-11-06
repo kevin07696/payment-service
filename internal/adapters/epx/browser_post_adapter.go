@@ -33,7 +33,7 @@ type BrowserPostConfig struct {
 func DefaultBrowserPostConfig(environment string) *BrowserPostConfig {
 	postURL := "https://epxnow.com/epx/browser_post" // Production
 	if environment == "sandbox" {
-		postURL = "https://epxnow.com/epx/browser_post_sandbox"
+		postURL = "https://secure.epxuap.com/browserpost"
 	}
 
 	return &BrowserPostConfig{

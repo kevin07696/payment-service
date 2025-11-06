@@ -12,3 +12,7 @@ bin/
 # Keep secrets directory but ignore secret files
 secrets/*
 !secrets/.gitkeep
+
+# Test coverage files
+coverage.out
+*.coverprofile

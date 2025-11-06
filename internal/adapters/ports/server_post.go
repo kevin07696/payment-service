@@ -9,14 +9,22 @@ import (
 type TransactionType string
 
 const (
-	TransactionTypeAuthOnly       TransactionType = "A"    // Authorization only
-	TransactionTypeCapture        TransactionType = "D"    // Capture previous authorization
-	TransactionTypeSale           TransactionType = "S"    // Sale (auth + capture)
-	TransactionTypeRefund         TransactionType = "C"    // Credit/refund
-	TransactionTypeVoid           TransactionType = "V"    // Void transaction
-	TransactionTypePreNote        TransactionType = "P"    // ACH pre-note verification
+	// Credit Card E-commerce Transactions
+	TransactionTypeSale           TransactionType = "CCE1" // CC Ecommerce Sale (auth + capture)
+	TransactionTypeAuthOnly       TransactionType = "CCE2" // CC Ecommerce Auth Only
+	TransactionTypeCapture        TransactionType = "CCE4" // CC Ecommerce Capture
+	TransactionTypeRefund         TransactionType = "CCE9" // CC Ecommerce Refund/Credit
+	TransactionTypeVoid           TransactionType = "CCEX" // CC Ecommerce Void
+	TransactionTypeReversal       TransactionType = "CCE7" // CC Ecommerce Reversal (void + release auth)
+
+	// BRIC Storage (Tokenization)
 	TransactionTypeBRICStorageCC  TransactionType = "CCE8" // BRIC Storage - Credit Card (Ecommerce)
 	TransactionTypeBRICStorageACH TransactionType = "CKC8" // BRIC Storage - ACH Checking Account
+
+	// ACH Transactions
+	TransactionTypeACHDebit       TransactionType = "CKC1" // ACH Checking Debit
+	TransactionTypeACHCredit      TransactionType = "CKC4" // ACH Checking Credit
+	TransactionTypePreNote        TransactionType = "CKP"  // ACH pre-note verification
 )
 
 // PaymentMethodType represents the payment method
@@ -80,6 +88,11 @@ type ServerPostRequest struct {
 
 	// Industry Type ("E" = ecommerce)
 	IndustryType *string
+
+	// Authorization Characteristics Indicator Extension (for COF, MIT, Recurring, Installment)
+	// Values: "RB" = Recurring Billing, "IP" = Installment Payment, "CA" = Completion Advice, etc.
+	// Required for recurring payments with Storage BRIC
+	ACIExt *string
 
 	// Optional metadata
 	CustomerID string            // Our internal customer ID
