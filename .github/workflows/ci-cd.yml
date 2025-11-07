@@ -47,18 +47,33 @@ jobs:
         run: |
           echo "🔄 Starting migrations for staging database..."
 
-          # Get the database connection string from Fly.io
-          DB_URL=$(flyctl postgres db show kevin07696-payment-service-staging-db -a kevin07696-payment-service-staging-db --json | jq -r '.ConnectionString')
-
-          if [ -z "$DB_URL" ]; then
-            echo "❌ Failed to get database connection string"
+          # Check if POSTGRES_PASSWORD is set
+          if [ -z "${{ secrets.POSTGRES_PASSWORD }}" ]; then
+            echo "❌ POSTGRES_PASSWORD secret not set in GitHub"
+            echo "Get the password with: flyctl postgres connect -a kevin07696-payment-service-staging-db"
+            echo "Then add it to: GitHub repo > Settings > Secrets > Actions > New secret"
             exit 1
           fi
 
-          echo "✅ Connected to staging database"
+          # Start proxy in background
+          echo "Starting Fly.io proxy to database..."
+          flyctl proxy 5432:5432 -a kevin07696-payment-service-staging-db &
+          PROXY_PID=$!
+
+          # Wait for proxy to be ready
+          echo "Waiting for proxy to start..."
+          sleep 5
+
+          # Connection string via proxy
+          DB_URL="postgres://postgres:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/kevin07696_payment_service_staging?sslmode=disable"
+
+          echo "✅ Database connection configured via proxy"
 
           # Run migrations
           goose -dir migrations postgres "$DB_URL" up
+
+          # Kill proxy
+          kill $PROXY_PID || true
 
           echo "✅ Migrations completed successfully"
 
