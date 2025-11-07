@@ -2,10 +2,12 @@ package payment
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -33,6 +35,12 @@ type BrowserPostCallbackHandler struct {
 	browserPost       ports.BrowserPostAdapter
 	paymentMethodSvc  PaymentMethodService
 	logger            *zap.Logger
+	epxPostURL        string // EPX Browser Post endpoint URL
+	epxCustNbr        string // EPX Customer Number
+	epxMerchNbr       string // EPX Merchant Number
+	epxDBAnbr         string // EPX DBA Number
+	epxTerminalNbr    string // EPX Terminal Number
+	callbackBaseURL   string // Base URL for callback (e.g., "http://localhost:8081")
 }
 
 // NewBrowserPostCallbackHandler creates a new Browser Post callback handler
@@ -41,12 +49,103 @@ func NewBrowserPostCallbackHandler(
 	browserPost ports.BrowserPostAdapter,
 	paymentMethodSvc PaymentMethodService,
 	logger *zap.Logger,
+	epxPostURL string,
+	epxCustNbr string,
+	epxMerchNbr string,
+	epxDBAnbr string,
+	epxTerminalNbr string,
+	callbackBaseURL string,
 ) *BrowserPostCallbackHandler {
 	return &BrowserPostCallbackHandler{
 		dbAdapter:        dbAdapter,
 		browserPost:      browserPost,
 		paymentMethodSvc: paymentMethodSvc,
 		logger:           logger,
+		epxPostURL:       epxPostURL,
+		epxCustNbr:       epxCustNbr,
+		epxMerchNbr:      epxMerchNbr,
+		epxDBAnbr:        epxDBAnbr,
+		epxTerminalNbr:   epxTerminalNbr,
+		callbackBaseURL:  callbackBaseURL,
+	}
+}
+
+// GetPaymentForm generates form configuration for Browser Post payment
+// This endpoint is called by the frontend to get EPX credentials and form fields
+// Endpoint: GET /api/v1/payments/browser-post/form?amount=99.99
+func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.logger.Warn("Browser Post form generator received non-GET request",
+			zap.String("method", r.Method),
+		)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract amount from query parameters
+	amount := r.URL.Query().Get("amount")
+	if amount == "" {
+		h.logger.Warn("Browser Post form request missing amount parameter")
+		http.Error(w, "amount parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate amount format
+	if _, err := fmt.Sscanf(amount, "%f", new(float64)); err != nil {
+		h.logger.Warn("Invalid amount format",
+			zap.String("amount", amount),
+			zap.Error(err),
+		)
+		http.Error(w, "amount must be a valid number", http.StatusBadRequest)
+		return
+	}
+
+	// Generate unique transaction number using Unix timestamp with microseconds
+	// This ensures uniqueness even for rapid requests within the same second
+	now := time.Now()
+	tranNbr := fmt.Sprintf("%d%06d", now.Unix()%100000, now.Nanosecond()/1000)
+
+	h.logger.Info("Generating Browser Post form configuration",
+		zap.String("amount", amount),
+		zap.String("tran_nbr", tranNbr),
+	)
+
+	// Build form configuration
+	// Note: This returns EPX credentials and configuration that the frontend
+	// will use to construct an HTML form that posts directly to EPX
+	formConfig := map[string]string{
+		// EPX endpoint URL (where the form will POST to)
+		"postURL": h.epxPostURL,
+
+		// EPX credentials (hidden fields)
+		"custNbr":     h.epxCustNbr,
+		"merchNbr":    h.epxMerchNbr,
+		"dBAnbr":      h.epxDBAnbr,
+		"terminalNbr": h.epxTerminalNbr,
+
+		// Transaction details
+		"amount":       amount,
+		"tranNbr":      tranNbr,
+		"tranGroup":    "SALE",
+		"tranCode":     "SALE",
+		"industryType": "E",  // E-commerce
+		"cardEntMeth":  "E",  // E-commerce card entry
+
+		// Callback URL (where EPX will redirect after payment)
+		"redirectURL": h.callbackBaseURL + "/api/v1/payments/browser-post/callback",
+
+		// Additional fields for display/tracking
+		"merchantName": "Payment Service",
+	}
+
+	// Return JSON response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(formConfig); err != nil {
+		h.logger.Error("Failed to encode form configuration",
+			zap.Error(err),
+		)
 	}
 }
 

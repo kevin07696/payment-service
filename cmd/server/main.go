@@ -92,8 +92,9 @@ func main() {
 	httpMux.HandleFunc("/cron/health", deps.billingCronHandler.HealthCheck)
 	httpMux.HandleFunc("/cron/stats", deps.billingCronHandler.Stats)
 
-	// Browser Post callback endpoint (EPX redirects here after payment)
-	httpMux.HandleFunc("/api/v1/payments/browser-post/callback", deps.browserPostCallbackHandler.HandleCallback)
+	// Browser Post endpoints
+	httpMux.HandleFunc("/api/v1/payments/browser-post/form", deps.browserPostCallbackHandler.GetPaymentForm)       // Form data generator
+	httpMux.HandleFunc("/api/v1/payments/browser-post/callback", deps.browserPostCallbackHandler.HandleCallback)   // Callback from EPX
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -163,12 +164,19 @@ type Config struct {
 	MinConns   int32
 
 	// EPX Gateway
-	EPXBaseURL string
-	EPXTimeout int
+	EPXBaseURL     string
+	EPXTimeout     int
+	EPXCustNbr     string // EPX Customer Number
+	EPXMerchNbr    string // EPX Merchant Number
+	EPXDBAnbr      string // EPX DBA Number
+	EPXTerminalNbr string // EPX Terminal Number
 
 	// North API (Merchant Reporting)
 	NorthAPIURL  string
 	NorthTimeout int
+
+	// Browser Post Configuration
+	CallbackBaseURL string // Base URL for Browser Post callbacks (e.g., "http://localhost:8081")
 
 	// Cron authentication
 	CronSecret string
@@ -201,8 +209,13 @@ func loadConfig(logger *zap.Logger) *Config {
 		MinConns:     int32(getEnvInt("DB_MIN_CONNS", 5)),
 		EPXBaseURL:   getEnv("EPX_BASE_URL", "https://sandbox.north.com"),
 		EPXTimeout:   getEnvInt("EPX_TIMEOUT", 30),
+		EPXCustNbr:   getEnv("EPX_CUST_NBR", "9001"),     // EPX sandbox customer number
+		EPXMerchNbr:  getEnv("EPX_MERCH_NBR", "900300"),  // EPX sandbox merchant number
+		EPXDBAnbr:    getEnv("EPX_DBA_NBR", "2"),         // EPX sandbox DBA number
+		EPXTerminalNbr: getEnv("EPX_TERMINAL_NBR", "77"), // EPX sandbox terminal number
 		NorthAPIURL:  getEnv("NORTH_API_URL", "https://api.north.com"),
 		NorthTimeout: getEnvInt("NORTH_TIMEOUT", 30),
+		CallbackBaseURL: getEnv("CALLBACK_BASE_URL", "http://localhost:8081"),
 		CronSecret:   getEnv("CRON_SECRET", "change-me-in-production"),
 	}
 
@@ -360,7 +373,18 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
 
 	// Initialize Browser Post callback handler
-	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(dbAdapter, browserPost, paymentMethodSvc, logger)
+	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(
+		dbAdapter,
+		browserPost,
+		paymentMethodSvc,
+		logger,
+		browserPostCfg.PostURL,    // EPX Browser Post endpoint URL
+		cfg.EPXCustNbr,            // EPX Customer Number
+		cfg.EPXMerchNbr,           // EPX Merchant Number
+		cfg.EPXDBAnbr,             // EPX DBA Number
+		cfg.EPXTerminalNbr,        // EPX Terminal Number
+		cfg.CallbackBaseURL,       // Base URL for callbacks
+	)
 
 	return &Dependencies{
 		paymentHandler:             paymentHdlr,

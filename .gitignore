@@ -1,11 +1,9 @@
 # Binaries
 bin/
+server
 
 # Environment
 .env
-
-# Documentation
-/docs
 
 # Claude Code
 .claude

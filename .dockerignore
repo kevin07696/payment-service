@@ -46,3 +46,27 @@ temp/
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# CI/CD
+.github/
+
+# Fly.io
+fly.toml
+
+# Testing scripts
+test_*.go
+test_*.sh
+test_*.html
+
+# Secrets (never include in image)
+secrets/*
+*.key
+*.pem
+*.crt
+
+# Database files
+*.db
+*.sqlite
+
+# Coverage files
+*.coverprofile
