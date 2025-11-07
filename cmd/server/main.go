@@ -31,6 +31,7 @@ import (
 	paymentmethodService "github.com/kevin07696/payment-service/internal/services/payment_method"
 	subscriptionService "github.com/kevin07696/payment-service/internal/services/subscription"
 	webhookService "github.com/kevin07696/payment-service/internal/services/webhook"
+	"github.com/kevin07696/payment-service/pkg/middleware"
 	"github.com/kevin07696/payment-service/pkg/security"
 	agentv1 "github.com/kevin07696/payment-service/proto/agent/v1"
 	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
@@ -86,19 +87,23 @@ func main() {
 	// Setup HTTP server for cron endpoints and Browser Post callback
 	httpMux := http.NewServeMux()
 
+	// Create rate limiter (10 requests per second per IP, burst of 20)
+	// Adjust these values based on expected staging traffic
+	rateLimiter := middleware.NewRateLimiter(10, 20)
+
 	// Cron endpoints
 	httpMux.HandleFunc("/cron/process-billing", deps.billingCronHandler.ProcessBilling)
 	httpMux.HandleFunc("/cron/sync-disputes", deps.disputeSyncCronHandler.SyncDisputes)
 	httpMux.HandleFunc("/cron/health", deps.billingCronHandler.HealthCheck)
 	httpMux.HandleFunc("/cron/stats", deps.billingCronHandler.Stats)
 
-	// Browser Post endpoints
-	httpMux.HandleFunc("/api/v1/payments/browser-post/form", deps.browserPostCallbackHandler.GetPaymentForm)     // Form data generator
-	httpMux.HandleFunc("/api/v1/payments/browser-post/callback", deps.browserPostCallbackHandler.HandleCallback) // Callback from EPX
+	// Browser Post endpoints (with rate limiting)
+	httpMux.HandleFunc("/api/v1/payments/browser-post/form", rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm))
+	httpMux.HandleFunc("/api/v1/payments/browser-post/callback", rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.HandleCallback))
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler: httpMux,
+		Handler: rateLimiter.Middleware(httpMux), // Apply rate limiting to all HTTP endpoints
 	}
 
 	// Start gRPC server

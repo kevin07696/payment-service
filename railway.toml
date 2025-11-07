@@ -1,0 +1,28 @@
+[build]
+builder = "nixpacks"
+buildCommand = "go build -o payment-server ./cmd/server"
+
+[deploy]
+startCommand = "./payment-server"
+healthcheckPath = "/cron/health"
+healthcheckTimeout = 100
+restartPolicyType = "never"
+
+[[services]]
+name = "payment-service"
+
+# Resource limits to stay under $5/month
+[services.resources]
+memory = 512  # 512MB RAM
+cpus = 0.5    # 0.5 vCPU
+
+# Environment will be set in Railway dashboard:
+# - PORT=8080
+# - HTTP_PORT=8081
+# - DATABASE_URL (from Railway Postgres)
+# - EPX_CUST_NBR=9001
+# - EPX_MERCH_NBR=900300
+# - EPX_DBA_NBR=2
+# - EPX_TERMINAL_NBR=77
+# - EPX_BASE_URL=https://sandbox.north.com
+# - CALLBACK_BASE_URL=https://your-app.railway.app
