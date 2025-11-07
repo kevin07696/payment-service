@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Automatic Database Migrations (2025-11-07)
+
+**Migrations now run automatically on application startup using Goose**
+
+- **Migration Engine**: Integrated Goose v3 for database schema versioning
+  - Automatic execution on app startup (before services initialize)
+  - Version tracking in `goose_db_version` table
+  - Idempotent: safe to run multiple times
+  - Simple rollback support
+
+- **Migration Directory**: `migrations/`
+  - `00001_init_schema.sql` - Initial placeholder migration
+  - `README.md` - Comprehensive migration guide with examples
+  - SQL-based migrations with up/down support
+  - Sequential versioning system (00001, 00002, etc.)
+
+- **Code Changes**: `cmd/server/main.go`
+  - Added `runMigrations()` function that executes before service initialization
+  - Uses standard `database/sql` package for Goose compatibility
+  - Logs migration success/failure with detailed error messages
+  - Fails fast if migrations fail (prevents running with wrong schema)
+
+- **Docker Support**: `Dockerfile`
+  - Migrations directory copied into container image
+  - Migrations run automatically when container starts
+  - No manual migration step required during deployments
+
+- **Migration Workflow**:
+  ```
+  App Start → Connect to DB → Run Migrations → Initialize Services → Start Servers
+  ```
+
+**Benefits:**
+- ✅ Zero-downtime deployments (schema updated on startup)
+- ✅ Version-controlled schema changes in git
+- ✅ Automatic tracking of applied migrations
+- ✅ No manual SQL execution needed
+- ✅ Rollback support for reversible changes
+- ✅ Works in local dev, Docker, and Fly.io
+
+**Creating New Migrations:**
+```bash
+# Using goose CLI
+goose -dir migrations create add_new_feature sql
+
+# Manual creation
+# Create: migrations/00002_description.sql
+```
+
+**Manual Migration Execution** (if needed):
+```bash
+# Local
+goose -dir migrations postgres "postgresql://localhost:5432/payment_service" up
+
+# Via Fly.io proxy
+flyctl proxy 5432 -a kevin07696-payment-service-staging-db
+goose -dir migrations postgres "postgresql://postgres:PASSWORD@localhost:5432/payment_service" up
+```
+
 ### Added - CI/CD Deployment Infrastructure (2025-11-07)
 
 **Complete GitHub Actions + Fly.io deployment pipeline**
