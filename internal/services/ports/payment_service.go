@@ -8,14 +8,14 @@ import (
 
 // AuthorizeRequest contains parameters for authorization
 type AuthorizeRequest struct {
-	AgentID           string
-	CustomerID        *string // Nullable for guest transactions
-	Amount            string
-	Currency          string
-	PaymentMethodID   *string // Saved payment method
-	PaymentToken      *string // One-time token from EPX
-	IdempotencyKey    *string
-	Metadata          map[string]interface{}
+	AgentID         string
+	CustomerID      *string // Nullable for guest transactions
+	Amount          string
+	Currency        string
+	PaymentMethodID *string // Saved payment method
+	PaymentToken    *string // One-time token from EPX
+	IdempotencyKey  *string
+	Metadata        map[string]interface{}
 }
 
 // CaptureRequest contains parameters for capturing authorized funds
@@ -27,14 +27,14 @@ type CaptureRequest struct {
 
 // SaleRequest contains parameters for sale (auth + capture)
 type SaleRequest struct {
-	AgentID           string
-	CustomerID        *string
-	Amount            string
-	Currency          string
-	PaymentMethodID   *string
-	PaymentToken      *string
-	IdempotencyKey    *string
-	Metadata          map[string]interface{}
+	AgentID         string
+	CustomerID      *string
+	Amount          string
+	Currency        string
+	PaymentMethodID *string
+	PaymentToken    *string
+	IdempotencyKey  *string
+	Metadata        map[string]interface{}
 }
 
 // VoidRequest contains parameters for voiding a transaction

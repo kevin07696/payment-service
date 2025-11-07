@@ -181,10 +181,10 @@ func TestGetPaymentForm(t *testing.T) {
 				&mockPaymentMethodService{},
 				logger,
 				"https://secure.epxuap.com/browserpost", // EPX sandbox URL
-				"9001",                                   // EPX Customer Number
-				"900300",                                 // EPX Merchant Number
-				"2",                                      // EPX DBA Number
-				"77",                                     // EPX Terminal Number
+				"9001",                                  // EPX Customer Number
+				"900300",                                // EPX Merchant Number
+				"2",                                     // EPX DBA Number
+				"77",                                    // EPX Terminal Number
 				"http://localhost:8081",                 // Callback base URL
 			)
 

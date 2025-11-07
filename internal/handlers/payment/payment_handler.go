@@ -10,9 +10,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/services/ports"
+	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
 	"go.uber.org/zap"
 )
 

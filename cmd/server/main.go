@@ -16,16 +16,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	agentv1 "github.com/kevin07696/payment-service/proto/agent/v1"
-	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
-	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
-	paymentmethodv1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
-	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	"github.com/kevin07696/payment-service/internal/adapters/epx"
 	"github.com/kevin07696/payment-service/internal/adapters/north"
 	"github.com/kevin07696/payment-service/internal/adapters/secrets"
-	"github.com/kevin07696/payment-service/pkg/security"
 	agentHandler "github.com/kevin07696/payment-service/internal/handlers/agent"
 	chargebackHandler "github.com/kevin07696/payment-service/internal/handlers/chargeback"
 	cronHandler "github.com/kevin07696/payment-service/internal/handlers/cron"
@@ -37,6 +31,12 @@ import (
 	paymentmethodService "github.com/kevin07696/payment-service/internal/services/payment_method"
 	subscriptionService "github.com/kevin07696/payment-service/internal/services/subscription"
 	webhookService "github.com/kevin07696/payment-service/internal/services/webhook"
+	"github.com/kevin07696/payment-service/pkg/security"
+	agentv1 "github.com/kevin07696/payment-service/proto/agent/v1"
+	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
+	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
+	paymentmethodv1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
+	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
 )
 
 func main() {
@@ -93,8 +93,8 @@ func main() {
 	httpMux.HandleFunc("/cron/stats", deps.billingCronHandler.Stats)
 
 	// Browser Post endpoints
-	httpMux.HandleFunc("/api/v1/payments/browser-post/form", deps.browserPostCallbackHandler.GetPaymentForm)       // Form data generator
-	httpMux.HandleFunc("/api/v1/payments/browser-post/callback", deps.browserPostCallbackHandler.HandleCallback)   // Callback from EPX
+	httpMux.HandleFunc("/api/v1/payments/browser-post/form", deps.browserPostCallbackHandler.GetPaymentForm)     // Form data generator
+	httpMux.HandleFunc("/api/v1/payments/browser-post/callback", deps.browserPostCallbackHandler.HandleCallback) // Callback from EPX
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -184,39 +184,39 @@ type Config struct {
 
 // Dependencies holds all initialized services and handlers
 type Dependencies struct {
-	paymentHandler            paymentv1.PaymentServiceServer
-	subscriptionHandler       subscriptionv1.SubscriptionServiceServer
-	paymentMethodHandler      paymentmethodv1.PaymentMethodServiceServer
-	agentHandler              agentv1.AgentServiceServer
-	chargebackHandler         chargebackv1.ChargebackServiceServer
-	billingCronHandler        *cronHandler.BillingHandler
-	disputeSyncCronHandler    *cronHandler.DisputeSyncHandler
+	paymentHandler             paymentv1.PaymentServiceServer
+	subscriptionHandler        subscriptionv1.SubscriptionServiceServer
+	paymentMethodHandler       paymentmethodv1.PaymentMethodServiceServer
+	agentHandler               agentv1.AgentServiceServer
+	chargebackHandler          chargebackv1.ChargebackServiceServer
+	billingCronHandler         *cronHandler.BillingHandler
+	disputeSyncCronHandler     *cronHandler.DisputeSyncHandler
 	browserPostCallbackHandler *paymentHandler.BrowserPostCallbackHandler
 }
 
 // loadConfig loads configuration from environment variables
 func loadConfig(logger *zap.Logger) *Config {
 	cfg := &Config{
-		Port:         getEnvInt("PORT", 8080),
-		HTTPPort:     getEnvInt("HTTP_PORT", 8081),
-		DBHost:       getEnv("DB_HOST", "localhost"),
-		DBPort:       getEnvInt("DB_PORT", 5432),
-		DBUser:       getEnv("DB_USER", "postgres"),
-		DBPassword:   getEnv("DB_PASSWORD", "postgres"),
-		DBName:       getEnv("DB_NAME", "payment_service"),
-		DBSSLMode:    getEnv("DB_SSL_MODE", "disable"),
-		MaxConns:     int32(getEnvInt("DB_MAX_CONNS", 25)),
-		MinConns:     int32(getEnvInt("DB_MIN_CONNS", 5)),
-		EPXBaseURL:   getEnv("EPX_BASE_URL", "https://sandbox.north.com"),
-		EPXTimeout:   getEnvInt("EPX_TIMEOUT", 30),
-		EPXCustNbr:   getEnv("EPX_CUST_NBR", "9001"),     // EPX sandbox customer number
-		EPXMerchNbr:  getEnv("EPX_MERCH_NBR", "900300"),  // EPX sandbox merchant number
-		EPXDBAnbr:    getEnv("EPX_DBA_NBR", "2"),         // EPX sandbox DBA number
-		EPXTerminalNbr: getEnv("EPX_TERMINAL_NBR", "77"), // EPX sandbox terminal number
-		NorthAPIURL:  getEnv("NORTH_API_URL", "https://api.north.com"),
-		NorthTimeout: getEnvInt("NORTH_TIMEOUT", 30),
+		Port:            getEnvInt("PORT", 8080),
+		HTTPPort:        getEnvInt("HTTP_PORT", 8081),
+		DBHost:          getEnv("DB_HOST", "localhost"),
+		DBPort:          getEnvInt("DB_PORT", 5432),
+		DBUser:          getEnv("DB_USER", "postgres"),
+		DBPassword:      getEnv("DB_PASSWORD", "postgres"),
+		DBName:          getEnv("DB_NAME", "payment_service"),
+		DBSSLMode:       getEnv("DB_SSL_MODE", "disable"),
+		MaxConns:        int32(getEnvInt("DB_MAX_CONNS", 25)),
+		MinConns:        int32(getEnvInt("DB_MIN_CONNS", 5)),
+		EPXBaseURL:      getEnv("EPX_BASE_URL", "https://sandbox.north.com"),
+		EPXTimeout:      getEnvInt("EPX_TIMEOUT", 30),
+		EPXCustNbr:      getEnv("EPX_CUST_NBR", "9001"),    // EPX sandbox customer number
+		EPXMerchNbr:     getEnv("EPX_MERCH_NBR", "900300"), // EPX sandbox merchant number
+		EPXDBAnbr:       getEnv("EPX_DBA_NBR", "2"),        // EPX sandbox DBA number
+		EPXTerminalNbr:  getEnv("EPX_TERMINAL_NBR", "77"),  // EPX sandbox terminal number
+		NorthAPIURL:     getEnv("NORTH_API_URL", "https://api.north.com"),
+		NorthTimeout:    getEnvInt("NORTH_TIMEOUT", 30),
 		CallbackBaseURL: getEnv("CALLBACK_BASE_URL", "http://localhost:8081"),
-		CronSecret:   getEnv("CRON_SECRET", "change-me-in-production"),
+		CronSecret:      getEnv("CRON_SECRET", "change-me-in-production"),
 	}
 
 	logger.Info("Configuration loaded",
@@ -378,12 +378,12 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 		browserPost,
 		paymentMethodSvc,
 		logger,
-		browserPostCfg.PostURL,    // EPX Browser Post endpoint URL
-		cfg.EPXCustNbr,            // EPX Customer Number
-		cfg.EPXMerchNbr,           // EPX Merchant Number
-		cfg.EPXDBAnbr,             // EPX DBA Number
-		cfg.EPXTerminalNbr,        // EPX Terminal Number
-		cfg.CallbackBaseURL,       // Base URL for callbacks
+		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
+		cfg.EPXCustNbr,         // EPX Customer Number
+		cfg.EPXMerchNbr,        // EPX Merchant Number
+		cfg.EPXDBAnbr,          // EPX DBA Number
+		cfg.EPXTerminalNbr,     // EPX Terminal Number
+		cfg.CallbackBaseURL,    // Base URL for callbacks
 	)
 
 	return &Dependencies{

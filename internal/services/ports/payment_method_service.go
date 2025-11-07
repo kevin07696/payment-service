@@ -8,35 +8,35 @@ import (
 
 // SavePaymentMethodRequest contains parameters for saving a payment method
 type SavePaymentMethodRequest struct {
-	AgentID         string
-	CustomerID      string
-	PaymentToken    string // EPX token (AUTH_GUID)
-	PaymentType     domain.PaymentMethodType
-	LastFour        string
-	CardBrand       *string
-	CardExpMonth    *int
-	CardExpYear     *int
-	BankName        *string
-	AccountType     *string
-	IsDefault       bool
-	IdempotencyKey  *string
+	AgentID        string
+	CustomerID     string
+	PaymentToken   string // EPX token (AUTH_GUID)
+	PaymentType    domain.PaymentMethodType
+	LastFour       string
+	CardBrand      *string
+	CardExpMonth   *int
+	CardExpYear    *int
+	BankName       *string
+	AccountType    *string
+	IsDefault      bool
+	IdempotencyKey *string
 }
 
 // ConvertFinancialBRICRequest contains parameters for converting Financial BRIC to Storage BRIC
 type ConvertFinancialBRICRequest struct {
-	AgentID         string
-	CustomerID      string
-	FinancialBRIC   string                   // AUTH_GUID from completed transaction
-	PaymentType     domain.PaymentMethodType // credit_card or ach
-	TransactionID   string                   // Reference to the original transaction
-	LastFour        string                   // For display purposes
-	CardBrand       *string                  // For credit cards
-	CardExpMonth    *int                     // For credit cards
-	CardExpYear     *int                     // For credit cards
-	BankName        *string                  // For ACH
-	AccountType     *string                  // For ACH (checking/savings)
-	IsDefault       bool
-	IdempotencyKey  *string
+	AgentID        string
+	CustomerID     string
+	FinancialBRIC  string                   // AUTH_GUID from completed transaction
+	PaymentType    domain.PaymentMethodType // credit_card or ach
+	TransactionID  string                   // Reference to the original transaction
+	LastFour       string                   // For display purposes
+	CardBrand      *string                  // For credit cards
+	CardExpMonth   *int                     // For credit cards
+	CardExpYear    *int                     // For credit cards
+	BankName       *string                  // For ACH
+	AccountType    *string                  // For ACH (checking/savings)
+	IsDefault      bool
+	IdempotencyKey *string
 
 	// Billing information (required for Account Verification on credit cards)
 	FirstName *string

@@ -10,21 +10,21 @@ type TransactionType string
 
 const (
 	// Credit Card E-commerce Transactions
-	TransactionTypeSale           TransactionType = "CCE1" // CC Ecommerce Sale (auth + capture)
-	TransactionTypeAuthOnly       TransactionType = "CCE2" // CC Ecommerce Auth Only
-	TransactionTypeCapture        TransactionType = "CCE4" // CC Ecommerce Capture
-	TransactionTypeRefund         TransactionType = "CCE9" // CC Ecommerce Refund/Credit
-	TransactionTypeVoid           TransactionType = "CCEX" // CC Ecommerce Void
-	TransactionTypeReversal       TransactionType = "CCE7" // CC Ecommerce Reversal (void + release auth)
+	TransactionTypeSale     TransactionType = "CCE1" // CC Ecommerce Sale (auth + capture)
+	TransactionTypeAuthOnly TransactionType = "CCE2" // CC Ecommerce Auth Only
+	TransactionTypeCapture  TransactionType = "CCE4" // CC Ecommerce Capture
+	TransactionTypeRefund   TransactionType = "CCE9" // CC Ecommerce Refund/Credit
+	TransactionTypeVoid     TransactionType = "CCEX" // CC Ecommerce Void
+	TransactionTypeReversal TransactionType = "CCE7" // CC Ecommerce Reversal (void + release auth)
 
 	// BRIC Storage (Tokenization)
 	TransactionTypeBRICStorageCC  TransactionType = "CCE8" // BRIC Storage - Credit Card (Ecommerce)
 	TransactionTypeBRICStorageACH TransactionType = "CKC8" // BRIC Storage - ACH Checking Account
 
 	// ACH Transactions
-	TransactionTypeACHDebit       TransactionType = "CKC1" // ACH Checking Debit
-	TransactionTypeACHCredit      TransactionType = "CKC4" // ACH Checking Credit
-	TransactionTypePreNote        TransactionType = "CKP"  // ACH pre-note verification
+	TransactionTypeACHDebit  TransactionType = "CKC1" // ACH Checking Debit
+	TransactionTypeACHCredit TransactionType = "CKC4" // ACH Checking Credit
+	TransactionTypePreNote   TransactionType = "CKP"  // ACH pre-note verification
 )
 
 // PaymentMethodType represents the payment method
@@ -70,8 +70,8 @@ type ServerPostRequest struct {
 	// Returns: Storage BRIC (never expires) + Network Transaction ID
 	//
 	// Account information (for creating Storage BRIC from account data)
-	AccountNumber *string // Card number or bank account number
-	RoutingNumber *string // For ACH only
+	AccountNumber  *string // Card number or bank account number
+	RoutingNumber  *string // For ACH only
 	ExpirationDate *string // YYMM format for credit cards
 	CVV            *string // CVV for initial validation
 

@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
 	"go.uber.org/zap"
 )
 
@@ -115,8 +115,8 @@ func (h *Handler) ListChargebacks(ctx context.Context, req *chargebackv1.ListCha
 
 	// Build query params
 	params := sqlc.ListChargebacksParams{
-		AgentID:  pgtype.Text{String: req.AgentId, Valid: true},
-		LimitVal: req.Limit,
+		AgentID:   pgtype.Text{String: req.AgentId, Valid: true},
+		LimitVal:  req.Limit,
 		OffsetVal: req.Offset,
 	}
 

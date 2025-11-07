@@ -16,8 +16,8 @@ type PostgreSQLConfig struct {
 	DatabaseURL string
 
 	// Pool settings
-	MaxConns        int32 // Maximum number of connections in pool
-	MinConns        int32 // Minimum number of connections in pool
+	MaxConns        int32  // Maximum number of connections in pool
+	MinConns        int32  // Minimum number of connections in pool
 	MaxConnLifetime string // Max connection lifetime (e.g., "1h")
 	MaxConnIdleTime string // Max connection idle time (e.g., "30m")
 }

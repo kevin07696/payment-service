@@ -10,9 +10,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/services/ports"
+	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
 	"go.uber.org/zap"
 )
 
@@ -339,21 +339,21 @@ func subscriptionToResponse(sub *domain.Subscription) *subscriptionv1.Subscripti
 
 func subscriptionToProto(sub *domain.Subscription) *subscriptionv1.Subscription {
 	proto := &subscriptionv1.Subscription{
-		Id:                 sub.ID,
-		AgentId:            sub.AgentID,
-		CustomerId:         sub.CustomerID,
-		Amount:             sub.Amount.String(),
-		Currency:           string(sub.Currency),
-		IntervalValue:      int32(sub.IntervalValue),
-		IntervalUnit:       intervalUnitToProto(sub.IntervalUnit),
-		Status:             subscriptionStatusToProto(sub.Status),
-		PaymentMethodId:    sub.PaymentMethodID,
-		NextBillingDate:    timestamppb.New(sub.NextBillingDate),
-		FailureRetryCount:  int32(sub.FailureRetryCount),
-		MaxRetries:         int32(sub.MaxRetries),
-		CreatedAt:          timestamppb.New(sub.CreatedAt),
-		UpdatedAt:          timestamppb.New(sub.UpdatedAt),
-		Metadata:           convertMetadataToProto(sub.Metadata),
+		Id:                sub.ID,
+		AgentId:           sub.AgentID,
+		CustomerId:        sub.CustomerID,
+		Amount:            sub.Amount.String(),
+		Currency:          string(sub.Currency),
+		IntervalValue:     int32(sub.IntervalValue),
+		IntervalUnit:      intervalUnitToProto(sub.IntervalUnit),
+		Status:            subscriptionStatusToProto(sub.Status),
+		PaymentMethodId:   sub.PaymentMethodID,
+		NextBillingDate:   timestamppb.New(sub.NextBillingDate),
+		FailureRetryCount: int32(sub.FailureRetryCount),
+		MaxRetries:        int32(sub.MaxRetries),
+		CreatedAt:         timestamppb.New(sub.CreatedAt),
+		UpdatedAt:         timestamppb.New(sub.UpdatedAt),
+		Metadata:          convertMetadataToProto(sub.Metadata),
 	}
 
 	if sub.GatewaySubscriptionID != nil {

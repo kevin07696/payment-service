@@ -9,22 +9,22 @@ import (
 // Based on EPX Browser Post API - Key Exchange Request (page 6)
 type KeyExchangeRequest struct {
 	// Agent credentials
-	AgentID      string // Our internal agent ID
-	CustNbr      string // EPX customer number
-	MerchNbr     string // EPX merchant number
-	DBAnbr       string // EPX DBA number
-	TerminalNbr  string // EPX terminal number
-	MAC          string // Message Authentication Code from secret manager
+	AgentID     string // Our internal agent ID
+	CustNbr     string // EPX customer number
+	MerchNbr    string // EPX merchant number
+	DBAnbr      string // EPX DBA number
+	TerminalNbr string // EPX terminal number
+	MAC         string // Message Authentication Code from secret manager
 
 	// Transaction details
-	Amount       string // Transaction amount (e.g., "29.99")
-	TranNbr      string // Unique transaction number
-	TranGroup    string // Transaction group ID (our group_id)
-	RedirectURL  string // URL where EPX will redirect after payment
+	Amount      string // Transaction amount (e.g., "29.99")
+	TranNbr     string // Unique transaction number
+	TranGroup   string // Transaction group ID (our group_id)
+	RedirectURL string // URL where EPX will redirect after payment
 
 	// Optional fields
-	CustomerID   string            // Our internal customer ID (optional)
-	Metadata     map[string]string // Additional metadata (optional)
+	CustomerID string            // Our internal customer ID (optional)
+	Metadata   map[string]string // Additional metadata (optional)
 }
 
 // KeyExchangeResponse contains the TAC token and metadata from EPX

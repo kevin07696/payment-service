@@ -34,18 +34,18 @@ func NewBillingHandler(
 
 // ProcessBillingRequest represents the request body for manual billing processing
 type ProcessBillingRequest struct {
-	AsOfDate  *string `json:"as_of_date"`  // Optional: ISO date string, defaults to today
-	BatchSize *int    `json:"batch_size"`  // Optional: defaults to 100
+	AsOfDate  *string `json:"as_of_date"` // Optional: ISO date string, defaults to today
+	BatchSize *int    `json:"batch_size"` // Optional: defaults to 100
 }
 
 // ProcessBillingResponse represents the response from billing processing
 type ProcessBillingResponse struct {
-	Success       bool     `json:"success"`
-	Processed     int      `json:"processed"`
-	SuccessCount  int      `json:"success_count"`
-	FailureCount  int      `json:"failure_count"`
-	Errors        []string `json:"errors,omitempty"`
-	ProcessedAt   string   `json:"processed_at"`
+	Success      bool     `json:"success"`
+	Processed    int      `json:"processed"`
+	SuccessCount int      `json:"success_count"`
+	FailureCount int      `json:"failure_count"`
+	Errors       []string `json:"errors,omitempty"`
+	ProcessedAt  string   `json:"processed_at"`
 }
 
 // ProcessBilling handles the POST /cron/process-billing endpoint
@@ -110,11 +110,11 @@ func (h *BillingHandler) ProcessBilling(w http.ResponseWriter, r *http.Request) 
 
 	// Build response
 	resp := ProcessBillingResponse{
-		Success:       failed == 0,
-		Processed:     processed,
-		SuccessCount:  success,
-		FailureCount:  failed,
-		ProcessedAt:   time.Now().Format(time.RFC3339),
+		Success:      failed == 0,
+		Processed:    processed,
+		SuccessCount: success,
+		FailureCount: failed,
+		ProcessedAt:  time.Now().Format(time.RFC3339),
 	}
 
 	if len(errs) > 0 {
@@ -227,14 +227,14 @@ func (h *BillingHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"period":  fmt.Sprintf("last_%d_days", days),
 		"stats": map[string]interface{}{
-			"total_subscriptions":   0,
-			"active_subscriptions":  0,
-			"paused_subscriptions":  0,
+			"total_subscriptions":    0,
+			"active_subscriptions":   0,
+			"paused_subscriptions":   0,
 			"past_due_subscriptions": 0,
-			"billing_runs":          0,
-			"total_processed":       0,
-			"total_succeeded":       0,
-			"total_failed":          0,
+			"billing_runs":           0,
+			"total_processed":        0,
+			"total_succeeded":        0,
+			"total_failed":           0,
 		},
 		"timestamp": time.Now().Format(time.RFC3339),
 	}

@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"time"
 
-	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
-	"github.com/kevin07696/payment-service/internal/db/sqlc"
-	"github.com/kevin07696/payment-service/internal/adapters/database"
-	"github.com/kevin07696/payment-service/internal/services/webhook"
-	"go.uber.org/zap"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/kevin07696/payment-service/internal/adapters/database"
+	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/services/webhook"
+	"go.uber.org/zap"
 )
 
 // DisputeSyncHandler handles cron job endpoints for dispute synchronization
@@ -44,10 +44,10 @@ func NewDisputeSyncHandler(
 
 // SyncDisputesRequest represents the request body for dispute sync
 type SyncDisputesRequest struct {
-	AgentID  *string `json:"agent_id"`   // Optional: sync for specific agent, otherwise sync all
-	FromDate *string `json:"from_date"`  // Optional: ISO date string
-	ToDate   *string `json:"to_date"`    // Optional: ISO date string
-	DaysBack *int    `json:"days_back"`  // Optional: sync last N days, defaults to 7
+	AgentID  *string `json:"agent_id"`  // Optional: sync for specific agent, otherwise sync all
+	FromDate *string `json:"from_date"` // Optional: ISO date string
+	ToDate   *string `json:"to_date"`   // Optional: ISO date string
+	DaysBack *int    `json:"days_back"` // Optional: sync last N days, defaults to 7
 }
 
 // SyncDisputesResponse represents the response from dispute sync
@@ -290,7 +290,7 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID strin
 		ReasonDescription: pgtype.Text{String: dispute.ReasonDescription, Valid: dispute.ReasonDescription != ""},
 		Status:            mapDisputeStatus(dispute.Status),
 		RespondByDate:     pgtype.Date{Valid: false}, // Calculate from chargeback_date + grace period if needed
-		EvidenceFiles:     []string{}, // Empty array for new chargebacks
+		EvidenceFiles:     []string{},                // Empty array for new chargebacks
 		ResponseNotes:     pgtype.Text{Valid: false},
 		InternalNotes:     pgtype.Text{Valid: false},
 		RawData:           rawData,

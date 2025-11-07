@@ -39,15 +39,15 @@ type ServerPostConfig struct {
 	InsecureSkipVerify bool
 
 	// Retry configuration
-	MaxRetries    int
-	RetryDelay    time.Duration
+	MaxRetries      int
+	RetryDelay      time.Duration
 	RetryableErrors []string // Error codes that should trigger retry
 }
 
 // DefaultServerPostConfig returns default configuration for Server Post adapter
 func DefaultServerPostConfig(environment string) *ServerPostConfig {
 	baseURL := "https://epxnow.com/epx/server_post" // Production
-	socketEndpoint := "epxnow.com:8086"              // Production
+	socketEndpoint := "epxnow.com:8086"             // Production
 	if environment == "sandbox" {
 		baseURL = "https://secure.epxuap.com"
 		socketEndpoint = "secure.epxuap.com:8087"
@@ -331,13 +331,13 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 	// Validate transaction type
 	validTypes := map[ports.TransactionType]bool{
 		// Credit Card
-		ports.TransactionTypeSale:           true,
-		ports.TransactionTypeAuthOnly:       true,
-		ports.TransactionTypeCapture:        true,
-		ports.TransactionTypeRefund:         true,
-		ports.TransactionTypeVoid:           true,
-		ports.TransactionTypeReversal:       true,
-		ports.TransactionTypeBRICStorageCC:  true,
+		ports.TransactionTypeSale:          true,
+		ports.TransactionTypeAuthOnly:      true,
+		ports.TransactionTypeCapture:       true,
+		ports.TransactionTypeRefund:        true,
+		ports.TransactionTypeVoid:          true,
+		ports.TransactionTypeReversal:      true,
+		ports.TransactionTypeBRICStorageCC: true,
 		// ACH
 		ports.TransactionTypeACHDebit:       true,
 		ports.TransactionTypeACHCredit:      true,
@@ -478,8 +478,8 @@ func (a *serverPostAdapter) buildXMLRequest(req *ports.ServerPostRequest) string
 // EPXResponse represents the XML response structure from EPX
 // EPX returns responses in <FIELD KEY="xxx">value</FIELD> format
 type EPXResponse struct {
-	XMLName xml.Name   `xml:"RESPONSE"`
-	Fields  EPXFields  `xml:"FIELDS"`
+	XMLName xml.Name  `xml:"RESPONSE"`
+	Fields  EPXFields `xml:"FIELDS"`
 }
 
 type EPXFields struct {

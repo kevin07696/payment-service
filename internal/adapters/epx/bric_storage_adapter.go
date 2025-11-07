@@ -29,8 +29,8 @@ type BRICStorageConfig struct {
 	InsecureSkipVerify bool
 
 	// Retry configuration
-	MaxRetries    int
-	RetryDelay    time.Duration
+	MaxRetries      int
+	RetryDelay      time.Duration
 	RetryableErrors []string
 }
 
@@ -229,7 +229,7 @@ func (a *bricStorageAdapter) buildConversionXML(req *ports.BRICStorageRequest) s
 // Based on EPX Transaction Specs - BRIC Storage.pdf (page 8)
 func (a *bricStorageAdapter) buildAccountXML(req *ports.BRICStorageRequest) string {
 	tranType := "CCE8" // Credit card ecommerce
-	cardEntMeth := "E"  // Account-based transaction
+	cardEntMeth := "E" // Account-based transaction
 
 	if req.PaymentType == ports.PaymentMethodTypeACH {
 		tranType = "CKC8" // ACH checking

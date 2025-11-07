@@ -370,7 +370,7 @@ func TestParseXMLResponse(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid XML",
+			name:    "invalid XML",
 			xmlBody: `<INVALID>not xml</INVALID>`,
 			validate: func(t *testing.T, resp *ports.ServerPostResponse, err error) {
 				assert.Error(t, err)

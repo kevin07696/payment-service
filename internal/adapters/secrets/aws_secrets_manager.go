@@ -145,10 +145,10 @@ func (a *awsSecretsManagerAdapter) GetSecret(ctx context.Context, path string) (
 
 	// Parse secret
 	secret := &ports.Secret{
-		Value:   aws.ToString(result.SecretString),
-		Version: aws.ToString(result.VersionId),
+		Value:     aws.ToString(result.SecretString),
+		Version:   aws.ToString(result.VersionId),
 		CreatedAt: result.CreatedDate.Format(time.RFC3339),
-		Metadata: make(map[string]string),
+		Metadata:  make(map[string]string),
 	}
 
 	// Extract metadata from ARN

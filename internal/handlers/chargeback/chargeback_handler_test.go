@@ -13,8 +13,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
 	"go.uber.org/zap"
 )
 
@@ -54,21 +54,21 @@ func TestGetChargeback_Success(t *testing.T) {
 
 	// Mock database response
 	chargeback := sqlc.Chargeback{
-		ID:               chargebackID,
-		AgentID:          "test-agent-123",
-		GroupID:          pgtype.UUID{Bytes: groupID, Valid: true},
-		CustomerID:       pgtype.Text{String: "customer-456", Valid: true},
-		CaseNumber:       "CASE-001",
-		DisputeDate:      time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC),
-		ChargebackDate:   time.Date(2025, 10, 25, 0, 0, 0, 0, time.UTC),
-		Status:           "new",
-		ReasonCode:       "10.4",
+		ID:                chargebackID,
+		AgentID:           "test-agent-123",
+		GroupID:           pgtype.UUID{Bytes: groupID, Valid: true},
+		CustomerID:        pgtype.Text{String: "customer-456", Valid: true},
+		CaseNumber:        "CASE-001",
+		DisputeDate:       time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC),
+		ChargebackDate:    time.Date(2025, 10, 25, 0, 0, 0, 0, time.UTC),
+		Status:            "new",
+		ReasonCode:        "10.4",
 		ReasonDescription: pgtype.Text{String: "Fraudulent Transaction", Valid: true},
-		ChargebackAmount: "99.99",
-		Currency:         "USD",
-		EvidenceFiles:    []string{},
-		CreatedAt:        time.Now(),
-		UpdatedAt:        time.Now(),
+		ChargebackAmount:  "99.99",
+		Currency:          "USD",
+		EvidenceFiles:     []string{},
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
 	}
 
 	mockQueries.On("GetChargebackByID", mock.Anything, chargebackID).Return(chargeback, nil)

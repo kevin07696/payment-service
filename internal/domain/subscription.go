@@ -11,9 +11,9 @@ import (
 type SubscriptionStatus string
 
 const (
-	SubscriptionStatusActive  SubscriptionStatus = "active"
-	SubscriptionStatusPaused  SubscriptionStatus = "paused"
-	SubscriptionStatusPastDue SubscriptionStatus = "past_due"
+	SubscriptionStatusActive    SubscriptionStatus = "active"
+	SubscriptionStatusPaused    SubscriptionStatus = "paused"
+	SubscriptionStatusPastDue   SubscriptionStatus = "past_due"
 	SubscriptionStatusCancelled SubscriptionStatus = "cancelled"
 )
 
@@ -64,8 +64,8 @@ type Subscription struct {
 	Metadata map[string]interface{} `json:"metadata"`
 
 	// Timestamps
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 	CancelledAt *time.Time `json:"cancelled_at"`
 }
 

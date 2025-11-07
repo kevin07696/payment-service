@@ -11,9 +11,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	agentv1 "github.com/kevin07696/payment-service/proto/agent/v1"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/services/ports"
+	agentv1 "github.com/kevin07696/payment-service/proto/agent/v1"
 	"go.uber.org/zap"
 )
 

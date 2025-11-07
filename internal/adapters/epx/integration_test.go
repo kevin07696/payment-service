@@ -473,9 +473,9 @@ func (s *EPXIntegrationTestSuite) TestRecurringPaymentFlow() {
 		Amount:           "15.00",
 		TranNbr:          generateUniqueTranNbr(),
 		TranGroup:        generateUniqueTranNbr(),
-		OriginalAuthGUID: storageBRIC,    // Use Storage BRIC
-		ACIExt:           strPtr("RB"),    // Recurring Billing indicator
-		CardEntryMethod:  strPtr("Z"),     // BRIC token
+		OriginalAuthGUID: storageBRIC,  // Use Storage BRIC
+		ACIExt:           strPtr("RB"), // Recurring Billing indicator
+		CardEntryMethod:  strPtr("Z"),  // BRIC token
 		IndustryType:     strPtr("E"),
 	}
 

@@ -88,11 +88,11 @@ func (a *browserPostAdapter) BuildFormData(tac, amount, tranNbr, tranGroup, redi
 	)
 
 	return &ports.BrowserPostFormData{
-		PostURL:   a.config.PostURL,
-		TAC:       tac,
-		Amount:    amount,
-		TranNbr:   tranNbr,
-		TranGroup: tranGroup,
+		PostURL:     a.config.PostURL,
+		TAC:         tac,
+		Amount:      amount,
+		TranNbr:     tranNbr,
+		TranGroup:   tranGroup,
 		RedirectURL: redirectURL,
 		// Optional redirect URLs for decline/error (can be same as success URL)
 		RedirectURLDecline: redirectURL,

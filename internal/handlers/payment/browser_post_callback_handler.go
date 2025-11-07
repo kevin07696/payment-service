@@ -31,16 +31,16 @@ type PaymentMethodService interface {
 // BrowserPostCallbackHandler handles the redirect callback from EPX Browser Post API
 // This endpoint receives the transaction results after EPX processes the payment
 type BrowserPostCallbackHandler struct {
-	dbAdapter         DatabaseAdapter
-	browserPost       ports.BrowserPostAdapter
-	paymentMethodSvc  PaymentMethodService
-	logger            *zap.Logger
-	epxPostURL        string // EPX Browser Post endpoint URL
-	epxCustNbr        string // EPX Customer Number
-	epxMerchNbr       string // EPX Merchant Number
-	epxDBAnbr         string // EPX DBA Number
-	epxTerminalNbr    string // EPX Terminal Number
-	callbackBaseURL   string // Base URL for callback (e.g., "http://localhost:8081")
+	dbAdapter        DatabaseAdapter
+	browserPost      ports.BrowserPostAdapter
+	paymentMethodSvc PaymentMethodService
+	logger           *zap.Logger
+	epxPostURL       string // EPX Browser Post endpoint URL
+	epxCustNbr       string // EPX Customer Number
+	epxMerchNbr      string // EPX Merchant Number
+	epxDBAnbr        string // EPX DBA Number
+	epxTerminalNbr   string // EPX Terminal Number
+	callbackBaseURL  string // Base URL for callback (e.g., "http://localhost:8081")
 }
 
 // NewBrowserPostCallbackHandler creates a new Browser Post callback handler
@@ -128,8 +128,8 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		"tranNbr":      tranNbr,
 		"tranGroup":    "SALE",
 		"tranCode":     "SALE",
-		"industryType": "E",  // E-commerce
-		"cardEntMeth":  "E",  // E-commerce card entry
+		"industryType": "E", // E-commerce
+		"cardEntMeth":  "E", // E-commerce card entry
 
 		// Callback URL (where EPX will redirect after payment)
 		"redirectURL": h.callbackBaseURL + "/api/v1/payments/browser-post/callback",
@@ -469,22 +469,22 @@ func (h *BrowserPostCallbackHandler) savePaymentMethod(ctx context.Context, resp
 
 	// Build ConvertFinancialBRICRequest
 	req := &serviceports.ConvertFinancialBRICRequest{
-		AgentID:        agentID,
-		CustomerID:     customerID,
-		FinancialBRIC:  response.AuthGUID,
-		PaymentType:    domain.PaymentMethodType(paymentType),
-		TransactionID:  txID,
-		LastFour:       lastFour,
-		CardBrand:      cardBrand,
-		CardExpMonth:   cardExpMonth,
-		CardExpYear:    cardExpYear,
-		IsDefault:      false, // Don't auto-set as default
-		FirstName:      firstName,
-		LastName:       lastName,
-		Address:        address,
-		City:           city,
-		State:          state,
-		ZipCode:        zipCode,
+		AgentID:       agentID,
+		CustomerID:    customerID,
+		FinancialBRIC: response.AuthGUID,
+		PaymentType:   domain.PaymentMethodType(paymentType),
+		TransactionID: txID,
+		LastFour:      lastFour,
+		CardBrand:     cardBrand,
+		CardExpMonth:  cardExpMonth,
+		CardExpYear:   cardExpYear,
+		IsDefault:     false, // Don't auto-set as default
+		FirstName:     firstName,
+		LastName:      lastName,
+		Address:       address,
+		City:          city,
+		State:         state,
+		ZipCode:       zipCode,
 	}
 
 	// Call payment method service to convert Financial BRIC to Storage BRIC

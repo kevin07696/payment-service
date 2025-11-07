@@ -319,9 +319,9 @@ func (a *vaultAdapter) GetSecretVersion(ctx context.Context, path string, versio
 	}
 
 	return &ports.Secret{
-		Value:     secretValue,
-		Version:   version,
-		Metadata:  make(map[string]string),
+		Value:    secretValue,
+		Version:  version,
+		Metadata: make(map[string]string),
 	}, nil
 }
 

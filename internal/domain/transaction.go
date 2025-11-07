@@ -49,12 +49,12 @@ type Transaction struct {
 	CustomerID *string `json:"customer_id"` // NULL for guest transactions
 
 	// Transaction details
-	Amount              decimal.Decimal   `json:"amount"`
-	Currency            string            `json:"currency"` // ISO 4217 code (e.g., "USD")
-	Status              TransactionStatus `json:"status"`
-	Type                TransactionType   `json:"type"`
-	PaymentMethodType   PaymentMethodType `json:"payment_method_type"`
-	PaymentMethodID     *string           `json:"payment_method_id"` // References saved payment method (NULL if one-time)
+	Amount            decimal.Decimal   `json:"amount"`
+	Currency          string            `json:"currency"` // ISO 4217 code (e.g., "USD")
+	Status            TransactionStatus `json:"status"`
+	Type              TransactionType   `json:"type"`
+	PaymentMethodType PaymentMethodType `json:"payment_method_type"`
+	PaymentMethodID   *string           `json:"payment_method_id"` // References saved payment method (NULL if one-time)
 
 	// EPX Gateway response fields
 	AuthGUID     *string `json:"auth_guid"`      // EPX transaction token (BRIC format) - required for refunds/voids/captures

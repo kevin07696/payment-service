@@ -37,13 +37,13 @@ type Chargeback struct {
 	CustomerID *string `json:"customer_id"`
 
 	// North API fields
-	CaseNumber          string    `json:"case_number"` // North's unique case identifier
-	DisputeDate         time.Time `json:"dispute_date"`
-	ChargebackDate      time.Time `json:"chargeback_date"`
-	ChargebackAmount    decimal.Decimal `json:"chargeback_amount"`
-	Currency            string    `json:"currency"`
-	ReasonCode          string    `json:"reason_code"`          // North's reason code (e.g., "P22", "F10")
-	ReasonDescription   *string   `json:"reason_description"`   // Human-readable reason
+	CaseNumber        string          `json:"case_number"` // North's unique case identifier
+	DisputeDate       time.Time       `json:"dispute_date"`
+	ChargebackDate    time.Time       `json:"chargeback_date"`
+	ChargebackAmount  decimal.Decimal `json:"chargeback_amount"`
+	Currency          string          `json:"currency"`
+	ReasonCode        string          `json:"reason_code"`        // North's reason code (e.g., "P22", "F10")
+	ReasonDescription *string         `json:"reason_description"` // Human-readable reason
 
 	// Status and timeline
 	Status              ChargebackStatus `json:"status"`

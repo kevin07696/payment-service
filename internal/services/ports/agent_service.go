@@ -8,28 +8,28 @@ import (
 
 // RegisterAgentRequest contains parameters for registering an agent
 type RegisterAgentRequest struct {
-	AgentID       string
-	MACSecret     string
-	CustNbr       string
-	MerchNbr      string
-	DBAnbr        string
-	TerminalNbr   string
-	Environment   domain.Environment
-	AgentName     string
+	AgentID        string
+	MACSecret      string
+	CustNbr        string
+	MerchNbr       string
+	DBAnbr         string
+	TerminalNbr    string
+	Environment    domain.Environment
+	AgentName      string
 	IdempotencyKey *string
 }
 
 // UpdateAgentRequest contains parameters for updating an agent
 type UpdateAgentRequest struct {
-	AgentID         string
-	MACSecret       *string // Optional: rotate MAC secret
-	CustNbr         *string
-	MerchNbr        *string
-	DBAnbr          *string
-	TerminalNbr     *string
-	Environment     *domain.Environment
-	AgentName       *string
-	IdempotencyKey  *string
+	AgentID        string
+	MACSecret      *string // Optional: rotate MAC secret
+	CustNbr        *string
+	MerchNbr       *string
+	DBAnbr         *string
+	TerminalNbr    *string
+	Environment    *domain.Environment
+	AgentName      *string
+	IdempotencyKey *string
 }
 
 // RotateMACRequest contains parameters for rotating MAC secret

@@ -14,25 +14,25 @@ type DisputeSearchRequest struct {
 
 // Dispute represents a chargeback dispute from North gateway
 type Dispute struct {
-	CaseNumber          string
-	DisputeDate         string
-	ChargebackDate      string
-	DisputeType         string
-	Status              string
-	CardBrand           string
-	CardNumberLastFour  string
-	TransactionNumber   string
-	ReasonCode          string
-	ReasonDescription   string
-	TransactionAmount   float64
-	TransactionDate     string
-	ChargebackAmount    float64
+	CaseNumber         string
+	DisputeDate        string
+	ChargebackDate     string
+	DisputeType        string
+	Status             string
+	CardBrand          string
+	CardNumberLastFour string
+	TransactionNumber  string
+	ReasonCode         string
+	ReasonDescription  string
+	TransactionAmount  float64
+	TransactionDate    string
+	ChargebackAmount   float64
 }
 
 // DisputeSearchResponse contains dispute search results
 type DisputeSearchResponse struct {
-	Disputes         []*Dispute
-	TotalDisputes    int
+	Disputes           []*Dispute
+	TotalDisputes      int
 	CurrentResultCount int
 }
 
