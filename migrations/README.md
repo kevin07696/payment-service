@@ -4,9 +4,11 @@ This directory contains database schema migrations managed by [Goose](https://gi
 
 ## How It Works
 
-- **Automatic on startup**: Migrations run automatically when the payment service starts
+- **Automatic via CI/CD**: Migrations run automatically as a separate GitHub Actions job before deployment
+- **Pre-deployment**: Migrations complete successfully before the new app version deploys
 - **Version tracking**: Goose tracks which migrations have been applied in the `goose_db_version` table
 - **Idempotent**: Safe to run multiple times - already-applied migrations are skipped
+- **Fast startup**: App starts immediately without waiting for migrations
 
 ## Creating New Migrations
 
@@ -52,13 +54,7 @@ DROP TABLE IF EXISTS example;
 
 ## Running Migrations Locally
 
-### Option 1: Via App Startup (Recommended)
-```bash
-# Migrations run automatically when you start the server
-go run cmd/server/main.go
-```
-
-### Option 2: Using Goose CLI Directly
+### Using Goose CLI Directly
 ```bash
 # Run all pending migrations
 goose -dir migrations postgres "postgresql://localhost:5432/payment_service?sslmode=disable" up
@@ -70,7 +66,7 @@ goose -dir migrations postgres "postgresql://localhost:5432/payment_service?sslm
 goose -dir migrations postgres "postgresql://localhost:5432/payment_service?sslmode=disable" status
 ```
 
-### Option 3: Via Fly.io Proxy
+### Via Fly.io Proxy (for staging database)
 ```bash
 # Connect to staging database
 flyctl proxy 5432 -a kevin07696-payment-service-staging-db
@@ -126,21 +122,26 @@ DROP INDEX IF EXISTS idx_payments_created_at;
 
 ## Deployment Flow
 
-1. **Development**: Create migration, test locally
+1. **Development**: Create migration, test locally with goose CLI
 2. **Commit**: Add migration file to git with code changes
-3. **Deploy**: Push to `main` → CI/CD deploys → Migrations run automatically on app startup
-4. **Verify**: Check logs for "✅ Database migrations completed successfully"
+3. **Push**: Push to `main` branch
+4. **CI/CD Pipeline**:
+   - ✅ Run tests
+   - ✅ Build Docker image
+   - ✅ **Run migrations** (separate job, fails if migrations fail)
+   - ✅ Deploy app (only if migrations succeeded)
+5. **Verify**: Check GitHub Actions logs for migration success
 
 ## Troubleshooting
 
-### Migration Failed During Startup
+### Migration Failed During CI/CD
 
-Check the app logs:
-```bash
-flyctl logs --app kevin07696-payment-service-staging
-```
+Check the GitHub Actions logs:
+- Go to: `https://github.com/kevin07696/payment-service/actions`
+- Click on the failed workflow run
+- Check the "Run Database Migrations (Staging)" job logs
 
-Look for migration error messages.
+The deployment will be blocked if migrations fail (app won't deploy).
 
 ### Fixing Failed Migrations
 

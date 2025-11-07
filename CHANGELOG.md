@@ -7,15 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added - Automatic Database Migrations (2025-11-07)
+### Added - Automatic Database Migrations via CI/CD (2025-11-07)
 
-**Migrations now run automatically on application startup using Goose**
+**Migrations run automatically as a separate CI/CD job before deployment**
 
 - **Migration Engine**: Integrated Goose v3 for database schema versioning
-  - Automatic execution on app startup (before services initialize)
+  - Automatic execution via GitHub Actions before app deployment
   - Version tracking in `goose_db_version` table
   - Idempotent: safe to run multiple times
   - Simple rollback support
+  - Deployment blocked if migrations fail (ensures safety)
 
 - **Migration Directory**: `migrations/`
   - `00001_init_schema.sql` - Initial placeholder migration
@@ -23,29 +24,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - SQL-based migrations with up/down support
   - Sequential versioning system (00001, 00002, etc.)
 
-- **Code Changes**: `cmd/server/main.go`
-  - Added `runMigrations()` function that executes before service initialization
-  - Uses standard `database/sql` package for Goose compatibility
-  - Logs migration success/failure with detailed error messages
-  - Fails fast if migrations fail (prevents running with wrong schema)
-
-- **Docker Support**: `Dockerfile`
-  - Migrations directory copied into container image
-  - Migrations run automatically when container starts
-  - No manual migration step required during deployments
+- **CI/CD Integration**: `.github/workflows/ci-cd.yml`
+  - Added `migrate-staging` job that runs after build, before deployment
+  - Connects to Fly.io database via flyctl
+  - Installs and runs goose CLI
+  - Fails deployment if migrations fail
+  - Visible in GitHub Actions logs
 
 - **Migration Workflow**:
   ```
-  App Start → Connect to DB → Run Migrations → Initialize Services → Start Servers
+  Push to main → Test → Build → Run Migrations → Deploy App (if migrations succeed)
   ```
 
 **Benefits:**
-- ✅ Zero-downtime deployments (schema updated on startup)
+- ✅ Pre-deployment migrations (schema ready before new code runs)
+- ✅ Fast app startup (no migration delay)
 - ✅ Version-controlled schema changes in git
 - ✅ Automatic tracking of applied migrations
+- ✅ Visible migration logs in CI/CD
+- ✅ Deployment blocked on migration failure (safety first)
 - ✅ No manual SQL execution needed
-- ✅ Rollback support for reversible changes
-- ✅ Works in local dev, Docker, and Fly.io
 
 **Creating New Migrations:**
 ```bash
@@ -56,12 +54,12 @@ goose -dir migrations create add_new_feature sql
 # Create: migrations/00002_description.sql
 ```
 
-**Manual Migration Execution** (if needed):
+**Local Migration Testing:**
 ```bash
-# Local
+# Local database
 goose -dir migrations postgres "postgresql://localhost:5432/payment_service" up
 
-# Via Fly.io proxy
+# Via Fly.io proxy (staging)
 flyctl proxy 5432 -a kevin07696-payment-service-staging-db
 goose -dir migrations postgres "postgresql://postgres:PASSWORD@localhost:5432/payment_service" up
 ```
