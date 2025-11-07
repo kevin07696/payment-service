@@ -1,7 +1,7 @@
 # Fly.io configuration for payment-service
 # Learn more: https://fly.io/docs/reference/configuration/
 
-app = "payment-service-staging"
+app = "kevin07696-payment-service-staging"
 primary_region = "ord"  # Chicago - change to your preferred region
 
 # Kill signal for graceful shutdown
