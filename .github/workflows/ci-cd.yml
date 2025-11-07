@@ -56,38 +56,5 @@ jobs:
 
           echo "✅ Migrations completed successfully"
 
-  deploy-staging:
-    name: Deploy to Railway Staging
-    needs: migrate-staging
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          echo "🚀 Deploying to Railway staging..."
-
-          # Link to project
-          railway link ${{ secrets.RAILWAY_PROJECT_ID }}
-
-          # Deploy (Railway builds and deploys automatically)
-          railway up --detach
-
-          echo "✅ Deployment triggered successfully"
-
-      - name: Get deployment URL
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          railway link ${{ secrets.RAILWAY_PROJECT_ID }}
-
-          echo "📍 Your app is deployed at:"
-          railway status
+  # Railway automatically deploys after this job completes successfully
+  # Enable "Wait for CI" in Railway settings
