@@ -38,43 +38,56 @@ jobs:
       - name: Install Goose
         run: go install github.com/pressly/goose/v3/cmd/goose@latest
 
-      - name: Install Fly.io CLI
-        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Install Railway CLI
+        run: |
+          npm install -g @railway/cli
 
-      - name: Run migrations via Fly.io SSH
+      - name: Run migrations on Railway
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           echo "🔄 Starting migrations for staging database..."
 
-          # Install goose on the Fly.io app machine and run migrations
-          # This uses the app's DATABASE_URL which is automatically configured
+          # Link to Railway project using token
+          railway link ${{ secrets.RAILWAY_PROJECT_ID }}
 
-          echo "📦 Installing goose on Fly.io machine..."
-          flyctl ssh console -a kevin07696-payment-service-staging -C "wget -O /tmp/goose https://github.com/pressly/goose/releases/download/v3.26.0/goose_linux_x86_64 && chmod +x /tmp/goose"
-
-          echo "📁 Copying migrations to Fly.io machine..."
-          # Create migrations directory
-          flyctl ssh console -a kevin07696-payment-service-staging -C "mkdir -p /tmp/migrations"
-
-          # Copy each migration file
-          for file in migrations/*.sql; do
-            echo "  Copying $file..."
-            cat "$file" | flyctl ssh console -a kevin07696-payment-service-staging -C "cat > /tmp/$file"
-          done
-
-          echo "🔄 Running migrations..."
-          flyctl ssh console -a kevin07696-payment-service-staging -C "cd /tmp && ./goose -dir migrations postgres \"\$DATABASE_URL\" up"
+          # Run migrations using Railway's DATABASE_URL
+          railway run goose -dir migrations postgres "\$DATABASE_URL" up
 
           echo "✅ Migrations completed successfully"
 
   deploy-staging:
-    name: Deploy to Staging
+    name: Deploy to Railway Staging
     needs: migrate-staging
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/deploy-flyio.yml@main
-    with:
-      service-name: kevin07696-payment-service
-      environment: staging
-    secrets:
-      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "🚀 Deploying to Railway staging..."
+
+          # Link to project
+          railway link ${{ secrets.RAILWAY_PROJECT_ID }}
+
+          # Deploy (Railway builds and deploys automatically)
+          railway up --detach
+
+          echo "✅ Deployment triggered successfully"
+
+      - name: Get deployment URL
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway link ${{ secrets.RAILWAY_PROJECT_ID }}
+
+          echo "📍 Your app is deployed at:"
+          railway status
