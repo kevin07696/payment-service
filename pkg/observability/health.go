@@ -11,9 +11,9 @@ import (
 
 // HealthStatus represents the health status of the service
 type HealthStatus struct {
-	Status   string            `json:"status"`
-	Timestamp time.Time        `json:"timestamp"`
-	Checks   map[string]string `json:"checks"`
+	Status    string            `json:"status"`
+	Timestamp time.Time         `json:"timestamp"`
+	Checks    map[string]string `json:"checks"`
 }
 
 // HealthChecker manages health checks for the service
