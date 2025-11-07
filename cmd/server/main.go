@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,7 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pressly/goose/v3"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
@@ -61,6 +64,11 @@ func main() {
 	logger.Info("Database connection established",
 		zap.String("database", cfg.DBName),
 	)
+
+	// Run database migrations
+	if err := runMigrations(cfg, logger); err != nil {
+		logger.Fatal("Failed to run migrations", zap.Error(err))
+	}
 
 	// Initialize dependencies
 	deps := initDependencies(dbPool, cfg, logger)
@@ -279,6 +287,37 @@ func initDatabase(cfg *Config, logger *zap.Logger) (*pgxpool.Pool, error) {
 	}
 
 	return pool, nil
+}
+
+// runMigrations runs database migrations using goose
+func runMigrations(cfg *Config, logger *zap.Logger) error {
+	logger.Info("Running database migrations...")
+
+	// Create connection string for goose (uses database/sql)
+	connString := fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		cfg.DBUser,
+		cfg.DBPassword,
+		cfg.DBHost,
+		cfg.DBPort,
+		cfg.DBName,
+		cfg.DBSSLMode,
+	)
+
+	// Open database connection for migrations
+	db, err := sql.Open("pgx", connString)
+	if err != nil {
+		return fmt.Errorf("failed to open database for migrations: %w", err)
+	}
+	defer db.Close()
+
+	// Run migrations
+	if err := goose.Up(db, "migrations"); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	logger.Info("✅ Database migrations completed successfully")
+	return nil
 }
 
 // initDependencies initializes all services and handlers with dependency injection

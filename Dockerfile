@@ -40,6 +40,9 @@ WORKDIR /home/appuser
 # Copy binary from builder with correct ownership
 COPY --from=builder --chown=appuser:appuser /app/payment-server .
 
+# Copy migrations directory
+COPY --from=builder --chown=appuser:appuser /app/migrations ./migrations
+
 # Create secrets directory (populated at runtime via volume mount)
 RUN mkdir -p secrets && chown appuser:appuser secrets
 
