@@ -16,7 +16,9 @@ We provide three environment templates:
 
 | Service | Sandbox URL | Production URL |
 |---------|-------------|----------------|
-| EPX Gateway | `https://sandbox.north.com` | `https://api.north.com` |
+| EPX Server Post | `https://secure.epxuap.com` | `https://secure.epxnow.com` |
+| EPX Browser Post | `https://secure.epxuap.com/browserpost` | `https://secure.epxnow.com/browserpost` |
+| EPX Key Exchange | `https://keyexch.epxuap.com` | N/A (production uses different flow) |
 | North Merchant Reporting | `https://api.north.com` | `https://api.north.com` |
 
 **Important Notes:**
@@ -95,7 +97,7 @@ ENVIRONMENT=staging
 DB_SSL_MODE=require
 
 # Sandbox EPX Configuration
-EPX_BASE_URL=https://sandbox.north.com
+EPX_BASE_URL=https://secure.epxuap.com
 EPX_TIMEOUT=30
 EPX_CUST_NBR=your_sandbox_cust_nbr
 EPX_MERCH_NBR=your_sandbox_merch_nbr
@@ -145,7 +147,7 @@ ENVIRONMENT=production
 DB_SSL_MODE=require
 
 # Production EPX Configuration
-EPX_BASE_URL=https://api.north.com
+EPX_BASE_URL=https://secure.epxnow.com
 EPX_TIMEOUT=30
 EPX_CUST_NBR=YOUR_PROD_CUST_NBR
 EPX_MERCH_NBR=YOUR_PROD_MERCH_NBR
@@ -182,7 +184,7 @@ openssl rand -base64 32
 | `PORT` | gRPC server port | `8080` |
 | `HTTP_PORT` | HTTP server port | `8081` |
 | `DATABASE_URL` | PostgreSQL connection string | Auto-set by Railway |
-| `EPX_BASE_URL` | EPX gateway URL | `https://sandbox.north.com` |
+| `EPX_BASE_URL` | EPX gateway URL | `https://secure.epxuap.com` |
 | `EPX_CUST_NBR` | EPX customer number | `9001` |
 | `EPX_MERCH_NBR` | EPX merchant number | `900300` |
 | `EPX_DBA_NBR` | EPX DBA number | `2` |
