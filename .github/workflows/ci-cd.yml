@@ -12,6 +12,34 @@ permissions:
   pull-requests: write
 
 jobs:
+  # ===================================
+  # STAGING INFRASTRUCTURE (develop only)
+  # ===================================
+
+  ensure-staging-infrastructure:
+    name: Ensure Staging Infrastructure Exists
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+    with:
+      action: create
+      environment: staging
+    secrets:
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+      OCI_REGION: ${{ secrets.OCI_REGION }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      ORACLE_DB_ADMIN_PASSWORD: ${{ secrets.ORACLE_DB_ADMIN_PASSWORD }}
+      ORACLE_DB_PASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
+      EPX_MAC_STAGING: ${{ secrets.EPX_MAC_STAGING }}
+      CRON_SECRET_STAGING: ${{ secrets.CRON_SECRET_STAGING }}
+      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+
+  # ===================================
+  # TEST & BUILD (all branches)
+  # ===================================
+
   test:
     name: Run Tests
     uses: kevin07696/deployment-workflows/.github/workflows/go-test.yml@main
@@ -31,7 +59,7 @@ jobs:
 
   deploy-staging:
     name: Deploy to Oracle Cloud Staging
-    needs: build
+    needs: [ensure-staging-infrastructure, build]
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@main
     with:
@@ -103,3 +131,31 @@ jobs:
     secrets:
       TEST_HOST: ${{ secrets.PRODUCTION_HOST }}
       CRON_SECRET: ${{ secrets.CRON_SECRET_PRODUCTION }}
+
+  # ===================================
+  # CLEANUP (after production deploy)
+  # ===================================
+
+  cleanup-staging:
+    name: Destroy Staging Infrastructure
+    needs: [deploy-production, test-production]
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      success()
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+    with:
+      action: destroy
+      environment: staging
+    secrets:
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+      OCI_REGION: ${{ secrets.OCI_REGION }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      ORACLE_DB_ADMIN_PASSWORD: ${{ secrets.ORACLE_DB_ADMIN_PASSWORD }}
+      ORACLE_DB_PASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
+      EPX_MAC_STAGING: ${{ secrets.EPX_MAC_STAGING }}
+      CRON_SECRET_STAGING: ${{ secrets.CRON_SECRET_STAGING }}
+      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
