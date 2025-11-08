@@ -1,0 +1,244 @@
+name: Integration Tests
+
+on:
+  # Run after staging deployment completes
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types:
+      - completed
+    branches:
+      - develop
+
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      target_host:
+        description: 'Target host to test (defaults to staging)'
+        required: false
+        type: string
+
+env:
+  GO_VERSION: '1.24'
+
+jobs:
+  integration-tests:
+    name: Run Integration Tests on Staging
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'develop')
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Wait for deployment to stabilize
+        run: sleep 30
+
+      - name: Configure test environment
+        run: |
+          echo "GRPC_HOST=${{ github.event.inputs.target_host || secrets.ORACLE_CLOUD_HOST }}:8080" >> $GITHUB_ENV
+          echo "HTTP_HOST=${{ github.event.inputs.target_host || secrets.ORACLE_CLOUD_HOST }}:8081" >> $GITHUB_ENV
+          echo "CRON_SECRET=${{ secrets.CRON_SECRET_STAGING }}" >> $GITHUB_ENV
+          echo "ENVIRONMENT=staging" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run health check tests
+        run: |
+          go test -v -timeout 5m ./test/integration \
+            -run "TestHealthEndpoints|TestServiceReadiness|TestEnvironmentConfiguration" \
+            2>&1 | tee health-tests.log
+
+      - name: Run connectivity tests
+        run: |
+          go test -v -timeout 5m ./test/integration \
+            -run "TestGRPCConnectivity|TestDatabaseConnectivity" \
+            2>&1 | tee connectivity-tests.log
+
+      - name: Run EPX integration tests
+        continue-on-error: true
+        env:
+          SKIP_LOAD_TESTS: "true" # Skip load tests in CI
+        run: |
+          go test -v -timeout 10m ./test/integration \
+            -run "TestEPX" \
+            2>&1 | tee epx-tests.log
+
+      - name: Run performance tests
+        run: |
+          go test -v -timeout 5m ./test/integration \
+            -run "TestResponseTimes" \
+            2>&1 | tee performance-tests.log
+
+      - name: Run security tests
+        run: |
+          go test -v -timeout 5m ./test/integration \
+            -run "TestCronAuthentication" \
+            2>&1 | tee security-tests.log
+
+      - name: Generate test report
+        if: always()
+        run: |
+          cat > test-report.md <<EOF
+          # Integration Test Report
+
+          **Environment**: Staging
+          **Target Host**: ${{ github.event.inputs.target_host || secrets.ORACLE_CLOUD_HOST }}
+          **Test Time**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Workflow**: ${{ github.workflow }}
+          **Run Number**: ${{ github.run_number }}
+
+          ## Test Results
+
+          ### Health Checks
+          \`\`\`
+          $(cat health-tests.log 2>/dev/null || echo "No output")
+          \`\`\`
+
+          ### Connectivity Tests
+          \`\`\`
+          $(cat connectivity-tests.log 2>/dev/null || echo "No output")
+          \`\`\`
+
+          ### EPX Integration Tests
+          \`\`\`
+          $(cat epx-tests.log 2>/dev/null || echo "No output")
+          \`\`\`
+
+          ### Performance Tests
+          \`\`\`
+          $(cat performance-tests.log 2>/dev/null || echo "No output")
+          \`\`\`
+
+          ### Security Tests
+          \`\`\`
+          $(cat security-tests.log 2>/dev/null || echo "No output")
+          \`\`\`
+
+          ---
+
+          **Status**: ${{ job.status }}
+          EOF
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: |
+            *-tests.log
+            test-report.md
+          retention-days: 30
+
+      - name: Comment on commit (if failed)
+        if: failure() && github.event_name == 'workflow_run'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const testReport = require('fs').readFileSync('test-report.md', 'utf8');
+
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: '${{ github.event.workflow_run.head_sha }}',
+              body: `## ❌ Integration Tests Failed\n\n${testReport}\n\n[View workflow run](${context.payload.repository.html_url}/actions/runs/${context.runId})`
+            });
+
+      - name: Post to workflow summary
+        if: always()
+        run: |
+          cat test-report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if critical tests failed
+        run: |
+          # Check if health checks passed
+          if ! grep -q "PASS" health-tests.log; then
+            echo "❌ Health check tests failed - this is critical"
+            exit 1
+          fi
+
+          # Check if connectivity tests passed
+          if ! grep -q "PASS" connectivity-tests.log; then
+            echo "❌ Connectivity tests failed - this is critical"
+            exit 1
+          fi
+
+          echo "✅ All critical tests passed"
+
+  smoke-test:
+    name: Quick Smoke Test
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'develop')
+    environment: staging
+
+    steps:
+      - name: Wait for service
+        run: sleep 20
+
+      - name: Health check
+        run: |
+          curl -f -m 10 http://${{ secrets.ORACLE_CLOUD_HOST }}:8081/cron/health || exit 1
+
+      - name: Stats endpoint
+        run: |
+          curl -f -m 10 http://${{ secrets.ORACLE_CLOUD_HOST }}:8081/cron/stats || exit 1
+
+      - name: Log success
+        run: |
+          echo "## ✅ Smoke Test Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Target**: http://${{ secrets.ORACLE_CLOUD_HOST }}:8081" >> $GITHUB_STEP_SUMMARY
+          echo "**Time**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All critical endpoints are responding correctly." >> $GITHUB_STEP_SUMMARY
+
+  load-test:
+    name: Load Test (Optional)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Configure test environment
+        run: |
+          echo "GRPC_HOST=${{ github.event.inputs.target_host || secrets.ORACLE_CLOUD_HOST }}:8080" >> $GITHUB_ENV
+          echo "HTTP_HOST=${{ github.event.inputs.target_host || secrets.ORACLE_CLOUD_HOST }}:8081" >> $GITHUB_ENV
+          echo "ENVIRONMENT=staging" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run load tests
+        continue-on-error: true
+        run: |
+          go test -v -timeout 15m ./test/integration \
+            -run "TestServiceConcurrency" \
+            2>&1 | tee load-tests.log
+
+      - name: Upload load test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: load-tests.log
+          retention-days: 7

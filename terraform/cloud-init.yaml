@@ -1,0 +1,131 @@
+#cloud-config
+
+# Oracle Cloud Compute Instance Setup
+# Automatically installs Docker, Docker Compose, and prepares for application deployment
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose
+  - curl
+  - jq
+  - postgresql-client
+  - unzip
+
+runcmd:
+  # Enable and start Docker
+  - systemctl enable docker
+  - systemctl start docker
+
+  # Add ubuntu user to docker group
+  - usermod -aG docker ubuntu
+
+  # Create application directory
+  - mkdir -p /home/ubuntu/payment-service
+  - chown -R ubuntu:ubuntu /home/ubuntu/payment-service
+
+  # Create Oracle wallet directory
+  - mkdir -p /home/ubuntu/oracle-wallet
+  - chown -R ubuntu:ubuntu /home/ubuntu/oracle-wallet
+
+  # Configure firewall
+  - ufw allow 22/tcp    # SSH
+  - ufw allow 8080/tcp  # gRPC
+  - ufw allow 8081/tcp  # HTTP Cron
+  - ufw --force enable
+
+  # Create .env file for application
+  - |
+    cat > /home/ubuntu/payment-service/.env <<EOF
+    # Environment
+    ENVIRONMENT=${environment}
+
+    # Database (Oracle Autonomous Database)
+    DB_HOST=${db_connection_string}
+    DB_PORT=1522
+    DB_USER=${db_user}
+    DB_PASSWORD=${db_password}
+    DB_NAME=paymentdb
+    DB_SSLMODE=require
+    TNS_ADMIN=/home/ubuntu/oracle-wallet
+
+    # Server
+    GRPC_PORT=8080
+    HTTP_PORT=8081
+
+    # EPX Payment Gateway (Sandbox)
+    EPX_SERVER_POST_URL=https://secure.epxuap.com
+    EPX_TIMEOUT=30
+    EPX_CUST_NBR=9001
+    EPX_MERCH_NBR=900300
+    EPX_DBA_NBR=2
+    EPX_TERMINAL_NBR=77
+    EPX_MAC=${epx_mac}
+
+    # North Merchant Reporting API
+    NORTH_MERCHANT_REPORTING_URL=https://api.north.com
+    NORTH_TIMEOUT=30
+
+    # Cron Security
+    CRON_SECRET=${cron_secret}
+
+    # Logging
+    LOG_LEVEL=info
+    EOF
+
+  - chown ubuntu:ubuntu /home/ubuntu/payment-service/.env
+  - chmod 600 /home/ubuntu/payment-service/.env
+
+  # Create docker-compose.yml
+  - |
+    cat > /home/ubuntu/payment-service/docker-compose.yml <<EOF
+    version: '3.8'
+
+    services:
+      payment-service:
+        image: \${OCIR_REGION}.ocir.io/\${OCIR_NAMESPACE}/payment-service:latest
+        container_name: payment-${environment}
+        restart: unless-stopped
+        ports:
+          - "8080:8080"  # gRPC
+          - "8081:8081"  # HTTP Cron
+        env_file:
+          - .env
+        volumes:
+          - /home/ubuntu/oracle-wallet:/home/ubuntu/oracle-wallet:ro
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:8081/cron/health"]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+          start_period: 40s
+        logging:
+          driver: "json-file"
+          options:
+            max-size: "10m"
+            max-file: "3"
+    EOF
+
+  - chown ubuntu:ubuntu /home/ubuntu/payment-service/docker-compose.yml
+
+write_files:
+  - path: /etc/motd
+    content: |
+      ==========================================
+      Payment Service - ${environment}
+      ==========================================
+
+      Application:  /home/ubuntu/payment-service
+      Wallet:       /home/ubuntu/oracle-wallet
+
+      View logs:    docker logs payment-${environment} -f
+      Restart:      cd ~/payment-service && docker-compose restart
+      Deploy:       cd ~/payment-service && docker-compose pull && docker-compose up -d
+
+      ==========================================
+    owner: root:root
+    permissions: '0644'
+
+final_message: "Payment service instance is ready! Deployed in ${environment} environment."

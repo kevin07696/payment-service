@@ -168,17 +168,17 @@ type Config struct {
 	MaxConns   int32
 	MinConns   int32
 
-	// EPX Gateway
-	EPXBaseURL     string
-	EPXTimeout     int
-	EPXCustNbr     string // EPX Customer Number
-	EPXMerchNbr    string // EPX Merchant Number
-	EPXDBAnbr      string // EPX DBA Number
-	EPXTerminalNbr string // EPX Terminal Number
+	// EPX Payment Gateway (Server Post API for transactions)
+	EPXServerPostURL string // EPX Server Post API URL (e.g., https://secure.epxuap.com)
+	EPXTimeout       int
+	EPXCustNbr       string // EPX Customer Number
+	EPXMerchNbr      string // EPX Merchant Number
+	EPXDBAnbr        string // EPX DBA Number
+	EPXTerminalNbr   string // EPX Terminal Number
 
-	// North API (Merchant Reporting)
-	NorthAPIURL  string
-	NorthTimeout int
+	// North Merchant Reporting API (for disputes/chargebacks, NOT payments)
+	NorthMerchantReportingURL string // North Reporting API URL (e.g., https://api.north.com)
+	NorthTimeout              int
 
 	// Browser Post Configuration
 	CallbackBaseURL string // Base URL for Browser Post callbacks (e.g., "http://localhost:8081")
@@ -212,23 +212,25 @@ func loadConfig(logger *zap.Logger) *Config {
 		DBSSLMode:       getEnv("DB_SSL_MODE", "disable"),
 		MaxConns:        int32(getEnvInt("DB_MAX_CONNS", 25)),
 		MinConns:        int32(getEnvInt("DB_MIN_CONNS", 5)),
-		EPXBaseURL:      getEnv("EPX_BASE_URL", "https://sandbox.north.com"),
-		EPXTimeout:      getEnvInt("EPX_TIMEOUT", 30),
-		EPXCustNbr:      getEnv("EPX_CUST_NBR", "9001"),    // EPX sandbox customer number
-		EPXMerchNbr:     getEnv("EPX_MERCH_NBR", "900300"), // EPX sandbox merchant number
-		EPXDBAnbr:       getEnv("EPX_DBA_NBR", "2"),        // EPX sandbox DBA number
-		EPXTerminalNbr:  getEnv("EPX_TERMINAL_NBR", "77"),  // EPX sandbox terminal number
-		NorthAPIURL:     getEnv("NORTH_API_URL", "https://api.north.com"),
-		NorthTimeout:    getEnvInt("NORTH_TIMEOUT", 30),
-		CallbackBaseURL: getEnv("CALLBACK_BASE_URL", "http://localhost:8081"),
-		CronSecret:      getEnv("CRON_SECRET", "change-me-in-production"),
+		// Try new variable name first, fallback to old name for backwards compatibility
+		EPXServerPostURL:          getEnvWithFallback("EPX_SERVER_POST_URL", "EPX_BASE_URL", "https://sandbox.north.com"),
+		EPXTimeout:                getEnvInt("EPX_TIMEOUT", 30),
+		EPXCustNbr:                getEnv("EPX_CUST_NBR", "9001"),    // EPX sandbox customer number
+		EPXMerchNbr:               getEnv("EPX_MERCH_NBR", "900300"), // EPX sandbox merchant number
+		EPXDBAnbr:                 getEnv("EPX_DBA_NBR", "2"),        // EPX sandbox DBA number
+		EPXTerminalNbr:            getEnv("EPX_TERMINAL_NBR", "77"),  // EPX sandbox terminal number
+		NorthMerchantReportingURL: getEnvWithFallback("NORTH_MERCHANT_REPORTING_URL", "NORTH_API_URL", "https://api.north.com"),
+		NorthTimeout:              getEnvInt("NORTH_TIMEOUT", 30),
+		CallbackBaseURL:           getEnv("CALLBACK_BASE_URL", "http://localhost:8081"),
+		CronSecret:                getEnv("CRON_SECRET", "change-me-in-production"),
 	}
 
 	logger.Info("Configuration loaded",
 		zap.Int("port", cfg.Port),
 		zap.String("db_host", cfg.DBHost),
 		zap.Int("db_port", cfg.DBPort),
-		zap.String("epx_base_url", cfg.EPXBaseURL),
+		zap.String("epx_server_post_url", cfg.EPXServerPostURL),
+		zap.String("north_merchant_reporting_url", cfg.NorthMerchantReportingURL),
 	)
 
 	return cfg
@@ -306,19 +308,25 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 		logger.Fatal("Failed to initialize database adapter", zap.Error(err))
 	}
 
-	// Initialize EPX adapters
+	// Initialize EPX adapters with environment-specific configuration
 	epxEnv := "sandbox"
 	if getEnv("ENVIRONMENT", "development") == "production" {
 		epxEnv = "production"
 	}
 
-	browserPostCfg := epx.DefaultBrowserPostConfig(epxEnv)
-	browserPost := epx.NewBrowserPostAdapter(browserPostCfg, logger)
-
+	// Server Post adapter configuration
 	serverPostCfg := epx.DefaultServerPostConfig(epxEnv)
+	serverPostCfg.BaseURL = cfg.EPXServerPostURL // Override with env var
 	serverPost := epx.NewServerPostAdapter(serverPostCfg, logger)
 
+	// Browser Post adapter configuration
+	browserPostCfg := epx.DefaultBrowserPostConfig(epxEnv)
+	browserPostCfg.PostURL = cfg.EPXServerPostURL + "/browserpost" // Derived from Server Post URL
+	browserPost := epx.NewBrowserPostAdapter(browserPostCfg, logger)
+
+	// BRIC Storage adapter configuration
 	bricStorageCfg := epx.DefaultBRICStorageConfig(epxEnv)
+	bricStorageCfg.BaseURL = cfg.EPXServerPostURL // Same as Server Post
 	bricStorage := epx.NewBRICStorageAdapter(bricStorageCfg, logger)
 
 	// Initialize secret manager (using local file system for development)
@@ -326,7 +334,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 
 	// Initialize North merchant reporting adapter
 	merchantReportingCfg := &north.MerchantReportingConfig{
-		BaseURL: cfg.NorthAPIURL,
+		BaseURL: cfg.NorthMerchantReportingURL,
 		Timeout: time.Duration(cfg.NorthTimeout) * time.Second,
 	}
 	httpClient := &http.Client{Timeout: time.Duration(cfg.NorthTimeout) * time.Second}
@@ -470,6 +478,18 @@ func getEnvInt(key string, defaultValue int) int {
 		var intValue int
 		fmt.Sscanf(value, "%d", &intValue)
 		return intValue
+	}
+	return defaultValue
+}
+
+// getEnvWithFallback tries the primary key first, then fallback key, then default value
+// This provides backwards compatibility when renaming environment variables
+func getEnvWithFallback(primaryKey, fallbackKey, defaultValue string) string {
+	if value := os.Getenv(primaryKey); value != "" {
+		return value
+	}
+	if value := os.Getenv(fallbackKey); value != "" {
+		return value
 	}
 	return defaultValue
 }

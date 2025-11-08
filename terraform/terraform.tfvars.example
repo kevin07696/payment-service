@@ -1,0 +1,43 @@
+# ===================================
+# ORACLE CLOUD AUTHENTICATION
+# ===================================
+# Get these from Oracle Cloud Console
+
+tenancy_ocid     = "ocid1.tenancy.oc1..your-tenancy-ocid"
+user_ocid        = "ocid1.user.oc1..your-user-ocid"
+fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+private_key      = <<-EOT
+-----BEGIN RSA PRIVATE KEY-----
+... your API private key ...
+-----END RSA PRIVATE KEY-----
+EOT
+region           = "us-ashburn-1"
+compartment_ocid = "ocid1.compartment.oc1..your-compartment-ocid"
+
+# ===================================
+# DATABASE PASSWORDS
+# ===================================
+
+db_admin_password = "YourSecureAdminPassword123!"
+db_app_password   = "YourSecureAppPassword123!"
+
+# ===================================
+# APPLICATION SECRETS
+# ===================================
+
+epx_mac     = "2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y"
+cron_secret = "your-base64-encoded-secret"
+
+# ===================================
+# SSH ACCESS
+# ===================================
+# Leave empty to auto-generate, or provide your public key
+
+ssh_public_key = ""
+# ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2E... your-key"
+
+# ===================================
+# ENVIRONMENT
+# ===================================
+
+environment = "staging"

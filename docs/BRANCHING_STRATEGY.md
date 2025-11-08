@@ -16,13 +16,13 @@ main (production) ────────────────────�
 
 ### Branch Purposes
 
-| Branch | Environment | Purpose | Auto-Deploy |
-|--------|-------------|---------|-------------|
-| `main` | **Production** | Production-ready code | ✅ Yes (with approval) |
-| `develop` | **Staging** | Integration and testing | ✅ Yes (automatic) |
-| `feature/*` | Local | New features | ❌ No |
-| `bugfix/*` | Local | Bug fixes | ❌ No |
-| `hotfix/*` | Local | Emergency production fixes | ❌ No |
+| Branch | Environment | Platform | Purpose | Auto-Deploy |
+|--------|-------------|----------|---------|-------------|
+| `main` | **Production** | Google Cloud Run | Production-ready code | ✅ Yes (with approval) |
+| `develop` | **Staging** | Oracle Cloud (Always Free, auto-managed) | Integration and testing | ✅ Yes (automatic) |
+| `feature/*` | Local | - | New features | ❌ No |
+| `bugfix/*` | Local | - | Bug fixes | ❌ No |
+| `hotfix/*` | Local | - | Emergency production fixes | ❌ No |
 
 ---
 
@@ -60,11 +60,11 @@ After merge to `develop`:
 1. ✅ Tests run automatically
 2. ✅ Docker image builds
 3. ✅ Migrations run on staging database
-4. ✅ **Deploys to Railway staging**
+4. ✅ **Deploys to Oracle Cloud staging**
 5. Test in staging environment
 6. Verify with India team
 
-**Staging URL:** `https://payment-service-staging.up.railway.app`
+**Staging URL:** `http://{ORACLE_CLOUD_HOST}:8081` (from Terraform outputs)
 
 ### 3. Production Release
 
@@ -93,11 +93,12 @@ git push origin main
 **Result:**
 1. ✅ Tests run
 2. ✅ Docker image builds
-3. ✅ Migrations run on production database
+3. ✅ Migrations run on production database (Cloud SQL via proxy)
 4. ⏸️ **Waits for manual approval** (production environment protection)
-5. ✅ Deploys to Railway production
+5. ✅ Builds and pushes Docker image to Artifact Registry
+6. ✅ Deploys to Google Cloud Run
 
-**Production URL:** `https://payments.yourdomain.com`
+**Production URL:** `https://payment-service-xxx.a.run.app` (or custom domain)
 
 ### 4. Hotfixes (Emergency Production Fixes)
 
@@ -150,12 +151,12 @@ Build Docker Image
     ↓
 Run Database Migrations (Staging)
     ↓
-Deploy to Railway Staging ✅ (automatic)
+Deploy to Oracle Cloud Staging ✅ (automatic)
 ```
 
 **Staging Credentials:**
 - EPX: Sandbox credentials
-- Database: Railway staging PostgreSQL
+- Database: Oracle Cloud staging PostgreSQL
 - Environment: `ENVIRONMENT=staging`
 
 #### Production (main branch)
@@ -167,22 +168,28 @@ Run Tests (Go 1.24)
 Build Docker Image
     ↓
 Run Database Migrations (Production)
+    - Authenticate to Google Cloud
+    - Start Cloud SQL Proxy
+    - Run Goose migrations
     ↓
 ⏸️ Wait for Manual Approval
     ↓
-Deploy to Railway Production ✅ (after approval)
+Deploy to Google Cloud Run ✅ (after approval)
+    - Build and push to Artifact Registry
+    - Deploy to Cloud Run
+    - Configure environment variables
 ```
 
 **Production Credentials:**
 - EPX: Production credentials
-- Database: Railway production PostgreSQL
+- Database: Google Cloud SQL PostgreSQL
 - Environment: `ENVIRONMENT=production`
 
 ---
 
 ## Environment Configuration
 
-### Staging (develop → Railway Staging)
+### Staging (develop → Oracle Cloud Staging)
 
 **EPX Configuration:**
 - Base URL: `https://secure.epxuap.com` (sandbox)
@@ -190,13 +197,13 @@ Deploy to Railway Production ✅ (after approval)
 - MAC: Sandbox MAC token
 
 **Database:**
-- Railway PostgreSQL (staging project)
+- Oracle Autonomous Database (Always Free)
 - SSL Mode: `require`
 
 **Logging:**
 - Level: `debug` (verbose for troubleshooting)
 
-### Production (main → Railway Production)
+### Production (main → Google Cloud Run)
 
 **EPX Configuration:**
 - Base URL: `https://secure.epxnow.com` (production)
@@ -204,34 +211,63 @@ Deploy to Railway Production ✅ (after approval)
 - MAC: Production MAC token
 
 **Database:**
-- Railway PostgreSQL (production project)
+- Google Cloud SQL PostgreSQL
+- Connection: Cloud SQL Proxy via Unix socket
 - SSL Mode: `require`
 
 **Logging:**
 - Level: `info` (less verbose)
 
+**Infrastructure:**
+- Platform: Google Cloud Run
+- CPU: 1 vCPU
+- Memory: 512 Mi
+- Auto-scaling: 0-10 instances
+
 ---
 
 ## GitHub Environments
 
-### Staging Environment
+### Staging Environment (Oracle Cloud - Auto-Managed)
 - **Name:** `staging`
 - **Protection:** No approval required (automatic deployment)
 - **Branches:** `develop` only
+- **Lifecycle:**
+  - ✅ **Auto-creates** when pushing to `develop` (if not exists)
+  - ✅ **Auto-destroys** after successful production deployment
+  - 🎯 Philosophy: Only exists when needed
 - **Secrets:**
-  - `RAILWAY_TOKEN`
-  - `RAILWAY_PROJECT_ID`
+  - `OCI_USER_OCID`
+  - `OCI_TENANCY_OCID`
+  - `OCI_COMPARTMENT_OCID`
+  - `OCI_REGION`
+  - `OCI_FINGERPRINT`
+  - `OCI_PRIVATE_KEY`
+  - `ORACLE_DB_ADMIN_PASSWORD`
+  - `ORACLE_DB_PASSWORD`
+  - `ORACLE_CLOUD_HOST` (from Terraform output)
+  - `ORACLE_CLOUD_SSH_KEY` (from Terraform output)
+  - `OCIR_REGION`
+  - `OCIR_TENANCY_NAMESPACE`
+  - `OCIR_USERNAME`
+  - `OCIR_AUTH_TOKEN`
   - `EPX_MAC_STAGING`
   - `CRON_SECRET_STAGING`
-  - `CALLBACK_BASE_URL_STAGING`
+  - `SSH_PUBLIC_KEY`
 
 ### Production Environment
 - **Name:** `production`
 - **Protection:** ✅ Required reviewers (1-2 people)
 - **Branches:** `main` only
 - **Secrets:**
-  - `RAILWAY_TOKEN_PRODUCTION`
-  - `RAILWAY_PROJECT_ID_PRODUCTION`
+  - `GCP_SA_KEY` (Service account JSON)
+  - `GCP_PROJECT_ID`
+  - `GCP_REGION`
+  - `GCP_DB_INSTANCE_CONNECTION_NAME`
+  - `GCP_DB_USER`
+  - `GCP_DB_PASSWORD`
+  - `GCP_DB_NAME`
+  - `GCP_DATABASE_URL`
   - `EPX_CUST_NBR_PRODUCTION`
   - `EPX_MERCH_NBR_PRODUCTION`
   - `EPX_DBA_NBR_PRODUCTION`
@@ -399,9 +435,9 @@ git push origin main
 ```
 
 **Option 2: Redeploy Previous Release**
-- Go to Railway production dashboard
-- Find previous successful deployment
-- Click "Redeploy"
+- Go to Google Cloud Run console
+- Find previous successful revision
+- Click "Route traffic" to previous revision
 
 ---
 
@@ -441,20 +477,28 @@ git push origin main
 
 **Staging:**
 ```bash
-# Health check
-curl https://payment-service-staging.up.railway.app/cron/health
+# Health check (replace with actual host from Terraform)
+curl http://${ORACLE_CLOUD_HOST}:8081/cron/health
 
-# View logs
-railway logs --project staging
+# View logs (SSH into Oracle Cloud instance)
+ssh ubuntu@${ORACLE_CLOUD_HOST}
+docker-compose logs -f
 ```
 
 **Production:**
 ```bash
 # Health check
-curl https://payments.yourdomain.com/cron/health
+curl https://payment-service-xxx.a.run.app/cron/health
 
 # View logs
-railway logs --project production
+gcloud run services logs read payment-service \
+  --region us-central1 \
+  --limit=50
+
+# Get service URL
+gcloud run services describe payment-service \
+  --region us-central1 \
+  --format 'value(status.url)'
 ```
 
 ### GitHub Actions
@@ -481,7 +525,9 @@ railway logs --project production
 
 ## Support
 
-- Staging Issues: Check Railway staging logs
-- Production Issues: Check Railway production logs + contact on-call
-- CI/CD Issues: Check GitHub Actions logs
-- Git Help: `git --help` or ask team lead
+- **Staging Issues:** Check Oracle Cloud staging logs (see [ORACLE_FREE_TIER_STAGING.md](./ORACLE_FREE_TIER_STAGING.md))
+- **Production Issues:** Check Google Cloud Run logs + contact on-call
+- **CI/CD Issues:** Check GitHub Actions logs
+- **Git Help:** `git --help` or ask team lead
+- **GCP Setup:** See [GCP_PRODUCTION_SETUP.md](./GCP_PRODUCTION_SETUP.md)
+- **Oracle Cloud Staging:** See [ORACLE_FREE_TIER_STAGING.md](./ORACLE_FREE_TIER_STAGING.md)

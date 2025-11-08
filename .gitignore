@@ -7,10 +7,68 @@ server
 
 # Claude Code
 .claude
-# Keep secrets directory but ignore secret files
-secrets/*
-!secrets/.gitkeep
+# Never commit secrets directory
+secrets/
 
 # Test coverage files
 coverage.out
 *.coverprofile
+
+# ================================================
+# SECRETS AND CREDENTIALS (NEVER COMMIT!)
+# ================================================
+
+# Oracle Cloud credentials
+*.pem
+*.key
+*.oci/
+.oci/
+oci_*.pem
+oci_*.pub
+oracle-*.pem
+oracle-wallet/
+oracle-wallet.zip
+oracle-config.env
+oracle-setup-secrets.txt
+
+# Environment variables with secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.env.local
+*.env.staging
+*.env.production
+
+# GitHub secrets backup
+github-secrets*.txt
+SETUP_CREDENTIALS.txt
+
+# Database credentials
+db-credentials.txt
+*-credentials.txt
+
+# SSH keys
+id_rsa
+id_rsa.pub
+*-key
+*-key.pub
+*.ppk
+
+# Terraform sensitive files
+terraform.tfvars
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Temporary secrets
+secrets/
+tmp-secrets/
+*.secret
+
+# Auth tokens
+*token*.txt
+*auth*.txt

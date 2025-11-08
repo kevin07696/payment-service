@@ -1,0 +1,320 @@
+name: Staging Lifecycle Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - create
+          - destroy
+          - recreate
+      reason:
+        description: 'Reason for action (optional)'
+        required: false
+        type: string
+
+  # Auto-destroy staging after successful production deployment
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  TF_VERSION: '1.6.0'
+  TF_WORKING_DIR: './terraform'
+
+jobs:
+  # Auto-destroy after production deployment
+  auto-destroy-after-production:
+    name: Auto-destroy staging after production deploy
+    runs-on: ubuntu-latest
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event_name == 'workflow_run'
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure Oracle Cloud credentials
+        run: |
+          mkdir -p ~/.oci
+
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=${{ secrets.OCI_REGION }}
+          key_file=~/.oci/oci_api_key.pem
+          EOF
+
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+
+      - name: Create terraform.tfvars
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          tenancy_ocid     = "${{ secrets.OCI_TENANCY_OCID }}"
+          user_ocid        = "${{ secrets.OCI_USER_OCID }}"
+          fingerprint      = "${{ secrets.OCI_FINGERPRINT }}"
+          private_key      = <<-EOT
+          ${{ secrets.OCI_PRIVATE_KEY }}
+          EOT
+          region           = "${{ secrets.OCI_REGION }}"
+          compartment_ocid = "${{ secrets.OCI_COMPARTMENT_OCID }}"
+          db_admin_password = "${{ secrets.ORACLE_DB_ADMIN_PASSWORD }}"
+          db_app_password   = "${{ secrets.ORACLE_DB_PASSWORD }}"
+          epx_mac     = "${{ secrets.EPX_MAC_STAGING }}"
+          cron_secret = "${{ secrets.CRON_SECRET_STAGING }}"
+          ssh_public_key = "${{ secrets.SSH_PUBLIC_KEY }}"
+          environment = "staging"
+          EOF
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Destroy staging infrastructure
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform destroy -auto-approve
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const message = `🗑️ **Staging Environment Destroyed**
+
+            Staging infrastructure has been automatically destroyed after successful production deployment.
+
+            **Reason**: Production deployment successful on \`main\` branch
+            **Destroyed at**: ${new Date().toISOString()}
+
+            To recreate staging:
+            - Go to Actions → Staging Lifecycle Management
+            - Click "Run workflow"
+            - Select action: \`create\`
+
+            Or push to \`develop\` branch and it will auto-create.`;
+
+            // Try to find the most recent merged PR
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 5
+            });
+
+            const mergedPR = prs.data.find(pr => pr.merged_at && pr.base.ref === 'main');
+
+            if (mergedPR) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: mergedPR.number,
+                body: message
+              });
+            }
+
+            // Also add to workflow summary
+            await core.summary
+              .addHeading('Staging Environment Destroyed')
+              .addRaw(message)
+              .write();
+
+  # Manual create/destroy/recreate
+  manual-lifecycle:
+    name: ${{ github.event.inputs.action }} staging
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure Oracle Cloud credentials
+        run: |
+          mkdir -p ~/.oci
+
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=${{ secrets.OCI_REGION }}
+          key_file=~/.oci/oci_api_key.pem
+          EOF
+
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+
+      - name: Create terraform.tfvars
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          tenancy_ocid     = "${{ secrets.OCI_TENANCY_OCID }}"
+          user_ocid        = "${{ secrets.OCI_USER_OCID }}"
+          fingerprint      = "${{ secrets.OCI_FINGERPRINT }}"
+          private_key      = <<-EOT
+          ${{ secrets.OCI_PRIVATE_KEY }}
+          EOT
+          region           = "${{ secrets.OCI_REGION }}"
+          compartment_ocid = "${{ secrets.OCI_COMPARTMENT_OCID }}"
+          db_admin_password = "${{ secrets.ORACLE_DB_ADMIN_PASSWORD }}"
+          db_app_password   = "${{ secrets.ORACLE_DB_PASSWORD }}"
+          epx_mac     = "${{ secrets.EPX_MAC_STAGING }}"
+          cron_secret = "${{ secrets.CRON_SECRET_STAGING }}"
+          ssh_public_key = "${{ secrets.SSH_PUBLIC_KEY }}"
+          environment = "staging"
+          EOF
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Terraform Plan (create/recreate)
+        if: github.event.inputs.action == 'create' || github.event.inputs.action == 'recreate'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Destroy (destroy/recreate)
+        if: github.event.inputs.action == 'destroy' || github.event.inputs.action == 'recreate'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform destroy -auto-approve
+
+      - name: Wait before recreate
+        if: github.event.inputs.action == 'recreate'
+        run: sleep 30
+
+      - name: Terraform Apply (create/recreate)
+        if: github.event.inputs.action == 'create' || github.event.inputs.action == 'recreate'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve tfplan
+
+      - name: Export Outputs
+        if: github.event.inputs.action == 'create' || github.event.inputs.action == 'recreate'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "## Staging Infrastructure Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Action**: ${{ github.event.inputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Reason**: ${{ github.event.inputs.reason || 'Manual trigger' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Created at**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### GitHub Secrets to Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          terraform output github_secrets >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Summary for Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          echo "## Staging Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Reason**: ${{ github.event.inputs.reason || 'Manual trigger' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Destroyed at**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To recreate staging, run this workflow again with action: \`create\`" >> $GITHUB_STEP_SUMMARY
+
+  # Check if staging should be auto-created
+  auto-create-for-develop:
+    name: Auto-create staging for develop branch
+    runs-on: ubuntu-latest
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'develop' &&
+      github.event_name == 'workflow_run'
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure Oracle Cloud credentials
+        run: |
+          mkdir -p ~/.oci
+
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=${{ secrets.OCI_REGION }}
+          key_file=~/.oci/oci_api_key.pem
+          EOF
+
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+
+      - name: Create terraform.tfvars
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          tenancy_ocid     = "${{ secrets.OCI_TENANCY_OCID }}"
+          user_ocid        = "${{ secrets.OCI_USER_OCID }}"
+          fingerprint      = "${{ secrets.OCI_FINGERPRINT }}"
+          private_key      = <<-EOT
+          ${{ secrets.OCI_PRIVATE_KEY }}
+          EOT
+          region           = "${{ secrets.OCI_REGION }}"
+          compartment_ocid = "${{ secrets.OCI_COMPARTMENT_OCID }}"
+          db_admin_password = "${{ secrets.ORACLE_DB_ADMIN_PASSWORD }}"
+          db_app_password   = "${{ secrets.ORACLE_DB_PASSWORD }}"
+          epx_mac     = "${{ secrets.EPX_MAC_STAGING }}"
+          cron_secret = "${{ secrets.CRON_SECRET_STAGING }}"
+          ssh_public_key = "${{ secrets.SSH_PUBLIC_KEY }}"
+          environment = "staging"
+          EOF
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Check if staging exists
+        id: check
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        continue-on-error: true
+        run: |
+          terraform plan -detailed-exitcode
+          echo "exitcode=$?" >> $GITHUB_OUTPUT
+
+      - name: Create staging if not exists
+        if: steps.check.outputs.exitcode == '2'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform apply -auto-approve
+
+          echo "## Staging Auto-Created for Develop Branch" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Staging infrastructure was automatically created because it didn't exist." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          terraform output github_secrets >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

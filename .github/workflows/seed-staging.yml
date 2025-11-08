@@ -1,0 +1,207 @@
+name: Seed Staging Database
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force seed even if data exists'
+        required: false
+        type: boolean
+        default: false
+
+  # Auto-seed after staging deployment (optional)
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types:
+      - completed
+    branches:
+      - develop
+
+env:
+  SEED_DIR: './db/seeds/staging'
+
+jobs:
+  seed-database:
+    name: Apply Seed Data to Staging
+    runs-on: ubuntu-latest
+    # Only run if manually triggered OR deployment succeeded
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'develop')
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Wait for deployment to stabilize
+        if: github.event_name == 'workflow_run'
+        run: sleep 60
+
+      - name: Download Oracle Wallet
+        run: |
+          # In production, wallet would be downloaded from Terraform output
+          # For now, assume it's in artifacts or secrets
+          mkdir -p ~/oracle-wallet
+          echo "Note: Wallet should be pre-configured on staging instance"
+
+      - name: Check if seed needed
+        id: check
+        if: github.event.inputs.force != 'true'
+        env:
+          PGPASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
+        run: |
+          # Try to connect and check for existing test data
+          set +e
+          psql -h ${{ secrets.ORACLE_CLOUD_HOST }} \
+               -p 1522 \
+               -U payment_service \
+               -d paymentdb \
+               -t \
+               -c "SELECT COUNT(*) FROM customers WHERE id LIKE 'cust_test_%'" 2>/dev/null | grep -q "0"
+
+          if [ $? -eq 0 ]; then
+            echo "needs_seed=true" >> $GITHUB_OUTPUT
+            echo "✅ No test data found, seeding needed"
+          else
+            echo "needs_seed=false" >> $GITHUB_OUTPUT
+            echo "⚠️  Test data already exists, skipping seed"
+          fi
+
+      - name: Apply seed files
+        if: |
+          github.event.inputs.force == 'true' ||
+          steps.check.outputs.needs_seed == 'true' ||
+          github.event_name == 'workflow_run'
+        env:
+          DB_HOST: ${{ secrets.ORACLE_CLOUD_HOST }}
+          DB_PORT: 1522
+          DB_USER: payment_service
+          DB_PASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
+          DB_NAME: paymentdb
+          PGPASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
+        run: |
+          echo "Applying seed files..."
+
+          for seed_file in $(find $SEED_DIR -name "*.sql" -type f | sort); do
+            filename=$(basename "$seed_file")
+            echo "  📝 Applying $filename..."
+
+            if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$seed_file"; then
+              echo "  ✅ $filename applied successfully"
+            else
+              echo "  ❌ Failed to apply $filename"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "✅ All seed files applied successfully!"
+
+      - name: Verify seed data
+        env:
+          PGPASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
+        run: |
+          echo "Verifying seed data..."
+
+          # Count test customers
+          CUSTOMER_COUNT=$(psql -h ${{ secrets.ORACLE_CLOUD_HOST }} \
+                               -p 1522 \
+                               -U payment_service \
+                               -d paymentdb \
+                               -t \
+                               -c "SELECT COUNT(*) FROM customers WHERE id LIKE 'cust_test_%' OR id LIKE 'cust_epx_%'")
+
+          echo "Test customers created: $CUSTOMER_COUNT"
+
+          if [ "$CUSTOMER_COUNT" -gt 0 ]; then
+            echo "✅ Seed data verification passed"
+          else
+            echo "❌ Seed data verification failed - no test data found"
+            exit 1
+          fi
+
+      - name: Post summary
+        if: always()
+        run: |
+          cat > seed-summary.md <<EOF
+          ## 🌱 Staging Database Seeding
+
+          **Environment**: Staging
+          **Database**: ${{ secrets.ORACLE_CLOUD_HOST }}:1522
+          **Time**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Forced**: ${{ github.event.inputs.force || 'false' }}
+
+          ### Seed Files Applied
+
+          $(find $SEED_DIR -name "*.sql" -type f | sort | while read f; do echo "- $(basename $f)"; done)
+
+          ### Test Data Available
+
+          **Test Customers**:
+          - john.doe@example.com
+          - jane.smith@example.com
+          - bob.wilson@example.com
+          - alice.brown@example.com
+          - charlie.davis@example.com
+
+          **EPX Test Scenarios**:
+          - approved@epxtest.com (Visa ***1111) - Will approve
+          - declined@epxtest.com (Visa ***0002) - Will decline
+          - insufficient@epxtest.com (Visa ***9995) - Insufficient funds
+          - expired@epxtest.com (Visa ***0001) - Expired card
+          - invalid@epxtest.com (Visa ***0003) - Invalid CVV
+
+          **Test Subscriptions**: 5 subscriptions (active, cancelled, paused)
+          **Test Transactions**: 7+ historical transactions
+          **Test Chargebacks**: 3 chargeback scenarios
+
+          ---
+
+          **Status**: ${{ job.status }}
+          EOF
+
+          cat seed-summary.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload seed summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seed-summary
+          path: seed-summary.md
+          retention-days: 7
+
+  # Optional: Cleanup old test data
+  cleanup-old-data:
+    name: Cleanup Old Test Data
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true'
+    environment: staging
+    needs: seed-database
+
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Cleanup old test data
+        env:
+          PGPASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
+        run: |
+          echo "Cleaning up old test data..."
+
+          psql -h ${{ secrets.ORACLE_CLOUD_HOST }} \
+               -p 1522 \
+               -U payment_service \
+               -d paymentdb \
+               -c "DELETE FROM customers WHERE id LIKE 'cust_test_%_old' OR id LIKE 'cust_epx_%_old'"
+
+          echo "✅ Cleanup complete"
