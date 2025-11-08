@@ -50,11 +50,9 @@ Configure these in: **GitHub Repository → Settings → Secrets and variables �
 
 | Secret Name | Description | Example Value |
 |------------|-------------|---------------|
-| `EPX_MAC_STAGING` | EPX MAC key for staging | Provided by EPX |
-| `EPX_CUST_NBR` | EPX customer number | Provided by EPX |
-| `EPX_MERCH_NBR` | EPX merchant number | Provided by EPX |
-| `EPX_DBA_NBR` | EPX DBA number | Provided by EPX |
-| `EPX_TERMINAL_NBR` | EPX terminal number | Provided by EPX |
+| `EPX_MAC_STAGING` | EPX MAC key for test merchant | `2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y` (sandbox) |
+
+**Note**: EPX merchant credentials (CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR) are stored per-agent in the database following multi-tenant architecture. See `internal/db/seeds/staging/003_agent_credentials.sql`
 
 ### Application Secrets
 
@@ -79,14 +77,14 @@ Configure these in: **GitHub Repository → Settings → Secrets and variables �
 
 ## Summary of Required Secrets
 
-**Total: 17 secrets** (down from 20+ by auto-passing Terraform outputs)
+**Total: 9 secrets** (down from 20+ by using Terraform outputs + DB seed data!)
 
 ### Must Configure
 
-- 7 Oracle Cloud secrets (OCI_*, SSH_PUBLIC_KEY)
-- 4 OCIR secrets
+- 6 Oracle Cloud secrets (OCI_*, SSH_PUBLIC_KEY)
+- 3 OCIR secrets
 - 2 Database passwords
-- 5 EPX credentials
+- 1 EPX MAC secret
 - 1 Application secret (CRON_SECRET_STAGING)
 - 1 SSH private key (ORACLE_CLOUD_SSH_KEY)
 - (Optional) 3 GCP secrets for production
@@ -96,6 +94,11 @@ Configure these in: **GitHub Repository → Settings → Secrets and variables �
 - `ORACLE_CLOUD_HOST` (from Terraform)
 - `ORACLE_DB_CONNECTION_STRING` (from Terraform)
 - `ORACLE_DB_USER` (hardcoded: payment_service)
+
+### Stored in Database (Not Secrets)
+
+- EPX merchant credentials (CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR)
+- Seeded via `internal/db/seeds/staging/003_agent_credentials.sql`
 
 ---
 
