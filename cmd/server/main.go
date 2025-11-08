@@ -202,16 +202,16 @@ type Dependencies struct {
 // loadConfig loads configuration from environment variables
 func loadConfig(logger *zap.Logger) *Config {
 	cfg := &Config{
-		Port:            getEnvInt("PORT", 8080),
-		HTTPPort:        getEnvInt("HTTP_PORT", 8081),
-		DBHost:          getEnv("DB_HOST", "localhost"),
-		DBPort:          getEnvInt("DB_PORT", 5432),
-		DBUser:          getEnv("DB_USER", "postgres"),
-		DBPassword:      getEnv("DB_PASSWORD", "postgres"),
-		DBName:          getEnv("DB_NAME", "payment_service"),
-		DBSSLMode:       getEnv("DB_SSL_MODE", "disable"),
-		MaxConns:        int32(getEnvInt("DB_MAX_CONNS", 25)),
-		MinConns:        int32(getEnvInt("DB_MIN_CONNS", 5)),
+		Port:       getEnvInt("PORT", 8080),
+		HTTPPort:   getEnvInt("HTTP_PORT", 8081),
+		DBHost:     getEnv("DB_HOST", "localhost"),
+		DBPort:     getEnvInt("DB_PORT", 5432),
+		DBUser:     getEnv("DB_USER", "postgres"),
+		DBPassword: getEnv("DB_PASSWORD", "postgres"),
+		DBName:     getEnv("DB_NAME", "payment_service"),
+		DBSSLMode:  getEnv("DB_SSL_MODE", "disable"),
+		MaxConns:   int32(getEnvInt("DB_MAX_CONNS", 25)),
+		MinConns:   int32(getEnvInt("DB_MIN_CONNS", 5)),
 		// Try new variable name first, fallback to old name for backwards compatibility
 		EPXServerPostURL:          getEnvWithFallback("EPX_SERVER_POST_URL", "EPX_BASE_URL", "https://sandbox.north.com"),
 		EPXTimeout:                getEnvInt("EPX_TIMEOUT", 30),
