@@ -25,61 +25,75 @@ jobs:
     with:
       service-name: payment-service
 
+  # ===== DEPLOYMENT STAGES (Requires GitHub Secrets Configuration) =====
+  #
+  # IMPORTANT: Uncomment these jobs after configuring secrets in GitHub
+  # See: docs/GITHUB_SECRETS_SETUP.md for required secrets
+  #
+  # The deployment stages are commented out because the reusable workflows
+  # require secrets that aren't configured yet. GitHub validates workflows
+  # before running and will fail if required secrets are missing.
+  #
+  # Once secrets are configured:
+  # 1. Uncomment all jobs below
+  # 2. Commit and push
+  # 3. CI/CD will automatically deploy to staging on 'develop' pushes
+  #
   # ===== STAGING DEPLOYMENT (develop branch) =====
-  ensure-staging-infrastructure:
-    name: Ensure Staging Infrastructure
-    needs: build
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
-    secrets: inherit
-    with:
-      action: create
-      environment: staging
-
-  deploy-staging:
-    name: Deploy to Oracle Cloud Staging
-    needs: ensure-staging-infrastructure
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@main
-    secrets: inherit
-    with:
-      service-name: payment-service
-
-  test-staging:
-    name: Run Staging Integration Tests
-    needs: deploy-staging
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/run-integration-tests.yml@main
-    secrets: inherit
-    with:
-      environment: staging
-
-  cleanup-staging:
-    name: Cleanup Staging Infrastructure
-    needs: [test-staging]
-    if: always() && github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
-    secrets: inherit
-    with:
-      action: destroy
-      environment: staging
-
+  # ensure-staging-infrastructure:
+  #   name: Ensure Staging Infrastructure
+  #   needs: build
+  #   if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+  #   uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+  #   secrets: inherit
+  #   with:
+  #     action: create
+  #     environment: staging
+  #
+  # deploy-staging:
+  #   name: Deploy to Oracle Cloud Staging
+  #   needs: ensure-staging-infrastructure
+  #   if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+  #   uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@main
+  #   secrets: inherit
+  #   with:
+  #     service-name: payment-service
+  #
+  # test-staging:
+  #   name: Run Staging Integration Tests
+  #   needs: deploy-staging
+  #   if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+  #   uses: kevin07696/deployment-workflows/.github/workflows/run-integration-tests.yml@main
+  #   secrets: inherit
+  #   with:
+  #     environment: staging
+  #
+  # cleanup-staging:
+  #   name: Cleanup Staging Infrastructure
+  #   needs: [test-staging]
+  #   if: always() && github.ref == 'refs/heads/develop' && github.event_name == 'push'
+  #   uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+  #   secrets: inherit
+  #   with:
+  #     action: destroy
+  #     environment: staging
+  #
   # ===== PRODUCTION DEPLOYMENT (main branch) =====
-  deploy-production:
-    name: Deploy to GCP Production
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/deploy-gcp-production.yml@main
-    secrets: inherit
-    with:
-      service-name: payment-service
-      gcp-region: us-central1
-
-  test-production:
-    name: Run Production Integration Tests
-    needs: deploy-production
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/run-integration-tests.yml@main
-    secrets: inherit
-    with:
-      environment: production
+  # deploy-production:
+  #   name: Deploy to GCP Production
+  #   needs: build
+  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  #   uses: kevin07696/deployment-workflows/.github/workflows/deploy-gcp-production.yml@main
+  #   secrets: inherit
+  #   with:
+  #     service-name: payment-service
+  #     gcp-region: us-central1
+  #
+  # test-production:
+  #   name: Run Production Integration Tests
+  #   needs: deploy-production
+  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  #   uses: kevin07696/deployment-workflows/.github/workflows/run-integration-tests.yml@main
+  #   secrets: inherit
+  #   with:
+  #     environment: production
