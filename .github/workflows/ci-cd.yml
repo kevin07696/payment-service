@@ -6,40 +6,11 @@ on:
   pull_request:
     branches: [main, develop]
 
-# Allow other workflows to trigger based on this workflow's completion
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  # ===================================
-  # STAGING INFRASTRUCTURE (develop only)
-  # ===================================
-
-  ensure-staging-infrastructure:
-    name: Ensure Staging Infrastructure Exists
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
-    with:
-      action: create
-      environment: staging
-    secrets:
-      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
-      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-      OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
-      OCI_REGION: ${{ secrets.OCI_REGION }}
-      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
-      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-      ORACLE_DB_ADMIN_PASSWORD: ${{ secrets.ORACLE_DB_ADMIN_PASSWORD }}
-      ORACLE_DB_PASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
-      EPX_MAC_STAGING: ${{ secrets.EPX_MAC_STAGING }}
-      CRON_SECRET_STAGING: ${{ secrets.CRON_SECRET_STAGING }}
-      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
-
-  # ===================================
-  # TEST & BUILD (all branches)
-  # ===================================
-
   test:
     name: Run Tests
     uses: kevin07696/deployment-workflows/.github/workflows/go-test.yml@main
@@ -52,109 +23,3 @@ jobs:
     uses: kevin07696/deployment-workflows/.github/workflows/go-build-docker.yml@main
     with:
       service-name: payment-service
-
-  # ===================================
-  # STAGING DEPLOYMENT (Oracle Cloud)
-  # ===================================
-
-  deploy-staging:
-    name: Deploy to Oracle Cloud Staging
-    needs: [ensure-staging-infrastructure, build]
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@main
-    with:
-      service-name: payment-service
-      image-tag: latest
-    secrets:
-      ORACLE_CLOUD_HOST: ${{ secrets.ORACLE_CLOUD_HOST }}
-      ORACLE_CLOUD_SSH_KEY: ${{ secrets.ORACLE_CLOUD_SSH_KEY }}
-      OCIR_REGION: ${{ secrets.OCIR_REGION }}
-      OCIR_TENANCY_NAMESPACE: ${{ secrets.OCIR_TENANCY_NAMESPACE }}
-      OCIR_USERNAME: ${{ secrets.OCIR_USERNAME }}
-      OCIR_AUTH_TOKEN: ${{ secrets.OCIR_AUTH_TOKEN }}
-      ORACLE_DB_USER: ${{ secrets.ORACLE_DB_USER }}
-      ORACLE_DB_PASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
-      ORACLE_DB_CONNECTION_STRING: ${{ secrets.ORACLE_DB_CONNECTION_STRING }}
-
-  test-staging:
-    name: Test Staging Deployment
-    needs: deploy-staging
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/run-integration-tests.yml@main
-    with:
-      environment: staging
-      test-timeout: 300
-    secrets:
-      TEST_HOST: ${{ secrets.ORACLE_CLOUD_HOST }}
-      CRON_SECRET: ${{ secrets.CRON_SECRET_STAGING }}
-      EPX_CUST_NBR: '9001'
-      EPX_MERCH_NBR: '900300'
-
-  # ===================================
-  # PRODUCTION DEPLOYMENT (GCP)
-  # ===================================
-
-  deploy-production:
-    name: Deploy to Google Cloud Run Production
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/deploy-gcp-production.yml@main
-    with:
-      service-name: payment-service
-      gcp-region: us-central1
-    secrets:
-      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
-      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      GCP_REGION: ${{ secrets.GCP_REGION }}
-      GCP_DB_INSTANCE_CONNECTION_NAME: ${{ secrets.GCP_DB_INSTANCE_CONNECTION_NAME }}
-      GCP_DB_USER: ${{ secrets.GCP_DB_USER }}
-      GCP_DB_PASSWORD: ${{ secrets.GCP_DB_PASSWORD }}
-      GCP_DB_NAME: ${{ secrets.GCP_DB_NAME }}
-      GCP_DATABASE_URL: ${{ secrets.GCP_DATABASE_URL }}
-      EPX_CUST_NBR_PRODUCTION: ${{ secrets.EPX_CUST_NBR_PRODUCTION }}
-      EPX_MERCH_NBR_PRODUCTION: ${{ secrets.EPX_MERCH_NBR_PRODUCTION }}
-      EPX_DBA_NBR_PRODUCTION: ${{ secrets.EPX_DBA_NBR_PRODUCTION }}
-      EPX_TERMINAL_NBR_PRODUCTION: ${{ secrets.EPX_TERMINAL_NBR_PRODUCTION }}
-      EPX_MAC_PRODUCTION: ${{ secrets.EPX_MAC_PRODUCTION }}
-      CRON_SECRET_PRODUCTION: ${{ secrets.CRON_SECRET_PRODUCTION }}
-      CALLBACK_BASE_URL_PRODUCTION: ${{ secrets.CALLBACK_BASE_URL_PRODUCTION }}
-
-  test-production:
-    name: Test Production Deployment
-    needs: deploy-production
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/run-integration-tests.yml@main
-    with:
-      environment: production
-      test-timeout: 300
-    secrets:
-      TEST_HOST: ${{ secrets.PRODUCTION_HOST }}
-      CRON_SECRET: ${{ secrets.CRON_SECRET_PRODUCTION }}
-
-  # ===================================
-  # CLEANUP (after production deploy)
-  # ===================================
-
-  cleanup-staging:
-    name: Destroy Staging Infrastructure
-    needs: [deploy-production, test-production]
-    if: |
-      github.ref == 'refs/heads/main' &&
-      github.event_name == 'push' &&
-      success()
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
-    with:
-      action: destroy
-      environment: staging
-    secrets:
-      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
-      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-      OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
-      OCI_REGION: ${{ secrets.OCI_REGION }}
-      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
-      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-      ORACLE_DB_ADMIN_PASSWORD: ${{ secrets.ORACLE_DB_ADMIN_PASSWORD }}
-      ORACLE_DB_PASSWORD: ${{ secrets.ORACLE_DB_PASSWORD }}
-      EPX_MAC_STAGING: ${{ secrets.EPX_MAC_STAGING }}
-      CRON_SECRET_STAGING: ${{ secrets.CRON_SECRET_STAGING }}
-      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
