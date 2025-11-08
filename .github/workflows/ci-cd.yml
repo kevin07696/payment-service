@@ -56,5 +56,73 @@ jobs:
 
           echo "✅ Migrations completed successfully"
 
-  # Railway automatically deploys after this job completes successfully
-  # Enable "Wait for CI" in Railway settings
+  deploy-staging:
+    name: Deploy to Railway Staging
+    needs: migrate-staging
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: |
+          npm install -g @railway/cli
+
+      - name: Link to Railway Project
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway link ${{ secrets.RAILWAY_PROJECT_ID }}
+
+      - name: Set Environment Variables
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "🔧 Updating Railway environment variables..."
+
+          # Set staging environment variables
+          railway variables set PORT=8080
+          railway variables set HTTP_PORT=8081
+          railway variables set ENVIRONMENT=staging
+          railway variables set DB_SSL_MODE=require
+
+          # EPX Sandbox Configuration
+          railway variables set EPX_BASE_URL=https://secure.epxuap.com
+          railway variables set EPX_TIMEOUT=30
+          railway variables set EPX_CUST_NBR=9001
+          railway variables set EPX_MERCH_NBR=900300
+          railway variables set EPX_DBA_NBR=2
+          railway variables set EPX_TERMINAL_NBR=77
+          railway variables set EPX_MAC=${{ secrets.EPX_MAC_STAGING }}
+
+          # North API
+          railway variables set NORTH_API_URL=https://api.north.com
+          railway variables set NORTH_TIMEOUT=30
+
+          # Callback URL (will be updated after first deployment)
+          railway variables set CALLBACK_BASE_URL=${{ secrets.CALLBACK_BASE_URL_STAGING }}
+
+          # Security
+          railway variables set CRON_SECRET=${{ secrets.CRON_SECRET_STAGING }}
+          railway variables set LOG_LEVEL=debug
+
+          echo "✅ Environment variables updated"
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "🚀 Deploying to Railway staging..."
+          railway up --detach
+          echo "✅ Deployment initiated successfully"
+
+      - name: Get Deployment URL
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "📍 Getting deployment URL..."
+          DEPLOY_URL=$(railway status --json | jq -r '.deployments[0].url // "Not available yet"')
+          echo "Deployment URL: $DEPLOY_URL"
+          echo "deployment_url=$DEPLOY_URL" >> $GITHUB_OUTPUT
