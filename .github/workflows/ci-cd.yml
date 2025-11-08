@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write
 
 jobs:
   test:
@@ -22,4 +23,66 @@ jobs:
     needs: test
     uses: kevin07696/deployment-workflows/.github/workflows/go-build-docker.yml@main
     with:
+      service-name: payment-service
+
+  # Staging deployment flow (develop branch)
+  ensure-staging-infrastructure:
+    name: Ensure Staging Infrastructure
+    needs: build
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    uses: kevin07696/deployment-workflows/.github/workflows/ensure-gcp-infrastructure.yml@main
+    secrets: inherit
+    with:
+      environment: staging
+      service-name: payment-service
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: ensure-staging-infrastructure
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    uses: kevin07696/deployment-workflows/.github/workflows/deploy-gcp-staging.yml@main
+    secrets: inherit
+    with:
+      service-name: payment-service
+      gcp-region: us-central1
+
+  test-staging:
+    name: Run Staging Integration Tests
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    uses: kevin07696/deployment-workflows/.github/workflows/integration-test.yml@main
+    secrets: inherit
+    with:
+      environment: staging
+      service-name: payment-service
+
+  cleanup-staging:
+    name: Cleanup Staging Infrastructure
+    needs: [test-staging]
+    if: always() && github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    uses: kevin07696/deployment-workflows/.github/workflows/cleanup-gcp-infrastructure.yml@main
+    secrets: inherit
+    with:
+      environment: staging
+      service-name: payment-service
+
+  # Production deployment flow (main branch)
+  deploy-production:
+    name: Deploy to Production
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: kevin07696/deployment-workflows/.github/workflows/deploy-gcp-production.yml@main
+    secrets: inherit
+    with:
+      service-name: payment-service
+      gcp-region: us-central1
+
+  test-production:
+    name: Run Production Integration Tests
+    needs: deploy-production
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: kevin07696/deployment-workflows/.github/workflows/integration-test.yml@main
+    secrets: inherit
+    with:
+      environment: production
       service-name: payment-service
