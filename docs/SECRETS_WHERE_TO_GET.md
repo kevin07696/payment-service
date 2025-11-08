@@ -36,17 +36,21 @@ echo $TENANCY_OCID  # Usually same as OCI_TENANCY_OCID
 
 ### 2. SSH_PUBLIC_KEY
 
-**What it is**: SSH public key for accessing the Oracle Cloud VM
+**What it is**: SSH public key for accessing Oracle Cloud VMs
 
 **Where to get it**:
 ```bash
 # If you have an existing SSH key:
 cat ~/.ssh/id_rsa.pub
 
-# If you don't have one, the script will generate it automatically
+# If you don't have one, generate it once:
+ssh-keygen -t rsa -b 4096 -C "github-actions" -f ~/.ssh/id_rsa -N ""
+cat ~/.ssh/id_rsa.pub
 ```
 
 **Auto-detection**: Script automatically detects `~/.ssh/id_rsa.pub`
+
+**Note**: This is a **shared SSH key** used across all your services. You generate it once on your local machine and configure it in each service's GitHub repo secrets. This is simpler than managing separate keys per service.
 
 ---
 
@@ -60,6 +64,8 @@ cat ~/.ssh/id_rsa
 ```
 
 **Auto-detection**: Script automatically reads `~/.ssh/id_rsa`
+
+**Note**: Same SSH key pair used across all your services for consistency and simplicity.
 
 ---
 
@@ -224,13 +230,15 @@ cd ~/Documents/projects/payments
 ```
 
 The script will:
-1. Auto-detect 5 values from your OCI CLI
+1. Auto-detect 5 values from your OCI CLI and SSH keys
 2. Prompt you to create 2 database passwords
-3. Ask you to generate 1 auth token (opens browser)
-4. Ask if you want to use sandbox EPX credentials or enter production ones
-5. Configure all 17 secrets in GitHub
+3. Ask you to generate 1 auth token
+4. Use sandbox EPX MAC key
+5. Configure all 9 secrets in GitHub
 
-**Estimated time**: 10-15 minutes
+**Estimated time**: 5-10 minutes
+
+**Note**: The SSH keys (`~/.ssh/id_rsa` and `~/.ssh/id_rsa.pub`) are shared across all your services. You only need to generate them once on your local machine, then configure them in each service repo's GitHub secrets.
 
 ---
 
