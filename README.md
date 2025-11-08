@@ -62,6 +62,7 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Go 1.24+
 - PostgreSQL 15+
 - protoc (Protocol Buffers compiler)
@@ -133,6 +134,7 @@ docker-compose down -v
 ```
 
 Services will be available at:
+
 - **gRPC API**: `localhost:8080`
   - Payment, Subscription, PaymentMethod, Agent, Chargeback services
 - **HTTP Endpoints**: `http://localhost:8081`
@@ -280,6 +282,7 @@ fmt.Printf("Status: %s\n", result.Status)
 **Browser Post** is the recommended PCI-compliant approach where card data goes directly from the user's browser to EPX (never touching your backend). Here's the complete flow:
 
 **1. Backend: Generate TAC Token**
+
 ```go
 // Your backend generates a TAC token via Key Exchange API
 tacResponse, err := keyExchangeAdapter.GenerateTAC(ctx, &ports.KeyExchangeRequest{
@@ -292,6 +295,7 @@ tacResponse, err := keyExchangeAdapter.GenerateTAC(ctx, &ports.KeyExchangeReques
 ```
 
 **2. Backend: Build Form Data**
+
 ```go
 // Construct form data for frontend
 formData, err := browserPostAdapter.BuildFormData(
@@ -305,6 +309,7 @@ formData, err := browserPostAdapter.BuildFormData(
 ```
 
 **3. Frontend: Render Payment Form**
+
 ```html
 <!-- User's browser submits card data directly to EPX -->
 <form method="POST" action="{{.PostURL}}">
@@ -340,11 +345,13 @@ formData, err := browserPostAdapter.BuildFormData(
 ```
 
 **4. EPX: Process Payment**
+
 - User's browser POSTs to EPX (card data never touches your server)
 - EPX validates card, processes payment
 - EPX redirects browser back to your REDIRECT_URL with results
 
 **5. Backend: Callback Handler Receives Results**
+
 ```go
 // Automatically handled by BrowserPostCallbackHandler
 // File: internal/handlers/payment/browser_post_callback_handler.go
@@ -373,10 +380,12 @@ POST /api/v1/payments/browser-post/callback
 ```
 
 **6. User: Sees Receipt Page**
+
 - Success: Shows masked card, auth code, transaction ID
 - Failure: Shows error message with retry option
 
 **Key Benefits:**
+
 - ✅ PCI-compliant (card data never hits your server)
 - ✅ No PCI certification needed
 - ✅ Simple integration
@@ -420,6 +429,7 @@ make test-db-down
 ```
 
 **What's tested:**
+
 - Repository layer with real PostgreSQL
 - Payment Service with database transactions
 - Subscription Service with billing logic
@@ -436,6 +446,7 @@ See [test/integration/README.md](test/integration/README.md) for detailed docume
 - **Chargeback Handler Tests**: 72.6%
 
 **EPX Integration Tests:**
+
 - ✅ Sale (CCE1) - Authorization + Capture
 - ✅ Authorization Only (CCE2)
 - ✅ Complete Auth → Capture flow
@@ -512,6 +523,7 @@ curl http://localhost:9090/metrics
 ```
 
 **Available Metrics:**
+
 - `grpc_requests_total{method, status}` - Total gRPC requests
 - `grpc_request_duration_seconds{method}` - Request duration histogram
 - `grpc_requests_in_flight` - Current concurrent requests
@@ -519,11 +531,13 @@ curl http://localhost:9090/metrics
 ### Health Checks
 
 **Liveness Probe:**
+
 ```bash
 curl http://localhost:9090/health
 ```
 
 Returns JSON with database connectivity status:
+
 ```json
 {
   "status": "healthy",
@@ -535,6 +549,7 @@ Returns JSON with database connectivity status:
 ```
 
 **Readiness Probe:**
+
 ```bash
 curl http://localhost:9090/ready
 ```
@@ -544,6 +559,7 @@ curl http://localhost:9090/ready
 We use [Goose](https://github.com/pressly/goose) for database migrations.
 
 **Using Makefile (recommended):**
+
 ```bash
 # Run all pending migrations
 make migrate-up
@@ -559,6 +575,7 @@ make migrate-create NAME=add_users_table
 ```
 
 **Using goose CLI directly:**
+
 ```bash
 # Install goose
 go install github.com/pressly/goose/v3/cmd/goose@latest
@@ -625,10 +642,12 @@ goose -dir internal/db/migrations create add_users_table sql
 
 **REDIRECT_URL Configuration:**
 When configuring your EPX Browser Post credentials, provide this URL where EPX will redirect after processing:
+
 - **Local Development**: `http://localhost:8081/api/v1/payments/browser-post/callback`
 - **Production**: `https://yourdomain.com/api/v1/payments/browser-post/callback`
 
 The callback endpoint:
+
 1. Receives POST redirect from EPX with transaction results
 2. Parses and validates the response
 3. Stores transaction in database (including AUTH_GUID for refunds)
@@ -704,6 +723,7 @@ func TestMyAdapter_Process(t *testing.T) {
 **[DOCUMENTATION.md](DOCUMENTATION.md)** - **Complete Guide (START HERE)**
 
 Comprehensive documentation covering:
+
 - Quick Start & Setup
 - Architecture & Design Patterns
 - Frontend & Backend Integration
@@ -719,6 +739,7 @@ Comprehensive documentation covering:
 ## 🗺️ Roadmap
 
 ### Phase 1: Foundation ✅
+
 - [x] Project structure
 - [x] Domain models
 - [x] Port interfaces
@@ -728,26 +749,31 @@ Comprehensive documentation covering:
 - [x] Testing infrastructure
 
 ### Phase 2: Business Logic ✅
+
 - [x] Payment service
 - [x] Subscription service
 - [x] Idempotency middleware
 
 ### Phase 3: Data Layer ✅
+
 - [x] PostgreSQL repositories
 - [x] Database migrations with Goose
 - [x] Audit logging schema
 
 ### Phase 4: API Layer ✅
+
 - [x] gRPC proto definitions
 - [x] gRPC service implementation
 - [x] gRPC server with interceptors
 
 ### Phase 5: Observability ✅
+
 - [x] Prometheus metrics
 - [x] Health checks
 - [ ] OpenTelemetry tracing (optional)
 
 ### Phase 6: Deployment ✅
+
 - [x] Docker containerization
 - [x] Docker Compose orchestration
 - [x] Automated migrations on startup
@@ -755,6 +781,7 @@ Comprehensive documentation covering:
 - [ ] CI/CD pipeline (optional)
 
 ### Phase 7: Payment Adapters ✅
+
 - [x] EPX Server Post adapter (card & ACH payments)
 - [x] EPX Browser Post adapter (PCI-compliant tokenization)
 - [x] EPX BRIC Storage adapter (Storage BRIC conversion)
@@ -766,6 +793,7 @@ Comprehensive documentation covering:
 - [x] Auto-save payment methods in Browser Post callback
 
 ### Phase 8: Testing & Integration 🚧
+
 - [x] Integration tests with PostgreSQL
 - [ ] Integration tests with North sandbox (requires credentials)
 - [ ] End-to-end gRPC tests
