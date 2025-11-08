@@ -107,28 +107,58 @@ echo -e "${GREEN}✓ OCIR_AUTH_TOKEN${NC}\n"
 
 # 5. EPX Payment Processor
 echo -e "${YELLOW}5. EPX Payment Processor Credentials${NC}"
-echo "Contact your EPX account representative for these values"
+echo "EPX is your payment gateway for processing credit card transactions"
 echo ""
+echo "Options:"
+echo "  1) Use SANDBOX credentials (for testing - recommended for staging)"
+echo "  2) Use PRODUCTION credentials (for real transactions)"
+echo ""
+read -p "Enter choice [1-2]: " epx_choice
 
-read -p "Enter EPX_MAC_STAGING: " value
-echo "$value" | gh secret set EPX_MAC_STAGING
-echo -e "${GREEN}✓ EPX_MAC_STAGING${NC}"
+if [ "$epx_choice" = "1" ]; then
+    echo -e "\n${BLUE}Using EPX Sandbox Credentials (from .env.example)${NC}"
 
-read -p "Enter EPX_CUST_NBR: " value
-echo "$value" | gh secret set EPX_CUST_NBR
-echo -e "${GREEN}✓ EPX_CUST_NBR${NC}"
+    echo "2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y" | gh secret set EPX_MAC_STAGING
+    echo -e "${GREEN}✓ EPX_MAC_STAGING (sandbox)${NC}"
 
-read -p "Enter EPX_MERCH_NBR: " value
-echo "$value" | gh secret set EPX_MERCH_NBR
-echo -e "${GREEN}✓ EPX_MERCH_NBR${NC}"
+    echo "9001" | gh secret set EPX_CUST_NBR
+    echo -e "${GREEN}✓ EPX_CUST_NBR (sandbox)${NC}"
 
-read -p "Enter EPX_DBA_NBR: " value
-echo "$value" | gh secret set EPX_DBA_NBR
-echo -e "${GREEN}✓ EPX_DBA_NBR${NC}"
+    echo "900300" | gh secret set EPX_MERCH_NBR
+    echo -e "${GREEN}✓ EPX_MERCH_NBR (sandbox)${NC}"
 
-read -p "Enter EPX_TERMINAL_NBR: " value
-echo "$value" | gh secret set EPX_TERMINAL_NBR
-echo -e "${GREEN}✓ EPX_TERMINAL_NBR${NC}\n"
+    echo "2" | gh secret set EPX_DBA_NBR
+    echo -e "${GREEN}✓ EPX_DBA_NBR (sandbox)${NC}"
+
+    echo "77" | gh secret set EPX_TERMINAL_NBR
+    echo -e "${GREEN}✓ EPX_TERMINAL_NBR (sandbox)${NC}"
+
+    echo -e "\n${YELLOW}Note: Sandbox credentials allow testing without processing real transactions${NC}\n"
+else
+    echo -e "\n${BLUE}Enter Production EPX Credentials${NC}"
+    echo "Contact your EPX account representative if you don't have these"
+    echo ""
+
+    read -p "Enter EPX_MAC_STAGING: " value
+    echo "$value" | gh secret set EPX_MAC_STAGING
+    echo -e "${GREEN}✓ EPX_MAC_STAGING${NC}"
+
+    read -p "Enter EPX_CUST_NBR: " value
+    echo "$value" | gh secret set EPX_CUST_NBR
+    echo -e "${GREEN}✓ EPX_CUST_NBR${NC}"
+
+    read -p "Enter EPX_MERCH_NBR: " value
+    echo "$value" | gh secret set EPX_MERCH_NBR
+    echo -e "${GREEN}✓ EPX_MERCH_NBR${NC}"
+
+    read -p "Enter EPX_DBA_NBR: " value
+    echo "$value" | gh secret set EPX_DBA_NBR
+    echo -e "${GREEN}✓ EPX_DBA_NBR${NC}"
+
+    read -p "Enter EPX_TERMINAL_NBR: " value
+    echo "$value" | gh secret set EPX_TERMINAL_NBR
+    echo -e "${GREEN}✓ EPX_TERMINAL_NBR${NC}\n"
+fi
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}✓ All secrets configured successfully!${NC}"
