@@ -58,6 +58,9 @@ jobs:
   #   secrets: inherit
   #   with:
   #     service-name: payment-service
+  #     oracle-cloud-host: ${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}
+  #     db-connection-string: ${{ needs.ensure-staging-infrastructure.outputs.db_connection_string }}
+  #     db-user: ${{ needs.ensure-staging-infrastructure.outputs.db_user }}
   #
   # test-staging:
   #   name: Run Staging Integration Tests
