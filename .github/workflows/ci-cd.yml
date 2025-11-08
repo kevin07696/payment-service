@@ -99,7 +99,6 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: kevin07696/deployment-workflows/.github/workflows/deploy-gcp-production.yml@main
-    environment: production
     with:
       service-name: payment-service
       gcp-region: us-central1
