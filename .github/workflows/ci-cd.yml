@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   test:
@@ -23,7 +23,7 @@ jobs:
   migrate-staging:
     name: Run Database Migrations (Staging)
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -59,7 +59,7 @@ jobs:
   deploy-staging:
     name: Deploy to Railway Staging
     needs: migrate-staging
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -125,4 +125,111 @@ jobs:
           echo "📍 Getting deployment URL..."
           DEPLOY_URL=$(railway status --json | jq -r '.deployments[0].url // "Not available yet"')
           echo "Deployment URL: $DEPLOY_URL"
+          echo "deployment_url=$DEPLOY_URL" >> $GITHUB_OUTPUT
+
+  migrate-production:
+    name: Run Database Migrations (Production)
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install Goose
+        run: go install github.com/pressly/goose/v3/cmd/goose@latest
+
+      - name: Install Railway CLI
+        run: |
+          npm install -g @railway/cli
+
+      - name: Run migrations on Railway Production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        run: |
+          echo "🔄 Starting migrations for production database..."
+
+          # Link to Railway production project using token
+          railway link ${{ secrets.RAILWAY_PROJECT_ID_PRODUCTION }}
+
+          # Run migrations using Railway's DATABASE_URL
+          railway run goose -dir migrations postgres "\$DATABASE_URL" up
+
+          echo "✅ Production migrations completed successfully"
+
+  deploy-production:
+    name: Deploy to Railway Production
+    needs: migrate-production
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: |
+          npm install -g @railway/cli
+
+      - name: Link to Railway Production Project
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        run: |
+          railway link ${{ secrets.RAILWAY_PROJECT_ID_PRODUCTION }}
+
+      - name: Set Production Environment Variables
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        run: |
+          echo "🔧 Updating Railway production environment variables..."
+
+          # Set production environment variables
+          railway variables set PORT=8080
+          railway variables set HTTP_PORT=8081
+          railway variables set ENVIRONMENT=production
+          railway variables set DB_SSL_MODE=require
+
+          # EPX Production Configuration
+          railway variables set EPX_BASE_URL=https://secure.epxnow.com
+          railway variables set EPX_TIMEOUT=30
+          railway variables set EPX_CUST_NBR=${{ secrets.EPX_CUST_NBR_PRODUCTION }}
+          railway variables set EPX_MERCH_NBR=${{ secrets.EPX_MERCH_NBR_PRODUCTION }}
+          railway variables set EPX_DBA_NBR=${{ secrets.EPX_DBA_NBR_PRODUCTION }}
+          railway variables set EPX_TERMINAL_NBR=${{ secrets.EPX_TERMINAL_NBR_PRODUCTION }}
+          railway variables set EPX_MAC=${{ secrets.EPX_MAC_PRODUCTION }}
+
+          # North API
+          railway variables set NORTH_API_URL=https://api.north.com
+          railway variables set NORTH_TIMEOUT=30
+
+          # Callback URL
+          railway variables set CALLBACK_BASE_URL=${{ secrets.CALLBACK_BASE_URL_PRODUCTION }}
+
+          # Security
+          railway variables set CRON_SECRET=${{ secrets.CRON_SECRET_PRODUCTION }}
+          railway variables set LOG_LEVEL=info
+
+          echo "✅ Production environment variables updated"
+
+      - name: Deploy to Railway Production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        run: |
+          echo "🚀 Deploying to Railway production..."
+          railway up --detach
+          echo "✅ Production deployment initiated successfully"
+
+      - name: Get Production Deployment URL
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        run: |
+          echo "📍 Getting production deployment URL..."
+          DEPLOY_URL=$(railway status --json | jq -r '.deployments[0].url // "Not available yet"')
+          echo "Production Deployment URL: $DEPLOY_URL"
           echo "deployment_url=$DEPLOY_URL" >> $GITHUB_OUTPUT

@@ -2,6 +2,14 @@
 
 This guide walks you through setting up Railway staging deployment with automated CI/CD.
 
+## Branching Strategy
+
+We use a Git Flow workflow:
+- **`develop` branch** → Deploys to **Railway Staging** (automatic)
+- **`main` branch** → Deploys to **Railway Production** (with approval)
+
+See [BRANCHING_STRATEGY.md](./BRANCHING_STRATEGY.md) for complete workflow details.
+
 ## Prerequisites
 
 - GitHub account with repository access
