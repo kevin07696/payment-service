@@ -1,3 +1,6 @@
+//go:build integration
+// +build integration
+
 package integration
 
 import (
@@ -7,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/kevin07696/payment-service/api/proto/payment/v1"
+	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
