@@ -18,11 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Simple rollback support
   - Deployment blocked if migrations fail (ensures safety)
 
-- **Migration Directory**: `migrations/`
-  - `00001_init_schema.sql` - Initial placeholder migration
+- **Migration Directory**: `internal/db/migrations/`
+  - `000_init_schema.sql` - Initial placeholder migration
+  - `001_customer_payment_methods.sql` - Payment methods and customer data
+  - `002_transactions.sql` - Transaction records and audit trail
+  - `003_chargebacks.sql` - Chargeback management
+  - `004_agent_credentials.sql` - Agent authentication data
+  - `005_soft_delete_cleanup.sql` - Soft delete support
+  - `006_pg_cron_jobs.sql.optional` - Optional pg_cron scheduled jobs
+  - `007_webhook_subscriptions.sql` - Webhook subscription system
   - `README.md` - Comprehensive migration guide with examples
-  - SQL-based migrations with up/down support
-  - Sequential versioning system (00001, 00002, etc.)
+  - SQL-based migrations with up/down support (Goose)
+  - Sequential versioning system (000, 001, 002, etc.)
 
 - **CI/CD Integration**: `.github/workflows/ci-cd.yml`
   - Added `migrate-staging` job that runs after build, before deployment
@@ -48,20 +55,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Creating New Migrations:**
 ```bash
 # Using goose CLI
-goose -dir migrations create add_new_feature sql
+goose -dir internal/db/migrations create add_new_feature sql
 
 # Manual creation
-# Create: migrations/00002_description.sql
+# Create: internal/db/migrations/008_description.sql
 ```
 
 **Local Migration Testing:**
 ```bash
 # Local database
-goose -dir migrations postgres "postgresql://localhost:5432/payment_service" up
+goose -dir internal/db/migrations postgres "postgresql://localhost:5432/payment_service" up
 
 # Via Fly.io proxy (staging)
 flyctl proxy 5432 -a kevin07696-payment-service-staging-db
-goose -dir migrations postgres "postgresql://postgres:PASSWORD@localhost:5432/payment_service" up
+goose -dir internal/db/migrations postgres "postgresql://postgres:PASSWORD@localhost:5432/payment_service" up
 ```
 
 ### Added - CI/CD Deployment Infrastructure (2025-11-07)

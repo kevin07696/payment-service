@@ -19,10 +19,10 @@ This directory contains database schema migrations managed by [Goose](https://gi
 go install github.com/pressly/goose/v3/cmd/goose@latest
 
 # Create a new SQL migration
-goose -dir migrations create add_new_table sql
+goose -dir internal/db/migrations create add_new_table sql
 
 # Create a new Go migration (for complex logic)
-goose -dir migrations create complex_migration go
+goose -dir internal/db/migrations create complex_migration go
 ```
 
 ### Manual Creation
@@ -57,13 +57,13 @@ DROP TABLE IF EXISTS example;
 ### Using Goose CLI Directly
 ```bash
 # Run all pending migrations
-goose -dir migrations postgres "postgresql://localhost:5432/payment_service?sslmode=disable" up
+goose -dir internal/db/migrations postgres "postgresql://localhost:5432/payment_service?sslmode=disable" up
 
 # Rollback last migration
-goose -dir migrations postgres "postgresql://localhost:5432/payment_service?sslmode=disable" down
+goose -dir internal/db/migrations postgres "postgresql://localhost:5432/payment_service?sslmode=disable" down
 
 # Check migration status
-goose -dir migrations postgres "postgresql://localhost:5432/payment_service?sslmode=disable" status
+goose -dir internal/db/migrations postgres "postgresql://localhost:5432/payment_service?sslmode=disable" status
 ```
 
 ### Via Fly.io Proxy (for staging database)
@@ -72,7 +72,7 @@ goose -dir migrations postgres "postgresql://localhost:5432/payment_service?sslm
 flyctl proxy 5432 -a kevin07696-payment-service-staging-db
 
 # In another terminal, run migrations
-goose -dir migrations postgres "postgresql://postgres:PASSWORD@localhost:5432/payment_service" up
+goose -dir internal/db/migrations postgres "postgresql://postgres:PASSWORD@localhost:5432/payment_service" up
 ```
 
 ## Migration Best Practices
@@ -162,7 +162,7 @@ The deployment will be blocked if migrations fail (app won't deploy).
 ### Reset All Migrations (DANGEROUS - Staging Only)
 
 ```bash
-goose -dir migrations postgres "DATABASE_URL" reset
+goose -dir internal/db/migrations postgres "DATABASE_URL" reset
 ```
 
 This drops all tables and re-runs all migrations from scratch.
@@ -171,4 +171,11 @@ This drops all tables and re-runs all migrations from scratch.
 
 ## Current Migrations
 
-- `00001_init_schema.sql` - Initial placeholder migration
+- `000_init_schema.sql` - Initial placeholder migration
+- `001_customer_payment_methods.sql` - Payment methods and customer data tables
+- `002_transactions.sql` - Transaction records and audit trail
+- `003_chargebacks.sql` - Chargeback management system
+- `004_agent_credentials.sql` - Agent authentication credentials
+- `005_soft_delete_cleanup.sql` - Soft delete support across tables
+- `006_pg_cron_jobs.sql.optional` - Optional pg_cron scheduled jobs for subscriptions
+- `007_webhook_subscriptions.sql` - Outbound webhook system for merchant notifications
