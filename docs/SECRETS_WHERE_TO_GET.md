@@ -152,46 +152,45 @@ The script will construct this from:
 
 ---
 
-### 9-13. EPX Payment Gateway Credentials (5 secrets)
+### 9. EPX_MAC_STAGING (Test Merchant MAC Key)
 
-**What they are**: Credentials for EPX payment processor (used for ALL payment processing, not just testing)
+**What it is**: MAC (Merchant Authorization Code) secret for the EPX test merchant
 
-#### EPX_CUST_NBR (Customer Number)
-#### EPX_MERCH_NBR (Merchant Number)
-#### EPX_DBA_NBR (DBA Number)
-#### EPX_TERMINAL_NBR (Terminal Number)
-#### EPX_MAC (Browser Post MAC Key)
+**Where to get it**: **From `.env.example`**
 
-**Where to get them**:
-
-**Option 1: For Development/Testing (SANDBOX)**
-Use the sandbox credentials from `.env.example`:
 ```bash
-EPX_CUST_NBR=9001
-EPX_MERCH_NBR=900300
-EPX_DBA_NBR=2
-EPX_TERMINAL_NBR=77
 EPX_MAC=2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y
 ```
 
-**Option 2: For Production/Real Processing**
-Contact EPX integration team:
-- Email: Your EPX account representative
-- They will provide your 4-part key when you're ready to implement
-- See: `~/Downloads/supplemental-resources/Testing Information/EPX Certification - Credentials.pdf`
+**Important - Multi-Tenant Architecture**:
 
-**What each part means**:
-- `CUST_NBR`: Customer number (identifies you as EPX customer)
-- `MERCH_NBR`: Merchant number (your merchant account)
-- `DBA_NBR`: DBA number (doing-business-as identifier)
-- `TERMINAL_NBR`: Terminal number (specific terminal/location)
-- `EPX_MAC`: Merchant Authorization Code (for Browser Post API - PCI-compliant payment forms)
+This service follows **multi-tenant architecture** where EPX merchant credentials are stored **per-agent in the database**, not as service-wide environment variables.
 
-**For staging deployment**: Use the **sandbox credentials** from `.env.example` so you can test payment flows without processing real transactions.
+**How it works**:
+1. Merchant credentials (CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR) are stored in the `agent_credentials` database table
+2. Seed data (`internal/db/seeds/staging/003_agent_credentials.sql`) creates a test agent with EPX sandbox credentials
+3. Only the MAC secret for the test merchant is provided as an environment variable
+4. Integration tests query the database for test merchant credentials
+
+**Why this architecture**:
+- ✅ Proper multi-tenancy (each merchant has their own credentials)
+- ✅ No hardcoded credentials in service configuration
+- ✅ Easy to add new merchants (just insert into database)
+- ✅ Credentials isolated per agent/merchant
+
+**Test Agent in Staging**:
+- Agent ID: `test-merchant-staging`
+- CUST_NBR: `9001` (in database)
+- MERCH_NBR: `900300` (in database)
+- DBA_NBR: `2` (in database)
+- TERMINAL_NBR: `77` (in database)
+- MAC Secret: `2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y` (from EPX_MAC_STAGING secret)
 
 ---
 
 ## Summary: Quick Action Items
+
+**Total: 9 secrets** (reduced from 17 by using DB seed data for EPX credentials!)
 
 ### Can Auto-Configure (5 secrets):
 1. OCI_COMPARTMENT_OCID → Script suggests tenancy OCID
@@ -207,8 +206,10 @@ Contact EPX integration team:
 ### Need to Generate (1 secret):
 8. OCIR_AUTH_TOKEN → Generate in Oracle Cloud Console
 
-### Use Sandbox Values (5 secrets):
-9-13. EPX credentials → Copy from `.env.example` (lines 42-48)
+### Use Sandbox Value (1 secret):
+9. EPX_MAC_STAGING → Copy from `.env.example` line 48: `2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y`
+
+**Note**: EPX merchant credentials (CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR) are stored in the database via seed data, not as secrets!
 
 ---
 

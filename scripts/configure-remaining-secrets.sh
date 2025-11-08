@@ -105,60 +105,36 @@ echo ""
 echo "$value" | gh secret set OCIR_AUTH_TOKEN
 echo -e "${GREEN}✓ OCIR_AUTH_TOKEN${NC}\n"
 
-# 5. EPX Payment Processor
-echo -e "${YELLOW}5. EPX Payment Processor Credentials${NC}"
-echo "EPX is your payment gateway for processing credit card transactions"
+# 5. EPX Test Merchant MAC Secret
+echo -e "${YELLOW}5. EPX Test Merchant MAC Secret${NC}"
+echo "This service uses multi-tenant architecture where EPX merchant credentials"
+echo "(CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR) are stored per-agent in the database."
 echo ""
-echo "Options:"
-echo "  1) Use SANDBOX credentials (for testing - recommended for staging)"
-echo "  2) Use PRODUCTION credentials (for real transactions)"
+echo "Only the MAC secret for the test merchant is needed as a GitHub secret."
 echo ""
-read -p "Enter choice [1-2]: " epx_choice
+echo "Using EPX Sandbox MAC from .env.example:"
+echo "2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y"
+echo ""
+read -p "Use sandbox MAC? (y/n): " use_sandbox_mac
 
-if [ "$epx_choice" = "1" ]; then
-    echo -e "\n${BLUE}Using EPX Sandbox Credentials (from .env.example)${NC}"
-
+if [ "$use_sandbox_mac" = "y" ]; then
     echo "2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y" | gh secret set EPX_MAC_STAGING
-    echo -e "${GREEN}✓ EPX_MAC_STAGING (sandbox)${NC}"
-
-    echo "9001" | gh secret set EPX_CUST_NBR
-    echo -e "${GREEN}✓ EPX_CUST_NBR (sandbox)${NC}"
-
-    echo "900300" | gh secret set EPX_MERCH_NBR
-    echo -e "${GREEN}✓ EPX_MERCH_NBR (sandbox)${NC}"
-
-    echo "2" | gh secret set EPX_DBA_NBR
-    echo -e "${GREEN}✓ EPX_DBA_NBR (sandbox)${NC}"
-
-    echo "77" | gh secret set EPX_TERMINAL_NBR
-    echo -e "${GREEN}✓ EPX_TERMINAL_NBR (sandbox)${NC}"
-
-    echo -e "\n${YELLOW}Note: Sandbox credentials allow testing without processing real transactions${NC}\n"
+    echo -e "${GREEN}✓ EPX_MAC_STAGING (sandbox)${NC}\n"
 else
-    echo -e "\n${BLUE}Enter Production EPX Credentials${NC}"
-    echo "Contact your EPX account representative if you don't have these"
+    read -s -p "Enter EPX_MAC_STAGING: " value
     echo ""
-
-    read -p "Enter EPX_MAC_STAGING: " value
     echo "$value" | gh secret set EPX_MAC_STAGING
-    echo -e "${GREEN}✓ EPX_MAC_STAGING${NC}"
-
-    read -p "Enter EPX_CUST_NBR: " value
-    echo "$value" | gh secret set EPX_CUST_NBR
-    echo -e "${GREEN}✓ EPX_CUST_NBR${NC}"
-
-    read -p "Enter EPX_MERCH_NBR: " value
-    echo "$value" | gh secret set EPX_MERCH_NBR
-    echo -e "${GREEN}✓ EPX_MERCH_NBR${NC}"
-
-    read -p "Enter EPX_DBA_NBR: " value
-    echo "$value" | gh secret set EPX_DBA_NBR
-    echo -e "${GREEN}✓ EPX_DBA_NBR${NC}"
-
-    read -p "Enter EPX_TERMINAL_NBR: " value
-    echo "$value" | gh secret set EPX_TERMINAL_NBR
-    echo -e "${GREEN}✓ EPX_TERMINAL_NBR${NC}\n"
+    echo -e "${GREEN}✓ EPX_MAC_STAGING${NC}\n"
 fi
+
+echo -e "${BLUE}Note:${NC} EPX merchant credentials are seeded in the database:"
+echo "  - Agent ID: test-merchant-staging"
+echo "  - CUST_NBR: 9001 (in database)"
+echo "  - MERCH_NBR: 900300 (in database)"
+echo "  - DBA_NBR: 2 (in database)"
+echo "  - TERMINAL_NBR: 77 (in database)"
+echo "  See: internal/db/seeds/staging/003_agent_credentials.sql"
+echo ""
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}✓ All secrets configured successfully!${NC}"
