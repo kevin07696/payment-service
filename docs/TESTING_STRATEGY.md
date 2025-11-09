@@ -110,17 +110,17 @@ e2e-tests/
 │ 2. Build Docker Image                                       │
 │    └─ Production-ready image                                │
 ├─────────────────────────────────────────────────────────────┤
-│ 3. Deploy to Production                                     │
-│    └─ Production environment deployment                     │
+│ 3. Cleanup Staging Infrastructure                           │
+│    └─ Tear down staging (ready for production)              │
 ├─────────────────────────────────────────────────────────────┤
-│ 4. Cleanup Staging Infrastructure                           │
-│    └─ Tear down staging (no longer needed)                  │
+│ 4. Deploy to Production                                     │
+│    └─ Production environment deployment                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 **Why this design?**
 - **develop**: Staging stays up for ongoing testing and iteration
-- **main**: Staging cleaned up after production deployment (resources freed)
+- **main**: Staging cleaned up BEFORE production (free resources, deploy to prod)
 
 ### Future Pipeline (with multiple services)
 

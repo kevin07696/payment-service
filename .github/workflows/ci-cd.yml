@@ -114,10 +114,19 @@ jobs:
           fi
   #
   # ===== PRODUCTION DEPLOYMENT (main branch) =====
-  # NOTE: Production deployment only happens if staging integration tests pass
+  cleanup-staging-before-production:
+    name: Cleanup Staging Infrastructure
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+    secrets: inherit
+    with:
+      action: destroy
+      environment: staging
+  #
   deploy-production:
     name: Deploy to Production
-    needs: test  # Production deploys after tests pass on main
+    needs: [cleanup-staging-before-production]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -126,13 +135,3 @@ jobs:
           echo "🚀 Production deployment placeholder"
           echo "TODO: Implement production deployment"
           # This will be replaced with actual production deployment workflow
-  #
-  cleanup-staging-after-production:
-    name: Cleanup Staging Infrastructure
-    needs: [deploy-production]
-    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
-    secrets: inherit
-    with:
-      action: destroy
-      environment: staging
