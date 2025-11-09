@@ -44,3 +44,4 @@ Triggering full pipeline test with database configuration fix.
 
 Testing SSH key conditional fix - commit a3f9b32
 Testing outputs fix - commit 301c0bd
+Testing with 28-char password
