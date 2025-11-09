@@ -18,6 +18,12 @@
 - Always Free tier has fixed 20GB storage
 - deployment-workflows@main updated: commit 7470db7
 
+✅ **OCIR Variables Added**
+- Added ocir_region and ocir_namespace variables
+- Pass OCIR secrets to cloud-init template
+- Added missing ORACLE_DB_ADMIN_PASSWORD secret
+- deployment-workflows@main updated: commit a642be5
+
 ✅ **Centralized Terraform Infrastructure**
 - Terraform code in deployment-workflows repo
 - Workflow checks out deployment-workflows for infrastructure
