@@ -2708,3 +2708,133 @@ Environment: Sandbox
 - EPX Transaction Specs - BRIC Storage
 - EPX Data Dictionary
 
+
+### Added - Integration Testing Infrastructure (2025-11-09)
+
+**Amazon-style deployment gate pattern with post-deployment integration tests**
+
+- **Test Location**: `tests/integration/` (in payment-service repo)
+  - Integration tests live with service code (industry best practice)
+  - Tests run against DEPLOYED service (not localhost)
+  - Acts as deployment gate before production
+
+- **Test Structure**:
+  ```
+  tests/integration/
+  ├── merchant/              # Merchant API tests
+  │   └── merchant_test.go
+  ├── payment/               # Payment processing tests
+  ├── epx/                  # EPX adapter tests
+  └── testutil/             # Test utilities
+      ├── config.go         # Test configuration
+      ├── client.go         # HTTP client
+      └── setup.go          # Test setup helpers
+  ```
+
+- **CI/CD Pipeline** (Amazon-style deployment gates):
+  ```
+  Unit Tests → Build → Deploy Staging → Integration Tests → Deploy Production
+                                              ↑
+                                      POST-DEPLOYMENT GATE
+                                      Blocks bad deployments
+  ```
+
+- **Integration Tests Workflow**:
+  1. Service deployed to staging
+  2. Health check waits for service readiness
+  3. Integration tests run against deployed service URL
+  4. Tests validate EPX integration, API endpoints, database operations
+  5. Production deployment ONLY proceeds if tests pass
+
+- **Test Configuration**: Environment variables
+  - `SERVICE_URL` - Deployed service endpoint
+  - `EPX_MAC_STAGING` - EPX sandbox MAC secret
+  - `EPX_CUST_NBR`, `EPX_MERCH_NBR`, `EPX_DBA_NBR`, `EPX_TERMINAL_NBR` - Test credentials
+
+- **Test Data**: Uses seed data from `internal/db/seeds/staging/003_agent_credentials.sql`
+  - Test merchant: `test-merchant-staging`
+  - EPX sandbox credentials (public test credentials)
+  - Seeded automatically during deployment
+
+**Benefits:**
+- ✅ Amazon-style quality gate (blocks bad deployments)
+- ✅ Standard structure (tests with code, not separate repo)
+- ✅ Atomic commits (update code + tests together)
+- ✅ Tests against real deployed environment
+- ✅ Simple local development (one repo)
+
+**Why this approach:**
+Industry standard practice is to keep integration tests with service code. Separate test
+repositories are only used for E2E tests spanning multiple services (future).
+
+### Changed - CI/CD Pipeline with Deployment Gates (2025-11-09)
+
+**Added Amazon-style deployment gate using integration tests**
+
+- **Pipeline Flow**:
+  ```yaml
+  test (unit) → build → deploy-staging → integration-tests → deploy-production
+                                              ↑
+                                          DEPLOYMENT GATE
+  ```
+
+- **Integration Tests Job** (`.github/workflows/ci-cd.yml`):
+  - Runs after staging deployment completes
+  - Waits for service health check
+  - Executes integration tests against deployed service
+  - Blocks production deployment if tests fail
+  - Timeout: 15 minutes
+
+- **Production Deployment**:
+  - `needs: integration-tests` - Requires integration tests to pass
+  - Only runs if all tests succeed
+  - Amazon-style quality gate ensures production safety
+
+**Deployment Gate Benefits:**
+- ✅ Catches integration issues before production
+- ✅ Validates real environment behavior
+- ✅ Prevents bad deployments automatically
+- ✅ Confidence in production releases
+
+### Added - GitHub Secrets for Integration Tests (2025-11-09)
+
+**EPX sandbox test credentials for integration tests**
+
+- **New Secrets** (payment-service repository):
+  - `EPX_MAC_STAGING` - EPX sandbox MAC secret
+  - `EPX_CUST_NBR` - EPX Customer Number (9001)
+  - `EPX_MERCH_NBR` - EPX Merchant Number (900300)
+  - `EPX_DBA_NBR` - EPX DBA Number (2)
+  - `EPX_TERMINAL_NBR` - EPX Terminal Number (77)
+
+**Note**: These are EPX sandbox test credentials (public, safe to use). The same
+credentials are also seeded in staging database via `003_agent_credentials.sql`.
+
+**Total Secrets**: 13 (6 OCI + 3 OCIR + 2 DB + 5 EPX + 1 CRON + 1 SSH)
+
+### Documentation
+
+- **Added**: `docs/TESTING_STRATEGY.md`
+  - Complete testing architecture documentation
+  - Unit tests vs Integration tests vs E2E tests
+  - Amazon-style deployment gate pattern
+  - Test data strategy per environment
+  - Running tests locally and in CI/CD
+
+- **Added**: `docs/FUTURE_E2E_TESTING.md`
+  - Future architecture for multi-service E2E testing
+  - When to create separate e2e-tests repository
+  - E2E test structure and examples
+  - Difference between integration and E2E tests
+
+- **Added**: `tests/integration/README.md`
+  - Integration test guide
+  - How to run tests locally and in CI
+  - Writing new tests
+  - Troubleshooting
+
+- **Updated**: `docs/GITHUB_SECRETS_SETUP.md`
+  - Added 5 EPX test credential secrets
+  - Updated total secret count to 13
+  - Documented integration test credential usage
+

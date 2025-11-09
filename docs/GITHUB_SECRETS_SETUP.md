@@ -46,13 +46,17 @@ Configure these in: **GitHub Repository → Settings → Secrets and variables �
 | `OCIR_USERNAME` | OCIR username | `<tenancy>/<username>` |
 | `OCIR_AUTH_TOKEN` | Auth token for OCIR | Generated in Oracle Cloud Console |
 
-### Payment Processor (EPX)
+### Payment Processor (EPX) - Integration Tests
 
 | Secret Name | Description | Example Value |
 |------------|-------------|---------------|
 | `EPX_MAC_STAGING` | EPX MAC key for test merchant | `2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y` (sandbox) |
+| `EPX_CUST_NBR` | EPX Customer Number (test) | `9001` |
+| `EPX_MERCH_NBR` | EPX Merchant Number (test) | `900300` |
+| `EPX_DBA_NBR` | EPX DBA Number (test) | `2` |
+| `EPX_TERMINAL_NBR` | EPX Terminal Number (test) | `77` |
 
-**Note**: EPX merchant credentials (CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR) are stored per-agent in the database following multi-tenant architecture. See `internal/db/seeds/staging/003_agent_credentials.sql`
+**Note**: These are EPX sandbox test credentials used by integration tests in `tests/integration/`. The test merchant is also seeded in the database via `internal/db/seeds/staging/003_agent_credentials.sql`.
 
 ### Application Secrets
 
@@ -77,14 +81,14 @@ Configure these in: **GitHub Repository → Settings → Secrets and variables �
 
 ## Summary of Required Secrets
 
-**Total: 9 secrets** (down from 20+ by using Terraform outputs + DB seed data!)
+**Total: 13 secrets** (for full staging deployment + integration tests)
 
 ### Must Configure
 
 - 6 Oracle Cloud secrets (OCI_*, SSH_PUBLIC_KEY)
 - 3 OCIR secrets
 - 2 Database passwords
-- 1 EPX MAC secret
+- 5 EPX test credentials (for integration tests)
 - 1 Application secret (CRON_SECRET_STAGING)
 - 1 SSH private key (ORACLE_CLOUD_SSH_KEY)
 - (Optional) 3 GCP secrets for production
