@@ -40,78 +40,80 @@ jobs:
   # 3. CI/CD will automatically deploy to staging on 'develop' pushes
   #
   # ===== STAGING DEPLOYMENT (develop branch) =====
-  ensure-staging-infrastructure:
-    name: Ensure Staging Infrastructure
-    needs: build
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
-    secrets: inherit
-    with:
-      action: create
-      environment: staging
-  #
-  deploy-staging:
-    name: Deploy to Oracle Cloud Staging
-    needs: ensure-staging-infrastructure
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@main
-    secrets: inherit
-    with:
-      service-name: payment-service
-      oracle-cloud-host: ${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}
-      db-connection-string: ${{ needs.ensure-staging-infrastructure.outputs.db_connection_string }}
-      db-user: ${{ needs.ensure-staging-infrastructure.outputs.db_user }}
-  #
-  integration-tests:
-    name: Integration Tests (Post-Deployment Gate)
-    needs: deploy-staging
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-  #
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-  #
-      - name: Wait for service to be ready
-        run: |
-          echo "⏳ Waiting for service to be ready..."
-          for i in {1..30}; do
-            if curl -f -s "http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}/health" > /dev/null 2>&1; then
-              echo "✅ Service is ready!"
-              exit 0
-            fi
-            echo "Attempt $i/30 failed, retrying in 10s..."
-            sleep 10
-          done
-          echo "❌ Service did not become ready in time"
-          exit 1
-  #
-      - name: Run integration tests
-        env:
-          SERVICE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}
-          EPX_MAC_STAGING: ${{ secrets.EPX_MAC_STAGING }}
-          EPX_CUST_NBR: ${{ secrets.EPX_CUST_NBR }}
-          EPX_MERCH_NBR: ${{ secrets.EPX_MERCH_NBR }}
-          EPX_DBA_NBR: ${{ secrets.EPX_DBA_NBR }}
-          EPX_TERMINAL_NBR: ${{ secrets.EPX_TERMINAL_NBR }}
-        run: |
-          echo "🧪 Running integration tests against deployed service..."
-          go test ./tests/integration/... -v -tags=integration -timeout=15m
-  #
-      - name: Integration test results
-        if: always()
-        run: |
-          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ job.status }}" == "success" ]; then
-            echo "✅ **All integration tests passed!**" >> $GITHUB_STEP_SUMMARY
-            echo "🚀 **Staging environment kept running for continued testing**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Integration tests failed - production deployment blocked**" >> $GITHUB_STEP_SUMMARY
-          fi
+  # NOTE: Commented out until terraform infrastructure is created
+  # TODO: Create terraform/oracle-staging/ with infrastructure code
+  # ensure-staging-infrastructure:
+  #   name: Ensure Staging Infrastructure
+  #   needs: build
+  #   if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+  #   uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+  #   secrets: inherit
+  #   with:
+  #     action: create
+  #     environment: staging
+  # #
+  # deploy-staging:
+  #   name: Deploy to Oracle Cloud Staging
+  #   needs: ensure-staging-infrastructure
+  #   if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+  #   uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@main
+  #   secrets: inherit
+  #   with:
+  #     service-name: payment-service
+  #     oracle-cloud-host: ${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}
+  #     db-connection-string: ${{ needs.ensure-staging-infrastructure.outputs.db_connection_string }}
+  #     db-user: ${{ needs.ensure-staging-infrastructure.outputs.db_user }}
+  # #
+  # integration-tests:
+  #   name: Integration Tests (Post-Deployment Gate)
+  #   needs: deploy-staging
+  #   if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  # #
+  #     - name: Setup Go
+  #       uses: actions/setup-go@v5
+  #       with:
+  #         go-version: '1.24'
+  # #
+  #     - name: Wait for service to be ready
+  #       run: |
+  #         echo "⏳ Waiting for service to be ready..."
+  #         for i in {1..30}; do
+  #           if curl -f -s "http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}/health" > /dev/null 2>&1; then
+  #             echo "✅ Service is ready!"
+  #             exit 0
+  #           fi
+  #           echo "Attempt $i/30 failed, retrying in 10s..."
+  #           sleep 10
+  #         done
+  #         echo "❌ Service did not become ready in time"
+  #         exit 1
+  # #
+  #     - name: Run integration tests
+  #       env:
+  #         SERVICE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}
+  #         EPX_MAC_STAGING: ${{ secrets.EPX_MAC_STAGING }}
+  #         EPX_CUST_NBR: ${{ secrets.EPX_CUST_NBR }}
+  #         EPX_MERCH_NBR: ${{ secrets.EPX_MERCH_NBR }}
+  #         EPX_DBA_NBR: ${{ secrets.EPX_DBA_NBR }}
+  #         EPX_TERMINAL_NBR: ${{ secrets.EPX_TERMINAL_NBR }}
+  #       run: |
+  #         echo "🧪 Running integration tests against deployed service..."
+  #         go test ./tests/integration/... -v -tags=integration -timeout=15m
+  # #
+  #     - name: Integration test results
+  #       if: always()
+  #       run: |
+  #         echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+  #         if [ "${{ job.status }}" == "success" ]; then
+  #           echo "✅ **All integration tests passed!**" >> $GITHUB_STEP_SUMMARY
+  #           echo "🚀 **Staging environment kept running for continued testing**" >> $GITHUB_STEP_SUMMARY
+  #         else
+  #           echo "❌ **Integration tests failed - production deployment blocked**" >> $GITHUB_STEP_SUMMARY
+  #         fi
   #
   # ===== PRODUCTION DEPLOYMENT (main branch) =====
   deploy-production:
@@ -164,12 +166,12 @@ jobs:
             echo "❌ **Production smoke tests failed - immediate rollback required!**" >> $GITHUB_STEP_SUMMARY
           fi
   #
-  cleanup-staging-after-production:
-    name: Cleanup Staging Infrastructure
-    needs: [production-smoke-tests]
-    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
-    secrets: inherit
-    with:
-      action: destroy
-      environment: staging
+  # cleanup-staging-after-production:
+  #   name: Cleanup Staging Infrastructure
+  #   needs: [production-smoke-tests]
+  #   if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+  #   uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+  #   secrets: inherit
+  #   with:
+  #     action: destroy
+  #     environment: staging
