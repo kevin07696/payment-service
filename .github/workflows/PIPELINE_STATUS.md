@@ -46,3 +46,4 @@ Testing SSH key conditional fix - commit a3f9b32
 Testing outputs fix - commit 301c0bd
 Testing with 28-char password
 Testing with 20-char simple password
+Testing separated heredocs - commit d233d42
