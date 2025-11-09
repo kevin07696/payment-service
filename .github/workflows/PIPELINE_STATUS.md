@@ -9,6 +9,15 @@
 - Using local backend with GitHub Actions cache
 - deployment-workflows@main updated: commit 0b8a14c
 
+✅ **SSH Public Key Heredoc Syntax Fixed**
+- Changed from double quotes to heredoc (<<-EOT)
+- Fixed multi-line string validation error
+
+✅ **Database Storage Configuration Fixed**
+- Removed data_storage_size_in_tbs attribute
+- Always Free tier has fixed 20GB storage
+- deployment-workflows@main updated: commit 7470db7
+
 ✅ **Centralized Terraform Infrastructure**
 - Terraform code in deployment-workflows repo
 - Workflow checks out deployment-workflows for infrastructure
@@ -19,5 +28,5 @@
 - Production deployment configured for main branch
 
 ### Next Test
-Triggering full pipeline test with all fixes in place.
+Triggering full pipeline test with database configuration fix.
 
