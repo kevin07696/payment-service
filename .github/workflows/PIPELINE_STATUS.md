@@ -24,6 +24,12 @@
 - Added missing ORACLE_DB_ADMIN_PASSWORD secret
 - deployment-workflows@main updated: commit a642be5
 
+✅ **VNIC Query Fixed**
+- Fixed "Unsupported attribute vnic_id" error
+- Added oci_core_vnic_attachments data source
+- Properly query VNIC to get public IP
+- deployment-workflows@main updated: commit b756d34
+
 ✅ **Centralized Terraform Infrastructure**
 - Terraform code in deployment-workflows repo
 - Workflow checks out deployment-workflows for infrastructure
