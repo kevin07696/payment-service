@@ -46,8 +46,6 @@ func NewCallbackHandler(
 // HandleCallback processes EPX redirect after payment
 // GET /api/v1/payments/callback?auth_guid=...&auth_resp=...&tran_nbr=...
 func (h *CallbackHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
 	// Parse query parameters
 	queryParams := r.URL.Query()
 	h.logger.Info("received EPX callback",
