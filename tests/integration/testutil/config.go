@@ -10,10 +10,10 @@ type Config struct {
 	ServiceURL string
 
 	// EPX test merchant credentials
-	EPXMac        string
-	EPXCustNbr    string
-	EPXMerchNbr   string
-	EPXDBANbr     string
+	EPXMac         string
+	EPXCustNbr     string
+	EPXMerchNbr    string
+	EPXDBANbr      string
 	EPXTerminalNbr string
 }
 
