@@ -73,6 +73,7 @@ e2e-tests/
 
 ### Current Pipeline
 
+#### develop Branch Flow
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. Unit Tests (pre-build)                                   │
@@ -95,10 +96,31 @@ e2e-tests/
 │    ├─ Verify API endpoints                                  │
 │    └─ BLOCKS production if tests fail                       │
 ├─────────────────────────────────────────────────────────────┤
-│ 5. Deploy to Production                                     │
-│    └─ ONLY if integration tests pass                        │
+│ 5. Keep Staging Running ✅                                  │
+│    └─ Staging persists for continued development testing    │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+#### main Branch Flow
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Unit Tests (pre-build)                                   │
+│    └─ Fast validation before production deployment          │
+├─────────────────────────────────────────────────────────────┤
+│ 2. Build Docker Image                                       │
+│    └─ Production-ready image                                │
+├─────────────────────────────────────────────────────────────┤
+│ 3. Deploy to Production                                     │
+│    └─ Production environment deployment                     │
+├─────────────────────────────────────────────────────────────┤
+│ 4. Cleanup Staging Infrastructure                           │
+│    └─ Tear down staging (no longer needed)                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Why this design?**
+- **develop**: Staging stays up for ongoing testing and iteration
+- **main**: Staging cleaned up after production deployment (resources freed)
 
 ### Future Pipeline (with multiple services)
 
