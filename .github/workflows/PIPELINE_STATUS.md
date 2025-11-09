@@ -42,3 +42,4 @@
 ### Next Test
 Triggering full pipeline test with database configuration fix.
 
+Testing SSH key conditional fix - commit a3f9b32
