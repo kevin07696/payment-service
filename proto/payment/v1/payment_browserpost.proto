@@ -1,0 +1,149 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option go_package = "github.com/kevin07696/payment-service/proto/payment/v1;paymentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================
+// BROWSER POST FLOW (POS Option 2)
+// ============================================
+
+// BrowserPostService handles browser-based payment flow for POS
+// Payment Service = Gateway Integration ONLY
+service BrowserPostService {
+  // CreateBrowserPostForm generates EPX form data for browser redirect
+  rpc CreateBrowserPostForm(CreateBrowserPostFormRequest)
+    returns (BrowserPostFormData);
+
+  // Refund a completed transaction
+  rpc Refund(RefundRequest)
+    returns (RefundResponse);
+
+  // Void a transaction
+  rpc Void(VoidRequest)
+    returns (VoidResponse);
+
+  // Get transaction details
+  rpc GetTransaction(GetTransactionRequest)
+    returns (Transaction);
+
+  // List transactions (query by external reference)
+  rpc ListTransactions(ListTransactionsRequest)
+    returns (ListTransactionsResponse);
+}
+
+// CreateBrowserPostFormRequest initiates browser post payment flow
+message CreateBrowserPostFormRequest {
+  string agent_id = 1; // Multi-tenant: which merchant
+  string amount = 2; // Decimal as string (e.g., "29.99")
+  string currency = 3; // ISO 4217 code (e.g., "USD")
+  string return_url = 4; // POS callback URL (receives receipt JWT)
+  string external_reference_id = 5; // Opaque POS reference (e.g., "order-123")
+  string idempotency_key = 6;
+}
+
+// BrowserPostFormData contains form fields for EPX redirect
+message BrowserPostFormData {
+  string epx_endpoint = 1; // EPX server POST URL
+  string tac_token = 2; // Transaction authorization code
+  map<string, string> hidden_fields = 3; // Additional form fields (amount, etc.)
+}
+
+// RefundRequest refunds a completed transaction
+message RefundRequest {
+  string transaction_id = 1;
+  string amount = 2; // Optional: partial refund amount
+  string reason = 3;
+  string idempotency_key = 4;
+}
+
+// RefundResponse contains refund transaction details
+message RefundResponse {
+  Transaction refund_transaction = 1;
+}
+
+// VoidRequest voids a transaction
+message VoidRequest {
+  string transaction_id = 1;
+  string idempotency_key = 2;
+}
+
+// VoidResponse contains void transaction details
+message VoidResponse {
+  Transaction void_transaction = 1;
+}
+
+// GetTransactionRequest retrieves a transaction
+message GetTransactionRequest {
+  string transaction_id = 1;
+}
+
+// ListTransactionsRequest lists transactions
+message ListTransactionsRequest {
+  string agent_id = 1; // Filter by merchant
+  google.protobuf.Timestamp start_date = 2; // Optional: date range filter
+  google.protobuf.Timestamp end_date = 3;
+  string external_reference_id = 4; // Optional: filter by POS reference
+  int32 page_size = 5; // Default: 100
+  string page_token = 6; // Pagination token
+}
+
+// ListTransactionsResponse contains transaction list
+message ListTransactionsResponse {
+  repeated Transaction transactions = 1;
+  string next_page_token = 2; // For pagination
+}
+
+// Transaction represents a complete transaction record
+message Transaction {
+  string id = 1;
+  string agent_id = 2;
+  string transaction_number = 3; // EPX transaction number
+
+  // Financial data
+  string amount = 4;
+  string currency = 5;
+  TransactionStatus status = 6;
+  TransactionType type = 7;
+
+  // EPX gateway data
+  string financial_bric = 8; // EPX financial BRIC
+  string storage_bric = 9; // EPX storage BRIC (for saved cards)
+
+  // Card details (masked/safe for display)
+  string card_type = 10; // V/M/A/D
+  string last_four = 11; // Last 4 digits
+  string auth_code = 12; // Bank authorization code
+  string approval_status = 13; // EPX approval code (00 = approved)
+  string avs_result = 14; // Address verification
+  string cvv_result = 15; // CVV verification
+
+  // Linkage to POS (opaque reference)
+  string external_reference_id = 16; // POS order/transaction reference
+
+  // Timestamps
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp updated_at = 18;
+}
+
+// TransactionStatus represents the current state of a transaction
+enum TransactionStatus {
+  TRANSACTION_STATUS_UNSPECIFIED = 0;
+  TRANSACTION_STATUS_PENDING = 1; // Awaiting callback
+  TRANSACTION_STATUS_COMPLETED = 2; // Successfully processed
+  TRANSACTION_STATUS_FAILED = 3; // Payment failed
+  TRANSACTION_STATUS_REFUNDED = 4; // Fully refunded
+  TRANSACTION_STATUS_VOIDED = 5; // Voided
+}
+
+// TransactionType represents the type of transaction (gateway operations only)
+enum TransactionType {
+  TRANSACTION_TYPE_UNSPECIFIED = 0;
+  TRANSACTION_TYPE_AUTH = 1; // EPX authorization
+  TRANSACTION_TYPE_CAPTURE = 2; // EPX capture
+  TRANSACTION_TYPE_SALE = 3; // EPX sale (auth + capture)
+  TRANSACTION_TYPE_REFUND = 4; // EPX refund
+  TRANSACTION_TYPE_VOID = 5; // EPX void
+}

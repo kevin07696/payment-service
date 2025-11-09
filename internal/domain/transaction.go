@@ -67,7 +67,11 @@ type Transaction struct {
 
 	// Idempotency and metadata
 	IdempotencyKey *string                `json:"idempotency_key"`
-	Metadata       map[string]interface{} `json:"metadata"`
+	Metadata       map[string]interface{} `json:"metadata"` // Deprecated: Use ExternalReferenceID instead
+
+	// POS Integration (Option 2 architecture)
+	ExternalReferenceID *string `json:"external_reference_id"` // Opaque POS reference (e.g., "order-123")
+	ReturnURL           *string `json:"return_url"`            // POS callback URL for browser redirect
 
 	// Timestamps
 	CreatedAt time.Time `json:"created_at"`

@@ -72,3 +72,4 @@ tmp-secrets/
 # Auth tokens
 *token*.txt
 *auth*.txt
+keys/
