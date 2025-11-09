@@ -1,0 +1,37 @@
+name: Repository Setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      configure-branch-protection:
+        description: 'Configure branch protection rules for main branch'
+        required: false
+        type: boolean
+        default: true
+      required-reviewers:
+        description: 'Number of required code reviewers'
+        required: false
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+        default: '1'
+      enforce-admins:
+        description: 'Enforce protection rules for admins (use false for emergencies)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  setup-branch-protection:
+    name: Setup Branch Protection
+    if: ${{ inputs.configure-branch-protection }}
+    uses: kevin07696/deployment-workflows/.github/workflows/setup-branch-protection.yml@main
+    secrets: inherit
+    with:
+      repository: ${{ github.repository }}
+      main-branch: main
+      develop-branch: develop
+      required-reviewers: ${{ fromJSON(inputs.required-reviewers) }}
+      enforce-admins: ${{ inputs.enforce-admins }}

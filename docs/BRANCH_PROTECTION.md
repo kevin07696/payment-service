@@ -97,6 +97,57 @@ develop → staging deployment → integration tests fail
 
 ---
 
+## Automated Setup via Reusable Workflow
+
+### Running the Setup Workflow
+
+**Easiest method - GitHub UI:**
+```
+Actions → Repository Setup → Run workflow
+  ☑ Configure branch protection rules
+  Required reviewers: 1
+  Enforce for admins: false
+→ Run workflow
+```
+
+**Alternative - GitHub CLI:**
+```bash
+gh workflow run setup.yml \
+  --field configure-branch-protection=true \
+  --field required-reviewers=1 \
+  --field enforce-admins=false
+```
+
+**What it does:**
+- ✅ Configures main branch protection automatically
+- ✅ Uses centralized settings from deployment-workflows repo
+- ✅ Creates consistent protection across all services
+- ✅ One-time manual trigger (not automatic on every push)
+
+### For New Services
+
+To add branch protection to a new service:
+
+1. **Copy the setup workflow:**
+```bash
+# In your new service repo
+cp .github/workflows/setup.yml .github/workflows/setup.yml
+```
+
+2. **Run the workflow:**
+```
+GitHub UI → Actions → Repository Setup → Run workflow
+```
+
+3. **Verify protection:**
+```bash
+gh api repos/OWNER/REPO/branches/main/protection --jq '.required_status_checks.contexts'
+```
+
+That's it! The reusable workflow in `deployment-workflows` handles the rest.
+
+---
+
 ## Viewing Current Protection
 
 ### GitHub UI
@@ -119,6 +170,34 @@ gh api repos/kevin07696/payment-service/branches/main/protection/required_status
 ---
 
 ## Modifying Protection Rules
+
+### Centralized Updates (Recommended)
+
+**To update protection for ALL services:**
+
+1. **Edit the reusable workflow:**
+```bash
+# In deployment-workflows repo
+vim .github/workflows/setup-branch-protection.yml
+
+# Modify the required_status_checks.contexts array
+# Commit and push to main
+```
+
+2. **Re-run setup in each service:**
+```bash
+# Each service re-runs their setup workflow
+gh workflow run setup.yml -R kevin07696/payment-service
+gh workflow run setup.yml -R kevin07696/subscription-service
+# etc.
+```
+
+**Benefits:**
+- ✅ One source of truth for all protection rules
+- ✅ Consistent across all microservices
+- ✅ Easy to roll out new requirements
+
+### Manual Updates (Per-Repository)
 
 ### Prerequisites
 - Repository admin access
