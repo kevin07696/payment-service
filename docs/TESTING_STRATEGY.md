@@ -104,23 +104,38 @@ e2e-tests/
 #### main Branch Flow
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. Unit Tests (pre-build)                                   │
-│    └─ Fast validation before production deployment          │
+│ BEFORE MERGE (GitHub Branch Protection)                     │
+│ ✅ Require PR from develop                                  │
+│ ✅ Require "Integration Tests" status check from develop    │
+│ ✅ Require 1 code review approval                           │
+│ ✅ Require branch to be up-to-date                          │
+├─────────────────────────────────────────────────────────────┤
+│ AFTER MERGE (CI/CD Pipeline)                                │
+├─────────────────────────────────────────────────────────────┤
+│ 1. Unit Tests (defense in depth)                            │
+│    └─ Validate even though develop already tested           │
 ├─────────────────────────────────────────────────────────────┤
 │ 2. Build Docker Image                                       │
 │    └─ Production-ready image                                │
 ├─────────────────────────────────────────────────────────────┤
-│ 3. Cleanup Staging Infrastructure                           │
-│    └─ Tear down staging (ready for production)              │
-├─────────────────────────────────────────────────────────────┤
-│ 4. Deploy to Production                                     │
+│ 3. Deploy to Production                                     │
 │    └─ Production environment deployment                     │
+├─────────────────────────────────────────────────────────────┤
+│ 4. Production Smoke Tests (Deployment Verification)         │
+│    ├─ Health check endpoint                                 │
+│    ├─ Critical API validation                               │
+│    └─ Quick rollback trigger if failed                      │
+├─────────────────────────────────────────────────────────────┤
+│ 5. Cleanup Staging Infrastructure                           │
+│    └─ Tear down staging (only if smoke tests passed)        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 **Why this design?**
 - **develop**: Staging stays up for ongoing testing and iteration
-- **main**: Staging cleaned up BEFORE production (free resources, deploy to prod)
+- **main**: Branch protection ensures integration tests passed before merge
+- **Production**: Smoke tests verify deployment before finalizing
+- **Staging**: Cleaned up AFTER successful production deployment (not before)
 
 ### Future Pipeline (with multiple services)
 

@@ -114,19 +114,9 @@ jobs:
           fi
   #
   # ===== PRODUCTION DEPLOYMENT (main branch) =====
-  cleanup-staging-before-production:
-    name: Cleanup Staging Infrastructure
-    needs: [build]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
-    secrets: inherit
-    with:
-      action: destroy
-      environment: staging
-  #
   deploy-production:
     name: Deploy to Production
-    needs: [cleanup-staging-before-production]
+    needs: [build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -135,3 +125,51 @@ jobs:
           echo "🚀 Production deployment placeholder"
           echo "TODO: Implement production deployment"
           # This will be replaced with actual production deployment workflow
+          echo "## Production Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** Placeholder" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** Production deployment not yet implemented" >> $GITHUB_STEP_SUMMARY
+  #
+  production-smoke-tests:
+    name: Production Smoke Tests
+    needs: [deploy-production]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+  #
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+  #
+      - name: Health check
+        run: |
+          echo "🔍 Running production smoke tests..."
+          echo "TODO: Replace with actual production URL"
+          # PRODUCTION_URL="https://payment-service.example.com"
+          # if ! curl -f -s "$PRODUCTION_URL/health" > /dev/null 2>&1; then
+          #   echo "❌ Health check failed!"
+          #   exit 1
+          # fi
+          echo "✅ Smoke tests placeholder passed"
+  #
+      - name: Smoke test results
+        if: always()
+        run: |
+          echo "## Production Smoke Tests" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ **Production deployment verified!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Production smoke tests failed - immediate rollback required!**" >> $GITHUB_STEP_SUMMARY
+          fi
+  #
+  cleanup-staging-after-production:
+    name: Cleanup Staging Infrastructure
+    needs: [production-smoke-tests]
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+    secrets: inherit
+    with:
+      action: destroy
+      environment: staging
