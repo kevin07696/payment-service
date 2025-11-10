@@ -52,3 +52,4 @@ Final test - unquoted heredoc - commit f57ad1b
 Test without Admin in password
 Testing password whitespace fix - commit 141723e
 Debug password length - commit c7c80dd
+Final test with corrected 11-char password
