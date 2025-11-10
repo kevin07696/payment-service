@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - SSH Connection Timing Issue (2025-11-10)
+
+**Resolved premature SSH connection attempts during deployment**
+
+#### Root Cause
+After Terraform creates the compute instance, the deployment workflow immediately attempts SSH connection. However, the instance needs 1-2 minutes to boot and start the SSH service, causing `connection refused` errors.
+
+#### Solution
+Added SSH readiness check in `deployment-workflows/.github/workflows/deploy-oracle-staging.yml`:
+- Polls SSH port (22) with timeout
+- Max 30 attempts (5 minutes)
+- 10-second grace period after port opens
+- Clear logging for debugging
+
+**Deployment:** deployment-workflows@4379f34
+
+### Fixed - GitHub Actions Masking Database Connection String (2025-11-10)
+
+**Resolved empty DATABASE_URL in migrations**
+
+#### Root Cause
+GitHub Actions automatically masks workflow outputs matching sensitive patterns. Even when passing database connection string as workflow input (not secret), it was detected as sensitive and masked, resulting in empty values in deployment jobs.
+
+#### Solution - Best Practice Implementation
+Pass connection string **components** separately instead of complete string:
+
+**deployment-workflows changes:**
+1. `terraform/oracle-staging/outputs.tf`: Export individual components (host, port, service_name, db_name)
+2. `infrastructure-lifecycle.yml`: Pass components as separate workflow outputs
+3. `deploy-oracle-staging.yml`: Accept components as inputs, build DATABASE_URL at point of use
+
+**payment-service changes:**
+- `.github/workflows/ci-cd.yml`: Pass db-host, db-port, db-service-name instead of db-connection-string
+
+#### Benefits
+- ✅ Components don't trigger GitHub's sensitive data detection
+- ✅ Industry best practice for passing credentials
+- ✅ More flexible - components can be used independently
+- ✅ Better debugging - each component visible in logs
+
+**Deployment:**
+- deployment-workflows@cdbea5f
+- payment-service@9fb1e11
+
 ### Fixed - Database Name Collision on Rapid Redeployments (2025-11-10)
 
 **Resolved database name collisions when redeploying staging infrastructure**
