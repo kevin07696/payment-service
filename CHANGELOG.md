@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - CI/CD Infrastructure Lifecycle Improvements (2025-11-10)
+
+**Automatic cleanup of failed deployments to prevent dangling resources**
+
+#### Problem Solved
+- **Database name collisions**: Previous failed deployments left partial infrastructure (e.g., "paymentsvc" database)
+- **State conflicts**: Terraform couldn't create resources that already existed from failed runs
+- **Manual intervention**: Required manual cleanup via workflow_dispatch
+
+#### Solution: Automatic Cleanup on Failure
+Added `cleanup-staging-on-failure` job that automatically destroys staging infrastructure when:
+- Infrastructure provisioning fails
+- Deployment to staging fails
+- Integration tests fail
+
+**Workflow Changes:**
+```yaml
+# .github/workflows/ci-cd.yml
+cleanup-staging-on-failure:
+  needs: [ensure-staging-infrastructure, deploy-staging, integration-tests]
+  if: any job fails
+  action: terraform destroy
+```
+
+**Staging Lifecycle:**
+- ✅ **Success path**: Staging stays running for debugging until production deploys
+- ✅ **Failure path**: Staging auto-cleaned immediately to prevent state conflicts
+- ✅ **Manual option**: `manual-infrastructure.yml` still available for manual cleanup
+
+**Benefits:**
+- 🔧 **Self-healing**: Next deployment starts with clean slate after failures
+- 💰 **Cost efficient**: No orphaned resources running unnecessarily
+- ⚡ **Faster iteration**: No manual cleanup needed between failed deployment attempts
+- 🛡️ **Prevents collisions**: Database/resource name conflicts eliminated
+
+**Immediate Action Taken:**
+- Manually destroyed dangling staging resources from previous failed runs
+- Verified infrastructure cleanup workflow (run #19231225150)
+
+#### Architecture Clarification
+**Staging persistence strategy:**
+- Staging infrastructure persists across multiple develop pushes when successful
+- Allows debugging and testing on live staging environment
+- Only destroyed when:
+  1. Any staging job fails (auto-cleanup)
+  2. Production deployment succeeds (cleanup-staging-after-production)
+  3. Manual trigger via workflow_dispatch
+
+**Resource efficiency:**
+- Failed deployments: Cleaned immediately (~5 minutes)
+- Successful deployments: Kept running until production deploy
+- Average staging lifetime: 1-3 days between develop → main cycles
+- Cost: ~$6-18 per deployment cycle (vs. $0.15 if ephemeral)
+
 ### Added - Automatic Database Migrations via CI/CD (2025-11-07)
 
 **Migrations run automatically as a separate CI/CD job before deployment**
