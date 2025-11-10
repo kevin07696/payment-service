@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Database Name Collision on Rapid Redeployments (2025-11-10)
+
+**Resolved database name collisions when redeploying staging infrastructure**
+
+#### Root Cause
+Oracle Autonomous Databases don't delete instantly - they enter a "TERMINATING" state for several minutes. During this time, the database name remains reserved in the tenancy/region. The hardcoded `db_name = "paymentsvc"` in Terraform caused collisions when:
+1. A deployment failed and triggered automatic cleanup
+2. Cleanup initiated database deletion (enters TERMINATING state)
+3. A new deployment immediately tried to create a database with the same name
+4. Oracle rejected it: "database named paymentsvc already exists"
+
+#### Solution
+Modified `deployment-workflows/terraform/oracle-staging/database.tf` to generate unique database names:
+- Added `random_id` resource to create a 4-character hex suffix
+- Changed db_name from `"paymentsvc"` to `"paysvc${random_id.db_suffix.hex}"`
+- Example names: `paysvc1a2b`, `paysvc3c4d`, etc.
+- Total length: 10 characters (within Oracle's 14-character limit)
+
+#### Technical Details
+**Before:**
+```hcl
+resource "oci_database_autonomous_database" "payment_db" {
+  db_name = "paymentsvc"  # ❌ Hardcoded, causes collisions
+}
+```
+
+**After:**
+```hcl
+resource "random_id" "db_suffix" {
+  byte_length = 2
+}
+
+resource "oci_database_autonomous_database" "payment_db" {
+  db_name = "paysvc${random_id.db_suffix.hex}"  # ✅ Unique per deployment
+}
+```
+
+**Benefits:**
+- ✅ Enables rapid redeployments without waiting for database deletion
+- ✅ Works seamlessly with automatic cleanup-on-failure feature
+- ✅ Each deployment gets a unique database name
+- ✅ No manual intervention required to resolve collisions
+
+**Deployment:**
+- Committed to `deployment-workflows@main` (commit: 1747dec)
+- payment-service CI/CD automatically uses updated workflows
+- No changes needed in payment-service repository
+
 ### Fixed - Database Connection String Passing in CI/CD (2025-11-10)
 
 **Resolved SSH migration failures caused by GitHub Actions masking database connection string**
