@@ -1,0 +1,29 @@
+name: Manual Infrastructure Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        required: true
+        type: choice
+        options:
+          - create
+          - destroy
+          - check
+        description: 'Action to perform'
+      environment:
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        description: 'Environment'
+
+jobs:
+  manage-infrastructure:
+    name: ${{ inputs.action }} ${{ inputs.environment }} Infrastructure
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+    secrets: inherit
+    with:
+      action: ${{ inputs.action }}
+      environment: ${{ inputs.environment }}
