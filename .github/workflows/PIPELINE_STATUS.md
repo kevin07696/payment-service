@@ -50,3 +50,4 @@ Testing separated heredocs - commit d233d42
 Testing env vars approach - commit d6b6932
 Final test - unquoted heredoc - commit f57ad1b
 Test without Admin in password
+Testing password whitespace fix - commit 141723e
