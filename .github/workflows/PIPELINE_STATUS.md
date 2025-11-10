@@ -49,3 +49,4 @@ Testing with 20-char simple password
 Testing separated heredocs - commit d233d42
 Testing env vars approach - commit d6b6932
 Final test - unquoted heredoc - commit f57ad1b
+Test without Admin in password
