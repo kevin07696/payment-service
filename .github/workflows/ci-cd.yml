@@ -43,7 +43,7 @@ jobs:
     name: Ensure Staging Infrastructure
     needs: build
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@fix/deployment-connection-string
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
     secrets: inherit
     with:
       action: create
@@ -53,7 +53,7 @@ jobs:
     name: Deploy to Oracle Cloud Staging
     needs: ensure-staging-infrastructure
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@fix/deployment-connection-string
+    uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@main
     secrets: inherit
     with:
       service-name: payment-service
@@ -123,7 +123,7 @@ jobs:
       (needs.ensure-staging-infrastructure.result == 'failure' ||
        needs.deploy-staging.result == 'failure' ||
        needs.integration-tests.result == 'failure')
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@fix/deployment-connection-string
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
     secrets: inherit
     with:
       action: destroy
