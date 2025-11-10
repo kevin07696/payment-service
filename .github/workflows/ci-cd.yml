@@ -58,7 +58,9 @@ jobs:
     with:
       service-name: payment-service
       oracle-cloud-host: ${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}
-      db-connection-string: ${{ needs.ensure-staging-infrastructure.outputs.db_connection_string }}
+      db-host: ${{ needs.ensure-staging-infrastructure.outputs.db_host }}
+      db-port: ${{ needs.ensure-staging-infrastructure.outputs.db_port }}
+      db-service-name: ${{ needs.ensure-staging-infrastructure.outputs.db_service_name }}
       db-user: ${{ needs.ensure-staging-infrastructure.outputs.db_user }}
   #
   integration-tests:
