@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Database Connection String Passing in CI/CD (2025-11-10)
+
+**Resolved SSH migration failures caused by GitHub Actions masking database connection string**
+
+#### Root Cause
+GitHub Actions was masking `db_connection_string` workflow output as sensitive data, resulting in empty connection strings being passed to deployment jobs. Migrations failed because they couldn't connect to the database.
+
+#### Solution
+Updated workflow architecture to properly pass dynamic infrastructure values:
+- **deployment-workflows** (already merged to main):
+  - `infrastructure-lifecycle.yml`: Added db_connection_string and db_user outputs
+  - `deploy-oracle-staging.yml`: Changed to accept dynamic values as inputs (not secrets)
+  - Static secrets (passwords, SSH keys, OCIR credentials) remain as secrets
+  - Dynamic values (host IP, connection string, db user) passed as workflow inputs
+
+#### Technical Details
+**Before:**
+```yaml
+# deployment-workflows expected these as secrets
+secrets:
+  ORACLE_CLOUD_HOST: ...
+  ORACLE_DB_CONNECTION_STRING: ...  # ❌ Can't pass from workflow outputs
+```
+
+**After:**
+```yaml
+# Dynamic values passed as inputs
+inputs:
+  oracle-cloud-host: ${{ needs.infrastructure.outputs.oracle_cloud_host }}
+  db-connection-string: ${{ needs.infrastructure.outputs.db_connection_string }}
+  db-user: ${{ needs.infrastructure.outputs.db_user }}
+# Static secrets stay as secrets
+secrets:
+  ORACLE_DB_PASSWORD: ...
+  ORACLE_CLOUD_SSH_KEY: ...
+```
+
+**Benefits:**
+- ✅ GitHub doesn't mask workflow inputs (only secrets)
+- ✅ Ephemeral infrastructure values flow correctly through pipeline
+- ✅ Migrations can connect to database
+- ✅ Maintains security for static sensitive values
+
 ### Changed - CI/CD Infrastructure Lifecycle Improvements (2025-11-10)
 
 **Automatic cleanup of failed deployments to prevent dangling resources**
