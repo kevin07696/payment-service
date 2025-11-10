@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - OCI Resource Quota Issues from Slow Garbage Collection (2025-11-10)
+
+**Resolved quota exceeded errors from Oracle's async resource deletion**
+
+#### Root Cause
+Oracle Cloud doesn't delete resources instantly - they remain in TERMINATING state for 5-10 minutes. During this time:
+1. Resources still count toward quota limits
+2. New deployments hit quota exceeded errors
+3. Manual cleanup was required between deployments
+
+This was particularly problematic with:
+- Automatic cleanup-on-failure (creates/deletes rapidly)
+- Multiple test deployments
+- Free tier quota limits (2 databases, 2 compute instances)
+
+#### Solution
+Added **pre-provisioning verification and cleanup** in `deployment-workflows/.github/workflows/infrastructure-lifecycle.yml`:
+
+1. **Query OCI for orphaned resources** (before Terraform runs)
+   - Databases: `AVAILABLE` state with `payment-{env}-` prefix
+   - Compute: `RUNNING` state with `payment-{env}-` prefix
+
+2. **Automatically cleanup** any orphaned resources
+   - Delete databases
+   - Terminate compute instances
+
+3. **Wait for async deletions** to complete
+   - Poll database state up to 5 minutes
+   - Ensures quota is freed before provisioning
+
+4. **Proceed with Terraform** once quota is available
+
+#### Benefits
+- ✅ No more manual resource cleanup needed
+- ✅ Self-healing: handles orphaned resources automatically
+- ✅ Rapid redeployments work reliably
+- ✅ Quota freed before provisioning starts
+- ✅ Clear logging shows what's being cleaned up
+
+**Deployment:** deployment-workflows@74866e9
+
 ### Fixed - SSH Connection Timing Issue (2025-11-10)
 
 **Resolved premature SSH connection attempts during deployment**
