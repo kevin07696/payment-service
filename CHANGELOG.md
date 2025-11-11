@@ -3900,3 +3900,9 @@ credentials are also seeded in staging database via `003_agent_credentials.sql`.
   - Updated total secret count to 13
   - Documented integration test credential usage
 
+
+**ADDITIONAL DEBUG (2025-11-11): Added OCI CLI Error Diagnostics**
+
+- Removed output redirection to show actual OCI CLI error messages
+- Added key file existence and permissions checks
+- Related: deployment-workflows@cd17110
