@@ -157,15 +157,15 @@ func (h *Handler) Sale(ctx context.Context, req *paymentv1.SaleRequest) (*paymen
 // Void cancels an authorized or captured payment
 func (h *Handler) Void(ctx context.Context, req *paymentv1.VoidRequest) (*paymentv1.PaymentResponse, error) {
 	h.logger.Info("Void request received",
-		zap.String("transaction_id", req.TransactionId),
+		zap.String("group_id", req.GroupId),
 	)
 
-	if req.TransactionId == "" {
-		return nil, status.Error(codes.InvalidArgument, "transaction_id is required")
+	if req.GroupId == "" {
+		return nil, status.Error(codes.InvalidArgument, "group_id is required")
 	}
 
 	serviceReq := &ports.VoidRequest{
-		TransactionID: req.TransactionId,
+		GroupID: req.GroupId,
 	}
 
 	if req.IdempotencyKey != "" {
@@ -183,16 +183,16 @@ func (h *Handler) Void(ctx context.Context, req *paymentv1.VoidRequest) (*paymen
 // Refund returns funds to the customer
 func (h *Handler) Refund(ctx context.Context, req *paymentv1.RefundRequest) (*paymentv1.PaymentResponse, error) {
 	h.logger.Info("Refund request received",
-		zap.String("transaction_id", req.TransactionId),
+		zap.String("group_id", req.GroupId),
 	)
 
-	if req.TransactionId == "" {
-		return nil, status.Error(codes.InvalidArgument, "transaction_id is required")
+	if req.GroupId == "" {
+		return nil, status.Error(codes.InvalidArgument, "group_id is required")
 	}
 
 	serviceReq := &ports.RefundRequest{
-		TransactionID: req.TransactionId,
-		Reason:        req.Reason,
+		GroupID: req.GroupId,
+		Reason:  req.Reason,
 	}
 
 	if req.Amount != "" {
@@ -234,37 +234,26 @@ func (h *Handler) ListTransactions(ctx context.Context, req *paymentv1.ListTrans
 		return nil, status.Error(codes.InvalidArgument, "agent_id is required")
 	}
 
-	// Handle group_id query
-	if req.GroupId != "" {
-		txs, err := h.service.GetTransactionsByGroup(ctx, req.GroupId)
-		if err != nil {
-			return nil, status.Error(codes.Internal, "failed to list transactions by group")
-		}
-
-		protoTxs := make([]*paymentv1.Transaction, len(txs))
-		for i, tx := range txs {
-			protoTxs[i] = transactionToProto(tx)
-		}
-
-		return &paymentv1.ListTransactionsResponse{
-			Transactions: protoTxs,
-			TotalCount:   int32(len(txs)),
-		}, nil
+	// Build filter parameters from request
+	filters := &ports.ListTransactionsFilters{
+		AgentID: &req.AgentId,
+		Limit:   int(req.Limit),
+		Offset:  int(req.Offset),
 	}
 
-	// Default pagination
-	limit := int(req.Limit)
-	if limit <= 0 {
-		limit = 100
-	}
-	offset := int(req.Offset)
-
-	var customerID *string
+	// Add optional filters
 	if req.CustomerId != "" {
-		customerID = &req.CustomerId
+		filters.CustomerID = &req.CustomerId
+	}
+	if req.GroupId != "" {
+		filters.GroupID = &req.GroupId
+	}
+	if req.Status != paymentv1.TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED {
+		statusStr := protoStatusToDomain(req.Status)
+		filters.Status = &statusStr
 	}
 
-	txs, totalCount, err := h.service.ListTransactions(ctx, req.AgentId, customerID, limit, offset)
+	txs, totalCount, err := h.service.ListTransactions(ctx, filters)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to list transactions")
 	}
@@ -331,24 +320,60 @@ func transactionToPaymentResponse(tx *domain.Transaction) *paymentv1.PaymentResp
 	return &paymentv1.PaymentResponse{
 		TransactionId:     tx.ID,
 		GroupId:           tx.GroupID,
-		AgentId:           tx.AgentID,
-		CustomerId:        stringPtrToString(tx.CustomerID),
 		Amount:            tx.Amount.String(),
 		Currency:          string(tx.Currency),
 		Status:            transactionStatusToProto(tx.Status),
 		Type:              transactionTypeToProto(tx.Type),
-		PaymentMethodType: paymentMethodTypeToProto(tx.PaymentMethodType),
-		AuthGuid:          stringPtrToString(tx.AuthGUID),
-		AuthResp:          stringPtrToString(tx.AuthResp),
-		AuthCode:          stringPtrToString(tx.AuthCode),
-		AuthRespText:      stringPtrToString(tx.AuthRespText),
-		AuthCardType:      stringPtrToString(tx.AuthCardType),
-		AuthAvs:           stringPtrToString(tx.AuthAVS),
-		AuthCvv2:          stringPtrToString(tx.AuthCVV2),
 		IsApproved:        tx.IsApproved(),
+		AuthorizationCode: stringPtrToString(tx.AuthCode),
+		Message:           stringPtrToString(tx.AuthRespText),
+		Card:              extractCardInfo(tx),
 		CreatedAt:         timestamppb.New(tx.CreatedAt),
-		Metadata:          convertMetadataToProto(tx.Metadata),
 	}
+}
+
+// extractCardInfo converts gateway-specific card data to clean CardInfo
+func extractCardInfo(tx *domain.Transaction) *paymentv1.CardInfo {
+	if tx.AuthCardType == nil {
+		return nil
+	}
+
+	// Convert EPX card type codes to clean brand names
+	brand := epxCardTypeToBrand(*tx.AuthCardType)
+	lastFour := extractLastFour(tx)
+
+	if brand == "" && lastFour == "" {
+		return nil
+	}
+
+	return &paymentv1.CardInfo{
+		Brand:    brand,
+		LastFour: lastFour,
+	}
+}
+
+// epxCardTypeToBrand converts EPX card type codes to clean brand names
+func epxCardTypeToBrand(epxCode string) string {
+	switch epxCode {
+	case "V":
+		return "visa"
+	case "M":
+		return "mastercard"
+	case "A":
+		return "amex"
+	case "D":
+		return "discover"
+	default:
+		return ""
+	}
+}
+
+// extractLastFour extracts last 4 digits from masked card number or returns empty
+func extractLastFour(tx *domain.Transaction) string {
+	// Gateway may provide last 4 in metadata or we might need to extract
+	// from other fields - for now return empty as this needs gateway-specific logic
+	// TODO: Extract from metadata or other gateway fields
+	return ""
 }
 
 func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
@@ -362,17 +387,12 @@ func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 		Status:            transactionStatusToProto(tx.Status),
 		Type:              transactionTypeToProto(tx.Type),
 		PaymentMethodType: paymentMethodTypeToProto(tx.PaymentMethodType),
-		AuthGuid:          stringPtrToString(tx.AuthGUID),
-		AuthResp:          stringPtrToString(tx.AuthResp),
-		AuthCode:          stringPtrToString(tx.AuthCode),
-		AuthRespText:      stringPtrToString(tx.AuthRespText),
-		AuthCardType:      stringPtrToString(tx.AuthCardType),
-		AuthAvs:           stringPtrToString(tx.AuthAVS),
-		AuthCvv2:          stringPtrToString(tx.AuthCVV2),
+		AuthorizationCode: stringPtrToString(tx.AuthCode),
+		Message:           stringPtrToString(tx.AuthRespText),
+		Card:              extractCardInfo(tx),
 		IdempotencyKey:    stringPtrToString(tx.IdempotencyKey),
 		CreatedAt:         timestamppb.New(tx.CreatedAt),
 		UpdatedAt:         timestamppb.New(tx.UpdatedAt),
-		Metadata:          convertMetadataToProto(tx.Metadata),
 	}
 
 	if tx.PaymentMethodID != nil {
@@ -390,12 +410,21 @@ func transactionStatusToProto(status domain.TransactionStatus) paymentv1.Transac
 		return paymentv1.TransactionStatus_TRANSACTION_STATUS_COMPLETED
 	case domain.TransactionStatusFailed:
 		return paymentv1.TransactionStatus_TRANSACTION_STATUS_FAILED
-	case domain.TransactionStatusRefunded:
-		return paymentv1.TransactionStatus_TRANSACTION_STATUS_REFUNDED
-	case domain.TransactionStatusVoided:
-		return paymentv1.TransactionStatus_TRANSACTION_STATUS_VOIDED
 	default:
 		return paymentv1.TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED
+	}
+}
+
+func protoStatusToDomain(status paymentv1.TransactionStatus) string {
+	switch status {
+	case paymentv1.TransactionStatus_TRANSACTION_STATUS_PENDING:
+		return string(domain.TransactionStatusPending)
+	case paymentv1.TransactionStatus_TRANSACTION_STATUS_COMPLETED:
+		return string(domain.TransactionStatusCompleted)
+	case paymentv1.TransactionStatus_TRANSACTION_STATUS_FAILED:
+		return string(domain.TransactionStatusFailed)
+	default:
+		return ""
 	}
 }
 

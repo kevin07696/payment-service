@@ -5,6 +5,7 @@ package payment_method.v1;
 option go_package = "github.com/kevin07696/payment-service/proto/payment_method/v1;paymentmethodv1";
 
 import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
 
 // PaymentMethodType represents the type of payment method
 enum PaymentMethodType {
@@ -16,29 +17,66 @@ enum PaymentMethodType {
 // PaymentMethodService handles saved payment method operations
 service PaymentMethodService {
   // SavePaymentMethod tokenizes and saves a payment method
-  rpc SavePaymentMethod(SavePaymentMethodRequest) returns (PaymentMethodResponse);
+  rpc SavePaymentMethod(SavePaymentMethodRequest) returns (PaymentMethodResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/payment-methods"
+      body: "*"
+    };
+  }
 
   // GetPaymentMethod retrieves a specific payment method
-  rpc GetPaymentMethod(GetPaymentMethodRequest) returns (PaymentMethod);
+  rpc GetPaymentMethod(GetPaymentMethodRequest) returns (PaymentMethod) {
+    option (google.api.http) = {
+      get: "/api/v1/payment-methods/{payment_method_id}"
+    };
+  }
 
   // ListPaymentMethods lists all payment methods for a customer
-  rpc ListPaymentMethods(ListPaymentMethodsRequest) returns (ListPaymentMethodsResponse);
+  rpc ListPaymentMethods(ListPaymentMethodsRequest) returns (ListPaymentMethodsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/payment-methods"
+    };
+  }
 
   // UpdatePaymentMethodStatus updates the active status of a payment method
-  rpc UpdatePaymentMethodStatus(UpdatePaymentMethodStatusRequest) returns (PaymentMethodResponse);
+  rpc UpdatePaymentMethodStatus(UpdatePaymentMethodStatusRequest) returns (PaymentMethodResponse) {
+    option (google.api.http) = {
+      patch: "/api/v1/payment-methods/{payment_method_id}/status"
+      body: "*"
+    };
+  }
 
   // DeletePaymentMethod soft deletes a payment method (sets deleted_at)
-  rpc DeletePaymentMethod(DeletePaymentMethodRequest) returns (DeletePaymentMethodResponse);
+  rpc DeletePaymentMethod(DeletePaymentMethodRequest) returns (DeletePaymentMethodResponse) {
+    option (google.api.http) = {
+      delete: "/api/v1/payment-methods/{payment_method_id}"
+    };
+  }
 
   // SetDefaultPaymentMethod marks a payment method as default
-  rpc SetDefaultPaymentMethod(SetDefaultPaymentMethodRequest) returns (PaymentMethodResponse);
+  rpc SetDefaultPaymentMethod(SetDefaultPaymentMethodRequest) returns (PaymentMethodResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/payment-methods/{payment_method_id}/set-default"
+      body: "*"
+    };
+  }
 
   // VerifyACHAccount sends pre-note for ACH verification
-  rpc VerifyACHAccount(VerifyACHAccountRequest) returns (VerifyACHAccountResponse);
+  rpc VerifyACHAccount(VerifyACHAccountRequest) returns (VerifyACHAccountResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/payment-methods/{payment_method_id}/verify-ach"
+      body: "*"
+    };
+  }
 
   // ConvertFinancialBRICToStorageBRIC converts Financial BRIC to Storage BRIC and saves payment method
   // Use case: Customer completes payment and wants to save their payment method
-  rpc ConvertFinancialBRICToStorageBRIC(ConvertFinancialBRICRequest) returns (PaymentMethodResponse);
+  rpc ConvertFinancialBRICToStorageBRIC(ConvertFinancialBRICRequest) returns (PaymentMethodResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/payment-methods/convert-financial-bric"
+      body: "*"
+    };
+  }
 }
 
 // SavePaymentMethodRequest saves a new payment method

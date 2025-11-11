@@ -7,6 +7,7 @@
 package paymentv1
 
 import (
+	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -23,7 +24,7 @@ const (
 )
 
 // TransactionStatus represents the current state of a transaction
-// Matches database constraint: ('pending', 'completed', 'failed', 'refunded', 'voided')
+// Matches database constraint: ('pending', 'completed', 'failed')
 type TransactionStatus int32
 
 const (
@@ -31,8 +32,6 @@ const (
 	TransactionStatus_TRANSACTION_STATUS_PENDING     TransactionStatus = 1
 	TransactionStatus_TRANSACTION_STATUS_COMPLETED   TransactionStatus = 2
 	TransactionStatus_TRANSACTION_STATUS_FAILED      TransactionStatus = 3
-	TransactionStatus_TRANSACTION_STATUS_REFUNDED    TransactionStatus = 4
-	TransactionStatus_TRANSACTION_STATUS_VOIDED      TransactionStatus = 5
 )
 
 // Enum value maps for TransactionStatus.
@@ -42,16 +41,12 @@ var (
 		1: "TRANSACTION_STATUS_PENDING",
 		2: "TRANSACTION_STATUS_COMPLETED",
 		3: "TRANSACTION_STATUS_FAILED",
-		4: "TRANSACTION_STATUS_REFUNDED",
-		5: "TRANSACTION_STATUS_VOIDED",
 	}
 	TransactionStatus_value = map[string]int32{
 		"TRANSACTION_STATUS_UNSPECIFIED": 0,
 		"TRANSACTION_STATUS_PENDING":     1,
 		"TRANSACTION_STATUS_COMPLETED":   2,
 		"TRANSACTION_STATUS_FAILED":      3,
-		"TRANSACTION_STATUS_REFUNDED":    4,
-		"TRANSACTION_STATUS_VOIDED":      5,
 	}
 )
 
@@ -83,7 +78,7 @@ func (TransactionStatus) EnumDescriptor() ([]byte, []int) {
 }
 
 // TransactionType represents the type of transaction
-// Matches database constraint: ('charge', 'refund', 'pre_note', 'auth', 'capture')
+// Matches database constraint: ('charge', 'refund', 'void', 'pre_note', 'auth', 'capture')
 type TransactionType int32
 
 const (
@@ -92,7 +87,8 @@ const (
 	TransactionType_TRANSACTION_TYPE_CAPTURE     TransactionType = 2 // Capture authorized funds
 	TransactionType_TRANSACTION_TYPE_CHARGE      TransactionType = 3 // Combined auth + capture (sale)
 	TransactionType_TRANSACTION_TYPE_REFUND      TransactionType = 4 // Return funds
-	TransactionType_TRANSACTION_TYPE_PRE_NOTE    TransactionType = 5 // ACH verification
+	TransactionType_TRANSACTION_TYPE_VOID        TransactionType = 5 // Cancel transaction before settlement
+	TransactionType_TRANSACTION_TYPE_PRE_NOTE    TransactionType = 6 // ACH verification
 )
 
 // Enum value maps for TransactionType.
@@ -103,7 +99,8 @@ var (
 		2: "TRANSACTION_TYPE_CAPTURE",
 		3: "TRANSACTION_TYPE_CHARGE",
 		4: "TRANSACTION_TYPE_REFUND",
-		5: "TRANSACTION_TYPE_PRE_NOTE",
+		5: "TRANSACTION_TYPE_VOID",
+		6: "TRANSACTION_TYPE_PRE_NOTE",
 	}
 	TransactionType_value = map[string]int32{
 		"TRANSACTION_TYPE_UNSPECIFIED": 0,
@@ -111,7 +108,8 @@ var (
 		"TRANSACTION_TYPE_CAPTURE":     2,
 		"TRANSACTION_TYPE_CHARGE":      3,
 		"TRANSACTION_TYPE_REFUND":      4,
-		"TRANSACTION_TYPE_PRE_NOTE":    5,
+		"TRANSACTION_TYPE_VOID":        5,
+		"TRANSACTION_TYPE_PRE_NOTE":    6,
 	}
 )
 
@@ -522,7 +520,7 @@ func (*SaleRequest_PaymentToken) isSaleRequest_PaymentMethod() {}
 // VoidRequest cancels an authorized or captured payment
 type VoidRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	TransactionId  string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	GroupId        string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"` // Transaction group to void
 	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -558,9 +556,9 @@ func (*VoidRequest) Descriptor() ([]byte, []int) {
 	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *VoidRequest) GetTransactionId() string {
+func (x *VoidRequest) GetGroupId() string {
 	if x != nil {
-		return x.TransactionId
+		return x.GroupId
 	}
 	return ""
 }
@@ -575,8 +573,8 @@ func (x *VoidRequest) GetIdempotencyKey() string {
 // RefundRequest refunds a captured payment
 type RefundRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	TransactionId  string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
-	Amount         string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"` // Optional: partial refund amount
+	GroupId        string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"` // Transaction group to refund
+	Amount         string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`                  // Optional: partial refund amount
 	Reason         string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
 	IdempotencyKey string                 `protobuf:"bytes,4,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -613,9 +611,9 @@ func (*RefundRequest) Descriptor() ([]byte, []int) {
 	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *RefundRequest) GetTransactionId() string {
+func (x *RefundRequest) GetGroupId() string {
 	if x != nil {
-		return x.TransactionId
+		return x.GroupId
 	}
 	return ""
 }
@@ -824,36 +822,85 @@ func (x *ListTransactionsResponse) GetTotalCount() int32 {
 	return 0
 }
 
+// CardInfo contains abstracted card information for receipts
+type CardInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Brand         string                 `protobuf:"bytes,1,opt,name=brand,proto3" json:"brand,omitempty"`                       // "visa", "mastercard", "amex", "discover"
+	LastFour      string                 `protobuf:"bytes,2,opt,name=last_four,json=lastFour,proto3" json:"last_four,omitempty"` // Last 4 digits
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CardInfo) Reset() {
+	*x = CardInfo{}
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CardInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CardInfo) ProtoMessage() {}
+
+func (x *CardInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CardInfo.ProtoReflect.Descriptor instead.
+func (*CardInfo) Descriptor() ([]byte, []int) {
+	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *CardInfo) GetBrand() string {
+	if x != nil {
+		return x.Brand
+	}
+	return ""
+}
+
+func (x *CardInfo) GetLastFour() string {
+	if x != nil {
+		return x.LastFour
+	}
+	return ""
+}
+
 // PaymentResponse is returned from payment operations
+// Clean, gateway-agnostic receipt data
 type PaymentResponse struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	TransactionId     string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
-	GroupId           string                 `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"` // Transaction group ID (links related transactions)
-	AgentId           string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	CustomerId        string                 `protobuf:"bytes,4,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
-	Amount            string                 `protobuf:"bytes,5,opt,name=amount,proto3" json:"amount,omitempty"` // Decimal as string
-	Currency          string                 `protobuf:"bytes,6,opt,name=currency,proto3" json:"currency,omitempty"`
-	Status            TransactionStatus      `protobuf:"varint,7,opt,name=status,proto3,enum=payment.v1.TransactionStatus" json:"status,omitempty"`
-	Type              TransactionType        `protobuf:"varint,8,opt,name=type,proto3,enum=payment.v1.TransactionType" json:"type,omitempty"`
-	PaymentMethodType PaymentMethodType      `protobuf:"varint,9,opt,name=payment_method_type,json=paymentMethodType,proto3,enum=payment.v1.PaymentMethodType" json:"payment_method_type,omitempty"`
-	// EPX Gateway response fields
-	AuthGuid      string                 `protobuf:"bytes,10,opt,name=auth_guid,json=authGuid,proto3" json:"auth_guid,omitempty"`               // EPX token for this transaction
-	AuthResp      string                 `protobuf:"bytes,11,opt,name=auth_resp,json=authResp,proto3" json:"auth_resp,omitempty"`               // EPX approval code ("00" = approved)
-	AuthCode      string                 `protobuf:"bytes,12,opt,name=auth_code,json=authCode,proto3" json:"auth_code,omitempty"`               // Bank authorization code
-	AuthRespText  string                 `protobuf:"bytes,13,opt,name=auth_resp_text,json=authRespText,proto3" json:"auth_resp_text,omitempty"` // Human-readable response message
-	AuthCardType  string                 `protobuf:"bytes,14,opt,name=auth_card_type,json=authCardType,proto3" json:"auth_card_type,omitempty"` // Card brand (V/M/A/D)
-	AuthAvs       string                 `protobuf:"bytes,15,opt,name=auth_avs,json=authAvs,proto3" json:"auth_avs,omitempty"`                  // Address verification result
-	AuthCvv2      string                 `protobuf:"bytes,16,opt,name=auth_cvv2,json=authCvv2,proto3" json:"auth_cvv2,omitempty"`               // CVV verification result
-	IsApproved    bool                   `protobuf:"varint,17,opt,name=is_approved,json=isApproved,proto3" json:"is_approved,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	Metadata      map[string]string      `protobuf:"bytes,19,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Identifiers
+	TransactionId string `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	GroupId       string `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"` // Links all related transactions (store this for refunds/voids)
+	// Receipt display
+	Amount     string            `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`
+	Currency   string            `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	Status     TransactionStatus `protobuf:"varint,5,opt,name=status,proto3,enum=payment.v1.TransactionStatus" json:"status,omitempty"`
+	Type       TransactionType   `protobuf:"varint,6,opt,name=type,proto3,enum=payment.v1.TransactionType" json:"type,omitempty"`
+	IsApproved bool              `protobuf:"varint,7,opt,name=is_approved,json=isApproved,proto3" json:"is_approved,omitempty"`
+	// Receipt details (abstracted from gateway)
+	AuthorizationCode string `protobuf:"bytes,8,opt,name=authorization_code,json=authorizationCode,proto3" json:"authorization_code,omitempty"` // Bank authorization code
+	Message           string `protobuf:"bytes,9,opt,name=message,proto3" json:"message,omitempty"`                                              // "Approved", "Insufficient funds", etc.
+	// Card info (for display only, no tokens)
+	Card          *CardInfo              `protobuf:"bytes,10,opt,name=card,proto3" json:"card,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PaymentResponse) Reset() {
 	*x = PaymentResponse{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[8]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +912,7 @@ func (x *PaymentResponse) String() string {
 func (*PaymentResponse) ProtoMessage() {}
 
 func (x *PaymentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[8]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -878,7 +925,7 @@ func (x *PaymentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaymentResponse.ProtoReflect.Descriptor instead.
 func (*PaymentResponse) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{8}
+	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PaymentResponse) GetTransactionId() string {
@@ -891,20 +938,6 @@ func (x *PaymentResponse) GetTransactionId() string {
 func (x *PaymentResponse) GetGroupId() string {
 	if x != nil {
 		return x.GroupId
-	}
-	return ""
-}
-
-func (x *PaymentResponse) GetAgentId() string {
-	if x != nil {
-		return x.AgentId
-	}
-	return ""
-}
-
-func (x *PaymentResponse) GetCustomerId() string {
-	if x != nil {
-		return x.CustomerId
 	}
 	return ""
 }
@@ -937,67 +970,32 @@ func (x *PaymentResponse) GetType() TransactionType {
 	return TransactionType_TRANSACTION_TYPE_UNSPECIFIED
 }
 
-func (x *PaymentResponse) GetPaymentMethodType() PaymentMethodType {
-	if x != nil {
-		return x.PaymentMethodType
-	}
-	return PaymentMethodType_PAYMENT_METHOD_TYPE_UNSPECIFIED
-}
-
-func (x *PaymentResponse) GetAuthGuid() string {
-	if x != nil {
-		return x.AuthGuid
-	}
-	return ""
-}
-
-func (x *PaymentResponse) GetAuthResp() string {
-	if x != nil {
-		return x.AuthResp
-	}
-	return ""
-}
-
-func (x *PaymentResponse) GetAuthCode() string {
-	if x != nil {
-		return x.AuthCode
-	}
-	return ""
-}
-
-func (x *PaymentResponse) GetAuthRespText() string {
-	if x != nil {
-		return x.AuthRespText
-	}
-	return ""
-}
-
-func (x *PaymentResponse) GetAuthCardType() string {
-	if x != nil {
-		return x.AuthCardType
-	}
-	return ""
-}
-
-func (x *PaymentResponse) GetAuthAvs() string {
-	if x != nil {
-		return x.AuthAvs
-	}
-	return ""
-}
-
-func (x *PaymentResponse) GetAuthCvv2() string {
-	if x != nil {
-		return x.AuthCvv2
-	}
-	return ""
-}
-
 func (x *PaymentResponse) GetIsApproved() bool {
 	if x != nil {
 		return x.IsApproved
 	}
 	return false
+}
+
+func (x *PaymentResponse) GetAuthorizationCode() string {
+	if x != nil {
+		return x.AuthorizationCode
+	}
+	return ""
+}
+
+func (x *PaymentResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *PaymentResponse) GetCard() *CardInfo {
+	if x != nil {
+		return x.Card
+	}
+	return nil
 }
 
 func (x *PaymentResponse) GetCreatedAt() *timestamppb.Timestamp {
@@ -1007,14 +1005,8 @@ func (x *PaymentResponse) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *PaymentResponse) GetMetadata() map[string]string {
-	if x != nil {
-		return x.Metadata
-	}
-	return nil
-}
-
 // Transaction represents a complete transaction record
+// Clean, gateway-agnostic transaction data
 type Transaction struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1027,25 +1019,21 @@ type Transaction struct {
 	Type              TransactionType        `protobuf:"varint,8,opt,name=type,proto3,enum=payment.v1.TransactionType" json:"type,omitempty"`
 	PaymentMethodType PaymentMethodType      `protobuf:"varint,9,opt,name=payment_method_type,json=paymentMethodType,proto3,enum=payment.v1.PaymentMethodType" json:"payment_method_type,omitempty"`
 	PaymentMethodId   string                 `protobuf:"bytes,10,opt,name=payment_method_id,json=paymentMethodId,proto3" json:"payment_method_id,omitempty"` // Saved payment method used (if any)
-	// EPX Gateway response fields
-	AuthGuid       string                 `protobuf:"bytes,11,opt,name=auth_guid,json=authGuid,proto3" json:"auth_guid,omitempty"`               // EPX token for this transaction
-	AuthResp       string                 `protobuf:"bytes,12,opt,name=auth_resp,json=authResp,proto3" json:"auth_resp,omitempty"`               // EPX approval code
-	AuthCode       string                 `protobuf:"bytes,13,opt,name=auth_code,json=authCode,proto3" json:"auth_code,omitempty"`               // Bank authorization code
-	AuthRespText   string                 `protobuf:"bytes,14,opt,name=auth_resp_text,json=authRespText,proto3" json:"auth_resp_text,omitempty"` // Human-readable response
-	AuthCardType   string                 `protobuf:"bytes,15,opt,name=auth_card_type,json=authCardType,proto3" json:"auth_card_type,omitempty"` // Card brand
-	AuthAvs        string                 `protobuf:"bytes,16,opt,name=auth_avs,json=authAvs,proto3" json:"auth_avs,omitempty"`                  // Address verification
-	AuthCvv2       string                 `protobuf:"bytes,17,opt,name=auth_cvv2,json=authCvv2,proto3" json:"auth_cvv2,omitempty"`               // CVV verification
-	IdempotencyKey string                 `protobuf:"bytes,18,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,19,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt      *timestamppb.Timestamp `protobuf:"bytes,20,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	Metadata       map[string]string      `protobuf:"bytes,21,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Receipt details (abstracted from gateway)
+	AuthorizationCode string `protobuf:"bytes,11,opt,name=authorization_code,json=authorizationCode,proto3" json:"authorization_code,omitempty"` // Bank authorization code
+	Message           string `protobuf:"bytes,12,opt,name=message,proto3" json:"message,omitempty"`                                              // Response message
+	// Card info (for display)
+	Card           *CardInfo              `protobuf:"bytes,13,opt,name=card,proto3" json:"card,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,14,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt      *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Transaction) Reset() {
 	*x = Transaction{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[9]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1057,7 +1045,7 @@ func (x *Transaction) String() string {
 func (*Transaction) ProtoMessage() {}
 
 func (x *Transaction) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[9]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1070,7 +1058,7 @@ func (x *Transaction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Transaction.ProtoReflect.Descriptor instead.
 func (*Transaction) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{9}
+	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Transaction) GetId() string {
@@ -1143,53 +1131,25 @@ func (x *Transaction) GetPaymentMethodId() string {
 	return ""
 }
 
-func (x *Transaction) GetAuthGuid() string {
+func (x *Transaction) GetAuthorizationCode() string {
 	if x != nil {
-		return x.AuthGuid
+		return x.AuthorizationCode
 	}
 	return ""
 }
 
-func (x *Transaction) GetAuthResp() string {
+func (x *Transaction) GetMessage() string {
 	if x != nil {
-		return x.AuthResp
+		return x.Message
 	}
 	return ""
 }
 
-func (x *Transaction) GetAuthCode() string {
+func (x *Transaction) GetCard() *CardInfo {
 	if x != nil {
-		return x.AuthCode
+		return x.Card
 	}
-	return ""
-}
-
-func (x *Transaction) GetAuthRespText() string {
-	if x != nil {
-		return x.AuthRespText
-	}
-	return ""
-}
-
-func (x *Transaction) GetAuthCardType() string {
-	if x != nil {
-		return x.AuthCardType
-	}
-	return ""
-}
-
-func (x *Transaction) GetAuthAvs() string {
-	if x != nil {
-		return x.AuthAvs
-	}
-	return ""
-}
-
-func (x *Transaction) GetAuthCvv2() string {
-	if x != nil {
-		return x.AuthCvv2
-	}
-	return ""
+	return nil
 }
 
 func (x *Transaction) GetIdempotencyKey() string {
@@ -1213,19 +1173,12 @@ func (x *Transaction) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *Transaction) GetMetadata() map[string]string {
-	if x != nil {
-		return x.Metadata
-	}
-	return nil
-}
-
 var File_proto_payment_v1_payment_proto protoreflect.FileDescriptor
 
 const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"\x1eproto/payment/v1/payment.proto\x12\n" +
-	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x97\x03\n" +
+	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"\x97\x03\n" +
 	"\x10AuthorizeRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
@@ -1257,12 +1210,12 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +
-	"\x0epayment_method\"]\n" +
-	"\vVoidRequest\x12%\n" +
-	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12'\n" +
-	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\x8f\x01\n" +
-	"\rRefundRequest\x12%\n" +
-	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x16\n" +
+	"\x0epayment_method\"Q\n" +
+	"\vVoidRequest\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\x83\x01\n" +
+	"\rRefundRequest\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12'\n" +
 	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\">\n" +
@@ -1279,34 +1232,25 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x18ListTransactionsResponse\x12;\n" +
 	"\ftransactions\x18\x01 \x03(\v2\x17.payment.v1.TransactionR\ftransactions\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xb5\x06\n" +
+	"totalCount\"=\n" +
+	"\bCardInfo\x12\x14\n" +
+	"\x05brand\x18\x01 \x01(\tR\x05brand\x12\x1b\n" +
+	"\tlast_four\x18\x02 \x01(\tR\blastFour\"\xbe\x03\n" +
 	"\x0fPaymentResponse\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x19\n" +
-	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1f\n" +
-	"\vcustomer_id\x18\x04 \x01(\tR\n" +
-	"customerId\x12\x16\n" +
-	"\x06amount\x18\x05 \x01(\tR\x06amount\x12\x1a\n" +
-	"\bcurrency\x18\x06 \x01(\tR\bcurrency\x125\n" +
-	"\x06status\x18\a \x01(\x0e2\x1d.payment.v1.TransactionStatusR\x06status\x12/\n" +
-	"\x04type\x18\b \x01(\x0e2\x1b.payment.v1.TransactionTypeR\x04type\x12M\n" +
-	"\x13payment_method_type\x18\t \x01(\x0e2\x1d.payment.v1.PaymentMethodTypeR\x11paymentMethodType\x12\x1b\n" +
-	"\tauth_guid\x18\n" +
-	" \x01(\tR\bauthGuid\x12\x1b\n" +
-	"\tauth_resp\x18\v \x01(\tR\bauthResp\x12\x1b\n" +
-	"\tauth_code\x18\f \x01(\tR\bauthCode\x12$\n" +
-	"\x0eauth_resp_text\x18\r \x01(\tR\fauthRespText\x12$\n" +
-	"\x0eauth_card_type\x18\x0e \x01(\tR\fauthCardType\x12\x19\n" +
-	"\bauth_avs\x18\x0f \x01(\tR\aauthAvs\x12\x1b\n" +
-	"\tauth_cvv2\x18\x10 \x01(\tR\bauthCvv2\x12\x1f\n" +
-	"\vis_approved\x18\x11 \x01(\bR\n" +
-	"isApproved\x129\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12\x16\n" +
+	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1a\n" +
+	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x125\n" +
+	"\x06status\x18\x05 \x01(\x0e2\x1d.payment.v1.TransactionStatusR\x06status\x12/\n" +
+	"\x04type\x18\x06 \x01(\x0e2\x1b.payment.v1.TransactionTypeR\x04type\x12\x1f\n" +
+	"\vis_approved\x18\a \x01(\bR\n" +
+	"isApproved\x12-\n" +
+	"\x12authorization_code\x18\b \x01(\tR\x11authorizationCode\x12\x18\n" +
+	"\amessage\x18\t \x01(\tR\amessage\x12(\n" +
+	"\x04card\x18\n" +
+	" \x01(\v2\x14.payment.v1.CardInfoR\x04card\x129\n" +
 	"\n" +
-	"created_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12E\n" +
-	"\bmetadata\x18\x13 \x03(\v2).payment.v1.PaymentResponse.MetadataEntryR\bmetadata\x1a;\n" +
-	"\rMetadataEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x85\a\n" +
+	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x9d\x05\n" +
 	"\vTransaction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12\x19\n" +
@@ -1319,49 +1263,40 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x04type\x18\b \x01(\x0e2\x1b.payment.v1.TransactionTypeR\x04type\x12M\n" +
 	"\x13payment_method_type\x18\t \x01(\x0e2\x1d.payment.v1.PaymentMethodTypeR\x11paymentMethodType\x12*\n" +
 	"\x11payment_method_id\x18\n" +
-	" \x01(\tR\x0fpaymentMethodId\x12\x1b\n" +
-	"\tauth_guid\x18\v \x01(\tR\bauthGuid\x12\x1b\n" +
-	"\tauth_resp\x18\f \x01(\tR\bauthResp\x12\x1b\n" +
-	"\tauth_code\x18\r \x01(\tR\bauthCode\x12$\n" +
-	"\x0eauth_resp_text\x18\x0e \x01(\tR\fauthRespText\x12$\n" +
-	"\x0eauth_card_type\x18\x0f \x01(\tR\fauthCardType\x12\x19\n" +
-	"\bauth_avs\x18\x10 \x01(\tR\aauthAvs\x12\x1b\n" +
-	"\tauth_cvv2\x18\x11 \x01(\tR\bauthCvv2\x12'\n" +
-	"\x0fidempotency_key\x18\x12 \x01(\tR\x0eidempotencyKey\x129\n" +
+	" \x01(\tR\x0fpaymentMethodId\x12-\n" +
+	"\x12authorization_code\x18\v \x01(\tR\x11authorizationCode\x12\x18\n" +
+	"\amessage\x18\f \x01(\tR\amessage\x12(\n" +
+	"\x04card\x18\r \x01(\v2\x14.payment.v1.CardInfoR\x04card\x12'\n" +
+	"\x0fidempotency_key\x18\x0e \x01(\tR\x0eidempotencyKey\x129\n" +
 	"\n" +
-	"created_at\x18\x13 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"created_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x14 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12A\n" +
-	"\bmetadata\x18\x15 \x03(\v2%.payment.v1.Transaction.MetadataEntryR\bmetadata\x1a;\n" +
-	"\rMetadataEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xd8\x01\n" +
+	"updated_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt*\x98\x01\n" +
 	"\x11TransactionStatus\x12\"\n" +
 	"\x1eTRANSACTION_STATUS_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aTRANSACTION_STATUS_PENDING\x10\x01\x12 \n" +
 	"\x1cTRANSACTION_STATUS_COMPLETED\x10\x02\x12\x1d\n" +
-	"\x19TRANSACTION_STATUS_FAILED\x10\x03\x12\x1f\n" +
-	"\x1bTRANSACTION_STATUS_REFUNDED\x10\x04\x12\x1d\n" +
-	"\x19TRANSACTION_STATUS_VOIDED\x10\x05*\xc5\x01\n" +
+	"\x19TRANSACTION_STATUS_FAILED\x10\x03*\xe0\x01\n" +
 	"\x0fTransactionType\x12 \n" +
 	"\x1cTRANSACTION_TYPE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15TRANSACTION_TYPE_AUTH\x10\x01\x12\x1c\n" +
 	"\x18TRANSACTION_TYPE_CAPTURE\x10\x02\x12\x1b\n" +
 	"\x17TRANSACTION_TYPE_CHARGE\x10\x03\x12\x1b\n" +
-	"\x17TRANSACTION_TYPE_REFUND\x10\x04\x12\x1d\n" +
-	"\x19TRANSACTION_TYPE_PRE_NOTE\x10\x05*z\n" +
+	"\x17TRANSACTION_TYPE_REFUND\x10\x04\x12\x19\n" +
+	"\x15TRANSACTION_TYPE_VOID\x10\x05\x12\x1d\n" +
+	"\x19TRANSACTION_TYPE_PRE_NOTE\x10\x06*z\n" +
 	"\x11PaymentMethodType\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_CREDIT_CARD\x10\x01\x12\x1b\n" +
-	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\x87\x04\n" +
-	"\x0ePaymentService\x12F\n" +
-	"\tAuthorize\x12\x1c.payment.v1.AuthorizeRequest\x1a\x1b.payment.v1.PaymentResponse\x12B\n" +
-	"\aCapture\x12\x1a.payment.v1.CaptureRequest\x1a\x1b.payment.v1.PaymentResponse\x12<\n" +
-	"\x04Sale\x12\x17.payment.v1.SaleRequest\x1a\x1b.payment.v1.PaymentResponse\x12<\n" +
-	"\x04Void\x12\x17.payment.v1.VoidRequest\x1a\x1b.payment.v1.PaymentResponse\x12@\n" +
-	"\x06Refund\x12\x19.payment.v1.RefundRequest\x1a\x1b.payment.v1.PaymentResponse\x12L\n" +
-	"\x0eGetTransaction\x12!.payment.v1.GetTransactionRequest\x1a\x17.payment.v1.Transaction\x12]\n" +
-	"\x10ListTransactions\x12#.payment.v1.ListTransactionsRequest\x1a$.payment.v1.ListTransactionsResponseBBZ@github.com/kevin07696/payment-service/proto/payment/v1;paymentv1b\x06proto3"
+	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\x80\x06\n" +
+	"\x0ePaymentService\x12m\n" +
+	"\tAuthorize\x12\x1c.payment.v1.AuthorizeRequest\x1a\x1b.payment.v1.PaymentResponse\"%\x82\xd3\xe4\x93\x02\x1f:\x01*\"\x1a/api/v1/payments/authorize\x12g\n" +
+	"\aCapture\x12\x1a.payment.v1.CaptureRequest\x1a\x1b.payment.v1.PaymentResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x01*\"\x18/api/v1/payments/capture\x12^\n" +
+	"\x04Sale\x12\x17.payment.v1.SaleRequest\x1a\x1b.payment.v1.PaymentResponse\" \x82\xd3\xe4\x93\x02\x1a:\x01*\"\x15/api/v1/payments/sale\x12^\n" +
+	"\x04Void\x12\x17.payment.v1.VoidRequest\x1a\x1b.payment.v1.PaymentResponse\" \x82\xd3\xe4\x93\x02\x1a:\x01*\"\x15/api/v1/payments/void\x12d\n" +
+	"\x06Refund\x12\x19.payment.v1.RefundRequest\x1a\x1b.payment.v1.PaymentResponse\"\"\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/api/v1/payments/refund\x12w\n" +
+	"\x0eGetTransaction\x12!.payment.v1.GetTransactionRequest\x1a\x17.payment.v1.Transaction\")\x82\xd3\xe4\x93\x02#\x12!/api/v1/payments/{transaction_id}\x12w\n" +
+	"\x10ListTransactions\x12#.payment.v1.ListTransactionsRequest\x1a$.payment.v1.ListTransactionsResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/paymentsBBZ@github.com/kevin07696/payment-service/proto/payment/v1;paymentv1b\x06proto3"
 
 var (
 	file_proto_payment_v1_payment_proto_rawDescOnce sync.Once
@@ -1376,7 +1311,7 @@ func file_proto_payment_v1_payment_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_payment_v1_payment_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_proto_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_proto_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_proto_payment_v1_payment_proto_goTypes = []any{
 	(TransactionStatus)(0),           // 0: payment.v1.TransactionStatus
 	(TransactionType)(0),             // 1: payment.v1.TransactionType
@@ -1389,49 +1324,47 @@ var file_proto_payment_v1_payment_proto_goTypes = []any{
 	(*GetTransactionRequest)(nil),    // 8: payment.v1.GetTransactionRequest
 	(*ListTransactionsRequest)(nil),  // 9: payment.v1.ListTransactionsRequest
 	(*ListTransactionsResponse)(nil), // 10: payment.v1.ListTransactionsResponse
-	(*PaymentResponse)(nil),          // 11: payment.v1.PaymentResponse
-	(*Transaction)(nil),              // 12: payment.v1.Transaction
-	nil,                              // 13: payment.v1.AuthorizeRequest.MetadataEntry
-	nil,                              // 14: payment.v1.SaleRequest.MetadataEntry
-	nil,                              // 15: payment.v1.PaymentResponse.MetadataEntry
-	nil,                              // 16: payment.v1.Transaction.MetadataEntry
-	(*timestamppb.Timestamp)(nil),    // 17: google.protobuf.Timestamp
+	(*CardInfo)(nil),                 // 11: payment.v1.CardInfo
+	(*PaymentResponse)(nil),          // 12: payment.v1.PaymentResponse
+	(*Transaction)(nil),              // 13: payment.v1.Transaction
+	nil,                              // 14: payment.v1.AuthorizeRequest.MetadataEntry
+	nil,                              // 15: payment.v1.SaleRequest.MetadataEntry
+	(*timestamppb.Timestamp)(nil),    // 16: google.protobuf.Timestamp
 }
 var file_proto_payment_v1_payment_proto_depIdxs = []int32{
-	13, // 0: payment.v1.AuthorizeRequest.metadata:type_name -> payment.v1.AuthorizeRequest.MetadataEntry
-	14, // 1: payment.v1.SaleRequest.metadata:type_name -> payment.v1.SaleRequest.MetadataEntry
+	14, // 0: payment.v1.AuthorizeRequest.metadata:type_name -> payment.v1.AuthorizeRequest.MetadataEntry
+	15, // 1: payment.v1.SaleRequest.metadata:type_name -> payment.v1.SaleRequest.MetadataEntry
 	0,  // 2: payment.v1.ListTransactionsRequest.status:type_name -> payment.v1.TransactionStatus
-	12, // 3: payment.v1.ListTransactionsResponse.transactions:type_name -> payment.v1.Transaction
+	13, // 3: payment.v1.ListTransactionsResponse.transactions:type_name -> payment.v1.Transaction
 	0,  // 4: payment.v1.PaymentResponse.status:type_name -> payment.v1.TransactionStatus
 	1,  // 5: payment.v1.PaymentResponse.type:type_name -> payment.v1.TransactionType
-	2,  // 6: payment.v1.PaymentResponse.payment_method_type:type_name -> payment.v1.PaymentMethodType
-	17, // 7: payment.v1.PaymentResponse.created_at:type_name -> google.protobuf.Timestamp
-	15, // 8: payment.v1.PaymentResponse.metadata:type_name -> payment.v1.PaymentResponse.MetadataEntry
-	0,  // 9: payment.v1.Transaction.status:type_name -> payment.v1.TransactionStatus
-	1,  // 10: payment.v1.Transaction.type:type_name -> payment.v1.TransactionType
-	2,  // 11: payment.v1.Transaction.payment_method_type:type_name -> payment.v1.PaymentMethodType
-	17, // 12: payment.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
-	17, // 13: payment.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
-	16, // 14: payment.v1.Transaction.metadata:type_name -> payment.v1.Transaction.MetadataEntry
-	3,  // 15: payment.v1.PaymentService.Authorize:input_type -> payment.v1.AuthorizeRequest
-	4,  // 16: payment.v1.PaymentService.Capture:input_type -> payment.v1.CaptureRequest
-	5,  // 17: payment.v1.PaymentService.Sale:input_type -> payment.v1.SaleRequest
-	6,  // 18: payment.v1.PaymentService.Void:input_type -> payment.v1.VoidRequest
-	7,  // 19: payment.v1.PaymentService.Refund:input_type -> payment.v1.RefundRequest
-	8,  // 20: payment.v1.PaymentService.GetTransaction:input_type -> payment.v1.GetTransactionRequest
-	9,  // 21: payment.v1.PaymentService.ListTransactions:input_type -> payment.v1.ListTransactionsRequest
-	11, // 22: payment.v1.PaymentService.Authorize:output_type -> payment.v1.PaymentResponse
-	11, // 23: payment.v1.PaymentService.Capture:output_type -> payment.v1.PaymentResponse
-	11, // 24: payment.v1.PaymentService.Sale:output_type -> payment.v1.PaymentResponse
-	11, // 25: payment.v1.PaymentService.Void:output_type -> payment.v1.PaymentResponse
-	11, // 26: payment.v1.PaymentService.Refund:output_type -> payment.v1.PaymentResponse
-	12, // 27: payment.v1.PaymentService.GetTransaction:output_type -> payment.v1.Transaction
-	10, // 28: payment.v1.PaymentService.ListTransactions:output_type -> payment.v1.ListTransactionsResponse
-	22, // [22:29] is the sub-list for method output_type
-	15, // [15:22] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	11, // 6: payment.v1.PaymentResponse.card:type_name -> payment.v1.CardInfo
+	16, // 7: payment.v1.PaymentResponse.created_at:type_name -> google.protobuf.Timestamp
+	0,  // 8: payment.v1.Transaction.status:type_name -> payment.v1.TransactionStatus
+	1,  // 9: payment.v1.Transaction.type:type_name -> payment.v1.TransactionType
+	2,  // 10: payment.v1.Transaction.payment_method_type:type_name -> payment.v1.PaymentMethodType
+	11, // 11: payment.v1.Transaction.card:type_name -> payment.v1.CardInfo
+	16, // 12: payment.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
+	16, // 13: payment.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
+	3,  // 14: payment.v1.PaymentService.Authorize:input_type -> payment.v1.AuthorizeRequest
+	4,  // 15: payment.v1.PaymentService.Capture:input_type -> payment.v1.CaptureRequest
+	5,  // 16: payment.v1.PaymentService.Sale:input_type -> payment.v1.SaleRequest
+	6,  // 17: payment.v1.PaymentService.Void:input_type -> payment.v1.VoidRequest
+	7,  // 18: payment.v1.PaymentService.Refund:input_type -> payment.v1.RefundRequest
+	8,  // 19: payment.v1.PaymentService.GetTransaction:input_type -> payment.v1.GetTransactionRequest
+	9,  // 20: payment.v1.PaymentService.ListTransactions:input_type -> payment.v1.ListTransactionsRequest
+	12, // 21: payment.v1.PaymentService.Authorize:output_type -> payment.v1.PaymentResponse
+	12, // 22: payment.v1.PaymentService.Capture:output_type -> payment.v1.PaymentResponse
+	12, // 23: payment.v1.PaymentService.Sale:output_type -> payment.v1.PaymentResponse
+	12, // 24: payment.v1.PaymentService.Void:output_type -> payment.v1.PaymentResponse
+	12, // 25: payment.v1.PaymentService.Refund:output_type -> payment.v1.PaymentResponse
+	13, // 26: payment.v1.PaymentService.GetTransaction:output_type -> payment.v1.Transaction
+	10, // 27: payment.v1.PaymentService.ListTransactions:output_type -> payment.v1.ListTransactionsResponse
+	21, // [21:28] is the sub-list for method output_type
+	14, // [14:21] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_proto_payment_v1_payment_proto_init() }
@@ -1453,7 +1386,7 @@ func file_proto_payment_v1_payment_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_payment_v1_payment_proto_rawDesc), len(file_proto_payment_v1_payment_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   14,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

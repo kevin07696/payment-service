@@ -83,7 +83,7 @@ func NewPostgreSQLAdapter(ctx context.Context, cfg *PostgreSQLConfig, logger *za
 }
 
 // Queries returns the sqlc queries instance for database operations
-func (a *PostgreSQLAdapter) Queries() *sqlc.Queries {
+func (a *PostgreSQLAdapter) Queries() sqlc.Querier {
 	return a.queries
 }
 

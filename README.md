@@ -6,6 +6,7 @@ A production-ready payment microservice built with **Go** and **gRPC**, integrat
 
 - ✅ **Credit Card Payments**: One-time, auth/capture flows (Server Post & Browser Post)
 - ✅ **Saved Payment Methods**: Storage BRIC conversion for card-on-file and recurring payments
+- 🚧 **Direct BRIC Storage Tokenization**: Integration tests pending EPX sandbox enablement
 - ✅ **Recurring Billing**: Subscription management with automatic cron billing
 - ✅ **ACH Payments**: Bank transfers (checking/savings accounts)
 - ✅ **Chargeback Management**: Automated polling from North API, local storage, webhook notifications
@@ -718,22 +719,6 @@ func TestMyAdapter_Process(t *testing.T) {
 }
 ```
 
-## 📚 Documentation
-
-**[DOCUMENTATION.md](DOCUMENTATION.md)** - **Complete Guide (START HERE)**
-
-Comprehensive documentation covering:
-
-- Quick Start & Setup
-- Architecture & Design Patterns
-- Frontend & Backend Integration
-- North Gateway APIs
-- Chargeback Management (READ-ONLY)
-- Webhook System
-- Testing & Deployment
-- API Reference
-- Troubleshooting
-
 **[CHANGELOG.md](CHANGELOG.md)** - Version history and changes
 
 ## 🗺️ Roadmap
@@ -795,30 +780,56 @@ Comprehensive documentation covering:
 ### Phase 8: Testing & Integration 🚧
 
 - [x] Integration tests with PostgreSQL
-- [ ] Integration tests with North sandbox (requires credentials)
-- [ ] End-to-end gRPC tests
+- [x] gRPC integration tests (4/4 passing)
+- [x] REST API gateway operational
+- [x] Integration test infrastructure with BRIC Storage tokenization
+- [🚧] BRIC Storage tokenization tests (pending EPX sandbox enablement)
+- [ ] End-to-end transaction tests with North sandbox
 - [ ] Load testing
+
+**⚠️ BRIC Storage Tokenization - Next Steps:**
+
+Integration tests are ready but require EPX to enable BRIC Storage in sandbox:
+
+1. **Contact EPX Support** to enable CCE8/CKC8 transaction types in sandbox merchant account
+2. **Remove skip statements** from tests once EPX is configured:
+   - `tests/integration/payment_method/payment_method_test.go` (6 tests)
+   - `tests/integration/payment/transaction_test.go` (7 tests)
+   - `tests/integration/subscription/subscription_test.go` (9 tests)
+3. **Run full integration test suite**: `go test ./tests/integration/... -tags=integration`
+
+**Current Status:**
+- ✅ BRIC Storage tokenization helper implemented (CCE8 for cards, CKC8 for ACH)
+- ✅ All tests refactored to use PCI-compliant flow
+- ✅ Tests properly skip with clear "Coming Soon" message
+- ⏭️ Waiting on EPX sandbox configuration
 
 ## 📚 Documentation
 
 Comprehensive guides for setup, integration, and maintenance:
 
+**API Documentation:**
+
+- **[API Specification](docs/API_SPECIFICATION.md)** - Complete REST & gRPC API reference
+- **[EPX API Reference](docs/EPX_API_REFERENCE.md)** - Complete EPX payment gateway API
+
+**Integration Guides:**
+
 - **[Testing Guide](docs/TESTING.md)** - Run tests, write tests, CI/CD integration
 - **[Branching & Deployment](docs/BRANCHING.md)** - Git workflow, staging, production deployment
 - **[Secrets Setup](docs/SECRETS.md)** - GitHub secrets, architecture, runtime access
+- **[Database Design](docs/DATABASE_DESIGN.md)** - Complete schema, relationships, lifecycle
 - **[GCP Production Setup](docs/GCP_PRODUCTION_SETUP.md)** - Deploy to Google Cloud Run
-- **[EPX API Reference](docs/EPX_API_REFERENCE.md)** - Complete EPX payment gateway API
 
 **Dataflow Documentation:**
 
-- [ACH Server Post Dataflow](docs/ACH_SERVER_POST_DATAFLOW.md)
-- [Browser Post Dataflow](docs/BROWSER_POST_DATAFLOW.md)
-- [Credit Card Browser Post Dataflow](docs/CREDIT_CARD_BROWSER_POST_DATAFLOW.md)
-- [Browser Post Frontend Guide](docs/BROWSER_POST_FRONTEND_GUIDE.md)
+- [Browser Post Dataflow](docs/BROWSER_POST_DATAFLOW.md) - PCI-compliant credit card payments
+- [Browser Post Frontend Guide](docs/BROWSER_POST_FRONTEND_GUIDE.md) - Frontend integration
+- [Server Post Dataflow](docs/SERVER_POST_DATAFLOW.md) - Server-side payment flow
+- [ACH Server Post Dataflow](docs/ACH_SERVER_POST_DATAFLOW.md) - Bank transfer payments
 
 **Research & Historical:**
 - [3DS Provider Research](docs/3DS_PROVIDER_RESEARCH.md)
-- [POS Option 2 Refactoring](docs/POS_OPTION2_REFACTORING_COMPLETE.md)
 
 ## 🤝 Contributing
 

@@ -470,7 +470,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 // Void cancels an authorized or captured payment
 func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*domain.Transaction, error) {
 	s.logger.Info("Processing void",
-		zap.String("transaction_id", req.TransactionID),
+		zap.String("group_id", req.GroupID),
 	)
 
 	// Check idempotency
@@ -484,8 +484,22 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		}
 	}
 
-	// Get original transaction
-	originalTx, err := s.GetTransaction(ctx, req.TransactionID)
+	// Get all transactions in the group using ListTransactions
+	groupTxs, _, err := s.ListTransactions(ctx, &ports.ListTransactionsFilters{
+		GroupID: &req.GroupID,
+		Limit:   100, // Reasonable limit for a single transaction group
+		Offset:  0,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transactions by group: %w", err)
+	}
+
+	if len(groupTxs) == 0 {
+		return nil, fmt.Errorf("no transactions found for group %s", req.GroupID)
+	}
+
+	// Find the original transaction (with auth_guid for EPX operation)
+	originalTx, err := findOriginalTransaction(groupTxs)
 	if err != nil {
 		return nil, err
 	}
@@ -536,7 +550,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
 		status := domain.TransactionStatusFailed
 		if epxResp.IsApproved {
-			status = domain.TransactionStatusVoided
+			status = domain.TransactionStatusCompleted
 		}
 
 		params := sqlc.CreateTransactionParams{
@@ -586,7 +600,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 // Refund returns funds to the customer
 func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (*domain.Transaction, error) {
 	s.logger.Info("Processing refund",
-		zap.String("transaction_id", req.TransactionID),
+		zap.String("group_id", req.GroupID),
 		zap.String("reason", req.Reason),
 	)
 
@@ -601,8 +615,22 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		}
 	}
 
-	// Get original transaction
-	originalTx, err := s.GetTransaction(ctx, req.TransactionID)
+	// Get all transactions in the group using ListTransactions
+	groupTxs, _, err := s.ListTransactions(ctx, &ports.ListTransactionsFilters{
+		GroupID: &req.GroupID,
+		Limit:   100, // Reasonable limit for a single transaction group
+		Offset:  0,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transactions by group: %w", err)
+	}
+
+	if len(groupTxs) == 0 {
+		return nil, fmt.Errorf("no transactions found for group %s", req.GroupID)
+	}
+
+	// Find the original transaction (with auth_guid for EPX operation)
+	originalTx, err := findOriginalTransaction(groupTxs)
 	if err != nil {
 		return nil, err
 	}
@@ -666,7 +694,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
 		status := domain.TransactionStatusFailed
 		if epxResp.IsApproved {
-			status = domain.TransactionStatusRefunded
+			status = domain.TransactionStatusCompleted
 		}
 
 		metadata := map[string]interface{}{
@@ -758,12 +786,26 @@ func (s *paymentService) GetTransactionByIdempotencyKey(ctx context.Context, key
 }
 
 // ListTransactions lists transactions with filters using sqlc
-func (s *paymentService) ListTransactions(ctx context.Context, agentID string, customerID *string, limit, offset int) ([]*domain.Transaction, int, error) {
+func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.ListTransactionsFilters) ([]*domain.Transaction, int, error) {
+	// Set defaults
+	limit := filters.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	offset := filters.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	params := sqlc.ListTransactionsParams{
-		AgentID:    toNullableText(&agentID),
-		CustomerID: toNullableText(customerID),
-		LimitVal:   int32(limit),
-		OffsetVal:  int32(offset),
+		AgentID:         toNullableText(filters.AgentID),
+		CustomerID:      toNullableText(filters.CustomerID),
+		GroupID:         toNullableUUID(filters.GroupID),
+		Status:          toNullableText(filters.Status),
+		Type:            toNullableText(filters.Type),
+		PaymentMethodID: toNullableUUID(filters.PaymentMethodID),
+		LimitVal:        int32(limit),
+		OffsetVal:       int32(offset),
 	}
 
 	dbTxs, err := s.db.Queries().ListTransactions(ctx, params)
@@ -772,8 +814,12 @@ func (s *paymentService) ListTransactions(ctx context.Context, agentID string, c
 	}
 
 	countParams := sqlc.CountTransactionsParams{
-		AgentID:    toNullableText(&agentID),
-		CustomerID: toNullableText(customerID),
+		AgentID:         toNullableText(filters.AgentID),
+		CustomerID:      toNullableText(filters.CustomerID),
+		GroupID:         toNullableUUID(filters.GroupID),
+		Status:          toNullableText(filters.Status),
+		Type:            toNullableText(filters.Type),
+		PaymentMethodID: toNullableUUID(filters.PaymentMethodID),
 	}
 
 	count, err := s.db.Queries().CountTransactions(ctx, countParams)
@@ -807,6 +853,32 @@ func (s *paymentService) GetTransactionsByGroup(ctx context.Context, groupID str
 	}
 
 	return transactions, nil
+}
+
+// findOriginalTransaction finds the original chargeable transaction in a group
+// that has the auth_guid needed for EPX refund/void operations
+func findOriginalTransaction(transactions []*domain.Transaction) (*domain.Transaction, error) {
+	var originalTx *domain.Transaction
+
+	for _, tx := range transactions {
+		// Look for completed transactions with auth_guid that can be voided/refunded
+		if tx.Status == domain.TransactionStatusCompleted &&
+			tx.AuthGUID != nil &&
+			(tx.Type == domain.TransactionTypeCharge ||
+			 tx.Type == domain.TransactionTypeAuth ||
+			 tx.Type == domain.TransactionTypeCapture) {
+			// Prefer the earliest transaction
+			if originalTx == nil || tx.CreatedAt.Before(originalTx.CreatedAt) {
+				originalTx = tx
+			}
+		}
+	}
+
+	if originalTx == nil {
+		return nil, fmt.Errorf("no original chargeable transaction found in group")
+	}
+
+	return originalTx, nil
 }
 
 // Helper functions to convert between sqlc and domain models

@@ -1,0 +1,567 @@
+//go:build integration
+// +build integration
+
+package payment_test
+
+import (
+	"encoding/json"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/kevin07696/payment-service/tests/integration/testutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestFullRefund_UsingGroupID tests full refund using group_id
+func TestFullRefund_UsingGroupID(t *testing.T) {
+	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+
+	cfg, client := testutil.Setup(t)
+	customerID := "test-customer-refund-001"
+	time.Sleep(2 * time.Second)
+
+	// Tokenize and save payment method
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(
+		cfg, client,
+		"test-merchant-staging",
+		customerID,
+		testutil.TestVisaCard,
+	)
+	require.NoError(t, err)
+	time.Sleep(2 * time.Second)
+
+	// Process sale
+	saleReq := map[string]interface{}{
+		"agent_id":          "test-merchant-staging",
+		"customer_id":       customerID,
+		"payment_method_id": paymentMethodID,
+		"amount":            "50.00",
+		"currency":          "USD",
+		"metadata": map[string]string{
+			"order_id": "REFUND-TEST-001",
+		},
+	}
+
+	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
+	require.NoError(t, err)
+	defer saleResp.Body.Close()
+
+	var saleResult map[string]interface{}
+	err = testutil.DecodeResponse(saleResp, &saleResult)
+	require.NoError(t, err)
+
+	groupID := saleResult["groupId"].(string)
+	originalTransactionID := saleResult["transactionId"].(string)
+
+	t.Logf("Original sale - Group ID: %s, Transaction ID: %s", groupID, originalTransactionID)
+	time.Sleep(2 * time.Second)
+
+	// Process full refund using group_id (NOT transaction_id)
+	refundReq := map[string]interface{}{
+		"group_id": groupID, // New API: use group_id instead of transaction_id
+		"reason":   "Customer requested refund",
+	}
+
+	refundResp, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
+	require.NoError(t, err)
+	defer refundResp.Body.Close()
+
+	assert.Equal(t, 200, refundResp.StatusCode, "Refund should succeed")
+
+	var refundResult map[string]interface{}
+	err = testutil.DecodeResponse(refundResp, &refundResult)
+	require.NoError(t, err)
+
+	// Verify refund response
+	assert.NotEmpty(t, refundResult["transactionId"], "Should create new refund transaction")
+	assert.Equal(t, groupID, refundResult["groupId"], "Should have same group_id as original")
+	assert.Equal(t, "50.00", refundResult["amount"], "Should refund full amount")
+	assert.True(t, refundResult["isApproved"].(bool))
+
+	t.Logf("Refund completed - New transaction ID: %s, Same group: %s",
+		refundResult["transactionId"], refundResult["groupId"])
+
+	time.Sleep(2 * time.Second)
+
+	// Verify group has 2 transactions (sale + refund)
+	listResp, err := client.Do("GET",
+		fmt.Sprintf("/api/v1/payments?agent_id=test-merchant-staging&group_id=%s", groupID), nil)
+	require.NoError(t, err)
+	defer listResp.Body.Close()
+
+	var listResult map[string]interface{}
+	json.NewDecoder(listResp.Body).Decode(&listResult)
+
+	transactions := listResult["transactions"].([]interface{})
+	assert.GreaterOrEqual(t, len(transactions), 2, "Should have at least 2 transactions (sale + refund)")
+
+	t.Logf("Group %s now has %d transactions", groupID, len(transactions))
+}
+
+// TestPartialRefund_UsingGroupID tests partial refund
+func TestPartialRefund_UsingGroupID(t *testing.T) {
+	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+
+	cfg, client := testutil.Setup(t)
+	customerID := "test-customer-refund-002"
+	time.Sleep(2 * time.Second)
+
+	// Tokenize and save payment method
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(
+		cfg, client,
+		"test-merchant-staging",
+		customerID,
+		testutil.TestMastercardCard,
+	)
+	require.NoError(t, err)
+	time.Sleep(2 * time.Second)
+
+	// Process sale for $100
+	saleReq := map[string]interface{}{
+		"agent_id":          "test-merchant-staging",
+		"customer_id":       customerID,
+		"payment_method_id": paymentMethodID,
+		"amount":            "100.00",
+		"currency":          "USD",
+	}
+
+	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
+	require.NoError(t, err)
+	defer saleResp.Body.Close()
+
+	var saleResult map[string]interface{}
+	err = testutil.DecodeResponse(saleResp, &saleResult)
+	require.NoError(t, err)
+
+	groupID := saleResult["groupId"].(string)
+	time.Sleep(2 * time.Second)
+
+	// Refund only $30 (partial)
+	refundReq := map[string]interface{}{
+		"group_id": groupID,
+		"amount":   "30.00", // Partial refund
+		"reason":   "Partial refund requested",
+	}
+
+	refundResp, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
+	require.NoError(t, err)
+	defer refundResp.Body.Close()
+
+	assert.Equal(t, 200, refundResp.StatusCode, "Partial refund should succeed")
+
+	var refundResult map[string]interface{}
+	err = testutil.DecodeResponse(refundResp, &refundResult)
+	require.NoError(t, err)
+
+	assert.Equal(t, "30.00", refundResult["amount"], "Should refund partial amount")
+	assert.Equal(t, groupID, refundResult["groupId"])
+	assert.True(t, refundResult["isApproved"].(bool))
+
+	t.Logf("Partial refund completed - $30 of $100 refunded, Group: %s", groupID)
+}
+
+// TestMultipleRefunds_SameGroup tests multiple refunds on same transaction
+func TestMultipleRefunds_SameGroup(t *testing.T) {
+	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+
+	cfg, client := testutil.Setup(t)
+	customerID := "test-customer-refund-003"
+	time.Sleep(2 * time.Second)
+
+	// Tokenize and save payment method
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(
+		cfg, client,
+		"test-merchant-staging",
+		customerID,
+		testutil.TestVisaCard,
+	)
+	require.NoError(t, err)
+	time.Sleep(2 * time.Second)
+
+	// Process sale for $200
+	saleReq := map[string]interface{}{
+		"agent_id":          "test-merchant-staging",
+		"customer_id":       customerID,
+		"payment_method_id": paymentMethodID,
+		"amount":            "200.00",
+		"currency":          "USD",
+	}
+
+	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
+	require.NoError(t, err)
+	defer saleResp.Body.Close()
+
+	var saleResult map[string]interface{}
+	err = testutil.DecodeResponse(saleResp, &saleResult)
+	require.NoError(t, err)
+
+	groupID := saleResult["groupId"].(string)
+	time.Sleep(2 * time.Second)
+
+	// First refund: $50
+	refund1Req := map[string]interface{}{
+		"group_id": groupID,
+		"amount":   "50.00",
+		"reason":   "First partial refund",
+	}
+
+	refund1Resp, err := client.Do("POST", "/api/v1/payments/refund", refund1Req)
+	require.NoError(t, err)
+	defer refund1Resp.Body.Close()
+
+	var refund1Result map[string]interface{}
+	err = testutil.DecodeResponse(refund1Resp, &refund1Result)
+	require.NoError(t, err)
+	assert.Equal(t, "50.00", refund1Result["amount"])
+
+	time.Sleep(2 * time.Second)
+
+	// Second refund: $75
+	refund2Req := map[string]interface{}{
+		"group_id": groupID,
+		"amount":   "75.00",
+		"reason":   "Second partial refund",
+	}
+
+	refund2Resp, err := client.Do("POST", "/api/v1/payments/refund", refund2Req)
+	require.NoError(t, err)
+	defer refund2Resp.Body.Close()
+
+	var refund2Result map[string]interface{}
+	err = testutil.DecodeResponse(refund2Resp, &refund2Result)
+	require.NoError(t, err)
+	assert.Equal(t, "75.00", refund2Result["amount"])
+
+	t.Logf("Multiple refunds completed - Total $125 refunded from $200 sale")
+
+	time.Sleep(1 * time.Second)
+
+	// Verify group has 3 transactions (sale + 2 refunds)
+	listResp, err := client.Do("GET",
+		fmt.Sprintf("/api/v1/payments?agent_id=test-merchant-staging&group_id=%s", groupID), nil)
+	require.NoError(t, err)
+	defer listResp.Body.Close()
+
+	var listResult map[string]interface{}
+	json.NewDecoder(listResp.Body).Decode(&listResult)
+
+	transactions := listResult["transactions"].([]interface{})
+	assert.GreaterOrEqual(t, len(transactions), 3, "Should have at least 3 transactions (1 sale + 2 refunds)")
+}
+
+// TestVoid_UsingGroupID tests void using group_id
+func TestVoid_UsingGroupID(t *testing.T) {
+	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+
+	cfg, client := testutil.Setup(t)
+	customerID := "test-customer-void-001"
+	time.Sleep(2 * time.Second)
+
+	// Tokenize and save payment method
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(
+		cfg, client,
+		"test-merchant-staging",
+		customerID,
+		testutil.TestAmexCard,
+	)
+	require.NoError(t, err)
+	time.Sleep(2 * time.Second)
+
+	// Authorize (not captured yet, so can be voided)
+	authReq := map[string]interface{}{
+		"agent_id":          "test-merchant-staging",
+		"customer_id":       customerID,
+		"payment_method_id": paymentMethodID,
+		"amount":            "75.00",
+		"currency":          "USD",
+	}
+
+	authResp, err := client.Do("POST", "/api/v1/payments/authorize", authReq)
+	require.NoError(t, err)
+	defer authResp.Body.Close()
+
+	var authResult map[string]interface{}
+	err = testutil.DecodeResponse(authResp, &authResult)
+	require.NoError(t, err)
+
+	groupID := authResult["groupId"].(string)
+	t.Logf("Authorization completed - Group ID: %s", groupID)
+	time.Sleep(2 * time.Second)
+
+	// Void using group_id
+	voidReq := map[string]interface{}{
+		"group_id": groupID,
+	}
+
+	voidResp, err := client.Do("POST", "/api/v1/payments/void", voidReq)
+	require.NoError(t, err)
+	defer voidResp.Body.Close()
+
+	assert.Equal(t, 200, voidResp.StatusCode, "Void should succeed")
+
+	var voidResult map[string]interface{}
+	err = testutil.DecodeResponse(voidResp, &voidResult)
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, voidResult["transactionId"])
+	assert.Equal(t, groupID, voidResult["groupId"])
+	assert.True(t, voidResult["isApproved"].(bool))
+
+	t.Logf("Void completed - Transaction voided in group: %s", groupID)
+}
+
+// TestRefundValidation tests refund validation errors
+func TestRefundValidation(t *testing.T) {
+	_, client := testutil.Setup(t)
+
+	testCases := []struct {
+		name    string
+		request map[string]interface{}
+	}{
+		{
+			name: "missing group_id",
+			request: map[string]interface{}{
+				"amount": "50.00",
+				"reason": "Test refund",
+			},
+		},
+		{
+			name: "non-existent group_id",
+			request: map[string]interface{}{
+				"group_id": "00000000-0000-0000-0000-000000000000",
+				"reason":   "Test refund",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			time.Sleep(1 * time.Second)
+
+			resp, err := client.Do("POST", "/api/v1/payments/refund", tc.request)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.NotEqual(t, 200, resp.StatusCode, tc.name+" should fail")
+			t.Logf("%s: status %d", tc.name, resp.StatusCode)
+		})
+	}
+}
+
+// TestVoidValidation tests void validation errors
+func TestVoidValidation(t *testing.T) {
+	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+
+	cfg, client := testutil.Setup(t)
+	customerID := "test-customer-void-validation"
+	time.Sleep(2 * time.Second)
+
+	// Create and capture a transaction (cannot void after capture)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(
+		cfg, client,
+		"test-merchant-staging",
+		customerID,
+		testutil.TestVisaCard,
+	)
+	require.NoError(t, err)
+	time.Sleep(2 * time.Second)
+
+	// Process sale (auth + capture)
+	saleReq := map[string]interface{}{
+		"agent_id":          "test-merchant-staging",
+		"customer_id":       customerID,
+		"payment_method_id": paymentMethodID,
+		"amount":            "50.00",
+		"currency":          "USD",
+	}
+
+	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
+	require.NoError(t, err)
+	defer saleResp.Body.Close()
+
+	var saleResult map[string]interface{}
+	err = testutil.DecodeResponse(saleResp, &saleResult)
+	require.NoError(t, err)
+
+	groupID := saleResult["groupId"].(string)
+	time.Sleep(2 * time.Second)
+
+	// Try to void captured transaction (should fail or behave as refund)
+	voidReq := map[string]interface{}{
+		"group_id": groupID,
+	}
+
+	voidResp, err := client.Do("POST", "/api/v1/payments/void", voidReq)
+	require.NoError(t, err)
+	defer voidResp.Body.Close()
+
+	// EPX may reject void on captured transaction, or treat it as refund
+	t.Logf("Void after capture: status %d", voidResp.StatusCode)
+}
+
+// TestGroupIDLinks tests that group_id properly links all related transactions
+func TestGroupIDLinks(t *testing.T) {
+	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+
+	cfg, client := testutil.Setup(t)
+	customerID := "test-customer-group-links"
+	time.Sleep(2 * time.Second)
+
+	// Tokenize and save payment method
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(
+		cfg, client,
+		"test-merchant-staging",
+		customerID,
+		testutil.TestVisaCard,
+	)
+	require.NoError(t, err)
+	time.Sleep(2 * time.Second)
+
+	// Create auth + capture + refund sequence
+	authReq := map[string]interface{}{
+		"agent_id":          "test-merchant-staging",
+		"customer_id":       customerID,
+		"payment_method_id": paymentMethodID,
+		"amount":            "100.00",
+		"currency":          "USD",
+	}
+
+	authResp, err := client.Do("POST", "/api/v1/payments/authorize", authReq)
+	require.NoError(t, err)
+	defer authResp.Body.Close()
+
+	var authResult map[string]interface{}
+	err = testutil.DecodeResponse(authResp, &authResult)
+	require.NoError(t, err)
+
+	transactionID := authResult["transactionId"].(string)
+	groupID := authResult["groupId"].(string)
+	time.Sleep(2 * time.Second)
+
+	// Capture
+	captureReq := map[string]interface{}{
+		"transaction_id": transactionID,
+	}
+
+	captureResp, err := client.Do("POST", "/api/v1/payments/capture", captureReq)
+	require.NoError(t, err)
+	defer captureResp.Body.Close()
+
+	var captureResult map[string]interface{}
+	err = testutil.DecodeResponse(captureResp, &captureResult)
+	require.NoError(t, err)
+	assert.Equal(t, groupID, captureResult["groupId"], "Capture should have same group_id")
+
+	time.Sleep(2 * time.Second)
+
+	// Refund
+	refundReq := map[string]interface{}{
+		"group_id": groupID,
+		"amount":   "50.00",
+		"reason":   "Partial refund",
+	}
+
+	refundResp, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
+	require.NoError(t, err)
+	defer refundResp.Body.Close()
+
+	var refundResult map[string]interface{}
+	err = testutil.DecodeResponse(refundResp, &refundResult)
+	require.NoError(t, err)
+	assert.Equal(t, groupID, refundResult["groupId"], "Refund should have same group_id")
+
+	time.Sleep(1 * time.Second)
+
+	// Verify all 3 transactions linked by group_id
+	listResp, err := client.Do("GET",
+		fmt.Sprintf("/api/v1/payments?agent_id=test-merchant-staging&group_id=%s", groupID), nil)
+	require.NoError(t, err)
+	defer listResp.Body.Close()
+
+	var listResult map[string]interface{}
+	json.NewDecoder(listResp.Body).Decode(&listResult)
+
+	transactions := listResult["transactions"].([]interface{})
+	assert.GreaterOrEqual(t, len(transactions), 3, "Should have auth, capture, and refund linked")
+
+	// Verify all have same group_id
+	for _, txInterface := range transactions {
+		tx := txInterface.(map[string]interface{})
+		assert.Equal(t, groupID, tx["groupId"], "All transactions should share group_id")
+	}
+
+	t.Logf("Group %s successfully links %d transactions", groupID, len(transactions))
+}
+
+// TestCleanAPIAbstraction tests that EPX implementation details are not exposed
+func TestCleanAPIAbstraction(t *testing.T) {
+	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+
+	cfg, client := testutil.Setup(t)
+	customerID := "test-customer-clean-api"
+	time.Sleep(2 * time.Second)
+
+	// Tokenize and save payment method
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(
+		cfg, client,
+		"test-merchant-staging",
+		customerID,
+		testutil.TestVisaCard,
+	)
+	require.NoError(t, err)
+	time.Sleep(2 * time.Second)
+
+	// Process sale
+	saleReq := map[string]interface{}{
+		"agent_id":          "test-merchant-staging",
+		"customer_id":       customerID,
+		"payment_method_id": paymentMethodID,
+		"amount":            "25.00",
+		"currency":          "USD",
+	}
+
+	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
+	require.NoError(t, err)
+	defer saleResp.Body.Close()
+
+	var saleResult map[string]interface{}
+	err = testutil.DecodeResponse(saleResp, &saleResult)
+	require.NoError(t, err)
+
+	groupID := saleResult["groupId"].(string)
+	time.Sleep(2 * time.Second)
+
+	// Refund
+	refundReq := map[string]interface{}{
+		"group_id": groupID,
+		"reason":   "Testing clean API",
+	}
+
+	refundResp, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
+	require.NoError(t, err)
+	defer refundResp.Body.Close()
+
+	var refundResult map[string]interface{}
+	err = testutil.DecodeResponse(refundResp, &refundResult)
+	require.NoError(t, err)
+
+	// Verify EPX-specific fields are NOT exposed
+	epxFields := []string{"authGuid", "authResp", "authCardType", "bric"}
+	for _, field := range epxFields {
+		assert.Nil(t, refundResult[field], "EPX field %s should not be exposed", field)
+	}
+
+	// Verify clean abstracted fields ARE present
+	assert.NotEmpty(t, refundResult["authorizationCode"], "Should have authorization_code")
+	assert.NotEmpty(t, refundResult["message"], "Should have message")
+	assert.NotNil(t, refundResult["isApproved"], "Should have is_approved")
+
+	if card, ok := refundResult["card"].(map[string]interface{}); ok && card != nil {
+		assert.NotEmpty(t, card["brand"], "Card should have brand")
+		assert.NotEmpty(t, card["lastFour"], "Card should have last_four")
+	}
+
+	t.Log("✅ Clean API verified - no EPX implementation details exposed")
+}

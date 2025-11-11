@@ -21,7 +21,7 @@ import (
 
 // DatabaseAdapter defines the interface for database operations
 type DatabaseAdapter interface {
-	Queries() *sqlc.Queries
+	Queries() sqlc.Querier
 }
 
 // WebhookDeliveryService handles webhook delivery to merchant endpoints

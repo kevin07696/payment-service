@@ -10,10 +10,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 
 	"github.com/kevin07696/payment-service/internal/adapters/database"
@@ -84,12 +86,34 @@ func main() {
 	// Register reflection service (for tools like grpcurl)
 	reflection.Register(grpcServer)
 
+	// Setup gRPC-Gateway (REST API proxy to gRPC)
+	ctx := context.Background()
+	gwMux := runtime.NewServeMux()
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	grpcEndpoint := fmt.Sprintf("localhost:%d", cfg.Port)
+
+	// Register all gateway handlers
+	if err := paymentv1.RegisterPaymentServiceHandlerFromEndpoint(ctx, gwMux, grpcEndpoint, opts); err != nil {
+		logger.Fatal("Failed to register payment gateway", zap.Error(err))
+	}
+	if err := paymentmethodv1.RegisterPaymentMethodServiceHandlerFromEndpoint(ctx, gwMux, grpcEndpoint, opts); err != nil {
+		logger.Fatal("Failed to register payment method gateway", zap.Error(err))
+	}
+	if err := subscriptionv1.RegisterSubscriptionServiceHandlerFromEndpoint(ctx, gwMux, grpcEndpoint, opts); err != nil {
+		logger.Fatal("Failed to register subscription gateway", zap.Error(err))
+	}
+
+	logger.Info("gRPC-Gateway registered", zap.String("rest_api", "/api/v1/*"))
+
 	// Setup HTTP server for cron endpoints and Browser Post callback
 	httpMux := http.NewServeMux()
 
 	// Create rate limiter (10 requests per second per IP, burst of 20)
 	// Adjust these values based on expected staging traffic
 	rateLimiter := middleware.NewRateLimiter(10, 20)
+
+	// Mount gRPC-Gateway (REST API)
+	httpMux.Handle("/api/", gwMux)
 
 	// Cron endpoints
 	httpMux.HandleFunc("/cron/process-billing", deps.billingCronHandler.ProcessBilling)

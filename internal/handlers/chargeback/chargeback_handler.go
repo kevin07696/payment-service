@@ -38,7 +38,7 @@ func NewHandlerWithQueries(queries QueryExecutor, logger *zap.Logger) *Handler {
 
 // DatabaseAdapter wraps a database adapter to extract queries
 type DatabaseAdapter interface {
-	Queries() *sqlc.Queries
+	Queries() sqlc.Querier
 }
 
 // NewHandler creates a new chargeback handler from a database adapter

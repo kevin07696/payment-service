@@ -11,6 +11,15 @@ DECLARE
     deleted_count INTEGER;
     total_deleted INTEGER := 0;
 BEGIN
+    -- Soft delete PENDING transactions older than 1 hour (abandoned checkouts)
+    UPDATE transactions
+    SET deleted_at = CURRENT_TIMESTAMP
+    WHERE status = 'pending'
+      AND created_at < NOW() - INTERVAL '1 hour'
+      AND deleted_at IS NULL;
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Soft deleted % abandoned PENDING transactions', deleted_count;
+
     -- Transactions (older than 90 days)
     DELETE FROM transactions
     WHERE deleted_at IS NOT NULL

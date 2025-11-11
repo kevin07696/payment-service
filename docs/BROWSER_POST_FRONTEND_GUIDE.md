@@ -1,172 +1,107 @@
-# EPX Browser Post Frontend Implementation Guide
+# Browser POST Frontend Integration Guide
 
-## What is Browser Post?
-
-Browser Post is EPX's **PCI-compliant** payment method where:
-- Card data is submitted **directly from the user's browser to EPX**
-- Card data **never touches your backend server**
-- You remain PCI compliant without handling sensitive card data
-- EPX processes the payment and redirects back to your callback URL
+**Last Updated**: 2025-11-11
+**Pattern**: PENDING→UPDATE transaction lifecycle
+**For**: Frontend developers integrating Payment Service
 
 ---
 
-## How Browser Post Works - Complete Flow
+## Quick Start
 
-```
-┌─────────────┐         ┌──────────────┐         ┌─────────┐         ┌──────────────┐
-│   User      │         │   Your       │         │   EPX   │         │   Your       │
-│   Browser   │         │   Backend    │         │         │         │   Callback   │
-└─────────────┘         └──────────────┘         └─────────┘         └──────────────┘
-      │                        │                       │                      │
-      │  1. Load payment page  │                       │                      │
-      │───────────────────────>│                       │                      │
-      │                        │                       │                      │
-      │  2. Generate TAC token │                       │                      │
-      │                        │ (optional, depends on │                      │
-      │                        │  EPX setup)           │                      │
-      │                        │                       │                      │
-      │  3. Return form data   │                       │                      │
-      │<───────────────────────│                       │                      │
-      │    (TAC, credentials,  │                       │                      │
-      │     hidden fields)     │                       │                      │
-      │                        │                       │                      │
-      │  4. User enters card   │                       │                      │
-      │     and clicks Pay     │                       │                      │
-      │                        │                       │                      │
-      │  5. POST to EPX        │                       │                      │
-      │────────────────────────────────────────────────>                      │
-      │    (card data + TAC +  │                       │                      │
-      │     transaction info)  │                       │                      │
-      │                        │                       │                      │
-      │                        │  6. EPX processes     │                      │
-      │                        │     payment           │                      │
-      │                        │                       │                      │
-      │  7. EPX redirects      │                       │                      │
-      │     with results       │                       │                      │
-      │<───────────────────────────────────────────────│                      │
-      │    (POST to REDIRECT_URL)                      │                      │
-      │                                                 │                      │
-      │  8. Callback receives results                  │                      │
-      │────────────────────────────────────────────────────────────────────────>
-      │                                                 │                      │
-      │                                                 │  9. Store in DB,    │
-      │                                                 │     send webhooks   │
-      │                                                 │                      │
-      │  10. Display confirmation                       │                      │
-      │<────────────────────────────────────────────────────────────────────────│
-```
+Browser POST enables PCI-compliant **credit card payments** where card data flows directly from browser to EPX, bypassing your backend entirely.
+
+> **Payment Method Support**: Browser POST supports **credit cards only**. For ACH payments, use Server POST API.
+
+**3-Step Integration**:
+1. Backend calls Payment Service `GetPaymentForm` API → receives form config + transaction IDs
+2. Frontend renders HTML form with received config + user input fields
+3. User submits → EPX processes → Payment Service updates transaction → redirects to your return_url
+
+**Complete technical details**: See [Browser POST Dataflow](./BROWSER_POST_DATAFLOW.md)
 
 ---
 
-## Step 1: Backend - Generate Form Data
+## Step 1: Backend Calls Payment Service
 
-Your backend needs to generate the form data that will be used in the HTML form.
+### API Request
 
-### Option A: With TAC Token (More Secure)
+**Endpoint**: `GET /api/v1/payments/browser-post/form`
+
+```http
+GET /api/v1/payments/browser-post/form?amount=99.99&return_url=https://pos.example.com/payment-complete&agent_id=merchant-123
+```
+
+**Required Parameters**:
+- `amount`: Transaction amount (e.g., "99.99")
+- `return_url`: Where to redirect browser after payment completes
+- `agent_id`: Merchant identifier (optional, defaults to EPX custNbr)
+
+### API Response
+
+```json
+{
+  "transactionId": "054edaac-3770-4222-ab50-e09b41051cc4",
+  "groupId": "9b3d3df9-e37b-47ca-83f8-106b51b0ff50",
+  "postURL": "https://secure.epxuap.com/browserpost",
+  "amount": "99.99",
+  "tranNbr": "45062844883",
+  "tranGroup": "SALE",
+  "tranCode": "SALE",
+  "industryType": "E",
+  "cardEntMeth": "E",
+  "redirectURL": "http://payment-service:8081/api/v1/payments/browser-post/callback",
+  "userData1": "return_url=https://pos.example.com/payment-complete",
+  "custNbr": "9001",
+  "merchNbr": "900300",
+  "dBAnbr": "2",
+  "terminalNbr": "77",
+  "merchantName": "Payment Service"
+}
+```
+
+**Critical**: `transactionId` and `groupId` represent PENDING transaction already created. Store `groupId` to link order→payment.
+
+### Backend Implementation Example
 
 ```go
-// internal/handlers/payment/browser_post_handler.go
-func (h *BrowserPostHandler) GeneratePaymentForm(ctx context.Context, req *PaymentFormRequest) (*BrowserPostFormData, error) {
-    // 1. Generate unique transaction number
-    tranNbr := fmt.Sprintf("%d", time.Now().Unix() % 100000)
-
-    // 2. Generate TAC token (if required by your EPX setup)
-    // Note: TAC generation method depends on your EPX configuration
-    // Some merchants use Key Exchange API, others have different methods
-    tacToken, err := h.generateTAC(ctx, &TACRequest{
-        Amount:      req.Amount,
-        TranNbr:     tranNbr,
-        RedirectURL: "https://yourdomain.com/api/v1/payments/callback",
-    })
+func (s *POSService) InitiatePayment(orderID string, amount string) (*FormConfig, error) {
+    // 1. Call Payment Service
+    resp, err := http.Get(fmt.Sprintf(
+        "https://payment-service/api/v1/payments/browser-post/form?amount=%s&return_url=%s&agent_id=%s",
+        amount,
+        url.QueryEscape("https://pos.example.com/payment-complete"),
+        s.AgentID,
+    ))
     if err != nil {
         return nil, err
     }
+    defer resp.Body.Close()
 
-    // 3. Build form data using adapter
-    formData := h.browserPostAdapter.BuildFormData(&ports.BrowserPostRequest{
-        TAC:         tacToken,
-        Amount:      req.Amount,
-        TranNbr:     tranNbr,
-        TranGroup:   tranNbr,
-        TranCode:    "SALE",
-        RedirectURL: "https://yourdomain.com/api/v1/payments/callback",
-        CustNbr:     h.config.EPX.CustNbr,
-        MerchNbr:    h.config.EPX.MerchNbr,
-        DBAnbr:      h.config.EPX.DBAnbr,
-        TerminalNbr: h.config.EPX.TerminalNbr,
-    })
+    var formConfig FormConfig
+    json.NewDecoder(resp.Body).Decode(&formConfig)
 
-    return formData, nil
-}
-```
+    // 2. Store group_id with order
+    s.DB.Exec("UPDATE orders SET payment_group_id = $1, payment_status = 'PENDING' WHERE id = $2",
+        formConfig.GroupID, orderID)
 
-### Option B: Without TAC Token (Simpler)
-
-Some EPX configurations don't require TAC tokens:
-
-```go
-func (h *BrowserPostHandler) GeneratePaymentForm(ctx context.Context, req *PaymentFormRequest) (*BrowserPostFormData, error) {
-    tranNbr := fmt.Sprintf("%d", time.Now().Unix() % 100000)
-
-    formData := &BrowserPostFormData{
-        PostURL:     "https://secure.epxuap.com/browserpost", // Sandbox
-        Amount:      req.Amount,
-        TranNbr:     tranNbr,
-        TranGroup:   tranNbr,
-        TranCode:    "SALE",
-        IndustryType: "E", // E-commerce
-        CardEntMeth: "E",  // E-commerce entry
-        RedirectURL: "https://yourdomain.com/api/v1/payments/callback",
-        CustNbr:     "9001",
-        MerchNbr:    "900300",
-        DBAnbr:      "2",
-        TerminalNbr: "77",
-    }
-
-    return formData, nil
+    // 3. Return config to frontend
+    return &formConfig, nil
 }
 ```
 
 ---
 
-## Step 2: Backend - API Endpoint
-
-Create an endpoint to serve the form data to your frontend:
-
-```go
-// GET /api/v1/payments/browser-post/form?amount=99.99
-func (h *BrowserPostHandler) GetPaymentForm(w http.ResponseWriter, r *http.Request) {
-    amount := r.URL.Query().Get("amount")
-    if amount == "" {
-        http.Error(w, "amount is required", http.StatusBadRequest)
-        return
-    }
-
-    formData, err := h.GeneratePaymentForm(r.Context(), &PaymentFormRequest{
-        Amount: amount,
-    })
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    json.NewEncoder(w).Encode(formData)
-}
-```
-
----
-
-## Step 3: Frontend - HTML Form
+## Step 2: Frontend Renders Payment Form
 
 ### React Example
 
 ```tsx
-// PaymentForm.tsx
 import React, { useEffect, useState } from 'react';
 
-interface BrowserPostFormData {
+interface FormConfig {
+  transactionId: string;
+  groupId: string;
   postURL: string;
-  tac?: string;
   amount: string;
   tranNbr: string;
   tranGroup: string;
@@ -174,130 +109,101 @@ interface BrowserPostFormData {
   industryType: string;
   cardEntMeth: string;
   redirectURL: string;
+  userData1: string;
   custNbr: string;
   merchNbr: string;
   dBAnbr: string;
   terminalNbr: string;
 }
 
-export default function PaymentForm({ amount }: { amount: string }) {
-  const [formData, setFormData] = useState<BrowserPostFormData | null>(null);
+export default function PaymentForm({ orderID, amount }: { orderID: string; amount: string }) {
+  const [config, setConfig] = useState<FormConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch form data from backend
-    fetch(`/api/v1/payments/browser-post/form?amount=${amount}`)
+    // Fetch form config from POS backend
+    fetch(`/api/orders/${orderID}/payment-form?amount=${amount}`)
       .then(res => res.json())
       .then(data => {
-        setFormData(data);
+        setConfig(data);
         setLoading(false);
       })
       .catch(err => {
         console.error('Failed to load payment form:', err);
         setLoading(false);
       });
-  }, [amount]);
+  }, [orderID, amount]);
 
   if (loading) return <div>Loading payment form...</div>;
-  if (!formData) return <div>Failed to load payment form</div>;
+  if (!config) return <div>Failed to load payment form</div>;
 
   return (
     <div className="payment-form">
-      <h2>Payment Details</h2>
+      <h2>Pay ${config.amount}</h2>
+      <p className="info">Transaction ID: {config.transactionId}</p>
 
-      <form method="POST" action={formData.postURL}>
-        {/* Hidden EPX Fields */}
-        {formData.tac && <input type="hidden" name="TAC" value={formData.tac} />}
-        <input type="hidden" name="CUST_NBR" value={formData.custNbr} />
-        <input type="hidden" name="MERCH_NBR" value={formData.merchNbr} />
-        <input type="hidden" name="DBA_NBR" value={formData.dBAnbr} />
-        <input type="hidden" name="TERMINAL_NBR" value={formData.terminalNbr} />
-        <input type="hidden" name="TRAN_CODE" value={formData.tranCode} />
-        <input type="hidden" name="TRAN_NBR" value={formData.tranNbr} />
-        <input type="hidden" name="TRAN_GROUP" value={formData.tranGroup} />
-        <input type="hidden" name="AMOUNT" value={formData.amount} />
-        <input type="hidden" name="INDUSTRY_TYPE" value={formData.industryType} />
-        <input type="hidden" name="CARD_ENT_METH" value={formData.cardEntMeth} />
-        <input type="hidden" name="REDIRECT_URL" value={formData.redirectURL} />
+      <form method="POST" action={config.postURL}>
+        {/* Hidden EPX fields - from Payment Service */}
+        <input type="hidden" name="CUST_NBR" value={config.custNbr} />
+        <input type="hidden" name="MERCH_NBR" value={config.merchNbr} />
+        <input type="hidden" name="DBA_NBR" value={config.dBAnbr} />
+        <input type="hidden" name="TERMINAL_NBR" value={config.terminalNbr} />
+        <input type="hidden" name="TRAN_CODE" value={config.tranCode} />
+        <input type="hidden" name="TRAN_NBR" value={config.tranNbr} />
+        <input type="hidden" name="TRAN_GROUP" value={config.tranGroup} />
+        <input type="hidden" name="AMOUNT" value={config.amount} />
+        <input type="hidden" name="INDUSTRY_TYPE" value={config.industryType} />
+        <input type="hidden" name="CARD_ENT_METH" value={config.cardEntMeth} />
+        <input type="hidden" name="REDIRECT_URL" value={config.redirectURL} />
+        <input type="hidden" name="USER_DATA_1" value={config.userData1} />
 
-        {/* Card Details - User Input */}
+        {/* Card details - user input */}
         <div className="form-group">
-          <label htmlFor="card_nbr">Card Number</label>
-          <input
-            type="text"
-            id="card_nbr"
-            name="CARD_NBR"
-            placeholder="4111111111111111"
-            maxLength={16}
-            required
-          />
+          <label>Card Number</label>
+          <input type="text" name="CARD_NBR" placeholder="4111111111111111" maxLength={16} required />
         </div>
 
         <div className="form-row">
           <div className="form-group">
-            <label htmlFor="exp_month">Exp Month</label>
-            <input
-              type="text"
-              id="exp_month"
-              name="EXP_MONTH"
-              placeholder="12"
-              maxLength={2}
-              required
-            />
+            <label>Exp Month (MM)</label>
+            <input type="text" name="EXP_MONTH" placeholder="12" maxLength={2} required />
           </div>
-
           <div className="form-group">
-            <label htmlFor="exp_year">Exp Year</label>
-            <input
-              type="text"
-              id="exp_year"
-              name="EXP_YEAR"
-              placeholder="2025"
-              maxLength={4}
-              required
-            />
+            <label>Exp Year (YYYY)</label>
+            <input type="text" name="EXP_YEAR" placeholder="2025" maxLength={4} required />
           </div>
-
           <div className="form-group">
-            <label htmlFor="cvv">CVV</label>
-            <input
-              type="text"
-              id="cvv"
-              name="CVV"
-              placeholder="123"
-              maxLength={4}
-              required
-            />
+            <label>CVV</label>
+            <input type="text" name="CVV" placeholder="123" maxLength={4} required />
           </div>
         </div>
 
         <div className="form-group">
-          <label htmlFor="first_name">First Name</label>
-          <input type="text" id="first_name" name="FIRST_NAME" required />
+          <label>First Name</label>
+          <input type="text" name="FIRST_NAME" required />
         </div>
 
         <div className="form-group">
-          <label htmlFor="last_name">Last Name</label>
-          <input type="text" id="last_name" name="LAST_NAME" required />
+          <label>Last Name</label>
+          <input type="text" name="LAST_NAME" required />
         </div>
 
         <div className="form-group">
-          <label htmlFor="zip_code">Zip Code</label>
-          <input type="text" id="zip_code" name="ZIP_CODE" maxLength={10} />
+          <label>Zip Code</label>
+          <input type="text" name="ZIP_CODE" maxLength={10} />
         </div>
 
         <button type="submit" className="pay-button">
-          Pay ${formData.amount}
+          Pay ${config.amount}
         </button>
       </form>
 
       <div className="test-cards">
-        <p><strong>Test Cards:</strong></p>
+        <p><strong>Test Cards (Sandbox):</strong></p>
         <ul>
           <li>Visa: 4111111111111111</li>
           <li>Mastercard: 5499740000000057</li>
-          <li>CVV: Any 3 digits (123)</li>
-          <li>Expiry: Any future date (12/2025)</li>
+          <li>CVV: 123, Expiry: 12/2025</li>
         </ul>
       </div>
     </div>
@@ -313,57 +219,66 @@ export default function PaymentForm({ amount }: { amount: string }) {
 <head>
     <title>Payment</title>
     <style>
-        .payment-form { max-width: 500px; margin: 50px auto; }
+        .payment-form { max-width: 500px; margin: 50px auto; font-family: sans-serif; }
         .form-group { margin-bottom: 15px; }
+        .form-row { display: flex; gap: 10px; }
         label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input { width: 100%; padding: 10px; border: 1px solid #ddd; }
-        button { width: 100%; padding: 15px; background: #4CAF50; color: white; }
+        input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button { width: 100%; padding: 15px; background: #4CAF50; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
+        button:hover { background: #45a049; }
     </style>
 </head>
 <body>
     <div class="payment-form" id="paymentForm">Loading...</div>
 
     <script>
-        // Fetch form data from backend
-        fetch('/api/v1/payments/browser-post/form?amount=99.99')
-            .then(res => res.json())
-            .then(data => {
-                document.getElementById('paymentForm').innerHTML = `
-                    <h2>Payment: $${data.amount}</h2>
-                    <form method="POST" action="${data.postURL}">
-                        <!-- Hidden Fields -->
-                        ${data.tac ? `<input type="hidden" name="TAC" value="${data.tac}">` : ''}
-                        <input type="hidden" name="CUST_NBR" value="${data.custNbr}">
-                        <input type="hidden" name="MERCH_NBR" value="${data.merchNbr}">
-                        <input type="hidden" name="DBA_NBR" value="${data.dBAnbr}">
-                        <input type="hidden" name="TERMINAL_NBR" value="${data.terminalNbr}">
-                        <input type="hidden" name="TRAN_CODE" value="${data.tranCode}">
-                        <input type="hidden" name="TRAN_NBR" value="${data.tranNbr}">
-                        <input type="hidden" name="TRAN_GROUP" value="${data.tranGroup}">
-                        <input type="hidden" name="AMOUNT" value="${data.amount}">
-                        <input type="hidden" name="INDUSTRY_TYPE" value="${data.industryType}">
-                        <input type="hidden" name="CARD_ENT_METH" value="${data.cardEntMeth}">
-                        <input type="hidden" name="REDIRECT_URL" value="${data.redirectURL}">
+        // Extract orderID from URL or pass it in
+        const orderID = 'ORDER-123';
+        const amount = '99.99';
 
-                        <!-- Card Details -->
+        // Fetch form config from POS backend
+        fetch(`/api/orders/${orderID}/payment-form?amount=${amount}`)
+            .then(res => res.json())
+            .then(config => {
+                // Render form with fetched config
+                document.getElementById('paymentForm').innerHTML = `
+                    <h2>Pay $${config.amount}</h2>
+                    <p style="color: #666; font-size: 14px;">Transaction: ${config.transactionId}</p>
+
+                    <form method="POST" action="${config.postURL}">
+                        <!-- Hidden EPX fields -->
+                        <input type="hidden" name="CUST_NBR" value="${config.custNbr}">
+                        <input type="hidden" name="MERCH_NBR" value="${config.merchNbr}">
+                        <input type="hidden" name="DBA_NBR" value="${config.dBAnbr}">
+                        <input type="hidden" name="TERMINAL_NBR" value="${config.terminalNbr}">
+                        <input type="hidden" name="TRAN_CODE" value="${config.tranCode}">
+                        <input type="hidden" name="TRAN_NBR" value="${config.tranNbr}">
+                        <input type="hidden" name="TRAN_GROUP" value="${config.tranGroup}">
+                        <input type="hidden" name="AMOUNT" value="${config.amount}">
+                        <input type="hidden" name="INDUSTRY_TYPE" value="${config.industryType}">
+                        <input type="hidden" name="CARD_ENT_METH" value="${config.cardEntMeth}">
+                        <input type="hidden" name="REDIRECT_URL" value="${config.redirectURL}">
+                        <input type="hidden" name="USER_DATA_1" value="${config.userData1}">
+
+                        <!-- Card input fields -->
                         <div class="form-group">
                             <label>Card Number</label>
                             <input type="text" name="CARD_NBR" placeholder="4111111111111111" maxlength="16" required>
                         </div>
 
-                        <div class="form-group">
-                            <label>Expiry Month (MM)</label>
-                            <input type="text" name="EXP_MONTH" placeholder="12" maxlength="2" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Expiry Year (YYYY)</label>
-                            <input type="text" name="EXP_YEAR" placeholder="2025" maxlength="4" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label>CVV</label>
-                            <input type="text" name="CVV" placeholder="123" maxlength="4" required>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Month</label>
+                                <input type="text" name="EXP_MONTH" placeholder="12" maxlength="2" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Year</label>
+                                <input type="text" name="EXP_YEAR" placeholder="2025" maxlength="4" required>
+                            </div>
+                            <div class="form-group">
+                                <label>CVV</label>
+                                <input type="text" name="CVV" placeholder="123" maxlength="4" required>
+                            </div>
                         </div>
 
                         <div class="form-group">
@@ -376,13 +291,18 @@ export default function PaymentForm({ amount }: { amount: string }) {
                             <input type="text" name="LAST_NAME" required>
                         </div>
 
-                        <button type="submit">Pay $${data.amount}</button>
+                        <button type="submit">Pay $${config.amount}</button>
                     </form>
+
+                    <p style="margin-top: 20px; font-size: 12px; color: #666;">
+                        <strong>Test Card:</strong> 4111111111111111, CVV: 123, Exp: 12/2025
+                    </p>
                 `;
             })
             .catch(err => {
                 document.getElementById('paymentForm').innerHTML =
-                    '<p>Error loading payment form. Please try again.</p>';
+                    '<p style="color: red;">Error loading payment form. Please try again.</p>';
+                console.error(err);
             });
     </script>
 </body>
@@ -391,235 +311,177 @@ export default function PaymentForm({ amount }: { amount: string }) {
 
 ---
 
-## Step 4: Backend - Handle Callback
+## Step 3: Handle Payment Completion
 
-EPX will POST the payment results to your `REDIRECT_URL`:
+After EPX processes payment, Payment Service redirects browser back to your `return_url` with transaction data.
+
+### Return URL Query Parameters
+
+```
+https://pos.example.com/payment-complete?groupId=9b3d3df9-e37b-47ca-83f8-106b51b0ff50&transactionId=054edaac-3770-4222-ab50-e09b41051cc4&status=completed&amount=99.99&cardType=VISA&authCode=OK1234
+```
+
+**Parameters**:
+- `groupId`: Payment group ID (use to look up order)
+- `transactionId`: Specific transaction ID
+- `status`: "completed" or "failed"
+- `amount`: Transaction amount
+- `cardType`: Card brand (VISA, MASTERCARD, etc.)
+- `authCode`: Authorization code from EPX
+
+### Backend Handler Example
 
 ```go
-// POST /api/v1/payments/browser-post/callback
-func (h *BrowserPostHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
-    // 1. Parse form data from EPX
-    if err := r.ParseForm(); err != nil {
-        http.Error(w, "Invalid form data", http.StatusBadRequest)
-        return
-    }
+func (s *POSService) HandlePaymentComplete(w http.ResponseWriter, r *http.Request) {
+    groupID := r.URL.Query().Get("groupId")
+    status := r.URL.Query().Get("status")
 
-    // 2. Extract response fields
-    response := &ports.BrowserPostResponse{
-        AuthGUID:     r.FormValue("AUTH_GUID"),
-        AuthResp:     r.FormValue("AUTH_RESP"),
-        AuthCode:     r.FormValue("AUTH_CODE"),
-        Amount:       r.FormValue("AMOUNT"),
-        TranNbr:      r.FormValue("TRAN_NBR"),
-        IsApproved:   r.FormValue("AUTH_RESP") == "00",
-        RespMsg:      r.FormValue("RESP_MSG"),
-        // ... extract other fields
-    }
+    // Look up order by payment_group_id
+    var order Order
+    s.DB.QueryRow("SELECT * FROM orders WHERE payment_group_id = $1", groupID).Scan(&order)
 
-    // 3. Verify HMAC signature (security!)
-    receivedMAC := r.FormValue("MAC")
-    if !h.verifyHMAC(response, receivedMAC) {
-        h.logger.Error("Invalid HMAC signature")
-        http.Error(w, "Invalid signature", http.StatusUnauthorized)
-        return
-    }
+    if status == "completed" {
+        // Mark order as paid
+        s.DB.Exec("UPDATE orders SET payment_status = 'PAID' WHERE id = $1", order.ID)
 
-    // 4. Store transaction in database
-    if err := h.paymentService.StoreTransaction(r.Context(), response); err != nil {
-        h.logger.Error("Failed to store transaction", zap.Error(err))
-        http.Error(w, "Internal error", http.StatusInternalServerError)
-        return
-    }
-
-    // 5. Redirect user to success/failure page
-    if response.IsApproved {
-        http.Redirect(w, r, "/payment/success?txn="+response.AuthGUID, http.StatusSeeOther)
+        // Render success page with complete receipt
+        s.RenderReceipt(w, &order, r.URL.Query())
     } else {
-        http.Redirect(w, r, "/payment/failed?reason="+response.RespMsg, http.StatusSeeOther)
+        // Payment failed - show error and allow retry
+        s.RenderPaymentFailed(w, &order, r.URL.Query().Get("authRespText"))
     }
 }
 ```
 
 ---
 
-## Required Form Fields
+## Required Form Fields Reference
 
-### Hidden Fields (From Backend)
+### Hidden Fields (From Payment Service)
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `TAC` | Terminal Authorization Code (if required) | Generated token |
-| `CUST_NBR` | Customer number | `9001` |
-| `MERCH_NBR` | Merchant number | `900300` |
-| `DBA_NBR` | DBA number | `2` |
-| `TERMINAL_NBR` | Terminal number | `77` |
-| `TRAN_CODE` | Transaction code | `SALE` |
-| `TRAN_NBR` | Unique transaction number | `12345` |
-| `TRAN_GROUP` | Transaction group | `SALE` |
-| `AMOUNT` | Transaction amount | `99.99` |
-| `INDUSTRY_TYPE` | Industry type | `E` (ecommerce) |
-| `CARD_ENT_METH` | Card entry method | `E` (ecommerce) |
-| `REDIRECT_URL` | Callback URL | `https://yourdomain.com/callback` |
+| Field | Source | Example | Required |
+|-------|--------|---------|----------|
+| `CUST_NBR` | config.custNbr | `9001` | ✅ |
+| `MERCH_NBR` | config.merchNbr | `900300` | ✅ |
+| `DBA_NBR` | config.dBAnbr | `2` | ✅ |
+| `TERMINAL_NBR` | config.terminalNbr | `77` | ✅ |
+| `TRAN_CODE` | config.tranCode | `SALE` | ✅ |
+| `TRAN_NBR` | config.tranNbr | `45062844883` | ✅ |
+| `TRAN_GROUP` | config.tranGroup | `SALE` | ✅ |
+| `AMOUNT` | config.amount | `99.99` | ✅ |
+| `INDUSTRY_TYPE` | config.industryType | `E` | ✅ |
+| `CARD_ENT_METH` | config.cardEntMeth | `E` | ✅ |
+| `REDIRECT_URL` | config.redirectURL | Payment Service callback | ✅ |
+| `USER_DATA_1` | config.userData1 | return_url state | ✅ |
 
 ### User Input Fields
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `CARD_NBR` | Card number | `4111111111111111` |
-| `EXP_MONTH` | Expiry month | `12` |
-| `EXP_YEAR` | Expiry year | `2025` |
-| `CVV` | Card security code | `123` |
-| `FIRST_NAME` | Cardholder first name | `John` |
-| `LAST_NAME` | Cardholder last name | `Doe` |
-| `ZIP_CODE` | Billing zip code (optional) | `10001` |
-
----
-
-## EPX Endpoints
-
-### Sandbox (Testing)
-
-```
-https://secure.epxuap.com/browserpost
-```
-
-### Production
-
-```
-https://secure.epxnow.com/browserpost
-```
-
----
-
-## Security Best Practices
-
-### 1. HMAC Verification
-
-**Always verify the HMAC signature** in the callback to ensure the response came from EPX:
-
-```go
-func (h *BrowserPostHandler) verifyHMAC(response *BrowserPostResponse, receivedMAC string) bool {
-    // Concatenate fields in specific order
-    message := response.TranNbr + response.Amount + response.AuthGUID + response.AuthResp
-
-    // Calculate HMAC-SHA256
-    mac := hmac.New(sha256.New, []byte(h.config.EPX.MAC))
-    mac.Write([]byte(message))
-    expectedMAC := hex.EncodeToString(mac.Sum(nil))
-
-    return hmac.Equal([]byte(receivedMAC), []byte(expectedMAC))
-}
-```
-
-### 2. Use HTTPS
-
-- Always use HTTPS for your callback URL
-- EPX requires HTTPS in production
-
-### 3. Validate Amounts
-
-```go
-// Verify amount matches what you expected
-expectedAmount := getExpectedAmount(response.TranNbr)
-if response.Amount != expectedAmount {
-    h.logger.Error("Amount mismatch",
-        zap.String("expected", expectedAmount),
-        zap.String("received", response.Amount))
-    return errors.New("amount mismatch")
-}
-```
-
-### 4. Idempotency
-
-```go
-// Check if transaction already processed
-existing, err := h.repo.GetTransactionByTranNbr(ctx, response.TranNbr)
-if err == nil && existing != nil {
-    h.logger.Warn("Duplicate callback received", zap.String("tran_nbr", response.TranNbr))
-    // Return success but don't reprocess
-    return nil
-}
-```
+| Field | Description | Example | Required |
+|-------|-------------|---------|----------|
+| `CARD_NBR` | Card number | `4111111111111111` | ✅ |
+| `EXP_MONTH` | Expiry month (MM) | `12` | ✅ |
+| `EXP_YEAR` | Expiry year (YYYY) | `2025` | ✅ |
+| `CVV` | Security code | `123` | ✅ |
+| `FIRST_NAME` | Cardholder first name | `John` | ✅ |
+| `LAST_NAME` | Cardholder last name | `Doe` | ✅ |
+| `ZIP_CODE` | Billing zip | `10001` | ❌ (optional) |
 
 ---
 
 ## Testing
 
-### Test Card Numbers
+### Test Credentials (Sandbox)
 
-**Approved:**
+```
+EPX Endpoint: https://secure.epxuap.com/browserpost
+Payment Service: http://localhost:8081
+```
+
+### Test Cards
+
+**Approved**:
 - Visa: `4111111111111111`
 - Mastercard: `5499740000000057`
 - Amex: `378282246310005`
 
-**Declined:**
+**Declined**:
 - Visa: `4000000000000002`
 
-**Test CVV:** Any 3 digits (e.g., `123`)
-**Test Expiry:** Any future date (e.g., `12/2025`)
+**All cards**: CVV: `123`, Expiry: any future date (e.g., `12/2025`)
 
-### Quick Test
+### Test Flow
 
-1. Open the test HTML file:
-
-```bash
-firefox test_browser_post.html
-```
-
-2. Use test card: `4111111111111111`
-3. Submit form
-4. EPX processes and redirects to your callback
-5. Verify transaction stored in your database
+1. Call `/api/v1/payments/browser-post/form?amount=1.00&return_url=http://localhost:3000/complete&agent_id=test`
+2. Render form with returned config
+3. Enter test card: `4111111111111111`, CVV: `123`, Exp: `12/2025`
+4. Submit form → redirects to EPX
+5. EPX processes → redirects to Payment Service callback
+6. Payment Service updates transaction → redirects to your return_url
+7. Verify query parameters include groupId, transactionId, status
 
 ---
 
 ## Common Issues
 
-### Issue 1: "Invalid TAC"
+### Issue: "amount parameter is required"
+**Cause**: Missing `amount` in GetPaymentForm request
+**Fix**: Include `?amount=99.99` in API call
 
-**Cause:** TAC token expired (4 hour TTL) or not generated correctly
-**Solution:** Generate a fresh TAC token before rendering the form
+### Issue: "return_url parameter is required"
+**Cause**: Missing `return_url` in GetPaymentForm request
+**Fix**: Include `&return_url=https://pos.example.com/complete` in API call
 
-### Issue 2: "Invalid REDIRECT_URL"
+### Issue: Form submits but redirects to error page
+**Cause**: REDIRECT_URL not whitelisted with EPX
+**Fix**: Contact EPX to whitelist Payment Service callback URL
 
-**Cause:** Callback URL not whitelisted with EPX
-**Solution:** Contact EPX to whitelist your callback URL
+### Issue: Payment completes but no redirect back to POS
+**Cause**: Invalid return_url or Payment Service cannot reach it
+**Fix**: Ensure return_url is publicly accessible HTTPS URL
 
-### Issue 3: Callback not receiving data
+### Issue: "Transaction not found" after callback
+**Cause**: TRAN_NBR mismatch or transaction not created in Step 1
+**Fix**: Verify GetPaymentForm was called and returned transactionId
 
-**Cause:** CORS or HTTPS issues
-**Solution:** Ensure your callback endpoint accepts POST requests and uses HTTPS in production
+---
 
-### Issue 4: HMAC verification failing
+## Security Notes
 
-**Cause:** Wrong MAC key or incorrect field concatenation
-**Solution:** Verify your MAC key with EPX and check field order in HMAC calculation
+### PCI Compliance
+✅ **Card data never touches your backend** - Forms POST directly to EPX
+✅ **Payment Service never sees card data** - Only receives tokenized response
+✅ **Your backend remains PCI-compliant** - No card data storage required
+
+### HTTPS Requirements
+- **Development**: HTTP localhost allowed
+- **Staging/Production**: HTTPS required for return_url
+
+### Best Practices
+1. Always validate amount matches expected value when handling return_url
+2. Store groupId with order immediately after GetPaymentForm
+3. Mark order PENDING after GetPaymentForm (before payment completes)
+4. Handle both completed and failed statuses at return_url
+5. Show user-friendly error messages for declined payments
 
 ---
 
 ## Summary
 
-**Browser Post Flow:**
+**3-Step Integration**:
+1. **Backend**: Call Payment Service GetPaymentForm → Store groupId with order
+2. **Frontend**: Render HTML form with config → User enters card → Submit to EPX
+3. **Completion**: Browser redirects to your return_url → Render receipt
 
-1. ✅ Backend generates form data (with or without TAC)
-2. ✅ Frontend renders HTML form with hidden fields
-3. ✅ User enters card details and submits
-4. ✅ Form POSTs directly to EPX (card data never hits your server)
-5. ✅ EPX processes payment
-6. ✅ EPX redirects to your callback with results
-7. ✅ Backend verifies HMAC, stores transaction, redirects user
+**Key Points**:
+- Transaction created in PENDING state at Step 1 (audit trail)
+- Card data flows: Browser → EPX (never touches your backend)
+- Payment Service updates PENDING→COMPLETED/FAILED at callback
+- Your backend renders complete receipt (has order context)
 
-**Key Benefits:**
+**Architecture**: Payment Service = Gateway Integration ONLY
 
-- 🔒 PCI compliant (card data never touches your server)
-- ⚡ Simple integration (just an HTML form)
-- 🛡️ Secure with HMAC verification
-- 💳 Supports all major card brands
+---
 
-**Next Steps:**
+**For Complete Technical Details**: See [Browser POST Dataflow](./BROWSER_POST_DATAFLOW.md)
 
-- Implement backend form data generation
-- Create frontend payment form
-- Set up callback handler with HMAC verification
-- Test with sandbox credentials
-- Move to production with production credentials
+**Last Updated**: 2025-11-11

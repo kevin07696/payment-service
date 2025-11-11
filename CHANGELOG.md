@@ -7,6 +7,383 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Protobuf Compilation (2025-11-11)
+
+**Removed Incorrect Proto File** ✅
+- Deleted `proto/payment/v1/payment_browserpost.proto` (incorrect gRPC service definition)
+- **Why**: Browser Post is HTTP-only by design (not gRPC)
+  - Implemented as direct HTTP handlers in main.go:125-126
+  - Uses `BrowserPostCallbackHandler` for PCI-compliant browser-to-EPX flow
+  - Proto file defined conflicting `BrowserPostService` gRPC service that was never registered
+- **Conflicts Resolved**:
+  - Message name conflicts with payment.proto (RefundRequest, VoidRequest, GetTransactionRequest, ListTransactionsRequest, ListTransactionsResponse)
+  - "Transaction is not defined" errors (proto attempted cross-file import)
+- Updated Makefile proto target with `-I. -Iproto` flags for proper include paths
+- Verified: `make proto` compiles successfully
+- Verified: `go build ./...` compiles successfully
+
+**Source of Truth**: Browser Post implementation
+- HTTP endpoints: GET /api/v1/payments/browser-post/form, POST /api/v1/payments/browser-post/callback
+- Documentation: docs/API_SPECIFICATION.md (Browser Post = HTTP-only)
+- Dataflow: docs/BROWSER_POST_DATAFLOW.md
+
+### Added - API Specification Documentation (2025-11-11)
+
+**Comprehensive API Documentation** ✅
+- Created complete API specification document (`docs/API_SPECIFICATION.md`)
+- Documented all HTTP REST APIs:
+  - Payment APIs (authorize, capture, sale, void, refund, get, list)
+  - Payment Method APIs (store, get, list, delete)
+  - Subscription APIs (create, get, list, cancel, pause, resume, update payment method, process billing)
+  - Browser Post APIs (get form, handle callback)
+  - Cron/Health APIs (health check, stats, process billing, sync disputes)
+- Documented gRPC-only APIs (Agent Service, Chargeback Service)
+- Added request/response examples for all endpoints
+- Included authentication patterns, error handling, and best practices
+- Clarified multi-tenant model (agent_id parameter)
+- Documented port configuration (8080 = gRPC, 8081 = HTTP)
+- Added rate limiting details for Browser Post endpoints
+
+**Integration Test Debugging** ✅
+- Fixed merchant integration tests:
+  - TestHealthCheck: Updated endpoint from `/health` to `/cron/health`
+  - TestGetMerchant_FromSeedData: Added skip with explanation (AgentService is gRPC-only by design)
+- Made EPX credentials optional in test config (only required for tokenization tests)
+- All integration tests now pass: 9 passing, 29 skipping (BRIC Storage pending)
+
+**Documentation Updates** ✅
+- Updated README.md with reorganized documentation section
+- Added API Specification as primary API reference
+- Organized documentation into categories (API, Integration Guides, Dataflow)
+- Removed outdated DOCUMENTATION.md reference
+- Verified Browser Post documentation accuracy
+
+**Files Created/Modified**:
+- `docs/API_SPECIFICATION.md` - New comprehensive API reference
+- `tests/integration/merchant/merchant_test.go` - Fixed endpoints
+- `tests/integration/testutil/config.go` - Made EPX credentials optional
+- `tests/integration/testutil/tokenization.go` - Added credential validation
+- `README.md` - Updated documentation section
+
+### Added - BRIC Storage Tokenization Tests (2025-11-11)
+
+**Integration Test Infrastructure** ✅
+- Created EPX BRIC Storage tokenization helper functions (CCE8 for cards, CKC8 for ACH)
+- Refactored all integration tests to use proper PCI-compliant tokenization flow:
+  - Card Data → EPX BRIC Storage → Token → SavePaymentMethod → Use in transactions
+- Implemented XML-based BRIC Storage API per EPX Transaction Specs documentation
+- Added proper customer_id tracking throughout all test requests
+
+**Status**: 🚧 Pending EPX Sandbox Configuration
+- BRIC Storage (CCE8/CKC8) transaction types require EPX to enable them in sandbox merchant account
+- Tests are marked with `t.Skip()` and documented with "Coming Soon" status
+- Once EPX enables BRIC Storage in sandbox, tests will be unblocked
+
+**Files Modified**:
+- `tests/integration/testutil/tokenization.go` - BRIC Storage tokenization implementation
+- `tests/integration/testutil/config.go` - EPX sandbox defaults
+- All integration test files - Refactored to use tokenization flow
+- `docs/TESTING.md` - Added note about BRIC Storage requirement
+- `README.md` - Updated feature status
+
+### Added - REST API Gateway (2025-11-11)
+
+**grpc-gateway Implementation** ✅
+- Added grpc-gateway v2 dependencies to enable REST → gRPC proxy
+- Added HTTP annotations to all proto files (payment, payment_method, subscription)
+- Generated gateway code from annotated proto definitions
+- Registered gateway handlers in server (cmd/server/main.go)
+- Mounted REST API at `/api/` prefix on HTTP server (port 8081)
+- Updated integration test config to use port 8081 for REST API
+
+**API Endpoints Now Available (REST on port 8081)**
+- Payment: POST /api/v1/payments/{authorize,capture,sale,void,refund}
+- Payment: GET /api/v1/payments, GET /api/v1/payments/{transaction_id}
+- Payment Methods: POST /api/v1/payment-methods, GET /api/v1/payment-methods/{id}
+- Payment Methods: DELETE /api/v1/payment-methods/{id}, PATCH /api/v1/payment-methods/{id}/status
+- Subscriptions: POST /api/v1/subscriptions, GET /api/v1/subscriptions/{id}
+- Subscriptions: POST /api/v1/subscriptions/{id}/{cancel,pause,resume}
+
+**Benefits**
+- ✅ Both gRPC (8080) and REST (8081) APIs available simultaneously
+- ✅ Single source of truth: proto files define both APIs
+- ✅ Clean JSON responses with camelCase field names
+- ✅ No code duplication: gateway auto-generated from protos
+- ✅ Production-ready for web clients (REST) and backend services (gRPC)
+
+**Test Results**
+- ✅ gRPC integration tests: 4/4 passing
+- ✅ REST API gateway: Verified operational with manual testing
+- ⚠️ REST integration tests: Need tokenization flow updates (tests expect raw card data, API requires pre-tokenized payment methods for PCI compliance)
+
+### Added - Integration Tests & API Refactoring (2025-11-11)
+
+**Comprehensive Integration Test Suite** (34 tests total)
+- Payment method tests: Store cards/ACH, retrieve, list, delete, validation (8 tests)
+- Transaction tests: Sale, auth+capture, partial capture, list by group_id (7 tests)
+- Refund/void tests: Full/partial refunds using new group_id API (10 tests)
+- Subscription tests: Create, retrieve, recurring billing, cancel, pause/resume (9 tests)
+- gRPC integration tests: Service availability verification (4 tests)
+- **Status**: ✅ gRPC tests passing (4/4), ✅ REST gateway operational, ⚠️ REST tests need tokenization flow updates
+
+**API Refactoring: Gateway Abstraction**
+- Removed all EPX-specific fields from public API (auth_guid, auth_resp, auth_card_type)
+- Added CardInfo message for clean card abstraction (brand, last_four)
+- Clean receipt fields: authorization_code, message, is_approved
+- **Result**: Gateway-independent API (can swap EPX for Stripe/Adyen)
+
+**API Refactoring: Group ID Pattern**
+- Refund/Void operations now use `group_id` instead of `transaction_id`
+- Calling services only store group_id for refunds
+- Payment Service internally queries by group_id to get EPX tokens
+- **Result**: Clean separation - POS/e-commerce never see payment tokens
+
+**Service Layer Improvements**
+- ListTransactions now supports filtering by group_id (critical for refunds)
+- Added ListTransactionsFilters struct (agent_id, customer_id, group_id, status, type, payment_method_id)
+- Added findOriginalTransaction() helper for group-based operations
+- Updated handlers and service ports to use new API patterns
+
+**Testing Infrastructure**
+- Integration test utilities: HTTP client, config, setup helpers
+- Testing documentation: INTEGRATION_TEST_RESULTS.md
+- Updated TESTING.md with comprehensive test coverage details
+
+**Service Verification (2025-11-11)**
+- ✅ Service deployed locally with podman-compose
+- ✅ gRPC service verified working (port 8080)
+- ✅ Database schema migrated (10 tables)
+- ✅ Test agent credentials seeded
+- ✅ Integration tests compile and run successfully
+
+### Documentation - Restructured Payment Flow Documentation (2025-11-11)
+
+**Reorganized payment flow documentation to eliminate duplication and improve clarity**
+
+Moved and restructured PAYMENT_DATAFLOW_ANALYSIS.md to focus exclusively on Server POST, removing Browser POST content that's already comprehensively documented in dedicated files.
+
+#### Changes Made
+
+1. **Moved and Renamed**:
+   - `PAYMENT_DATAFLOW_ANALYSIS.md` → `docs/SERVER_POST_DATAFLOW.md`
+   - Relocated to docs/ directory with other technical documentation
+
+2. **Removed Duplicate Content**:
+   - Removed entire Browser POST section (Section 2, ~630 lines)
+   - Browser POST flow already documented in `BROWSER_POST_DATAFLOW.md`
+   - Browser POST integration already documented in `BROWSER_POST_FRONTEND_GUIDE.md`
+
+3. **Updated Focus**:
+   - Document now exclusively covers Server POST flow
+   - Updated title: "Server POST Payment Flow - Technical Reference"
+   - Clarified payment method support: Credit Cards & ACH
+   - Added reference link to BROWSER_POST_DATAFLOW.md for credit card browser-based payments
+
+4. **Enhanced Receipt Response Documentation**:
+   - Added detailed query parameter documentation to BROWSER_POST_DATAFLOW.md
+   - Documents all 6 parameters returned in redirect: groupId, transactionId, status, amount, cardType, authCode
+   - Added cross-reference to BROWSER_POST_FRONTEND_GUIDE.md for integration examples
+
+#### Rationale
+
+- **Eliminates Duplication**: Browser POST comprehensively documented in dedicated files
+- **Single Source of Truth**: Each payment method has one authoritative document
+- **Clear Separation**: Server POST (gRPC, both payment types) vs Browser POST (HTTP, credit cards only)
+
+#### Documentation Structure
+
+```
+docs/
+├── SERVER_POST_DATAFLOW.md          - Server POST (gRPC) technical reference
+├── BROWSER_POST_DATAFLOW.md         - Browser POST technical reference
+└── BROWSER_POST_FRONTEND_GUIDE.md   - Browser POST frontend integration
+```
+
+---
+
+### Added - Complete Database Design Documentation (2025-11-11)
+
+**Created comprehensive DATABASE_DESIGN.md with complete schema reference**
+
+Added detailed database design documentation covering all tables, relationships, indexes, security patterns, and data lifecycle.
+
+**Documentation includes**:
+- Complete schema for all 8 tables
+- Status and type semantics (status=state, type=operation)
+- Multi-tenant patterns and isolation
+- Soft delete and automatic cleanup
+- PCI compliance and secret management
+- Query patterns and examples
+- Migration file reference
+
+**Files**:
+- `docs/DATABASE_DESIGN.md` (new)
+- `README.md` (added link to database design)
+
+---
+
+### Fixed - Transaction Status and Cleanup Logic (2025-11-11)
+
+**Simplified transaction status and added abandoned checkout cleanup**
+
+Fixed redundant status values across database, proto, and domain layers. Improved cleanup logic to automatically soft delete abandoned PENDING transactions.
+
+#### Changes Made
+
+1. **Fixed transaction status constraint** (internal/db/migrations/002_transactions.sql:44)
+   - Removed redundant `refunded` status (use `type='refund'` instead)
+   - Removed redundant `voided` status (use `type='void'` instead)
+   - Status now: `pending`, `completed`, `failed`
+
+2. **Fixed transaction type constraint** (internal/db/migrations/002_transactions.sql:45)
+   - Added `void` type for voiding transactions
+   - Types now: `charge`, `refund`, `void`, `pre_note`, `auth`, `capture`
+
+3. **Added abandoned checkout cleanup** (internal/db/migrations/005_soft_delete_cleanup.sql:14-21)
+   - Soft deletes PENDING transactions older than 1 hour
+   - Prevents accumulation of abandoned checkouts
+   - Automatic cleanup via existing cleanup job
+
+4. **Updated proto definitions** (proto/payment/v1/payment.proto:163-182)
+   - Removed `TRANSACTION_STATUS_REFUNDED` and `TRANSACTION_STATUS_VOIDED` from TransactionStatus enum
+   - Added `TRANSACTION_TYPE_VOID` to TransactionType enum
+   - Regenerated proto Go code
+
+5. **Updated domain models** (internal/domain/transaction.go:12-27)
+   - Removed `TransactionStatusRefunded` and `TransactionStatusVoided` constants
+   - Added `TransactionTypeVoid` constant
+
+6. **Fixed service implementations**
+   - Updated Void operation to use `status=completed` with `type=void`
+   - Updated Refund operation to use `status=completed` with `type=refund`
+   - Removed obsolete status conversion cases from handlers
+
+#### Benefits
+
+- **Clear semantics**: Status = state, Type = operation
+- **No redundancy**: Refunds and voids are transaction types, not statuses
+- **Automatic cleanup**: Abandoned checkouts removed after 1 hour
+- **Audit trail**: Soft deleted records retained for 90 days
+
+---
+
+### Documentation - Updated Browser POST Documentation for Single Source of Truth (2025-11-11)
+
+**Restructured and updated Browser POST documentation to eliminate duplication and maintain single source of truth**
+
+Completely rewrote two documentation files to reflect the PENDING→UPDATE transaction pattern, establish clear documentation hierarchy, and remove redundant content while preserving all critical information.
+
+#### Documentation Hierarchy
+
+1. **BROWSER_POST_DATAFLOW.md** (Authoritative Technical Reference)
+   - Complete technical implementation details
+   - Database schema and PENDING→UPDATE transaction lifecycle
+   - Step-by-step flow with code examples (17 steps)
+   - Data models, security patterns, error handling
+   - Single source of truth for all technical details
+
+2. **BROWSER_POST_FRONTEND_GUIDE.md** (Frontend Integration Guide)
+   - Practical frontend developer guide
+   - Complete React and Vanilla JS code examples
+   - 3-step quick start integration
+   - Required fields reference and testing guide
+   - References BROWSER_POST_DATAFLOW.md for technical details
+   - **Reduced from 626 to 486 lines (40% reduction)**
+
+#### Key Updates
+
+- ✅ All docs now reflect PENDING→UPDATE transaction pattern
+- ✅ Eliminated duplicate technical content across files
+- ✅ Established clear documentation hierarchy and cross-references
+- ✅ Maintained "every word has meaning" principle
+- ✅ Preserved all critical technical information
+- ✅ **Deleted CREDIT_CARD_BROWSER_POST_DATAFLOW.md** - Redundant since Browser POST only supports credit cards (ACH uses Server POST API)
+
+#### Rationale for Deletion
+
+Browser POST API is **credit-card-only** by design:
+- EPX Browser POST API only supports credit card transactions
+- ACH payments use Server POST API instead
+- Database schema supports both (`payment_method_type: 'credit_card' | 'ach'`)
+- Browser POST handler hardcodes `payment_method_type: "credit_card"` (browser_post_callback_handler.go:145)
+- Having separate "credit card browser POST" documentation implies other payment types exist for browser POST, which is incorrect
+- All use cases covered in main BROWSER_POST_DATAFLOW.md and BROWSER_POST_FRONTEND_GUIDE.md
+
+#### Files Modified
+- `docs/BROWSER_POST_DATAFLOW.md` - Complete rewrite (541 lines, authoritative reference)
+- `docs/BROWSER_POST_FRONTEND_GUIDE.md` - Restructured and reduced (486 lines, 40% shorter)
+
+#### Files Deleted
+- `docs/CREDIT_CARD_BROWSER_POST_DATAFLOW.md` - Redundant (Browser POST only supports credit cards)
+
+---
+
+### Added - Comprehensive Unit Tests for Browser POST Handler (2025-11-11)
+
+**Implemented comprehensive test coverage for the refactored browser POST payment flow**
+
+Created a complete test suite that validates the PENDING→UPDATE transaction pattern, form generation, callback handling, and helper methods using proper mocks.
+
+**Standardized DatabaseAdapter Interface Across Codebase**
+
+Updated all DatabaseAdapter interfaces to return `sqlc.Querier` instead of `*sqlc.Queries` for better testability and consistency.
+
+#### Test Coverage
+
+1. **GetPaymentForm Tests**
+   - Success case with PENDING transaction creation
+   - Required parameter validation (amount, return_url, agent_id)
+   - Default agent_id behavior
+   - HTTP method validation
+   - Unique transaction number generation
+
+2. **HandleCallback Tests**
+   - Successful payment with transaction UPDATE from PENDING→COMPLETED
+   - Failed/declined payment with PENDING→FAILED status
+   - Proper return_url extraction and redirect
+   - EPX response parsing and validation
+
+3. **Helper Method Tests**
+   - `extractReturnURL()` - State parameter extraction from USER_DATA_1
+   - Transaction uniqueness verification
+   - Idempotency key handling
+
+#### Technical Improvements
+
+- **Enhanced DatabaseAdapter Interface** (browser_post_callback_handler.go:21-24)
+  - Changed from `Queries() *sqlc.Queries` to `Queries() sqlc.Querier`
+  - Enables proper mocking with testify/mock
+  - Maintains compatibility with production code
+
+- **Comprehensive Mocks** (browser_post_callback_handler_test.go)
+  - MockQuerier implements sqlc.Querier interface
+  - MockDatabaseAdapter properly returns mock querier
+  - MockBrowserPostAdapter for EPX adapter testing
+  - MockPaymentMethodService for payment method operations
+
+- **Deleted Outdated Tests**
+  - Removed browser_post_form_handler_test.go (outdated for old implementation)
+  - New tests reflect current PENDING→UPDATE pattern
+
+#### Test Results
+```
+✓ All 8 test suites passing
+✓ 20.5% code coverage for handlers/payment package
+✓ Zero test failures
+```
+
+#### Files Modified
+- `internal/handlers/payment/browser_post_callback_handler.go` - Enhanced DatabaseAdapter interface
+- `internal/handlers/payment/browser_post_callback_handler_test.go` - Complete rewrite with comprehensive tests
+- `internal/adapters/database/postgres.go` - Updated Queries() to return sqlc.Querier
+- `internal/services/webhook/webhook_delivery_service.go` - Updated DatabaseAdapter interface
+- `internal/handlers/chargeback/chargeback_handler.go` - Updated DatabaseAdapter interface
+
+#### Files Deleted
+- `internal/handlers/payment/browser_post_form_handler_test.go` - Outdated test file
+
+---
+
 ### Refactored - Browser POST Flow to Use PENDING→UPDATE Pattern (2025-11-11)
 
 **Improved transaction lifecycle and audit trail for browser POST payments**

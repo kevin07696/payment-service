@@ -20,7 +20,7 @@ import (
 
 // DatabaseAdapter defines the interface for database operations
 type DatabaseAdapter interface {
-	Queries() *sqlc.Queries
+	Queries() sqlc.Querier
 }
 
 // PaymentMethodService defines the interface for payment method operations

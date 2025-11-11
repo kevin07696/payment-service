@@ -5,6 +5,9 @@ server
 # Environment
 .env
 
+# VSCode
+.vscode
+
 # Claude Code
 .claude
 # Never commit secrets directory

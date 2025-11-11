@@ -41,8 +41,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT transactions_amount_positive CHECK (amount >= 0),
-    CONSTRAINT transactions_status_valid CHECK (status IN ('pending', 'completed', 'failed', 'refunded', 'voided')),
-    CONSTRAINT transactions_type_valid CHECK (type IN ('charge', 'refund', 'pre_note', 'auth', 'capture'))
+    CONSTRAINT transactions_status_valid CHECK (status IN ('pending', 'completed', 'failed')),
+    CONSTRAINT transactions_type_valid CHECK (type IN ('charge', 'refund', 'void', 'pre_note', 'auth', 'capture'))
 );
 
 -- Indexes for performance

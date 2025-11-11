@@ -39,16 +39,28 @@ type SaleRequest struct {
 
 // VoidRequest contains parameters for voiding a transaction
 type VoidRequest struct {
-	TransactionID  string
+	GroupID        string  // Transaction group to void
 	IdempotencyKey *string
 }
 
 // RefundRequest contains parameters for refunding a transaction
 type RefundRequest struct {
-	TransactionID  string
+	GroupID        string  // Transaction group to refund
 	Amount         *string // Optional: partial refund
 	Reason         string
 	IdempotencyKey *string
+}
+
+// ListTransactionsFilters contains filter parameters for listing transactions
+type ListTransactionsFilters struct {
+	AgentID         *string
+	CustomerID      *string
+	GroupID         *string
+	Status          *string
+	Type            *string
+	PaymentMethodID *string
+	Limit           int
+	Offset          int
 }
 
 // PaymentService defines the port for payment operations
@@ -75,8 +87,5 @@ type PaymentService interface {
 	GetTransactionByIdempotencyKey(ctx context.Context, key string) (*domain.Transaction, error)
 
 	// ListTransactions lists transactions with filters
-	ListTransactions(ctx context.Context, agentID string, customerID *string, limit, offset int) ([]*domain.Transaction, int, error)
-
-	// GetTransactionsByGroup retrieves all transactions in a group
-	GetTransactionsByGroup(ctx context.Context, groupID string) ([]*domain.Transaction, error)
+	ListTransactions(ctx context.Context, filters *ListTransactionsFilters) ([]*domain.Transaction, int, error)
 }

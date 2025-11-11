@@ -13,8 +13,6 @@ const (
 	TransactionStatusPending   TransactionStatus = "pending"
 	TransactionStatusCompleted TransactionStatus = "completed"
 	TransactionStatusFailed    TransactionStatus = "failed"
-	TransactionStatusRefunded  TransactionStatus = "refunded"
-	TransactionStatusVoided    TransactionStatus = "voided"
 )
 
 // TransactionType represents the type of transaction
@@ -25,6 +23,7 @@ const (
 	TransactionTypeCapture TransactionType = "capture"  // Capture authorized funds
 	TransactionTypeCharge  TransactionType = "charge"   // Combined auth + capture (sale)
 	TransactionTypeRefund  TransactionType = "refund"   // Return funds
+	TransactionTypeVoid    TransactionType = "void"     // Cancel transaction before settlement
 	TransactionTypePreNote TransactionType = "pre_note" // ACH verification
 )
 
