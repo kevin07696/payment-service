@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Automatic Compute Instance Quota Management (2025-11-10)
+
+**Resolved "standard-e2-micro-core-count limit exceeded" deployment failures**
+
+#### Root Cause
+Oracle Free Tier allows maximum 2 compute instances per account. Previous failed deployments left orphaned RUNNING instances consuming quota, causing new Terraform provisions to fail with:
+```
+400-LimitExceeded: standard-e2-micro-core-count service limit exceeded
+```
+
+The database was created successfully, but compute instance provisioning failed due to quota exhaustion.
+
+#### Solution
+Added automatic compute instance quota management in `infrastructure-lifecycle.yml`:
+1. **Check quota before provisioning:** Count all RUNNING instances in compartment
+2. **Automatic cleanup:** If quota >= 2, terminate ALL running instances
+3. **List orphans:** Display instance names, IDs, and creation timestamps
+4. **Wait for termination:** 30-second delay to ensure quota is freed before Terraform runs
+
+#### Why Terminate ALL Instances
+- Oracle Free Tier has 2-instance limit across entire account (not per project)
+- Cannot reliably distinguish "our" instances from others
+- Safer to terminate all and let Terraform create fresh instances
+- Prevents quota issues from blocking automated deployments
+
+#### Benefits
+- ✅ Automated quota management - no manual intervention needed
+- ✅ Clear visibility into what's being terminated
+- ✅ Complements database quota check for complete coverage
+- ✅ Terraform always has quota available for provisioning
+
+**Deployment:** deployment-workflows@799c025
+
 ### Fixed - Oracle Quota Check and Cleanup Script Errors (2025-11-10)
 
 **Resolved "integer expression expected" errors and quota exceeded failures**
