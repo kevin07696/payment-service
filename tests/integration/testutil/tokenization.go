@@ -13,13 +13,13 @@ import (
 
 // TestCard represents a test credit card
 type TestCard struct {
-	Number    string
-	ExpMonth  string
-	ExpYear   string
-	CVV       string
-	ZipCode   string
-	CardType  string // "visa", "mastercard", "amex", "discover"
-	LastFour  string
+	Number   string
+	ExpMonth string
+	ExpYear  string
+	CVV      string
+	ZipCode  string
+	CardType string // "visa", "mastercard", "amex", "discover"
+	LastFour string
 }
 
 // TestACH represents a test ACH account
@@ -56,7 +56,7 @@ var (
 		Number:   "378282246310005",
 		ExpMonth: "12",
 		ExpYear:  "2025",
-		CVV:     "1234",
+		CVV:      "1234",
 		ZipCode:  "12345",
 		CardType: "amex",
 		LastFour: "0005",
@@ -246,7 +246,6 @@ func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
 
 	return authGuid, nil
 }
-
 
 // SavePaymentMethod saves a tokenized payment method via the API
 func SavePaymentMethod(client *Client, agentID, customerID, token string, card *TestCard, ach *TestACH) (string, error) {

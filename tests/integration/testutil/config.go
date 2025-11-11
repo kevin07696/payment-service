@@ -21,7 +21,7 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{
 		ServiceURL:     getEnv("SERVICE_URL", "http://localhost:8081"),
 		EPXMac:         getEnv("EPX_MAC_STAGING", ""),
-		EPXCustNbr:     getEnv("EPX_CUST_NBR", "9001"),    // EPX sandbox defaults
+		EPXCustNbr:     getEnv("EPX_CUST_NBR", "9001"), // EPX sandbox defaults
 		EPXMerchNbr:    getEnv("EPX_MERCH_NBR", "900300"),
 		EPXDBANbr:      getEnv("EPX_DBA_NBR", "2"),
 		EPXTerminalNbr: getEnv("EPX_TERMINAL_NBR", "77"),

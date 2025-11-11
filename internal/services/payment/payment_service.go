@@ -865,8 +865,8 @@ func findOriginalTransaction(transactions []*domain.Transaction) (*domain.Transa
 		if tx.Status == domain.TransactionStatusCompleted &&
 			tx.AuthGUID != nil &&
 			(tx.Type == domain.TransactionTypeCharge ||
-			 tx.Type == domain.TransactionTypeAuth ||
-			 tx.Type == domain.TransactionTypeCapture) {
+				tx.Type == domain.TransactionTypeAuth ||
+				tx.Type == domain.TransactionTypeCapture) {
 			// Prefer the earliest transaction
 			if originalTx == nil || tx.CreatedAt.Before(originalTx.CreatedAt) {
 				originalTx = tx

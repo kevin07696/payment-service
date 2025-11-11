@@ -39,7 +39,7 @@ type SaleRequest struct {
 
 // VoidRequest contains parameters for voiding a transaction
 type VoidRequest struct {
-	GroupID        string  // Transaction group to void
+	GroupID        string // Transaction group to void
 	IdempotencyKey *string
 }
 
