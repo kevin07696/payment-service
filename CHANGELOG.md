@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Missing OCIR Environment Variables in docker-compose (2025-11-10)
+
+**Resolved docker-compose image resolution failures during deployment**
+
+#### Root Cause
+The `docker-compose.yml` created by cloud-init references OCIR registry variables:
+```yaml
+image: ${OCIR_REGION}.ocir.io/${OCIR_NAMESPACE}/payment-service:latest
+```
+
+However, these variables were not included in the `.env` file, causing docker-compose to construct malformed image URLs and fail to pull the container image. This resulted in health check failures during deployment.
+
+#### Solution
+Added missing variables to cloud-init's `.env` file:
+- `OCIR_REGION` - Oracle Container Registry region
+- `OCIR_NAMESPACE` - OCIR tenancy namespace
+
+#### Benefits
+- ✅ docker-compose can now correctly resolve image URLs
+- ✅ Container deployment succeeds after infrastructure provisioning
+- ✅ Health checks pass with running service
+
+**Deployment:** deployment-workflows@18f055b
+
 ### Fixed - SSH Key Authentication Failure in Deployments (2025-11-10)
 
 **Resolved "ssh: unable to authenticate" errors during migrations and deployment**
