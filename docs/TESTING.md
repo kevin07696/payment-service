@@ -66,7 +66,6 @@ main branch:
 
 Pipeline stages in `.github/workflows/ci-cd.yml`:
 
-
 1. **Unit tests** - Pre-build validation
 2. **Build & push** - Docker image to OCIR
 3. **Deploy staging** - Provision infra, migrate DB, seed data, deploy service

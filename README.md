@@ -437,7 +437,7 @@ make test-db-down
 - Transaction lifecycle (authorize, capture, void, refund)
 - Subscription lifecycle (create, update, cancel, billing)
 
-See [test/integration/README.md](test/integration/README.md) for detailed documentation.
+See [tests/integration/README.md](tests/integration/README.md) for detailed documentation.
 
 ### Test Coverage
 

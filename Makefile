@@ -21,7 +21,7 @@ test-unit: ## Run unit tests only (skip integration)
 
 test-integration: ## Run integration tests only
 	@echo "Running integration tests..."
-	@go test -v ./test/integration/...
+	@go test -v ./tests/integration/... -tags=integration
 
 test-cover: ## Run tests with coverage
 	@echo "Running tests with coverage..."
@@ -31,7 +31,7 @@ test-cover: ## Run tests with coverage
 
 test-integration-cover: ## Run integration tests with coverage
 	@echo "Running integration tests with coverage..."
-	@go test -cover -coverprofile=integration-coverage.out ./test/integration/...
+	@go test -cover -coverprofile=integration-coverage.out ./tests/integration/... -tags=integration
 	@go tool cover -html=integration-coverage.out -o integration-coverage.html
 	@echo "✓ Integration coverage report: integration-coverage.html"
 
