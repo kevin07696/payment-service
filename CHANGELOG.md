@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Cloud-init Timing Race Condition (2025-11-10)
+
+**Resolved "docker: command not found" errors during deployment**
+
+#### Root Cause
+The deployment workflow connected to the Oracle Compute instance immediately after SSH became available, but before cloud-init completed installing Docker and creating application directories. This caused:
+```
+bash: line 2: docker: command not found
+bash: line 10: docker-compose: command not found
+cd: /home/ubuntu/payment-service: No such file or directory
+```
+
+The SSH port opened while cloud-init was still running in the background, creating a race condition where deployment commands executed before the environment was ready.
+
+#### Solution
+Added cloud-init completion wait steps in `deploy-oracle-staging.yml`:
+1. **Before migrations:** Wait for cloud-init with 10-minute timeout using `cloud-init status --wait`
+2. **Verification checks:** Confirm Docker, docker-compose, and application directory exist
+3. **Before deployment:** Additional environment verification as safety check
+
+#### Benefits
+- ✅ Deployment waits for cloud-init to complete before executing commands
+- ✅ Docker and docker-compose are guaranteed to be installed
+- ✅ Application directories are guaranteed to exist
+- ✅ Eliminates race condition between SSH availability and environment readiness
+
+**Deployment:** deployment-workflows@5c1e15f
+
 ### Fixed - Missing OCIR Environment Variables in docker-compose (2025-11-10)
 
 **Resolved docker-compose image resolution failures during deployment**
