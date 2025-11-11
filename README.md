@@ -805,13 +805,12 @@ Comprehensive guides for setup, integration, and maintenance:
 
 - **[Testing Guide](docs/TESTING.md)** - Run tests, write tests, CI/CD integration
 - **[Branching & Deployment](docs/BRANCHING.md)** - Git workflow, staging, production deployment
-- **[Secrets Setup](docs/SECRETS.md)** - Configure GitHub secrets for CI/CD
+- **[Secrets Setup](docs/SECRETS.md)** - GitHub secrets, architecture, runtime access
 - **[GCP Production Setup](docs/GCP_PRODUCTION_SETUP.md)** - Deploy to Google Cloud Run
 - **[EPX API Reference](docs/EPX_API_REFERENCE.md)** - Complete EPX payment gateway API
-- **[Architecture Secrets](docs/ARCHITECTURE_SECRETS.md)** - Infrastructure secret management
-- **[Future E2E Testing](docs/FUTURE_E2E_TESTING.md)** - Planned end-to-end testing architecture
 
 **Dataflow Documentation:**
+
 - [ACH Server Post Dataflow](docs/ACH_SERVER_POST_DATAFLOW.md)
 - [Browser Post Dataflow](docs/BROWSER_POST_DATAFLOW.md)
 - [Credit Card Browser Post Dataflow](docs/CREDIT_CARD_BROWSER_POST_DATAFLOW.md)

@@ -28,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM alpine:latest
 
 # Install runtime dependencies
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache add ca-certificates tzdata curl
 
 # Create non-root user for security
 RUN addgroup -g 1000 appuser && \
@@ -52,8 +52,9 @@ USER appuser
 EXPOSE 8080 8081
 
 # Health check for container orchestration
+# Using curl for consistency with cloud-init docker-compose
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8081/cron/health || exit 1
+    CMD curl -f http://localhost:8081/cron/health || exit 1
 
 # Run the application
 CMD ["./payment-server"]

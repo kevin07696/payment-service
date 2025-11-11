@@ -1,0 +1,25 @@
+{
+  // TypeScript/JavaScript language server memory (16 GB)
+  "typescript.tsserver.maxTsServerMemory": 16384,
+
+  // Additional memory-related settings
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/*/**": true,
+    "**/.hg/store/**": true,
+    "**/bin/**": true,
+    "**/vendor/**": true
+  },
+
+  // Reduce file watching overhead
+  "files.watcherInclude": [
+    "**/*.go",
+    "**/*.proto",
+    "**/*.sql",
+    "**/*.yml",
+    "**/*.yaml",
+    "**/*.json",
+    "**/*.md"
+  ]
+}

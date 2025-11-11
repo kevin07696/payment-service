@@ -184,6 +184,20 @@ go test -timeout 30s ./...     # Increase timeout
 go test -race ./...            # Check race conditions
 ```
 
+## Future Development
+
+### End-to-End Testing
+
+**When needed:** After deploying multiple microservices (subscription-service, notification-service, user-service)
+
+**Purpose:** Test complete user workflows spanning multiple services:
+- User signup → Create subscription → Process payment → Send notification
+- Cancel subscription → Process refund → Update user state
+
+**Architecture:** Separate `e2e-tests` repository with cross-service test scenarios
+
+**Current status:** Not needed yet (single service)
+
 ## References
 
 - Unit tests: `internal/**/*_test.go`
@@ -191,4 +205,3 @@ go test -race ./...            # Check race conditions
 - Test data: `internal/db/seeds/staging/003_agent_credentials.sql`
 - EPX API: `docs/EPX_API_REFERENCE.md`
 - CI/CD: `.github/workflows/ci-cd.yml`
-- Future E2E: `docs/FUTURE_E2E_TESTING.md`

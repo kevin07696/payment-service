@@ -80,7 +80,7 @@ jobs:
         run: |
           echo "⏳ Waiting for service to be ready..."
           for i in {1..30}; do
-            if curl -f -s "http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}/health" > /dev/null 2>&1; then
+            if curl -f -s "http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:8081/cron/health" > /dev/null 2>&1; then
               echo "✅ Service is ready!"
               exit 0
             fi

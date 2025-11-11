@@ -1,4 +1,58 @@
-# GitHub Secrets Setup
+# Secrets Management
+
+## Architecture Overview
+
+### Separation of Concerns
+
+**Service Repository (payment-service)**
+- Responsibility: Service-specific configuration and secrets
+- Secrets: `ORACLE_DB_PASSWORD`, `EPX_MAC_STAGING`
+- Does NOT contain Oracle Cloud infrastructure credentials
+- Passes service secrets to deployment-workflows as inputs
+
+**Deployment Workflows Repository (deployment-workflows)**
+- Responsibility: Infrastructure provisioning and deployment
+- Secrets (Organization Level): OCI credentials, OCIR credentials, SSH keys
+- Uses OCI credentials to provision infrastructure via Terraform
+- Creates OCI Vault for secret management
+- Stores service secrets (EPX_MAC) in OCI Vault
+
+### Workflow Flow
+
+```yaml
+# payment-service/.github/workflows/ci-cd.yml
+jobs:
+  ensure-staging-infrastructure:
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+    secrets: inherit  # Passes service secrets
+    with:
+      action: create
+      environment: staging
+      db_password: ${{ secrets.ORACLE_DB_PASSWORD }}
+      epx_mac: ${{ secrets.EPX_MAC_STAGING }}
+```
+
+### Secret Storage Locations
+
+| Secret Type | Where Stored | Who Uses It |
+|------------|--------------|-------------|
+| Oracle Cloud Auth (OCI_*) | deployment-workflows org secrets | Terraform to provision infra |
+| Container Registry (OCIR_*) | deployment-workflows org secrets | Docker push/pull |
+| SSH Keys | deployment-workflows org secrets | VM access |
+| DB Password | payment-service repo secret | Passed to Terraform → app config |
+| EPX MAC | payment-service repo secret | Passed to Terraform → stored in vault |
+| Vault OCID | Database (agent_credentials) | Service reads at runtime |
+| Actual MAC Secret | OCI Vault | Service reads at runtime |
+
+### Runtime Secret Access
+
+**At Runtime, the Service**:
+1. Queries `agent_credentials` table for merchant
+2. Gets `mac_secret_path` (vault OCID)
+3. Uses OCI SDK to read secret from vault
+4. Uses MAC to sign EPX requests
+
+**IAM Permissions Required**: Service instance needs `read` permission on vault secrets, granted via OCI dynamic group + policy.
 
 ## Quick Setup
 
@@ -185,7 +239,6 @@ docker login <region>.ocir.io \
 
 ## References
 
-- Secret architecture: `docs/ARCHITECTURE_SECRETS.md`
 - CI/CD workflow: `.github/workflows/ci-cd.yml`
 - Configuration script: `scripts/configure-github-secrets.sh`
 - Oracle Cloud setup: `docs/ORACLE_FREE_TIER_STAGING.md`
