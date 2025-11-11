@@ -50,9 +50,13 @@ WHERE
 UPDATE transactions
 SET
     status = sqlc.arg(status),
+    auth_guid = sqlc.narg(auth_guid),
     auth_resp = sqlc.narg(auth_resp),
     auth_code = sqlc.narg(auth_code),
     auth_resp_text = sqlc.narg(auth_resp_text),
+    auth_card_type = sqlc.narg(auth_card_type),
+    auth_avs = sqlc.narg(auth_avs),
+    auth_cvv2 = sqlc.narg(auth_cvv2),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id)
 RETURNING *;

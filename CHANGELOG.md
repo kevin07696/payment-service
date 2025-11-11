@@ -7,6 +7,144 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Refactored - Browser POST Flow to Use PENDING→UPDATE Pattern (2025-11-11)
+
+**Improved transaction lifecycle and audit trail for browser POST payments**
+
+The browser POST flow now creates transactions in PENDING state immediately, then updates them when EPX callback arrives. This provides better audit trail, idempotency handling, and enables calling services (POS/e-commerce) to track payment attempts.
+
+#### New Flow
+
+**Before (problematic):**
+```
+1. Frontend requests form config
+2. User submits to EPX
+3. EPX callback → Payment Service creates transaction
+4. Payment Service renders receipt
+```
+Issues: No audit trail for abandoned payments, no transaction ID before completion
+
+**After (improved):**
+```
+1. Backend calls Payment Service: GetPaymentForm(amount, return_url)
+   → Payment Service creates PENDING transaction, returns group_id
+2. Backend sends form config to frontend
+3. User submits to EPX
+4. EPX callback → Payment Service updates PENDING → COMPLETED/FAILED
+5. Payment Service redirects to calling service with group_id + transaction data
+6. Calling service renders complete receipt (with cash, items, taxes, etc.)
+```
+
+#### Changes Made
+
+1. **Updated GetPaymentForm endpoint** (internal/handlers/payment/browser_post_callback_handler.go:73-212)
+   - Now requires `return_url` and `agent_id` parameters
+   - Creates PENDING transaction immediately
+   - Returns `transactionId` and `groupId` in response
+   - Passes `return_url` through EPX via `USER_DATA_1` field (state parameter pattern)
+
+2. **Updated HandleCallback endpoint** (browser_post_callback_handler.go:217-336)
+   - Looks up existing PENDING transaction by idempotency key
+   - Updates transaction with EPX response data (not creating new one)
+   - Extracts `return_url` from EPX USER_DATA_1
+   - Redirects browser to calling service with transaction data
+
+3. **Added helper methods**
+   - `updateTransaction()` - Updates PENDING transaction with EPX callback data
+   - `extractReturnURL()` - Parses return_url from USER_DATA_1 field
+   - `redirectToService()` - Renders HTML auto-redirect to calling service
+
+4. **Updated SQL queries** (internal/db/queries/transactions.sql:49-62)
+   - Enhanced `UpdateTransaction` query to update all EPX fields
+   - Added: auth_guid, auth_card_type, auth_avs, auth_cvv2
+
+#### Benefits
+
+✅ **Audit trail** - All payment attempts tracked (even abandoned/failed)
+✅ **Idempotency** - Duplicate callbacks safely handled
+✅ **Complete receipts** - Calling services render receipts with full context
+✅ **Decoupling** - Payment Service uses state parameter pattern (no DB coupling)
+✅ **Scalable** - Same flow works for POS, e-commerce, mobile apps, etc.
+
+#### API Changes
+
+**GetPaymentForm endpoint:**
+- New required parameter: `return_url` (where to redirect after callback)
+- New optional parameter: `agent_id` (merchant identifier)
+- New response fields: `transactionId`, `groupId`
+
+**Callback behavior:**
+- No longer renders receipt (redirects to calling service instead)
+- Passes transaction data via query params: `groupId`, `transactionId`, `status`, `amount`, `cardType`, `authCode`
+
+---
+
+### Refactored - Removed POS Coupling from Payment Service (2025-11-11)
+
+**Reverted migration 008 architectural approach to maintain clean separation of concerns**
+
+Migration 008 added `external_reference_id` and `return_url` fields to couple the payment service to POS domain knowledge, violating the "Payment Service = Gateway Integration ONLY" principle. This refactor removes that coupling and relies on the existing `group_id` pattern.
+
+#### Clean Architecture Pattern
+
+**Payment Service responsibility:**
+- Process payments via EPX gateway
+- Store transaction with auto-generated `group_id`
+- Return `group_id` in receipt/response
+- Render HTML receipt for browser POST flow
+
+**Calling Service (POS) responsibility:**
+- Store the `group_id` returned by payment service
+- Maintain their own mapping: `order_id` → `group_id`
+- Query payment service by `group_id` when needed
+
+#### Changes Made
+
+1. **Removed coupling fields from domain.Transaction** (internal/domain/transaction.go:39-40)
+   - Deleted `ExternalReferenceID *string` field
+   - Deleted `ReturnURL *string` field
+   - Payment service no longer stores external system references
+
+2. **Deleted orphaned callback handler** (internal/handlers/browserpost/callback_handler.go)
+   - Removed JWT-based redirect handler that used `ExternalReferenceID` and `ReturnURL`
+   - This handler was not registered in routes and has been superseded
+
+3. **Deleted unused JWT service** (internal/services/jwt_service.go)
+   - Removed JWT receipt generation service
+   - No longer needed since browser POST renders HTML receipt directly
+
+4. **Enhanced browser POST receipt** (internal/handlers/payment/browser_post_callback_handler.go)
+   - Updated `storeTransaction` to return both `txID` and `groupID`
+   - Added `GroupID` field to receipt template data
+   - Receipt now displays: Transaction ID, **Group ID**, Reference Number
+   - POS can use Group ID to link payment to their order
+
+5. **Cleaned up documentation**
+   - Deleted `docs/POS_OPTION2_REFACTORING_COMPLETE.md`
+
+6. **Created clean rollback migration** (internal/db/migrations/008_remove_pos_coupling.sql)
+   - Replaced old migration 008 with clean rollback
+   - Uses `DROP COLUMN IF EXISTS` for safety (works whether old migration ran or not)
+   - Drops `idx_transactions_external_ref` index
+   - Drops `external_reference_id` and `return_url` columns
+
+#### Why This Is Better
+
+- **Zero coupling**: Payment service has NO knowledge of POS or any external system
+- **Single responsibility**: Each service maintains its own mappings
+- **Scalable**: Same pattern works for POS, e-commerce, subscriptions, etc.
+- **Already exists**: `group_id` was designed for this purpose from day one
+
+#### Migration 008 Status
+
+Migration 008 has been **replaced** with a clean rollback migration:
+- **Old**: Added `external_reference_id` and `return_url` columns (architectural coupling violation)
+- **New**: Drops these columns using `DROP COLUMN IF EXISTS` (safe for all environments)
+
+The new migration 008 (`008_remove_pos_coupling.sql`) is idempotent and safe whether the old migration was applied or not.
+
+---
+
 ### Fixed - Final Critical CI/CD Blockers After Comprehensive Review (2025-11-10/11)
 
 **Resolved 3 CRITICAL blocking issues, 2 HIGH-PRIORITY issues, and 1 PATH configuration issue**

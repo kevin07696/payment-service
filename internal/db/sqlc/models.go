@@ -91,6 +91,11 @@ type CustomerPaymentMethod struct {
 	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
 }
 
+type SchemaInfo struct {
+	Version   string           `json:"version"`
+	AppliedAt pgtype.Timestamp `json:"applied_at"`
+}
+
 type Subscription struct {
 	ID                    uuid.UUID          `json:"id"`
 	AgentID               string             `json:"agent_id"`

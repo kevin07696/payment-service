@@ -35,20 +35,23 @@ service BrowserPostService {
 }
 
 // CreateBrowserPostFormRequest initiates browser post payment flow
+// Creates a PENDING transaction immediately for audit trail
 message CreateBrowserPostFormRequest {
   string agent_id = 1; // Multi-tenant: which merchant
   string amount = 2; // Decimal as string (e.g., "29.99")
   string currency = 3; // ISO 4217 code (e.g., "USD")
-  string return_url = 4; // POS callback URL (receives receipt JWT)
-  string external_reference_id = 5; // Opaque POS reference (e.g., "order-123")
-  string idempotency_key = 6;
+  string idempotency_key = 4; // Used as EPX TRAN_NBR for deduplication
+  string return_url = 5; // Where to redirect after callback (e.g., "https://pos.example.com/payment-complete")
 }
 
 // BrowserPostFormData contains form fields for EPX redirect
+// Includes transaction IDs created in PENDING state
 message BrowserPostFormData {
-  string epx_endpoint = 1; // EPX server POST URL
-  string tac_token = 2; // Transaction authorization code
-  map<string, string> hidden_fields = 3; // Additional form fields (amount, etc.)
+  string transaction_id = 1; // Transaction UUID (created in PENDING state)
+  string group_id = 2; // Group UUID for linking related transactions
+  string epx_endpoint = 3; // EPX server POST URL
+  string tac_token = 4; // Transaction authorization code
+  map<string, string> hidden_fields = 5; // Additional form fields (amount, etc.)
 }
 
 // RefundRequest refunds a completed transaction
@@ -85,9 +88,8 @@ message ListTransactionsRequest {
   string agent_id = 1; // Filter by merchant
   google.protobuf.Timestamp start_date = 2; // Optional: date range filter
   google.protobuf.Timestamp end_date = 3;
-  string external_reference_id = 4; // Optional: filter by POS reference
-  int32 page_size = 5; // Default: 100
-  string page_token = 6; // Pagination token
+  int32 page_size = 4; // Default: 100
+  string page_token = 5; // Pagination token
 }
 
 // ListTransactionsResponse contains transaction list
@@ -96,54 +98,5 @@ message ListTransactionsResponse {
   string next_page_token = 2; // For pagination
 }
 
-// Transaction represents a complete transaction record
-message Transaction {
-  string id = 1;
-  string agent_id = 2;
-  string transaction_number = 3; // EPX transaction number
-
-  // Financial data
-  string amount = 4;
-  string currency = 5;
-  TransactionStatus status = 6;
-  TransactionType type = 7;
-
-  // EPX gateway data
-  string financial_bric = 8; // EPX financial BRIC
-  string storage_bric = 9; // EPX storage BRIC (for saved cards)
-
-  // Card details (masked/safe for display)
-  string card_type = 10; // V/M/A/D
-  string last_four = 11; // Last 4 digits
-  string auth_code = 12; // Bank authorization code
-  string approval_status = 13; // EPX approval code (00 = approved)
-  string avs_result = 14; // Address verification
-  string cvv_result = 15; // CVV verification
-
-  // Linkage to POS (opaque reference)
-  string external_reference_id = 16; // POS order/transaction reference
-
-  // Timestamps
-  google.protobuf.Timestamp created_at = 17;
-  google.protobuf.Timestamp updated_at = 18;
-}
-
-// TransactionStatus represents the current state of a transaction
-enum TransactionStatus {
-  TRANSACTION_STATUS_UNSPECIFIED = 0;
-  TRANSACTION_STATUS_PENDING = 1; // Awaiting callback
-  TRANSACTION_STATUS_COMPLETED = 2; // Successfully processed
-  TRANSACTION_STATUS_FAILED = 3; // Payment failed
-  TRANSACTION_STATUS_REFUNDED = 4; // Fully refunded
-  TRANSACTION_STATUS_VOIDED = 5; // Voided
-}
-
-// TransactionType represents the type of transaction (gateway operations only)
-enum TransactionType {
-  TRANSACTION_TYPE_UNSPECIFIED = 0;
-  TRANSACTION_TYPE_AUTH = 1; // EPX authorization
-  TRANSACTION_TYPE_CAPTURE = 2; // EPX capture
-  TRANSACTION_TYPE_SALE = 3; // EPX sale (auth + capture)
-  TRANSACTION_TYPE_REFUND = 4; // EPX refund
-  TRANSACTION_TYPE_VOID = 5; // EPX void
-}
+// Note: Transaction message is defined in payment.proto (same package)
+// All Transaction references in this file use that definition

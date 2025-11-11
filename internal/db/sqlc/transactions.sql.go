@@ -331,28 +331,40 @@ const updateTransaction = `-- name: UpdateTransaction :one
 UPDATE transactions
 SET
     status = $1,
-    auth_resp = $2,
-    auth_code = $3,
-    auth_resp_text = $4,
+    auth_guid = $2,
+    auth_resp = $3,
+    auth_code = $4,
+    auth_resp_text = $5,
+    auth_card_type = $6,
+    auth_avs = $7,
+    auth_cvv2 = $8,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $5
+WHERE id = $9
 RETURNING id, group_id, agent_id, customer_id, amount, currency, status, type, payment_method_type, payment_method_id, auth_guid, auth_resp, auth_code, auth_resp_text, auth_card_type, auth_avs, auth_cvv2, idempotency_key, metadata, deleted_at, created_at, updated_at
 `
 
 type UpdateTransactionParams struct {
 	Status       string      `json:"status"`
+	AuthGuid     pgtype.Text `json:"auth_guid"`
 	AuthResp     pgtype.Text `json:"auth_resp"`
 	AuthCode     pgtype.Text `json:"auth_code"`
 	AuthRespText pgtype.Text `json:"auth_resp_text"`
+	AuthCardType pgtype.Text `json:"auth_card_type"`
+	AuthAvs      pgtype.Text `json:"auth_avs"`
+	AuthCvv2     pgtype.Text `json:"auth_cvv2"`
 	ID           uuid.UUID   `json:"id"`
 }
 
 func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, updateTransaction,
 		arg.Status,
+		arg.AuthGuid,
 		arg.AuthResp,
 		arg.AuthCode,
 		arg.AuthRespText,
+		arg.AuthCardType,
+		arg.AuthAvs,
+		arg.AuthCvv2,
 		arg.ID,
 	)
 	var i Transaction

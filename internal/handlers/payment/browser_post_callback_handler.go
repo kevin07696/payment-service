@@ -71,8 +71,8 @@ func NewBrowserPostCallbackHandler(
 }
 
 // GetPaymentForm generates form configuration for Browser Post payment
-// This endpoint is called by the frontend to get EPX credentials and form fields
-// Endpoint: GET /api/v1/payments/browser-post/form?amount=99.99
+// This endpoint creates a PENDING transaction immediately for audit trail
+// Endpoint: GET /api/v1/payments/browser-post/form?amount=99.99&return_url=https://pos.example.com/complete&agent_id=merchant-123
 func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		h.logger.Warn("Browser Post form generator received non-GET request",
@@ -82,12 +82,24 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Extract amount from query parameters
+	// Extract parameters
 	amount := r.URL.Query().Get("amount")
 	if amount == "" {
 		h.logger.Warn("Browser Post form request missing amount parameter")
 		http.Error(w, "amount parameter is required", http.StatusBadRequest)
 		return
+	}
+
+	returnURL := r.URL.Query().Get("return_url")
+	if returnURL == "" {
+		h.logger.Warn("Browser Post form request missing return_url parameter")
+		http.Error(w, "return_url parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	agentID := r.URL.Query().Get("agent_id")
+	if agentID == "" {
+		agentID = h.epxCustNbr // Default to EPX customer number
 	}
 
 	// Validate amount format
@@ -105,15 +117,62 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 	now := time.Now()
 	tranNbr := fmt.Sprintf("%d%06d", now.Unix()%100000, now.Nanosecond()/1000)
 
-	h.logger.Info("Generating Browser Post form configuration",
+	// Create PENDING transaction immediately for audit trail
+	txID := uuid.New()
+	groupID := uuid.New()
+
+	// Parse amount to numeric
+	var amountNumeric pgtype.Numeric
+	if err := amountNumeric.Scan(amount); err != nil {
+		h.logger.Error("Failed to parse amount",
+			zap.String("amount", amount),
+			zap.Error(err),
+		)
+		http.Error(w, "invalid amount format", http.StatusBadRequest)
+		return
+	}
+
+	// Create PENDING transaction
+	_, err := h.dbAdapter.Queries().CreateTransaction(r.Context(), sqlc.CreateTransactionParams{
+		ID:                txID,
+		GroupID:           groupID,
+		AgentID:           agentID,
+		CustomerID:        pgtype.Text{}, // No customer ID for Browser Post (guest checkout)
+		Amount:            amountNumeric,
+		Currency:          "USD",
+		Status:            "pending", // PENDING status - will be updated by callback
+		Type:              "charge",
+		PaymentMethodType: "credit_card",
+		PaymentMethodID:   pgtype.UUID{},
+		IdempotencyKey: pgtype.Text{
+			String: tranNbr,
+			Valid:  true,
+		},
+		Metadata: []byte("{}"),
+	})
+
+	if err != nil {
+		h.logger.Error("Failed to create PENDING transaction",
+			zap.Error(err),
+			zap.String("transaction_id", txID.String()),
+		)
+		http.Error(w, "failed to create transaction", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("Created PENDING transaction for Browser Post",
+		zap.String("transaction_id", txID.String()),
+		zap.String("group_id", groupID.String()),
 		zap.String("amount", amount),
 		zap.String("tran_nbr", tranNbr),
 	)
 
 	// Build form configuration
-	// Note: This returns EPX credentials and configuration that the frontend
-	// will use to construct an HTML form that posts directly to EPX
-	formConfig := map[string]string{
+	formConfig := map[string]interface{}{
+		// Transaction IDs (for POS to track)
+		"transactionId": txID.String(),
+		"groupId":       groupID.String(),
+
 		// EPX endpoint URL (where the form will POST to)
 		"postURL": h.epxPostURL,
 
@@ -131,8 +190,11 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		"industryType": "E", // E-commerce
 		"cardEntMeth":  "E", // E-commerce card entry
 
-		// Callback URL (where EPX will redirect after payment)
+		// Callback URL (where EPX will redirect after payment - whitelisted)
 		"redirectURL": h.callbackBaseURL + "/api/v1/payments/browser-post/callback",
+
+		// Pass return_url through EPX USER_DATA field (state parameter pattern)
+		"userData1": "return_url=" + returnURL,
 
 		// Additional fields for display/tracking
 		"merchantName": "Payment Service",
@@ -190,49 +252,61 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Check for duplicate transaction using TRAN_NBR (as recommended in EPX docs page 8)
-	// This handles the PRG (POST-REDIRECT-GET) pattern where same response can be received multiple times
-	if response.TranNbr != "" {
-		existingTx, err := h.dbAdapter.Queries().GetTransactionByIdempotencyKey(r.Context(), pgtype.Text{
-			String: response.TranNbr,
-			Valid:  true,
-		})
+	// Look up PENDING transaction by TRAN_NBR idempotency key
+	// Transaction should exist from CreateBrowserPostForm call
+	existingTx, err := h.dbAdapter.Queries().GetTransactionByIdempotencyKey(r.Context(), pgtype.Text{
+		String: response.TranNbr,
+		Valid:  true,
+	})
 
-		if err == nil {
-			// Transaction already exists - this is a duplicate callback
-			h.logger.Info("Duplicate Browser Post callback detected",
-				zap.String("tran_nbr", response.TranNbr),
-				zap.String("existing_tx_id", existingTx.ID.String()),
-			)
-			// Still render success page with existing transaction
-			h.renderReceiptPage(w, response, existingTx.ID.String())
-			return
-		}
-	}
-
-	// Store the transaction in database
-	// We store AUTH_GUID (BRIC) even for guest checkouts because it's needed for:
-	// - Refunds (most common reason)
-	// - Voids/cancellations
-	// - Chargeback defense
-	// - Reconciliation with EPX settlement reports
-	txID, err := h.storeTransaction(r.Context(), response)
 	if err != nil {
-		h.logger.Error("Failed to store transaction",
+		h.logger.Error("PENDING transaction not found for callback",
 			zap.Error(err),
-			zap.String("auth_guid", response.AuthGUID),
+			zap.String("tran_nbr", response.TranNbr),
 		)
-		// Still show success to user if payment was approved, but log the error
-		if response.AuthResp == "00" {
-			h.renderReceiptPage(w, response, "")
-			return
-		}
-		h.renderErrorPage(w, "Failed to record transaction", "")
+		h.renderErrorPage(w, "Transaction not found", "Please contact support")
 		return
 	}
 
-	h.logger.Info("Successfully processed Browser Post callback",
-		zap.String("transaction_id", txID),
+	// Check if transaction was already updated (duplicate callback)
+	if existingTx.Status != "pending" {
+		h.logger.Info("Duplicate callback - transaction already processed",
+			zap.String("tran_nbr", response.TranNbr),
+			zap.String("existing_tx_id", existingTx.ID.String()),
+			zap.String("status", existingTx.Status),
+		)
+		// Extract return_url from USER_DATA_1 and redirect
+		returnURL := h.extractReturnURL(response.RawParams)
+		if returnURL != "" {
+			h.redirectToService(w, returnURL, existingTx.ID.String(), existingTx.GroupID.String(), existingTx.Status, response)
+		} else {
+			h.renderReceiptPage(w, response, existingTx.ID.String(), existingTx.GroupID.String())
+		}
+		return
+	}
+
+	// UPDATE the PENDING transaction with EPX response
+	err = h.updateTransaction(r.Context(), existingTx.ID, response)
+	if err != nil {
+		h.logger.Error("Failed to update transaction",
+			zap.Error(err),
+			zap.String("transaction_id", existingTx.ID.String()),
+			zap.String("auth_guid", response.AuthGUID),
+		)
+		h.renderErrorPage(w, "Failed to update transaction", "")
+		return
+	}
+
+	// Determine final status
+	status := "failed"
+	if response.IsApproved {
+		status = "completed"
+	}
+
+	h.logger.Info("Successfully updated transaction from Browser Post callback",
+		zap.String("transaction_id", existingTx.ID.String()),
+		zap.String("group_id", existingTx.GroupID.String()),
+		zap.String("status", status),
 		zap.String("auth_resp", response.AuthResp),
 		zap.String("auth_guid", response.AuthGUID),
 	)
@@ -240,22 +314,31 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 	// Check if user wants to save payment method (from USER_DATA fields)
 	// If yes and transaction approved, convert Financial BRIC to Storage BRIC
 	if response.IsApproved && h.shouldSavePaymentMethod(response.RawParams) {
-		if err := h.savePaymentMethod(r.Context(), response, txID); err != nil {
+		if err := h.savePaymentMethod(r.Context(), response, existingTx.ID.String()); err != nil {
 			h.logger.Error("Failed to save payment method",
 				zap.Error(err),
-				zap.String("transaction_id", txID),
+				zap.String("transaction_id", existingTx.ID.String()),
 			)
 			// Don't fail the transaction - user can save it later
 		}
 	}
 
-	// Render receipt page based on transaction status
-	h.renderReceiptPage(w, response, txID)
+	// Extract return_url from USER_DATA_1 (state parameter pattern)
+	returnURL := h.extractReturnURL(response.RawParams)
+
+	if returnURL != "" {
+		// Redirect to calling service (POS/e-commerce/etc.) with transaction data
+		h.redirectToService(w, returnURL, existingTx.ID.String(), existingTx.GroupID.String(), status, response)
+	} else {
+		// Fallback: render simple receipt if no return_url provided
+		h.renderReceiptPage(w, response, existingTx.ID.String(), existingTx.GroupID.String())
+	}
 }
 
 // storeTransaction saves the transaction to the database
 // AUTH_GUID (BRIC) is stored for refunds, voids, disputes, and reconciliation
-func (h *BrowserPostCallbackHandler) storeTransaction(ctx context.Context, response *ports.BrowserPostResponse) (string, error) {
+// Returns transaction ID and group ID for linking to external systems
+func (h *BrowserPostCallbackHandler) storeTransaction(ctx context.Context, response *ports.BrowserPostResponse) (string, string, error) {
 	// Determine status from AUTH_RESP
 	// "00" = approved, others = failed/declined
 	status := "failed"
@@ -273,7 +356,7 @@ func (h *BrowserPostCallbackHandler) storeTransaction(ctx context.Context, respo
 	// Parse amount to numeric
 	var amountNumeric pgtype.Numeric
 	if err := amountNumeric.Scan(response.Amount); err != nil {
-		return "", fmt.Errorf("invalid amount: %w", err)
+		return "", "", fmt.Errorf("invalid amount: %w", err)
 	}
 
 	// Get agent ID from raw params (CUST_NBR)
@@ -329,14 +412,152 @@ func (h *BrowserPostCallbackHandler) storeTransaction(ctx context.Context, respo
 	})
 
 	if err != nil {
-		return "", fmt.Errorf("failed to create transaction: %w", err)
+		return "", "", fmt.Errorf("failed to create transaction: %w", err)
 	}
 
-	return txID.String(), nil
+	return txID.String(), groupID.String(), nil
+}
+
+// updateTransaction updates an existing PENDING transaction with EPX callback data
+func (h *BrowserPostCallbackHandler) updateTransaction(ctx context.Context, txID uuid.UUID, response *ports.BrowserPostResponse) error {
+	// Determine status from AUTH_RESP
+	status := "failed"
+	if response.IsApproved {
+		status = "completed"
+	}
+
+	// Update transaction with all EPX response fields
+	_, err := h.dbAdapter.Queries().UpdateTransaction(ctx, sqlc.UpdateTransactionParams{
+		ID:     txID,
+		Status: status,
+		AuthGuid: pgtype.Text{
+			String: response.AuthGUID,
+			Valid:  response.AuthGUID != "",
+		},
+		AuthResp: pgtype.Text{
+			String: response.AuthResp,
+			Valid:  response.AuthResp != "",
+		},
+		AuthCode: pgtype.Text{
+			String: response.AuthCode,
+			Valid:  response.AuthCode != "",
+		},
+		AuthRespText: pgtype.Text{
+			String: response.AuthRespText,
+			Valid:  response.AuthRespText != "",
+		},
+		AuthCardType: pgtype.Text{
+			String: response.AuthCardType,
+			Valid:  response.AuthCardType != "",
+		},
+		AuthAvs: pgtype.Text{
+			String: response.AuthAVS,
+			Valid:  response.AuthAVS != "",
+		},
+		AuthCvv2: pgtype.Text{
+			String: response.AuthCVV2,
+			Valid:  response.AuthCVV2 != "",
+		},
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to update transaction: %w", err)
+	}
+
+	return nil
+}
+
+// extractReturnURL extracts the return_url from EPX USER_DATA_1 field
+// Uses state parameter pattern to relay POS/service URL through EPX
+func (h *BrowserPostCallbackHandler) extractReturnURL(rawParams map[string]string) string {
+	// USER_DATA_1 format: "return_url=https://pos.example.com/complete"
+	if userData1, ok := rawParams["USER_DATA_1"]; ok {
+		if len(userData1) > 11 && userData1[:11] == "return_url=" {
+			return userData1[11:] // Extract URL after "return_url="
+		}
+	}
+	return ""
+}
+
+// redirectToService redirects browser to calling service (POS/e-commerce/etc.) with transaction data
+func (h *BrowserPostCallbackHandler) redirectToService(w http.ResponseWriter, returnURL, txID, groupID, status string, response *ports.BrowserPostResponse) {
+	// Build redirect URL with transaction data as query parameters
+	redirectURL := fmt.Sprintf("%s?groupId=%s&transactionId=%s&status=%s&amount=%s&cardType=%s&authCode=%s",
+		returnURL,
+		groupID,
+		txID,
+		status,
+		response.Amount,
+		response.AuthCardType,
+		response.AuthCode,
+	)
+
+	h.logger.Info("Redirecting to calling service",
+		zap.String("return_url", returnURL),
+		zap.String("group_id", groupID),
+		zap.String("status", status),
+	)
+
+	// Render HTML that auto-redirects to POS/service
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="refresh" content="0; url=%s">
+	<title>Payment %s</title>
+	<style>
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			height: 100vh;
+			margin: 0;
+			background: #f5f5f5;
+		}
+		.container {
+			text-align: center;
+			padding: 2rem;
+			background: white;
+			border-radius: 8px;
+			box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+		}
+		.spinner {
+			border: 4px solid #f3f3f3;
+			border-top: 4px solid #3498db;
+			border-radius: 50%%;
+			width: 40px;
+			height: 40px;
+			animation: spin 1s linear infinite;
+			margin: 0 auto 1rem;
+		}
+		@keyframes spin {
+			0%% { transform: rotate(0deg); }
+			100%% { transform: rotate(360deg); }
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="spinner"></div>
+		<h2>Payment %s</h2>
+		<p>Returning to application...</p>
+		<p><a href="%s">Click here if not redirected automatically</a></p>
+	</div>
+	<script>
+		setTimeout(function() {
+			window.location.href = "%s";
+		}, 100);
+	</script>
+</body>
+</html>`, redirectURL, status, status, redirectURL, redirectURL)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(html))
 }
 
 // renderReceiptPage renders an HTML receipt page to the user
-func (h *BrowserPostCallbackHandler) renderReceiptPage(w http.ResponseWriter, response *ports.BrowserPostResponse, txID string) {
+func (h *BrowserPostCallbackHandler) renderReceiptPage(w http.ResponseWriter, response *ports.BrowserPostResponse, txID string, groupID string) {
 	approved := response.IsApproved
 
 	// Mask card number (show last 4 digits) - get from raw params if available
@@ -362,6 +583,7 @@ func (h *BrowserPostCallbackHandler) renderReceiptPage(w http.ResponseWriter, re
 		"AuthCode":      response.AuthCode,
 		"AuthRespText":  response.AuthRespText,
 		"TransactionID": txID,
+		"GroupID":       groupID,
 		"TranNbr":       response.TranNbr,
 		"BRIC":          response.AuthGUID,
 		"InvoiceNbr":    invoiceNbr,
@@ -655,6 +877,13 @@ const receiptTemplate = `
                 <div class="detail-row">
                     <span class="detail-label">Transaction ID</span>
                     <span class="detail-value">{{.TransactionID}}</span>
+                </div>
+                {{end}}
+
+                {{if .GroupID}}
+                <div class="detail-row">
+                    <span class="detail-label">Group ID</span>
+                    <span class="detail-value">{{.GroupID}}</span>
                 </div>
                 {{end}}
 
