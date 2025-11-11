@@ -51,7 +51,7 @@ jobs:
     name: 3. Database Migrations + 4. Deploy Application
     needs: ensure-staging-infrastructure
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@19b3eee
+    uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@19b3eeec4beda369f2740b67fd7a0bf552cc008f
     secrets: inherit
     with:
       service-name: payment-service
