@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - SSH Key Authentication Failure in Deployments (2025-11-10)
+
+**Resolved "ssh: unable to authenticate" errors during migrations and deployment**
+
+#### Root Cause
+The infrastructure workflow (Terraform) generated a new SSH key pair when `SSH_PUBLIC_KEY` secret was empty. The private key was saved locally on the runner (`./oracle-staging-key`) but was never made available to the deployment workflow.
+
+The deployment workflow attempted SSH connections using a different key from `ORACLE_CLOUD_SSH_KEY` secret, resulting in authentication failures:
+```
+ssh: handshake failed: ssh: unable to authenticate, attempted methods [none publickey]
+```
+
+#### Solution
+Implemented SSH key artifact workflow:
+
+**infrastructure-lifecycle.yml:**
+- Save Terraform-generated SSH private key as workflow artifact
+- Artifact name: `oracle-ssh-key-{environment}`
+- 7-day retention
+
+**deploy-oracle-staging.yml:**
+- Download SSH private key artifact before SSH operations
+- Use `key_path` instead of `key` in appleboy/ssh-action
+- Applied to both migrate and deploy jobs
+
+#### Benefits
+- ✅ SSH authentication now works with Terraform-generated keys
+- ✅ No manual SSH key configuration needed in GitHub Secrets
+- ✅ Automatic key management across workflow jobs
+- ✅ ORACLE_CLOUD_SSH_KEY secret now optional
+
+**Deployment:** deployment-workflows@cdc1787
+
 ### Fixed - OCI Cleanup Script Resource Detection Bug (2025-11-10)
 
 **Resolved buggy JMESPath queries that failed to detect orphaned resources**
