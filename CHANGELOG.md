@@ -47,6 +47,39 @@ Added comprehensive OCI CLI debugging and cleanup in `infrastructure-lifecycle.y
 
 **Deployment:** deployment-workflows@2e8ddc7
 
+### Changed - Branching Documentation Consolidation (2025-11-10)
+
+**Consolidated 3 branching documents into single task-oriented reference**
+
+#### Problem
+Branching documentation had duplication across 3 files (1,150 lines):
+- `BRANCHING_STRATEGY.md` (533 lines) - Complete strategy
+- `BRANCH_PROTECTION.md` (361 lines) - Protection rules
+- `QUICK_START_BRANCHING.md` (256 lines) - Quick start
+- All explained same workflows, branches, and CI/CD
+
+#### Solution
+Consolidated into task-oriented `docs/BRANCHING.md` (277 lines - 76% reduction):
+- Quick reference table at top
+- Daily workflow commands immediately accessible
+- Branch protection inline
+- CI/CD pipeline concise
+- Troubleshooting practical
+
+#### Changes
+- ✅ Removed: `BRANCHING_STRATEGY.md`, `BRANCH_PROTECTION.md`, `QUICK_START_BRANCHING.md`
+- ✅ Created `BRANCHING.md`: 1,150 → 277 lines (76% reduction)
+- ✅ Task-oriented structure matches TESTING.md format
+- ✅ Commands first, explanation minimal
+
+#### Benefits
+- Find workflow commands instantly
+- Single source of truth
+- Easier maintenance
+- Consistent with testing docs format
+
+**Impact:** Documentation maintenance, developer onboarding
+
 ### Changed - Testing Documentation Consolidation (2025-11-10)
 
 **Consolidated 5 testing documents into single task-oriented reference**
