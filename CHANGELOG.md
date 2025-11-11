@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - Testing Documentation Consolidation (2025-11-10)
+
+**Consolidated 5 testing documents into single task-oriented reference**
+
+#### Problem
+Testing documentation had severe duplication across 5 files (1,957 lines):
+- `TESTING_STRATEGY.md`, `TESTING.md`, `INTEGRATION_TESTING.md`, `INTEGRATION_TESTS_SUMMARY.md`
+- Verbose explanations instead of actionable commands
+- Violated single source of truth principle
+
+#### Solution
+Consolidated into single task-oriented `docs/TESTING.md` (194 lines - 90% reduction):
+- Quick reference table at top
+- Commands first, minimal explanation
+- Task-oriented structure: Running Tests → Writing Tests → Troubleshooting
+- Every word provides value
+
+#### Changes
+- ✅ Removed: `TESTING_STRATEGY.md`, `INTEGRATION_TESTING.md`, `INTEGRATION_TESTS_SUMMARY.md`
+- ✅ Restructured `TESTING.md`: 1,957 → 194 lines (90% reduction)
+- ✅ Starts with quick reference, commands immediately accessible
+- ✅ Kept `FUTURE_E2E_TESTING.md` for future planning
+
+#### Benefits
+- Developers find commands instantly
+- No duplication
+- Single source of truth
+- Maintenance burden reduced 90%
+
+**Impact:** Documentation maintenance, developer productivity
+
 ### Fixed - Automatic Compute Instance Quota Management (2025-11-10)
 
 **Resolved "standard-e2-micro-core-count limit exceeded" deployment failures**
