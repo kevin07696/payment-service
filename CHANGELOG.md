@@ -110,7 +110,9 @@ Remaining risks are operational (Oracle quota limits, network issues) not archit
 
 ---
 
-**ADDITIONAL FIX (2025-11-11): OCI CLI PATH Configuration**
+**ADDITIONAL FIXES (2025-11-11): OCI CLI Configuration Issues**
+
+**Issue #1: PATH Configuration**
 
 **Problem:** After OCI CLI installation, the binary path was added to `$GITHUB_PATH` but not exported to current shell, causing authentication test to fail immediately.
 
@@ -121,10 +123,22 @@ Remaining risks are operational (Oracle quota limits, network issues) not archit
 - Use explicit `$HOME/bin/oci` path for authentication test
 - Verify OCI version immediately after installation
 
-**Impact:** OCI CLI authentication test succeeds after installation, allowing infrastructure provisioning to proceed.
+**Related Commits:** deployment-workflows@23234b9
 
-**Related Commits:**
-- deployment-workflows@23234b9 - Fix OCI CLI PATH export
+---
+
+**Issue #2: Tilde Expansion in key_file Path**
+
+**Problem:** OCI CLI authentication failed even after successful installation because the config file used `key_file=~/.oci/oci_api_key.pem` which OCI CLI doesn't expand.
+
+**Root Cause:** The tilde (~) character in the config file is not expanded by OCI CLI, causing it to look for a literal "~" directory instead of the home directory.
+
+**Fix Applied:**
+- Changed `key_file=~/.oci/oci_api_key.pem` to `key_file=$HOME/.oci/oci_api_key.pem` (deployment-workflows@infrastructure-lifecycle.yml:131)
+
+**Impact:** OCI CLI can now find the private key file and authentication succeeds.
+
+**Related Commits:** deployment-workflows@42e238d
 
 ---
 
