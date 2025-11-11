@@ -47,6 +47,39 @@ Added comprehensive OCI CLI debugging and cleanup in `infrastructure-lifecycle.y
 
 **Deployment:** deployment-workflows@2e8ddc7
 
+### Changed - Secrets Documentation Consolidation (2025-11-10)
+
+**Consolidated 3 secrets documents into single task-oriented reference**
+
+#### Problem
+Secrets documentation had duplication across 3 files (630 lines):
+- `GITHUB_SECRETS_SETUP.md` (237 lines) - Complete list
+- `SECRETS_WHERE_TO_GET.md` (257 lines) - Where to get each
+- `QUICK_SECRETS_SETUP.md` (136 lines) - Quick setup
+- All listed same secrets with different organization
+
+#### Solution
+Consolidated into task-oriented `docs/SECRETS.md` (211 lines - 67% reduction):
+- Quick setup command at top
+- Secrets reference tables (by category)
+- Where to get each secret inline
+- Manual setup commands
+- Troubleshooting common issues
+
+#### Changes
+- ✅ Removed: `GITHUB_SECRETS_SETUP.md`, `SECRETS_WHERE_TO_GET.md`, `QUICK_SECRETS_SETUP.md`
+- ✅ Created `SECRETS.md`: 630 → 211 lines (67% reduction)
+- ✅ Kept `ARCHITECTURE_SECRETS.md` (unique architectural content)
+- ✅ Task-oriented structure matches TESTING.md and BRANCHING.md
+
+#### Benefits
+- Quick setup script immediately visible
+- Secrets organized by category
+- Single source of truth
+- Consistent documentation format
+
+**Impact:** Documentation maintenance, setup time
+
 ### Changed - Branching Documentation Consolidation (2025-11-10)
 
 **Consolidated 3 branching documents into single task-oriented reference**
