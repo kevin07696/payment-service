@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Oracle Quota Check and Cleanup Script Errors (2025-11-10)
+
+**Resolved "integer expression expected" errors and quota exceeded failures**
+
+#### Root Causes
+1. **jq empty result handling:** When cleanup script found no orphaned resources, jq returned empty string instead of `0`, causing bash comparison errors:
+   ```
+   /home/runner/work/_temp/*.sh: line 13: [: : integer expression expected
+   ```
+
+2. **Missing quota validation:** Oracle Free Tier allows maximum 2 Always Free Autonomous Databases per account. The workflow attempted to create databases without checking if quota was available, resulting in:
+   ```
+   400-QuotaExceeded: adb-free-count service limit exceeded
+   ```
+
+#### Solution
+Enhanced `infrastructure-lifecycle.yml` cleanup and validation:
+1. **Fixed jq queries:** Added `// 0` default value to all jq length calculations
+2. **Added safety operators:** Used `.data[]?` to safely handle missing arrays
+3. **Implemented quota check:** Before provisioning, verify Free Tier database count < 2
+4. **Helpful error messages:** When quota exceeded, list all existing databases with IDs and instructions
+
+#### Code Changes
+```yaml
+# Before (fails with empty result)
+DB_COUNT=$(... | jq '[.data[]] | length')
+
+# After (returns 0 when empty)
+DB_COUNT=$(... | jq '([.data[]?] | length) // 0')
+```
+
+#### Benefits
+- ✅ Cleanup script properly counts resources (0 instead of empty string)
+- ✅ Quota check prevents wasted provisioning attempts
+- ✅ Clear error messages guide users to resolve quota issues
+- ✅ Lists all existing databases to help identify what to delete
+
+**Deployment:** deployment-workflows@ba10bc6
+
 ### Fixed - Cloud-init Timing Race Condition (2025-11-10)
 
 **Resolved "docker: command not found" errors during deployment**
