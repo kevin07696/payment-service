@@ -3906,3 +3906,11 @@ credentials are also seeded in staging database via `003_agent_credentials.sql`.
 - Removed output redirection to show actual OCI CLI error messages
 - Added key file existence and permissions checks
 - Related: deployment-workflows@cd17110
+
+**FINAL FIX (2025-11-11): Invalid --limit Option**
+
+**Problem:** The command `oci iam region list --limit 1` doesn't exist - --limit is not a valid option.
+
+**Impact:** OCI authentication test now uses valid syntax and should succeed.
+
+**Related:** deployment-workflows@2e2f4fe
