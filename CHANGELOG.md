@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - OCI Cleanup Script Resource Detection Bug (2025-11-10)
+
+**Resolved buggy JMESPath queries that failed to detect orphaned resources**
+
+#### Root Cause
+The pre-provisioning cleanup script in `infrastructure-lifecycle.yml` was using JMESPath's `contains()` function incorrectly for string matching:
+```yaml
+--query 'length(data[?contains("display-name", `payment-staging`)])'
+```
+
+This always returned 0 resources even when databases existed. JMESPath's `contains()` is designed for array membership, not substring matching in strings.
+
+#### Solution
+Replaced JMESPath filtering with jq post-processing:
+```bash
+# Old (buggy):
+oci db autonomous-database list --query 'length(data[?contains("display-name", `payment-staging`)])'
+
+# New (working):
+oci db autonomous-database list --all | jq '[.data[] | select(."display-name" | contains("payment-staging"))] | length'
+```
+
+Applied to both database and compute instance cleanup logic.
+
+#### Benefits
+- ✅ Correctly detects orphaned resources by display-name pattern
+- ✅ jq's `contains()` works properly for string matching
+- ✅ More reliable resource cleanup before provisioning
+- ✅ Easier to debug and test
+
+**Deployment:** deployment-workflows@865950a
+
 ### Fixed - OCI Resource Quota Issues from Slow Garbage Collection (2025-11-10)
 
 **Resolved quota exceeded errors from Oracle's async resource deletion**
