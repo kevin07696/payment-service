@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed - Final Critical CI/CD Blockers After Comprehensive Review (2025-11-10)
+### Fixed - Final Critical CI/CD Blockers After Comprehensive Review (2025-11-10/11)
 
-**Resolved 3 CRITICAL blocking issues and 1 HIGH-PRIORITY issue identified by deployment-engineer review**
+**Resolved 3 CRITICAL blocking issues, 2 HIGH-PRIORITY issues, and 1 PATH configuration issue**
 
 After the deployment-engineer agent performed comprehensive end-to-end review of Oracle Cloud + Terraform + GitHub Actions integration, 4 critical issues were found that would cause deployment failure. All issues have been resolved.
 
@@ -107,6 +107,24 @@ After the deployment-engineer agent performed comprehensive end-to-end review of
 **After fixes:** 85%+ - All critical blockers resolved
 
 Remaining risks are operational (Oracle quota limits, network issues) not architectural.
+
+---
+
+**ADDITIONAL FIX (2025-11-11): OCI CLI PATH Configuration**
+
+**Problem:** After OCI CLI installation, the binary path was added to `$GITHUB_PATH` but not exported to current shell, causing authentication test to fail immediately.
+
+**Root Cause:** `$GITHUB_PATH` only affects subsequent GitHub Actions steps, not the current step.
+
+**Fix Applied:**
+- Added `export PATH="$HOME/bin:$PATH"` after OCI CLI installation (deployment-workflows@infrastructure-lifecycle.yml:184)
+- Use explicit `$HOME/bin/oci` path for authentication test
+- Verify OCI version immediately after installation
+
+**Impact:** OCI CLI authentication test succeeds after installation, allowing infrastructure provisioning to proceed.
+
+**Related Commits:**
+- deployment-workflows@23234b9 - Fix OCI CLI PATH export
 
 ---
 
