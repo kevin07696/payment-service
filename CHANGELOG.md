@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - OCI CLI Debugging and Comprehensive Cleanup (2025-11-10)
+
+**Resolved silent OCI CLI failures and incomplete cleanup-on-failure**
+
+#### Root Causes
+1. **Silent OCI CLI failures:** All OCI commands used `2>/dev/null`, hiding authentication and permission errors
+2. **No OCI CLI verification:** Assumed OCI CLI was installed and configured in GitHub Actions
+3. **Incomplete cleanup-on-failure:** Only ran `terraform destroy`, leaving orphaned resources that consumed quota
+
+#### Solution
+Added comprehensive OCI CLI debugging and cleanup in `infrastructure-lifecycle.yml`:
+
+**1. OCI CLI Verification Step:**
+```yaml
+- Check if OCI CLI is installed, install if missing
+- Test authentication with `oci iam region list`
+- Fail fast with helpful error messages if auth fails
+```
+
+**2. Error Visibility:**
+- Removed all `2>/dev/null` from OCI CLI commands
+- Kept `|| true` to prevent single failures from blocking cleanup
+- Errors now visible in workflow logs for debugging
+
+**3. Enhanced Cleanup-on-Failure:**
+- New step before `terraform destroy`: "Cleanup Orphaned Resources (OCI CLI)"
+- Deletes databases in AVAILABLE/PROVISIONING states
+- Terminates instances in RUNNING/STARTING states
+- Catches resources not in Terraform state (created before Terraform failed)
+
+#### Benefits
+- ✅ OCI CLI auto-installs if missing
+- ✅ Authentication verified before cleanup runs
+- ✅ Actual errors visible for debugging
+- ✅ Orphaned resources cleaned up automatically
+- ✅ Pre-provisioning cleanup now works correctly
+- ✅ Quota freed even when Terraform fails mid-provision
+
+**Deployment:** deployment-workflows@2e8ddc7
+
 ### Changed - Testing Documentation Consolidation (2025-11-10)
 
 **Consolidated 5 testing documents into single task-oriented reference**
