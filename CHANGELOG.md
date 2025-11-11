@@ -80,6 +80,70 @@ Restructured to task-oriented format (403 lines - 55% reduction):
 
 **Impact:** Setup time, documentation maintenance
 
+### Changed - EPX API Reference Restructuring (2025-11-10)
+
+**Restructured API reference from verbose examples to concise table-based format**
+
+#### Problem
+EPX API documentation was verbose with repeated examples (1,697 lines):
+- Multiple full code examples per transaction type
+- Repeated XML request/response samples
+- Verbose field explanations in prose
+- Test logs included in documentation
+
+#### Solution
+Restructured to table-based reference format (436 lines - 74% reduction):
+- Quick reference table for all transaction types at top
+- Field definition tables instead of prose
+- Minimal but complete code examples (essential fields only)
+- Response code tables (AUTH_RESP, AVS, CVV2)
+- Best practices with code patterns
+
+#### Changes
+- ✅ Restructured: 1,697 → 436 lines (74% reduction)
+- ✅ Quick reference: All transaction types in one table
+- ✅ Field tables: Format, example, requirements inline
+- ✅ Code examples: Show only essential fields
+- ✅ Removed: Test logs, verbose explanations, duplicate examples
+
+#### Benefits
+- Find transaction types instantly (quick reference table)
+- Field requirements clear (table format)
+- Copy-paste minimal examples
+- Consistent with other API docs format
+
+**Impact:** API integration time, documentation maintenance
+
+### Removed - DOCUMENTATION.md (2025-11-10)
+
+**Deleted redundant 1,531-line documentation file**
+
+#### Problem
+`docs/DOCUMENTATION.md` duplicated content from README.md and specialized docs:
+- Repeated testing information (now in TESTING.md)
+- Repeated deployment information (now in BRANCHING.md, GCP_PRODUCTION_SETUP.md)
+- Repeated secrets setup (now in SECRETS.md)
+- Violated single source of truth principle
+
+#### Solution
+Deleted DOCUMENTATION.md and added Documentation section to README.md:
+- Links to all specialized documentation
+- Organized by category (Setup, Dataflow, Research)
+- Single source of truth maintained
+
+#### Changes
+- ✅ Deleted: `docs/DOCUMENTATION.md` (1,531 lines)
+- ✅ Added: Documentation section in README.md with links
+- ✅ Organized docs by purpose: Setup, Dataflow, Research
+
+#### Benefits
+- No duplication between README and docs
+- Single source of truth restored
+- Clear navigation to specialized docs
+- 1,531 fewer lines to maintain
+
+**Impact:** Documentation maintenance, onboarding clarity
+
 ### Changed - Secrets Documentation Consolidation (2025-11-10)
 
 **Consolidated 3 secrets documents into single task-oriented reference**
