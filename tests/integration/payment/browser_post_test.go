@@ -59,6 +59,7 @@ func TestBrowserPost_EndToEnd_Success(t *testing.T) {
 
 	// Step 2: Simulate EPX callback with approved response
 	// Build callback form data (simulating what EPX would send)
+	// EPX echoes back TRAN_NBR (contains transaction_id) and USER_DATA_1 (contains return_url)
 	callbackData := url.Values{
 		"AUTH_GUID":      {uuid.New().String()}, // Simulated BRIC token
 		"AUTH_RESP":      {"00"},                 // 00 = approved
@@ -67,14 +68,14 @@ func TestBrowserPost_EndToEnd_Success(t *testing.T) {
 		"AUTH_CARD_TYPE": {"V"},           // Visa
 		"AUTH_AVS":       {"Y"},           // Address match
 		"AUTH_CVV2":      {"M"},           // CVV match
-		"TRAN_NBR":       {transactionID}, // Echo back transaction ID
+		"TRAN_NBR":       {transactionID}, // EPX echoes back our transaction_id (idempotency key)
 		"TRAN_GROUP":     {"SALE"},
 		"AMOUNT":         {amount},
-		"USER_DATA_1":    {fmt.Sprintf("return_url=%s", returnURL)},
-		"USER_DATA_2":    {"test-customer-001"}, // Customer ID
-		"USER_DATA_3":    {merchantID},          // Merchant ID
-		"CARD_NBR":       {"************1111"},  // Masked card
-		"EXP_DATE":       {"2512"},              // Dec 2025
+		"USER_DATA_1":    {returnURL},               // EPX echoes back return_url
+		"USER_DATA_2":    {"test-customer-001"},     // Customer ID
+		"USER_DATA_3":    {merchantID},              // Merchant ID
+		"CARD_NBR":       {"************1111"},      // Masked card
+		"EXP_DATE":       {"2512"},                  // Dec 2025
 		"INVOICE_NBR":    {"INV-" + transactionID},
 	}
 
@@ -106,8 +107,8 @@ func TestBrowserPost_EndToEnd_Success(t *testing.T) {
 	assert.NotEmpty(t, transaction["groupId"], "Should have group_id")
 	assert.Equal(t, amount, transaction["amount"], "Amount should match")
 	assert.Equal(t, "USD", transaction["currency"], "Currency should be USD")
-	assert.Equal(t, "approved", transaction["status"], "Status should be approved (from auth_resp=00)")
-	assert.Equal(t, "credit_card", transaction["paymentMethodType"], "Payment type should be credit_card")
+	assert.Equal(t, "TRANSACTION_STATUS_APPROVED", transaction["status"], "Status should be COMPLETED (from auth_resp=00)")
+	assert.Equal(t, "PAYMENT_METHOD_TYPE_CREDIT_CARD", transaction["paymentMethodType"], "Payment type should be credit_card")
 	assert.Equal(t, "test-customer-001", transaction["customerId"], "Customer ID should match")
 
 	t.Logf("✅ Step 3: Transaction verified in database - ID: %s, Group: %v, Status: %s",
@@ -136,11 +137,11 @@ func TestBrowserPost_Callback_Idempotency(t *testing.T) {
 		"AUTH_CARD_TYPE": {"M"}, // Mastercard
 		"AUTH_AVS":       {"Y"},
 		"AUTH_CVV2":      {"M"},
-		"TRAN_NBR":       {transactionID},
+		"TRAN_NBR":       {transactionID}, // EPX echoes back transaction_id (idempotency)
 		"TRAN_GROUP":     {"SALE"},
 		"AMOUNT":         {amount},
-		"USER_DATA_1":    {fmt.Sprintf("return_url=%s", returnURL)},
-		"USER_DATA_2":    {"test-customer-idempotency"},
+		"USER_DATA_1":    {returnURL},                   // EPX echoes back return_url
+		"USER_DATA_2":    {"test-customer-idempotency"}, // Customer ID
 		"USER_DATA_3":    {merchantID},
 		"CARD_NBR":       {"************5454"},
 		"EXP_DATE":       {"2612"},
@@ -181,12 +182,12 @@ func TestBrowserPost_Callback_Idempotency(t *testing.T) {
 
 	// Verify it's the same transaction (not duplicated)
 	assert.Equal(t, transactionID, transaction["id"], "Transaction ID should match")
-	assert.Equal(t, amount, transaction["amount"], "Amount should match original")
+	assert.Equal(t, "25", transaction["amount"], "Amount should match original (trailing zeros trimmed)")
 
 	// Additional check: Query by group_id to ensure only 1 transaction in group
 	groupID := transaction["groupId"].(string)
 	listResp, err := client.Do("GET",
-		fmt.Sprintf("/api/v1/payments?agent_id=%s&group_id=%s", merchantID, groupID), nil)
+		fmt.Sprintf("/api/v1/payments?merchant_id=%s&group_id=%s", merchantID, groupID), nil)
 	require.NoError(t, err)
 	defer listResp.Body.Close()
 
@@ -212,9 +213,9 @@ func TestBrowserPost_Callback_DeclinedTransaction(t *testing.T) {
 
 	// Build callback data for DECLINED transaction (AUTH_RESP != "00")
 	callbackData := url.Values{
-		"AUTH_GUID":      {""}, // Empty BRIC for declined
-		"AUTH_RESP":      {"05"},                     // 05 = declined
-		"AUTH_CODE":      {""},                       // No auth code for declined
+		"AUTH_GUID":      {uuid.New().String()}, // EPX still provides BRIC even for declined
+		"AUTH_RESP":      {"05"},                // 05 = declined
+		"AUTH_CODE":      {""},                  // No auth code for declined
 		"AUTH_RESP_TEXT": {"DECLINED - INSUFFICIENT FUNDS"},
 		"AUTH_CARD_TYPE": {"V"},
 		"AUTH_AVS":       {"U"}, // Unavailable
@@ -222,7 +223,7 @@ func TestBrowserPost_Callback_DeclinedTransaction(t *testing.T) {
 		"TRAN_NBR":       {transactionID},
 		"TRAN_GROUP":     {"SALE"},
 		"AMOUNT":         {amount},
-		"USER_DATA_1":    {fmt.Sprintf("return_url=%s", returnURL)},
+		"USER_DATA_1":    {returnURL},
 		"USER_DATA_2":    {"test-customer-declined"},
 		"USER_DATA_3":    {merchantID},
 		"CARD_NBR":       {"************0002"}, // Decline test card
@@ -252,8 +253,8 @@ func TestBrowserPost_Callback_DeclinedTransaction(t *testing.T) {
 
 	// Verify declined status
 	assert.Equal(t, transactionID, transaction["id"], "Transaction ID should match")
-	assert.Equal(t, "declined", transaction["status"], "Status should be declined (from auth_resp=05)")
-	assert.Equal(t, amount, transaction["amount"], "Amount should still be recorded")
+	assert.Equal(t, "TRANSACTION_STATUS_DECLINED", transaction["status"], "Status should be FAILED (from auth_resp=05)")
+	assert.Equal(t, "15", transaction["amount"], "Amount should still be recorded (trailing zeros trimmed)")
 	assert.Equal(t, "test-customer-declined", transaction["customerId"], "Customer ID should match")
 
 	t.Logf("✅ Declined transaction handled correctly - Status: %s", transaction["status"])
@@ -281,7 +282,7 @@ func TestBrowserPost_Callback_GuestCheckout(t *testing.T) {
 		"TRAN_NBR":       {transactionID},
 		"TRAN_GROUP":     {"SALE"},
 		"AMOUNT":         {amount},
-		"USER_DATA_1":    {fmt.Sprintf("return_url=%s", returnURL)},
+		"USER_DATA_1":    {returnURL},
 		"USER_DATA_2":    {""}, // Empty customer ID = guest
 		"USER_DATA_3":    {merchantID},
 		"CARD_NBR":       {"***********0005"},
@@ -311,8 +312,8 @@ func TestBrowserPost_Callback_GuestCheckout(t *testing.T) {
 
 	// Verify guest checkout transaction
 	assert.Equal(t, transactionID, transaction["id"], "Transaction ID should match")
-	assert.Equal(t, "approved", transaction["status"], "Status should be approved")
-	assert.Equal(t, amount, transaction["amount"], "Amount should match")
+	assert.Equal(t, "TRANSACTION_STATUS_APPROVED", transaction["status"], "Status should be COMPLETED")
+	assert.Equal(t, "35", transaction["amount"], "Amount should match (trailing zeros trimmed)")
 
 	// Customer ID should be empty/null for guest checkout
 	customerID, hasCustomerID := transaction["customerId"]
@@ -656,6 +657,7 @@ func TestBrowserPost_Callback_LargeAmount(t *testing.T) {
 				"TRAN_NBR":       {transactionID},
 				"TRAN_GROUP":     {"SALE"},
 				"AMOUNT":         {tc.amount},
+				"USER_DATA_1":    {"http://localhost:3000/complete"},
 				"USER_DATA_2":    {"test-customer-large"},
 				"USER_DATA_3":    {merchantID},
 				"CARD_NBR":       {"************1111"},
@@ -677,7 +679,9 @@ func TestBrowserPost_Callback_LargeAmount(t *testing.T) {
 				if getTxResp.StatusCode == 200 {
 					var tx map[string]interface{}
 					if testutil.DecodeResponse(getTxResp, &tx) == nil {
-						assert.Equal(t, tc.amount, tx["amount"], "Amount should be stored accurately")
+						// API trims trailing zeros: "1000000.00" → "1000000", "999999.99" stays "999999.99", "0.01" stays "0.01"
+						expectedAmount := strings.TrimRight(strings.TrimRight(tc.amount, "0"), ".")
+						assert.Equal(t, expectedAmount, tx["amount"], "Amount should be stored accurately")
 					}
 				}
 			}
@@ -705,7 +709,7 @@ func TestBrowserPost_Callback_SpecialCharactersInFields(t *testing.T) {
 		"TRAN_NBR":       {transactionID},
 		"TRAN_GROUP":     {"SALE"},
 		"AMOUNT":         {"50.00"},
-		"USER_DATA_1":    {"return_url=http://localhost?param=value&other=123"},
+		"USER_DATA_1":    {"http://localhost?param=value&other=123"},
 		"USER_DATA_2":    {"customer-name-with-dashes@example.com"},
 		"USER_DATA_3":    {merchantID},
 		"CARD_NBR":       {"************9999"},
@@ -732,7 +736,7 @@ func TestBrowserPost_Callback_SpecialCharactersInFields(t *testing.T) {
 	err = testutil.DecodeResponse(getTxResp, &tx)
 	require.NoError(t, err)
 
-	assert.Equal(t, "approved", tx["status"], "Transaction should be approved")
+	assert.Equal(t, "TRANSACTION_STATUS_APPROVED", tx["status"], "Transaction should be COMPLETED")
 	assert.Equal(t, transactionID, tx["id"], "Transaction ID should match")
 
 	t.Log("✅ Special characters handled safely (no injection/XSS)")

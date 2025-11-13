@@ -66,7 +66,7 @@ service PaymentService {
 
 // AuthorizeRequest authorizes a payment without capturing
 message AuthorizeRequest {
-  string agent_id = 1; // Multi-tenant: which agent/merchant
+  string merchant_id = 1; // Multi-tenant: which agent/merchant
   string customer_id = 2; // Customer ID (nullable for guest transactions)
   string amount = 3; // Decimal as string (e.g., "29.99")
   string currency = 4; // ISO 4217 code (e.g., "USD")
@@ -90,7 +90,7 @@ message CaptureRequest {
 
 // SaleRequest combines authorize and capture
 message SaleRequest {
-  string agent_id = 1;
+  string merchant_id = 1;
   string customer_id = 2; // Nullable for guest transactions
   string amount = 3; // Decimal as string
   string currency = 4;
@@ -126,7 +126,7 @@ message GetTransactionRequest {
 
 // ListTransactionsRequest lists transactions
 message ListTransactionsRequest {
-  string agent_id = 1;
+  string merchant_id = 1;
   string customer_id = 2; // Optional: filter by customer
   string group_id = 3; // Optional: get all transactions in a group
   TransactionStatus status = 4; // Optional: filter by status
@@ -175,7 +175,7 @@ message PaymentResponse {
 message Transaction {
   string id = 1;
   string group_id = 2; // Links related transactions (auth → capture → refund)
-  string agent_id = 3;
+  string merchant_id = 3;
   string customer_id = 4; // Nullable for guest transactions
   string amount = 5;
   string currency = 6;
@@ -196,13 +196,13 @@ message Transaction {
   google.protobuf.Timestamp updated_at = 16;
 }
 
-// TransactionStatus represents the current state of a transaction
-// Matches database constraint: ('pending', 'completed', 'failed')
+// TransactionStatus represents the outcome of a transaction (success/failure)
+// Based on gateway response (EPX: auth_resp='00' = approved, else = failed)
+// Note: This is NOT the transaction lifecycle state - use 'type' field for that
 enum TransactionStatus {
   TRANSACTION_STATUS_UNSPECIFIED = 0;
-  TRANSACTION_STATUS_PENDING = 1;
-  TRANSACTION_STATUS_COMPLETED = 2;
-  TRANSACTION_STATUS_FAILED = 3;
+  TRANSACTION_STATUS_APPROVED = 1;   // Gateway approved (auth_resp='00')
+  TRANSACTION_STATUS_DECLINED = 2;   // Gateway declined (auth_resp != '00')
 }
 
 // TransactionType represents the type of transaction

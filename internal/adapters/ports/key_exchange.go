@@ -8,8 +8,8 @@ import (
 // KeyExchangeRequest contains parameters for requesting a TAC token from EPX Key Exchange service
 // Based on EPX Browser Post API - Key Exchange Request (page 6)
 type KeyExchangeRequest struct {
-	// Agent credentials
-	AgentID     string // Our internal agent ID
+	// Merchant credentials
+	MerchantID  string // Our internal merchant ID
 	CustNbr     string // EPX customer number
 	MerchNbr    string // EPX merchant number
 	DBAnbr      string // EPX DBA number

@@ -94,7 +94,7 @@ service SubscriptionService {
 
 // CreateSubscriptionRequest creates a new subscription
 message CreateSubscriptionRequest {
-  string agent_id = 1;
+  string merchant_id = 1;
   string customer_id = 2;
   string amount = 3; // Decimal as string
   string currency = 4;
@@ -145,7 +145,7 @@ message GetSubscriptionRequest {
 
 // ListCustomerSubscriptionsRequest lists customer subscriptions
 message ListCustomerSubscriptionsRequest {
-  string agent_id = 1;
+  string merchant_id = 1;
   string customer_id = 2;
   optional SubscriptionStatus status = 3; // Optional: filter by status
 }
@@ -181,7 +181,7 @@ message BillingError {
 // SubscriptionResponse is returned from subscription operations
 message SubscriptionResponse {
   string subscription_id = 1;
-  string agent_id = 2;
+  string merchant_id = 2;
   string customer_id = 3;
   string amount = 4;
   string currency = 5;
@@ -202,7 +202,7 @@ message SubscriptionResponse {
 // Subscription represents a complete subscription record
 message Subscription {
   string id = 1;
-  string agent_id = 2;
+  string merchant_id = 2;
   string customer_id = 3;
   string amount = 4;
   string currency = 5;

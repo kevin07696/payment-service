@@ -8,7 +8,7 @@ import (
 
 // AuthorizeRequest contains parameters for authorization
 type AuthorizeRequest struct {
-	AgentID         string
+	MerchantID      string
 	CustomerID      *string // Nullable for guest transactions
 	Amount          string
 	Currency        string
@@ -27,7 +27,7 @@ type CaptureRequest struct {
 
 // SaleRequest contains parameters for sale (auth + capture)
 type SaleRequest struct {
-	AgentID         string
+	MerchantID      string
 	CustomerID      *string
 	Amount          string
 	Currency        string
@@ -53,7 +53,7 @@ type RefundRequest struct {
 
 // ListTransactionsFilters contains filter parameters for listing transactions
 type ListTransactionsFilters struct {
-	AgentID         *string
+	MerchantID      *string
 	CustomerID      *string
 	GroupID         *string
 	Status          *string

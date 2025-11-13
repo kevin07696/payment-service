@@ -164,6 +164,7 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 			zap.Int("status_code", httpResp.StatusCode),
 			zap.Duration("elapsed", time.Since(startTime)),
 			zap.Int("body_length", len(body)),
+			zap.String("response_body", string(body)),
 		)
 
 		// Parse response
@@ -179,6 +180,7 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 		a.logger.Info("Successfully processed Server Post transaction",
 			zap.String("auth_guid", response.AuthGUID),
 			zap.String("auth_resp", response.AuthResp),
+			zap.String("auth_resp_text", response.AuthRespText),
 			zap.Bool("is_approved", response.IsApproved),
 		)
 

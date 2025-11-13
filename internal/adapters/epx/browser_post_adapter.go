@@ -18,8 +18,8 @@ import (
 // BrowserPostConfig contains configuration for EPX Browser Post adapter
 type BrowserPostConfig struct {
 	// EPX Browser Post endpoint URL
-	// Sandbox: https://epxnow.com/epx/browser_post_sandbox
-	// Production: https://epxnow.com/epx/browser_post
+	// Sandbox: https://services.epxuap.com/browserpost/
+	// Production: https://epxnow.com/epx/browser_post (or contact North for production URL)
 	PostURL string
 
 	// Default merchant name for display
@@ -31,9 +31,9 @@ type BrowserPostConfig struct {
 
 // DefaultBrowserPostConfig returns default configuration for Browser Post adapter
 func DefaultBrowserPostConfig(environment string) *BrowserPostConfig {
-	postURL := "https://epxnow.com/epx/browser_post" // Production
+	postURL := "https://epxnow.com/epx/browser_post" // Production (may need to contact North for production URL)
 	if environment == "sandbox" {
-		postURL = "https://secure.epxuap.com/browserpost"
+		postURL = "https://services.epxuap.com/browserpost/"
 	}
 
 	return &BrowserPostConfig{
@@ -162,7 +162,7 @@ func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (
 		AuthCVV2:     getValue("AUTH_CVV2"),
 		TranNbr:      getValue("TRAN_NBR"),
 		TranGroup:    getValue("TRAN_GROUP"),
-		Amount:       getValue("AMOUNT"),
+		Amount:       getValue("AUTH_AMOUNT"), // EPX returns amount in AUTH_AMOUNT field
 		ProcessedAt:  processedAt,
 		RawParams:    rawParams,
 	}

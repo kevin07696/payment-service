@@ -34,7 +34,7 @@ func NewHandler(service ports.SubscriptionService, logger *zap.Logger) *Handler 
 // CreateSubscription creates a new recurring billing subscription
 func (h *Handler) CreateSubscription(ctx context.Context, req *subscriptionv1.CreateSubscriptionRequest) (*subscriptionv1.SubscriptionResponse, error) {
 	h.logger.Info("CreateSubscription request received",
-		zap.String("agent_id", req.AgentId),
+		zap.String("merchant_id", req.MerchantId),
 		zap.String("customer_id", req.CustomerId),
 		zap.String("amount", req.Amount),
 	)
@@ -46,7 +46,7 @@ func (h *Handler) CreateSubscription(ctx context.Context, req *subscriptionv1.Cr
 
 	// Convert to service request
 	serviceReq := &ports.CreateSubscriptionRequest{
-		AgentID:         req.AgentId,
+		MerchantID:      req.MerchantId,
 		CustomerID:      req.CustomerId,
 		Amount:          req.Amount,
 		Currency:        req.Currency,
@@ -204,14 +204,14 @@ func (h *Handler) GetSubscription(ctx context.Context, req *subscriptionv1.GetSu
 
 // ListCustomerSubscriptions lists all subscriptions for a customer
 func (h *Handler) ListCustomerSubscriptions(ctx context.Context, req *subscriptionv1.ListCustomerSubscriptionsRequest) (*subscriptionv1.ListCustomerSubscriptionsResponse, error) {
-	if req.AgentId == "" {
-		return nil, status.Error(codes.InvalidArgument, "agent_id is required")
+	if req.MerchantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "merchant_id is required")
 	}
 	if req.CustomerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
 	}
 
-	subs, err := h.service.ListCustomerSubscriptions(ctx, req.AgentId, req.CustomerId)
+	subs, err := h.service.ListCustomerSubscriptions(ctx, req.MerchantId, req.CustomerId)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to list subscriptions")
 	}
@@ -273,8 +273,8 @@ func (h *Handler) ProcessDueBilling(ctx context.Context, req *subscriptionv1.Pro
 // Validation helpers
 
 func validateCreateSubscriptionRequest(req *subscriptionv1.CreateSubscriptionRequest) error {
-	if req.AgentId == "" {
-		return fmt.Errorf("agent_id is required")
+	if req.MerchantId == "" {
+		return fmt.Errorf("merchant_id is required")
 	}
 	if req.CustomerId == "" {
 		return fmt.Errorf("customer_id is required")
@@ -313,7 +313,7 @@ func convertMetadata(meta map[string]string) map[string]interface{} {
 func subscriptionToResponse(sub *domain.Subscription) *subscriptionv1.SubscriptionResponse {
 	resp := &subscriptionv1.SubscriptionResponse{
 		SubscriptionId:  sub.ID,
-		AgentId:         sub.AgentID,
+		MerchantId:      sub.MerchantID,
 		CustomerId:      sub.CustomerID,
 		Amount:          sub.Amount.String(),
 		Currency:        string(sub.Currency),
@@ -340,7 +340,7 @@ func subscriptionToResponse(sub *domain.Subscription) *subscriptionv1.Subscripti
 func subscriptionToProto(sub *domain.Subscription) *subscriptionv1.Subscription {
 	proto := &subscriptionv1.Subscription{
 		Id:                sub.ID,
-		AgentId:           sub.AgentID,
+		MerchantId:        sub.MerchantID,
 		CustomerId:        sub.CustomerID,
 		Amount:            sub.Amount.String(),
 		Currency:          string(sub.Currency),
@@ -481,7 +481,7 @@ func handleServiceError(err error) error {
 		return status.Error(codes.InvalidArgument, "invalid amount")
 	case errors.Is(err, domain.ErrInvalidCurrency):
 		return status.Error(codes.InvalidArgument, "invalid currency")
-	case errors.Is(err, domain.ErrAgentInactive):
+	case errors.Is(err, domain.ErrMerchantInactive):
 		return status.Error(codes.FailedPrecondition, "agent is inactive")
 	case errors.Is(err, domain.ErrDuplicateIdempotencyKey):
 		return status.Error(codes.AlreadyExists, "duplicate idempotency key")

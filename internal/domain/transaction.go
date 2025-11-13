@@ -6,22 +6,22 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// TransactionStatus represents the current state of a transaction
+// TransactionStatus represents the outcome of a transaction (approved/declined by gateway)
+// This is NOT the transaction lifecycle state - use TransactionType for that
 type TransactionStatus string
 
 const (
-	TransactionStatusPending   TransactionStatus = "pending"
-	TransactionStatusCompleted TransactionStatus = "completed"
-	TransactionStatusFailed    TransactionStatus = "failed"
+	TransactionStatusApproved TransactionStatus = "approved" // Gateway approved (auth_resp='00')
+	TransactionStatusDeclined TransactionStatus = "declined" // Gateway declined (auth_resp != '00')
 )
 
 // TransactionType represents the type of transaction
 type TransactionType string
 
 const (
-	TransactionTypeAuth    TransactionType = "auth"     // Authorization only
+	TransactionTypeAuth    TransactionType = "auth"     // Authorization only (EPX TRAN_GROUP=A)
 	TransactionTypeCapture TransactionType = "capture"  // Capture authorized funds
-	TransactionTypeCharge  TransactionType = "charge"   // Combined auth + capture (sale)
+	TransactionTypeSale    TransactionType = "sale"     // Combined auth + capture (EPX TRAN_GROUP=U)
 	TransactionTypeRefund  TransactionType = "refund"   // Return funds
 	TransactionTypeVoid    TransactionType = "void"     // Cancel transaction before settlement
 	TransactionTypePreNote TransactionType = "pre_note" // ACH verification
@@ -42,10 +42,13 @@ type Transaction struct {
 	GroupID string `json:"group_id"` // Links related transactions (auth → capture → refund)
 
 	// Multi-tenant
-	AgentID string `json:"agent_id"` // Which agent/merchant owns this transaction
+	MerchantID string `json:"merchant_id"` // Which merchant owns this transaction
 
 	// Customer
 	CustomerID *string `json:"customer_id"` // NULL for guest transactions
+
+	// Optional subscription reference (for recurring billing)
+	SubscriptionID *string `json:"subscription_id"` // NULL for one-time payments
 
 	// Transaction details
 	Amount            decimal.Decimal   `json:"amount"`
@@ -56,7 +59,7 @@ type Transaction struct {
 	PaymentMethodID   *string           `json:"payment_method_id"` // References saved payment method (NULL if one-time)
 
 	// EPX Gateway response fields
-	AuthGUID     *string `json:"auth_guid"`      // EPX transaction token (BRIC format) - required for refunds/voids/captures
+	AuthGUID     string  `json:"auth_guid"`      // EPX AUTH_GUID (BRIC token) for this transaction
 	AuthResp     *string `json:"auth_resp"`      // EPX approval code ("00" = approved, "05" = declined)
 	AuthCode     *string `json:"auth_code"`      // Bank authorization code (NULL if declined)
 	AuthRespText *string `json:"auth_resp_text"` // Human-readable response message
@@ -80,27 +83,19 @@ func (t *Transaction) IsApproved() bool {
 
 // CanBeVoided returns true if the transaction can be voided
 func (t *Transaction) CanBeVoided() bool {
-	return t.Status == TransactionStatusCompleted &&
-		(t.Type == TransactionTypeAuth || t.Type == TransactionTypeCharge)
+	return t.Status == TransactionStatusApproved &&
+		(t.Type == TransactionTypeAuth || t.Type == TransactionTypeSale)
 }
 
 // CanBeCaptured returns true if the transaction can be captured
 func (t *Transaction) CanBeCaptured() bool {
-	return t.Status == TransactionStatusCompleted && t.Type == TransactionTypeAuth
+	return t.Status == TransactionStatusApproved && t.Type == TransactionTypeAuth
 }
 
 // CanBeRefunded returns true if the transaction can be refunded
 func (t *Transaction) CanBeRefunded() bool {
-	return t.Status == TransactionStatusCompleted &&
-		(t.Type == TransactionTypeCharge || t.Type == TransactionTypeCapture)
-}
-
-// GetAuthGUID safely retrieves the AUTH_GUID
-func (t *Transaction) GetAuthGUID() string {
-	if t.AuthGUID != nil {
-		return *t.AuthGUID
-	}
-	return ""
+	return t.Status == TransactionStatusApproved &&
+		(t.Type == TransactionTypeSale || t.Type == TransactionTypeCapture)
 }
 
 // GetCustomerID safely retrieves the customer ID

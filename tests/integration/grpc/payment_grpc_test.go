@@ -42,9 +42,9 @@ func TestGRPC_ListTransactions(t *testing.T) {
 
 	// List transactions for test merchant
 	req := &paymentv1.ListTransactionsRequest{
-		AgentId: "test-merchant-staging",
-		Limit:   10,
-		Offset:  0,
+		MerchantId: "test-merchant-staging",
+		Limit:      10,
+		Offset:     0,
 	}
 
 	resp, err := client.ListTransactions(ctx, req)
@@ -65,9 +65,9 @@ func TestGRPC_GetTransaction(t *testing.T) {
 
 	// First, list transactions to get a valid ID
 	listReq := &paymentv1.ListTransactionsRequest{
-		AgentId: "test-merchant-staging",
-		Limit:   1,
-		Offset:  0,
+		MerchantId: "test-merchant-staging",
+		Limit:      1,
+		Offset:     0,
 	}
 
 	listResp, err := client.ListTransactions(ctx, listReq)
@@ -105,9 +105,9 @@ func TestGRPC_ListTransactionsByGroup(t *testing.T) {
 
 	// First, get a transaction to find a valid group_id
 	listReq := &paymentv1.ListTransactionsRequest{
-		AgentId: "test-merchant-staging",
-		Limit:   1,
-		Offset:  0,
+		MerchantId: "test-merchant-staging",
+		Limit:      1,
+		Offset:     0,
 	}
 
 	listResp, err := client.ListTransactions(ctx, listReq)
@@ -122,10 +122,10 @@ func TestGRPC_ListTransactionsByGroup(t *testing.T) {
 
 	// Now list transactions by group_id
 	groupReq := &paymentv1.ListTransactionsRequest{
-		AgentId: "test-merchant-staging",
-		GroupId: groupID,
-		Limit:   100,
-		Offset:  0,
+		MerchantId: "test-merchant-staging",
+		GroupId:    groupID,
+		Limit:      100,
+		Offset:     0,
 	}
 
 	groupResp, err := client.ListTransactions(ctx, groupReq)

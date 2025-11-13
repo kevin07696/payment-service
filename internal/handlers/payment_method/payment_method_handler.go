@@ -34,7 +34,7 @@ func NewHandler(service ports.PaymentMethodService, logger *zap.Logger) *Handler
 // SavePaymentMethod tokenizes and saves a payment method
 func (h *Handler) SavePaymentMethod(ctx context.Context, req *paymentmethodv1.SavePaymentMethodRequest) (*paymentmethodv1.PaymentMethodResponse, error) {
 	h.logger.Info("SavePaymentMethod request received",
-		zap.String("agent_id", req.AgentId),
+		zap.String("merchant_id", req.MerchantId),
 		zap.String("customer_id", req.CustomerId),
 		zap.String("payment_type", req.PaymentType.String()),
 	)
@@ -46,7 +46,7 @@ func (h *Handler) SavePaymentMethod(ctx context.Context, req *paymentmethodv1.Sa
 
 	// Convert to service request
 	serviceReq := &ports.SavePaymentMethodRequest{
-		AgentID:      req.AgentId,
+		MerchantID:      req.MerchantId,
 		CustomerID:   req.CustomerId,
 		PaymentToken: req.PaymentToken,
 		PaymentType:  paymentMethodTypeFromProto(req.PaymentType),
@@ -108,14 +108,14 @@ func (h *Handler) GetPaymentMethod(ctx context.Context, req *paymentmethodv1.Get
 
 // ListPaymentMethods lists all payment methods for a customer
 func (h *Handler) ListPaymentMethods(ctx context.Context, req *paymentmethodv1.ListPaymentMethodsRequest) (*paymentmethodv1.ListPaymentMethodsResponse, error) {
-	if req.AgentId == "" {
-		return nil, status.Error(codes.InvalidArgument, "agent_id is required")
+	if req.MerchantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "merchant_id is required")
 	}
 	if req.CustomerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
 	}
 
-	pms, err := h.service.ListPaymentMethods(ctx, req.AgentId, req.CustomerId)
+	pms, err := h.service.ListPaymentMethods(ctx, req.MerchantId, req.CustomerId)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to list payment methods")
 	}
@@ -164,14 +164,14 @@ func (h *Handler) UpdatePaymentMethodStatus(ctx context.Context, req *paymentmet
 	if req.PaymentMethodId == "" {
 		return nil, status.Error(codes.InvalidArgument, "payment_method_id is required")
 	}
-	if req.AgentId == "" {
-		return nil, status.Error(codes.InvalidArgument, "agent_id is required")
+	if req.MerchantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "merchant_id is required")
 	}
 	if req.CustomerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
 	}
 
-	pm, err := h.service.UpdatePaymentMethodStatus(ctx, req.PaymentMethodId, req.AgentId, req.CustomerId, req.IsActive)
+	pm, err := h.service.UpdatePaymentMethodStatus(ctx, req.PaymentMethodId, req.MerchantId, req.CustomerId, req.IsActive)
 	if err != nil {
 		return nil, handleServiceError(err)
 	}
@@ -216,14 +216,14 @@ func (h *Handler) SetDefaultPaymentMethod(ctx context.Context, req *paymentmetho
 	if req.PaymentMethodId == "" {
 		return nil, status.Error(codes.InvalidArgument, "payment_method_id is required")
 	}
-	if req.AgentId == "" {
-		return nil, status.Error(codes.InvalidArgument, "agent_id is required")
+	if req.MerchantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "merchant_id is required")
 	}
 	if req.CustomerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
 	}
 
-	pm, err := h.service.SetDefaultPaymentMethod(ctx, req.PaymentMethodId, req.AgentId, req.CustomerId)
+	pm, err := h.service.SetDefaultPaymentMethod(ctx, req.PaymentMethodId, req.MerchantId, req.CustomerId)
 	if err != nil {
 		return nil, handleServiceError(err)
 	}
@@ -241,8 +241,8 @@ func (h *Handler) VerifyACHAccount(ctx context.Context, req *paymentmethodv1.Ver
 	if req.PaymentMethodId == "" {
 		return nil, status.Error(codes.InvalidArgument, "payment_method_id is required")
 	}
-	if req.AgentId == "" {
-		return nil, status.Error(codes.InvalidArgument, "agent_id is required")
+	if req.MerchantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "merchant_id is required")
 	}
 	if req.CustomerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
@@ -250,7 +250,7 @@ func (h *Handler) VerifyACHAccount(ctx context.Context, req *paymentmethodv1.Ver
 
 	serviceReq := &ports.VerifyACHAccountRequest{
 		PaymentMethodID: req.PaymentMethodId,
-		AgentID:         req.AgentId,
+		MerchantID:         req.MerchantId,
 		CustomerID:      req.CustomerId,
 	}
 
@@ -273,7 +273,7 @@ func (h *Handler) VerifyACHAccount(ctx context.Context, req *paymentmethodv1.Ver
 // ConvertFinancialBRICToStorageBRIC converts a Financial BRIC to Storage BRIC and saves payment method
 func (h *Handler) ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *paymentmethodv1.ConvertFinancialBRICRequest) (*paymentmethodv1.PaymentMethodResponse, error) {
 	h.logger.Info("ConvertFinancialBRICToStorageBRIC request received",
-		zap.String("agent_id", req.AgentId),
+		zap.String("merchant_id", req.MerchantId),
 		zap.String("customer_id", req.CustomerId),
 		zap.String("transaction_id", req.TransactionId),
 		zap.String("payment_type", req.PaymentType.String()),
@@ -286,7 +286,7 @@ func (h *Handler) ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *pa
 
 	// Convert to service request
 	serviceReq := &ports.ConvertFinancialBRICRequest{
-		AgentID:       req.AgentId,
+		MerchantID:       req.MerchantId,
 		CustomerID:    req.CustomerId,
 		FinancialBRIC: req.FinancialBric,
 		PaymentType:   paymentMethodTypeFromProto(req.PaymentType),
@@ -358,8 +358,8 @@ func (h *Handler) ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *pa
 // Validation helpers
 
 func validateSavePaymentMethodRequest(req *paymentmethodv1.SavePaymentMethodRequest) error {
-	if req.AgentId == "" {
-		return fmt.Errorf("agent_id is required")
+	if req.MerchantId == "" {
+		return fmt.Errorf("merchant_id is required")
 	}
 	if req.CustomerId == "" {
 		return fmt.Errorf("customer_id is required")
@@ -404,8 +404,8 @@ func validateSavePaymentMethodRequest(req *paymentmethodv1.SavePaymentMethodRequ
 }
 
 func validateConvertFinancialBRICRequest(req *paymentmethodv1.ConvertFinancialBRICRequest) error {
-	if req.AgentId == "" {
-		return fmt.Errorf("agent_id is required")
+	if req.MerchantId == "" {
+		return fmt.Errorf("merchant_id is required")
 	}
 	if req.CustomerId == "" {
 		return fmt.Errorf("customer_id is required")
@@ -442,7 +442,7 @@ func validateConvertFinancialBRICRequest(req *paymentmethodv1.ConvertFinancialBR
 func paymentMethodToResponse(pm *domain.PaymentMethod) *paymentmethodv1.PaymentMethodResponse {
 	resp := &paymentmethodv1.PaymentMethodResponse{
 		PaymentMethodId: pm.ID,
-		AgentId:         pm.AgentID,
+		MerchantId:      pm.MerchantID,
 		CustomerId:      pm.CustomerID,
 		PaymentType:     paymentMethodTypeToProto(pm.PaymentType),
 		LastFour:        pm.LastFour,
@@ -479,7 +479,7 @@ func paymentMethodToResponse(pm *domain.PaymentMethod) *paymentmethodv1.PaymentM
 func paymentMethodToProto(pm *domain.PaymentMethod) *paymentmethodv1.PaymentMethod {
 	proto := &paymentmethodv1.PaymentMethod{
 		Id:          pm.ID,
-		AgentId:     pm.AgentID,
+		MerchantId:  pm.MerchantID,
 		CustomerId:  pm.CustomerID,
 		PaymentType: paymentMethodTypeToProto(pm.PaymentType),
 		LastFour:    pm.LastFour,
@@ -551,7 +551,7 @@ func handleServiceError(err error) error {
 		return status.Error(codes.FailedPrecondition, "payment method is inactive")
 	case errors.Is(err, domain.ErrInvalidPaymentMethodType):
 		return status.Error(codes.InvalidArgument, "invalid payment method type")
-	case errors.Is(err, domain.ErrAgentInactive):
+	case errors.Is(err, domain.ErrMerchantInactive):
 		return status.Error(codes.FailedPrecondition, "agent is inactive")
 	case errors.Is(err, domain.ErrDuplicateIdempotencyKey):
 		return status.Error(codes.AlreadyExists, "duplicate idempotency key")

@@ -34,7 +34,7 @@ func NewHandler(service ports.PaymentService, logger *zap.Logger) *Handler {
 // Authorize holds funds on a payment method without capturing
 func (h *Handler) Authorize(ctx context.Context, req *paymentv1.AuthorizeRequest) (*paymentv1.PaymentResponse, error) {
 	h.logger.Info("Authorize request received",
-		zap.String("agent_id", req.AgentId),
+		zap.String("merchant_id", req.MerchantId),
 		zap.String("amount", req.Amount),
 	)
 
@@ -45,10 +45,10 @@ func (h *Handler) Authorize(ctx context.Context, req *paymentv1.AuthorizeRequest
 
 	// Convert to service request
 	serviceReq := &ports.AuthorizeRequest{
-		AgentID:  req.AgentId,
-		Amount:   req.Amount,
-		Currency: req.Currency,
-		Metadata: convertMetadata(req.Metadata),
+		MerchantID: req.MerchantId,
+		Amount:     req.Amount,
+		Currency:   req.Currency,
+		Metadata:   convertMetadata(req.Metadata),
 	}
 
 	if req.CustomerId != "" {
@@ -101,10 +101,16 @@ func (h *Handler) Capture(ctx context.Context, req *paymentv1.CaptureRequest) (*
 		serviceReq.IdempotencyKey = &req.IdempotencyKey
 	}
 
+	h.logger.Info("Calling capture service", zap.String("transaction_id", req.TransactionId))
 	tx, err := h.service.Capture(ctx, serviceReq)
 	if err != nil {
+		h.logger.Error("Capture service error",
+			zap.Error(err),
+			zap.String("transaction_id", req.TransactionId),
+		)
 		return nil, handleServiceError(err)
 	}
+	h.logger.Info("Capture service succeeded", zap.String("transaction_id", req.TransactionId))
 
 	return transactionToPaymentResponse(tx), nil
 }
@@ -112,7 +118,7 @@ func (h *Handler) Capture(ctx context.Context, req *paymentv1.CaptureRequest) (*
 // Sale combines authorize and capture in one operation
 func (h *Handler) Sale(ctx context.Context, req *paymentv1.SaleRequest) (*paymentv1.PaymentResponse, error) {
 	h.logger.Info("Sale request received",
-		zap.String("agent_id", req.AgentId),
+		zap.String("merchant_id", req.MerchantId),
 		zap.String("amount", req.Amount),
 	)
 
@@ -122,10 +128,10 @@ func (h *Handler) Sale(ctx context.Context, req *paymentv1.SaleRequest) (*paymen
 	}
 
 	serviceReq := &ports.SaleRequest{
-		AgentID:  req.AgentId,
-		Amount:   req.Amount,
-		Currency: req.Currency,
-		Metadata: convertMetadata(req.Metadata),
+		MerchantID: req.MerchantId,
+		Amount:     req.Amount,
+		Currency:   req.Currency,
+		Metadata:   convertMetadata(req.Metadata),
 	}
 
 	if req.CustomerId != "" {
@@ -230,15 +236,15 @@ func (h *Handler) GetTransaction(ctx context.Context, req *paymentv1.GetTransact
 
 // ListTransactions lists transactions for a merchant or customer
 func (h *Handler) ListTransactions(ctx context.Context, req *paymentv1.ListTransactionsRequest) (*paymentv1.ListTransactionsResponse, error) {
-	if req.AgentId == "" {
-		return nil, status.Error(codes.InvalidArgument, "agent_id is required")
+	if req.MerchantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "merchant_id is required")
 	}
 
 	// Build filter parameters from request
 	filters := &ports.ListTransactionsFilters{
-		AgentID: &req.AgentId,
-		Limit:   int(req.Limit),
-		Offset:  int(req.Offset),
+		MerchantID: &req.MerchantId,
+		Limit:      int(req.Limit),
+		Offset:     int(req.Offset),
 	}
 
 	// Add optional filters
@@ -272,8 +278,8 @@ func (h *Handler) ListTransactions(ctx context.Context, req *paymentv1.ListTrans
 // Validation helpers
 
 func validateAuthorizeRequest(req *paymentv1.AuthorizeRequest) error {
-	if req.AgentId == "" {
-		return fmt.Errorf("agent_id is required")
+	if req.MerchantId == "" {
+		return fmt.Errorf("merchant_id is required")
 	}
 	if req.Amount == "" {
 		return fmt.Errorf("amount is required")
@@ -288,8 +294,8 @@ func validateAuthorizeRequest(req *paymentv1.AuthorizeRequest) error {
 }
 
 func validateSaleRequest(req *paymentv1.SaleRequest) error {
-	if req.AgentId == "" {
-		return fmt.Errorf("agent_id is required")
+	if req.MerchantId == "" {
+		return fmt.Errorf("merchant_id is required")
 	}
 	if req.Amount == "" {
 		return fmt.Errorf("amount is required")
@@ -380,7 +386,7 @@ func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 	proto := &paymentv1.Transaction{
 		Id:                tx.ID,
 		GroupId:           tx.GroupID,
-		AgentId:           tx.AgentID,
+		MerchantId:        tx.MerchantID,
 		CustomerId:        stringPtrToString(tx.CustomerID),
 		Amount:            tx.Amount.String(),
 		Currency:          string(tx.Currency),
@@ -404,12 +410,10 @@ func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 
 func transactionStatusToProto(status domain.TransactionStatus) paymentv1.TransactionStatus {
 	switch status {
-	case domain.TransactionStatusPending:
-		return paymentv1.TransactionStatus_TRANSACTION_STATUS_PENDING
-	case domain.TransactionStatusCompleted:
-		return paymentv1.TransactionStatus_TRANSACTION_STATUS_COMPLETED
-	case domain.TransactionStatusFailed:
-		return paymentv1.TransactionStatus_TRANSACTION_STATUS_FAILED
+	case domain.TransactionStatusApproved:
+		return paymentv1.TransactionStatus_TRANSACTION_STATUS_APPROVED
+	case domain.TransactionStatusDeclined:
+		return paymentv1.TransactionStatus_TRANSACTION_STATUS_DECLINED
 	default:
 		return paymentv1.TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED
 	}
@@ -417,12 +421,10 @@ func transactionStatusToProto(status domain.TransactionStatus) paymentv1.Transac
 
 func protoStatusToDomain(status paymentv1.TransactionStatus) string {
 	switch status {
-	case paymentv1.TransactionStatus_TRANSACTION_STATUS_PENDING:
-		return string(domain.TransactionStatusPending)
-	case paymentv1.TransactionStatus_TRANSACTION_STATUS_COMPLETED:
-		return string(domain.TransactionStatusCompleted)
-	case paymentv1.TransactionStatus_TRANSACTION_STATUS_FAILED:
-		return string(domain.TransactionStatusFailed)
+	case paymentv1.TransactionStatus_TRANSACTION_STATUS_APPROVED:
+		return string(domain.TransactionStatusApproved)
+	case paymentv1.TransactionStatus_TRANSACTION_STATUS_DECLINED:
+		return string(domain.TransactionStatusDeclined)
 	default:
 		return ""
 	}
@@ -434,8 +436,8 @@ func transactionTypeToProto(txType domain.TransactionType) paymentv1.Transaction
 		return paymentv1.TransactionType_TRANSACTION_TYPE_AUTH
 	case domain.TransactionTypeCapture:
 		return paymentv1.TransactionType_TRANSACTION_TYPE_CAPTURE
-	case domain.TransactionTypeCharge:
-		return paymentv1.TransactionType_TRANSACTION_TYPE_CHARGE
+	case domain.TransactionTypeSale:
+		return paymentv1.TransactionType_TRANSACTION_TYPE_CHARGE // Proto uses CHARGE for SALE
 	case domain.TransactionTypeRefund:
 		return paymentv1.TransactionType_TRANSACTION_TYPE_REFUND
 	case domain.TransactionTypePreNote:
@@ -479,7 +481,7 @@ func convertMetadataToProto(meta map[string]interface{}) map[string]string {
 func handleServiceError(err error) error {
 	// Map domain errors to gRPC status codes
 	switch {
-	case errors.Is(err, domain.ErrAgentInactive):
+	case errors.Is(err, domain.ErrMerchantInactive):
 		return status.Error(codes.FailedPrecondition, "agent is inactive")
 	case errors.Is(err, domain.ErrPaymentMethodNotFound):
 		return status.Error(codes.NotFound, "payment method not found")

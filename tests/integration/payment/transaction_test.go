@@ -296,12 +296,12 @@ func TestGetTransaction(t *testing.T) {
 	t.Logf("Retrieved transaction: %s", transactionID)
 }
 
-// TestListTransactions lists transactions with various filters
+// TestListTransactions tests listing transactions with various filters (customer_id and group_id)
 func TestListTransactions(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
 
 	cfg, client := testutil.Setup(t)
-	customerID := "test-customer-txn-005"
+	customerID := "test-customer-txn-list"
 	time.Sleep(2 * time.Second)
 
 	// Create payment method
@@ -314,7 +314,8 @@ func TestListTransactions(t *testing.T) {
 	require.NoError(t, err)
 	time.Sleep(2 * time.Second)
 
-	// Create 3 transactions
+	// Create 3 transactions for the same customer
+	var lastGroupID string
 	for i := 1; i <= 3; i++ {
 		saleReq := map[string]interface{}{
 			"agent_id":          "test-merchant-staging",
@@ -326,85 +327,59 @@ func TestListTransactions(t *testing.T) {
 
 		resp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
 		require.NoError(t, err)
+
+		if i == 3 {
+			// Save the group_id from the last transaction for group filtering test
+			var saleResult map[string]interface{}
+			testutil.DecodeResponse(resp, &saleResult)
+			lastGroupID = saleResult["groupId"].(string)
+		}
+
 		resp.Body.Close()
 		time.Sleep(2 * time.Second)
 	}
 
-	// List transactions for customer
-	listResp, err := client.Do("GET",
-		fmt.Sprintf("/api/v1/payments?agent_id=test-merchant-staging&customer_id=%s", customerID), nil)
-	require.NoError(t, err)
-	defer listResp.Body.Close()
+	// Test 1: List transactions by customer_id
+	t.Run("list_by_customer_id", func(t *testing.T) {
+		listResp, err := client.Do("GET",
+			fmt.Sprintf("/api/v1/payments?agent_id=test-merchant-staging&customer_id=%s", customerID), nil)
+		require.NoError(t, err)
+		defer listResp.Body.Close()
 
-	assert.Equal(t, 200, listResp.StatusCode)
+		assert.Equal(t, 200, listResp.StatusCode)
 
-	var listResult map[string]interface{}
-	err = json.NewDecoder(listResp.Body).Decode(&listResult)
-	require.NoError(t, err)
+		var listResult map[string]interface{}
+		err = json.NewDecoder(listResp.Body).Decode(&listResult)
+		require.NoError(t, err)
 
-	transactions := listResult["transactions"].([]interface{})
-	assert.GreaterOrEqual(t, len(transactions), 3, "Should have at least 3 transactions")
+		transactions := listResult["transactions"].([]interface{})
+		assert.GreaterOrEqual(t, len(transactions), 3, "Should have at least 3 transactions for customer")
 
-	t.Logf("Found %d transactions for customer %s", len(transactions), customerID)
-}
+		t.Logf("✅ Found %d transactions for customer %s", len(transactions), customerID)
+	})
 
-// TestListTransactionsByGroup tests filtering by group_id
-func TestListTransactionsByGroup(t *testing.T) {
-	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+	// Test 2: List transactions by group_id
+	t.Run("list_by_group_id", func(t *testing.T) {
+		listResp, err := client.Do("GET",
+			fmt.Sprintf("/api/v1/payments?agent_id=test-merchant-staging&group_id=%s", lastGroupID), nil)
+		require.NoError(t, err)
+		defer listResp.Body.Close()
 
-	cfg, client := testutil.Setup(t)
-	customerID := "test-customer-txn-006"
-	time.Sleep(2 * time.Second)
+		assert.Equal(t, 200, listResp.StatusCode)
 
-	// Create a transaction
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(
-		cfg, client,
-		"test-merchant-staging",
-		customerID,
-		testutil.TestVisaCard,
-	)
-	require.NoError(t, err)
-	time.Sleep(2 * time.Second)
+		var listResult map[string]interface{}
+		err = json.NewDecoder(listResp.Body).Decode(&listResult)
+		require.NoError(t, err)
 
-	saleReq := map[string]interface{}{
-		"agent_id":          "test-merchant-staging",
-		"customer_id":       customerID,
-		"payment_method_id": paymentMethodID,
-		"amount":            "100.00",
-		"currency":          "USD",
-	}
+		transactions := listResult["transactions"].([]interface{})
+		assert.GreaterOrEqual(t, len(transactions), 1, "Should have at least 1 transaction in group")
 
-	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
-	require.NoError(t, err)
-	defer saleResp.Body.Close()
+		// Verify all transactions have same group_id
+		for _, txInterface := range transactions {
+			tx := txInterface.(map[string]interface{})
+			assert.Equal(t, lastGroupID, tx["groupId"], "All transactions should have same group_id")
+		}
 
-	var saleResult map[string]interface{}
-	err = testutil.DecodeResponse(saleResp, &saleResult)
-	require.NoError(t, err)
-
-	groupID := saleResult["groupId"].(string)
-	time.Sleep(1 * time.Second)
-
-	// List transactions by group_id
-	listResp, err := client.Do("GET",
-		fmt.Sprintf("/api/v1/payments?agent_id=test-merchant-staging&group_id=%s", groupID), nil)
-	require.NoError(t, err)
-	defer listResp.Body.Close()
-
-	assert.Equal(t, 200, listResp.StatusCode)
-
-	var listResult map[string]interface{}
-	err = json.NewDecoder(listResp.Body).Decode(&listResult)
-	require.NoError(t, err)
-
-	transactions := listResult["transactions"].([]interface{})
-	assert.GreaterOrEqual(t, len(transactions), 1, "Should have at least 1 transaction in group")
-
-	// Verify all transactions have same group_id
-	for _, txInterface := range transactions {
-		tx := txInterface.(map[string]interface{})
-		assert.Equal(t, groupID, tx["groupId"], "All transactions should have same group_id")
-	}
-
-	t.Logf("Found %d transactions in group %s", len(transactions), groupID)
+		t.Logf("✅ Found %d transactions in group %s", len(transactions), lastGroupID)
+	})
 }

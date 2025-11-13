@@ -43,7 +43,7 @@ func NewSubscriptionService(
 // CreateSubscription creates a new recurring billing subscription
 func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports.CreateSubscriptionRequest) (*domain.Subscription, error) {
 	s.logger.Info("Creating subscription",
-		zap.String("agent_id", req.AgentID),
+		zap.String("agent_id", req.MerchantID),
 		zap.String("customer_id", req.CustomerID),
 		zap.String("amount", req.Amount),
 	)
@@ -71,7 +71,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	if pm.AgentID != req.AgentID || pm.CustomerID != req.CustomerID {
+	if pm.MerchantID.String() != req.MerchantID || pm.CustomerID != req.CustomerID {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -92,6 +92,12 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 	// Calculate next billing date
 	nextBillingDate := calculateNextBillingDate(req.StartDate, req.IntervalValue, req.IntervalUnit)
 
+	// Parse merchant ID
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
 	// Create subscription in database
 	var subscription *domain.Subscription
 	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
@@ -104,7 +110,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 
 		params := sqlc.CreateSubscriptionParams{
 			ID:                    uuid.New(),
-			AgentID:               req.AgentID,
+			MerchantID:            merchantID,
 			CustomerID:            req.CustomerID,
 			Amount:                toNumeric(amount),
 			Currency:              req.Currency,
@@ -221,7 +227,7 @@ func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports
 				return fmt.Errorf("payment method not found: %w", err)
 			}
 
-			if pm.AgentID != existing.AgentID || pm.CustomerID != existing.CustomerID {
+			if pm.MerchantID != existing.MerchantID || pm.CustomerID != existing.CustomerID {
 				return fmt.Errorf("payment method does not belong to customer")
 			}
 
@@ -449,9 +455,15 @@ func (s *subscriptionService) GetSubscription(ctx context.Context, subscriptionI
 }
 
 // ListCustomerSubscriptions lists all subscriptions for a customer
-func (s *subscriptionService) ListCustomerSubscriptions(ctx context.Context, agentID, customerID string) ([]*domain.Subscription, error) {
+func (s *subscriptionService) ListCustomerSubscriptions(ctx context.Context, merchantID, customerID string) ([]*domain.Subscription, error) {
+	// Parse merchant ID
+	merchantUUID, err := uuid.Parse(merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
 	params := sqlc.ListSubscriptionsByCustomerParams{
-		AgentID:    agentID,
+		MerchantID: merchantUUID,
 		CustomerID: customerID,
 	}
 
@@ -520,14 +532,35 @@ func (s *subscriptionService) ProcessDueBilling(ctx context.Context, asOfDate ti
 
 // processSubscriptionBilling handles billing for a single subscription
 func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, sub *sqlc.Subscription) error {
-	// Get agent credentials
-	agent, err := s.db.Queries().GetAgentByAgentID(ctx, sub.AgentID)
-	if err != nil {
-		return fmt.Errorf("failed to get agent: %w", err)
+	// Generate deterministic transaction ID for this billing cycle (idempotency)
+	// Format: subscription_id + next_billing_date = ensures one charge per billing period
+	idempotencyKey := fmt.Sprintf("%s-%s", sub.ID.String(), sub.NextBillingDate.Time.Format("2006-01-02"))
+	txID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(idempotencyKey))
+
+	// Check if we already processed this billing cycle
+	existingTx, err := s.db.Queries().GetTransactionByID(ctx, txID)
+	if err == nil && existingTx.ID == txID {
+		// Already charged successfully, just update subscription
+		s.logger.Info("Billing already processed for this cycle, skipping",
+			zap.String("subscription_id", sub.ID.String()),
+			zap.String("transaction_id", txID.String()),
+		)
+		return s.updateNextBillingDate(ctx, sub)
 	}
 
-	if !agent.IsActive.Valid || !agent.IsActive.Bool {
-		return fmt.Errorf("agent is not active")
+	// Get merchant credentials
+	merchantID, err := uuid.Parse(sub.MerchantID.String())
+	if err != nil {
+		return fmt.Errorf("invalid merchant_id: %w", err)
+	}
+
+	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
+	if err != nil {
+		return fmt.Errorf("failed to get merchant: %w", err)
+	}
+
+	if !merchant.IsActive {
+		return fmt.Errorf("merchant is not active")
 	}
 
 	// Get payment method
@@ -541,7 +574,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 	}
 
 	// Get MAC secret for EPX request signing
-	_, err = s.secretManager.GetSecret(ctx, agent.MacSecretPath)
+	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 	if err != nil {
 		return fmt.Errorf("failed to get MAC secret: %w", err)
 	}
@@ -549,10 +582,10 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 	// Prepare EPX request
 	amount := decimal.NewFromBigInt(sub.Amount.Int, sub.Amount.Exp)
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         agent.CustNbr,
-		MerchNbr:        agent.MerchNbr,
-		DBAnbr:          agent.DbaNbr,
-		TerminalNbr:     agent.TerminalNbr,
+		CustNbr:         merchant.CustNbr,
+		MerchNbr:        merchant.MerchNbr,
+		DBAnbr:          merchant.DbaNbr,
+		TerminalNbr:     merchant.TerminalNbr,
 		TransactionType: adapterports.TransactionTypeSale,
 		Amount:          amount.String(),
 		PaymentType:     adapterports.PaymentMethodType(pm.PaymentType),
@@ -576,32 +609,43 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 
 	// Save transaction and update subscription
 	return s.db.WithTx(ctx, func(q *sqlc.Queries) error {
-		// Create transaction record
-		status := domain.TransactionStatusCompleted
+		// Create transaction record with deterministic ID
+		// Note: Status is auto-generated by database based on auth_resp
+		// auth_guid (BRIC) is stored directly in the transaction
+		// group_id auto-generates in DB (first transaction establishes the group)
 		pmIDStr := pm.ID.String()
+
+		// Build metadata with subscription info and EPX display fields
+		metadata := map[string]interface{}{
+			"subscription_id": sub.ID.String(),
+			"auth_resp_text":  epxResp.AuthRespText,
+			"auth_avs":        epxResp.AuthAVS,
+			"auth_cvv2":       epxResp.AuthCVV2,
+		}
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			return fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+
 		txParams := sqlc.CreateTransactionParams{
-			ID:                uuid.New(),
-			GroupID:           uuid.MustParse(epxResp.TranGroup),
-			AgentID:           sub.AgentID,
+			ID:                txID, // Use deterministic ID for idempotency
+			MerchantID:        sub.MerchantID,
 			CustomerID:        toNullableText(&sub.CustomerID),
 			Amount:            sub.Amount,
 			Currency:          sub.Currency,
-			Status:            string(status),
-			Type:              string(domain.TransactionTypeCharge),
+			Type:              string(domain.TransactionTypeSale),
 			PaymentMethodType: pm.PaymentType,
 			PaymentMethodID:   toNullableUUID(&pmIDStr),
-			AuthGuid:          toNullableText(&epxResp.AuthGUID),
-			AuthResp:          toNullableText(&epxResp.AuthResp),
+			SubscriptionID:    pgtype.UUID{Bytes: sub.ID, Valid: true}, // Link to subscription
+			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store BRIC token
+			AuthResp:          epxResp.AuthResp,
 			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthRespText:      toNullableText(&epxResp.AuthRespText),
 			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			AuthAvs:           toNullableText(&epxResp.AuthAVS),
-			AuthCvv2:          toNullableText(&epxResp.AuthCVV2),
-			IdempotencyKey:    pgtype.Text{Valid: false},
-			Metadata:          []byte(fmt.Sprintf(`{"subscription_id":"%s"}`, sub.ID.String())),
+			Metadata:          metadataJSON,
+			GroupID:           nil, // DB auto-generates group_id for first transaction
 		}
 
-		_, err := q.CreateTransaction(ctx, txParams)
+		_, err = q.CreateTransaction(ctx, txParams)
 		if err != nil {
 			return fmt.Errorf("failed to create transaction: %w", err)
 		}
@@ -622,6 +666,33 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		}
 
 		_, err = q.UpdateSubscriptionBilling(ctx, updateParams)
+		if err != nil {
+			return fmt.Errorf("failed to update subscription: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// updateNextBillingDate updates the subscription's next billing date
+func (s *subscriptionService) updateNextBillingDate(ctx context.Context, sub *sqlc.Subscription) error {
+	return s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Calculate next billing date
+		nextBillingDate := calculateNextBillingDate(
+			sub.NextBillingDate.Time,
+			int(sub.IntervalValue),
+			domain.IntervalUnit(sub.IntervalUnit),
+		)
+
+		// Update subscription with new billing date and reset failure count
+		updateParams := sqlc.UpdateSubscriptionBillingParams{
+			ID:                sub.ID,
+			NextBillingDate:   pgtype.Date{Time: nextBillingDate, Valid: true},
+			FailureRetryCount: 0,
+			Status:            string(domain.SubscriptionStatusActive),
+		}
+
+		_, err := q.UpdateSubscriptionBilling(ctx, updateParams)
 		if err != nil {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
@@ -697,7 +768,7 @@ func calculateNextBillingDate(currentDate time.Time, intervalValue int, interval
 func sqlcSubscriptionToDomain(dbSub *sqlc.Subscription) *domain.Subscription {
 	sub := &domain.Subscription{
 		ID:                dbSub.ID.String(),
-		AgentID:           dbSub.AgentID,
+		MerchantID:        dbSub.MerchantID.String(),
 		CustomerID:        dbSub.CustomerID,
 		Amount:            decimal.NewFromBigInt(dbSub.Amount.Int, dbSub.Amount.Exp),
 		Currency:          dbSub.Currency,

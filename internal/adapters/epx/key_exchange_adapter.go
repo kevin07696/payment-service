@@ -3,6 +3,7 @@ package epx
 import (
 	"context"
 	"crypto/tls"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,8 +19,8 @@ import (
 // KeyExchangeConfig contains configuration for EPX Key Exchange adapter
 type KeyExchangeConfig struct {
 	// Base URL for EPX Key Exchange service
-	// Sandbox: https://epxnow.com/epx/key_exchange_sandbox
-	// Production: https://epxnow.com/epx/key_exchange
+	// Sandbox: https://keyexch.epxuap.com
+	// Production: https://epxnow.com/epx/key_exchange (or contact North for production URL)
 	BaseURL string
 
 	// HTTP client timeout
@@ -34,9 +35,9 @@ type KeyExchangeConfig struct {
 
 // DefaultKeyExchangeConfig returns default configuration for Key Exchange adapter
 func DefaultKeyExchangeConfig(environment string) *KeyExchangeConfig {
-	baseURL := "https://epxnow.com/epx/key_exchange" // Production
+	baseURL := "https://epxnow.com/epx/key_exchange" // Production (may need to contact North for production URL)
 	if environment == "sandbox" {
-		baseURL = "https://epxnow.com/epx/key_exchange_sandbox"
+		baseURL = "https://keyexch.epxuap.com"
 	}
 
 	return &KeyExchangeConfig{
@@ -90,14 +91,22 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 	// Build form data for EPX Key Exchange
 	formData := a.buildFormData(req)
 
+	formDataEncoded := formData.Encode()
 	a.logger.Info("Requesting TAC from EPX Key Exchange",
-		zap.String("agent_id", req.AgentID),
+		zap.String("merchant_id", req.MerchantID),
 		zap.String("tran_nbr", req.TranNbr),
 		zap.String("amount", req.Amount),
+		zap.String("url", a.config.BaseURL),
+		zap.String("cust_nbr", req.CustNbr),
+		zap.String("merch_nbr", req.MerchNbr),
+		zap.String("dba_nbr", req.DBAnbr),
+		zap.String("terminal_nbr", req.TerminalNbr),
+		zap.Int("form_data_len", len(formDataEncoded)),
+		zap.String("form_data", formDataEncoded), // Log full form data
 	)
 
 	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", a.config.BaseURL, strings.NewReader(formData.Encode()))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", a.config.BaseURL, strings.NewReader(formDataEncoded))
 	if err != nil {
 		a.logger.Error("Failed to create HTTP request", zap.Error(err))
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -150,7 +159,7 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 	}
 
 	a.logger.Info("Successfully obtained TAC",
-		zap.String("agent_id", req.AgentID),
+		zap.String("merchant_id", req.MerchantID),
 		zap.String("tran_nbr", response.TranNbr),
 		zap.Time("expires_at", response.ExpiresAt),
 	)
@@ -159,22 +168,10 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 }
 
 // validateRequest validates the Key Exchange request parameters
+// Per EPX Browser Post API documentation (page 3), only these fields are required for Key Exchange:
+// - TRAN_NBR, AMOUNT, MAC, TRAN_GROUP, REDIRECT_URL
+// Merchant credentials (CUST_NBR, MERCH_NBR, etc.) are embedded in the MAC, not sent separately
 func (a *keyExchangeAdapter) validateRequest(req *ports.KeyExchangeRequest) error {
-	if req.AgentID == "" {
-		return fmt.Errorf("agent_id is required")
-	}
-	if req.CustNbr == "" {
-		return fmt.Errorf("cust_nbr is required")
-	}
-	if req.MerchNbr == "" {
-		return fmt.Errorf("merch_nbr is required")
-	}
-	if req.DBAnbr == "" {
-		return fmt.Errorf("dba_nbr is required")
-	}
-	if req.TerminalNbr == "" {
-		return fmt.Errorf("terminal_nbr is required")
-	}
 	if req.MAC == "" {
 		return fmt.Errorf("mac is required")
 	}
@@ -200,21 +197,33 @@ func (a *keyExchangeAdapter) validateRequest(req *ports.KeyExchangeRequest) erro
 }
 
 // buildFormData constructs URL-encoded form data for EPX Key Exchange request
-// Based on EPX Browser Post API - Key Exchange Required Fields (page 6)
+// Based on EPX Browser Post API - Key Exchange Required Fields (page 3)
+// NOTE: Per EPX documentation example, Key Exchange request should ONLY include:
+// - TRAN_NBR, AMOUNT, MAC, TRAN_GROUP, REDIRECT_URL
+// Merchant credentials (CUST_NBR, MERCH_NBR, etc.) are NOT sent in Key Exchange,
+// they are embedded in the MAC (Merchant Authorization Code)
 func (a *keyExchangeAdapter) buildFormData(req *ports.KeyExchangeRequest) url.Values {
 	data := url.Values{}
 
-	// Required EPX credentials
-	data.Set("CUST_NBR", req.CustNbr)
-	data.Set("MERCH_NBR", req.MerchNbr)
-	data.Set("DBA_NBR", req.DBAnbr)
-	data.Set("TERMINAL_NBR", req.TerminalNbr)
-	data.Set("MAC", req.MAC)
+	// TRAN_GROUP values per EPX Data Dictionary:
+	// - "SALE" for sale transactions (auth + capture)
+	// - "AUTH" for authorization-only transactions
+	// NOTE: Do NOT use single-letter codes (U/A) - those are for TRAN_CODE, not TRAN_GROUP
+	tranGroup := req.TranGroup
+	if tranGroup != "SALE" && tranGroup != "AUTH" {
+		// If not already in correct format, normalize it
+		if req.TranGroup == "U" {
+			tranGroup = "SALE"
+		} else if req.TranGroup == "A" {
+			tranGroup = "AUTH"
+		}
+	}
 
-	// Transaction details
-	data.Set("AMOUNT", req.Amount)
+	// Required fields per EPX Browser Post documentation (page 3)
 	data.Set("TRAN_NBR", req.TranNbr)
-	data.Set("TRAN_GROUP", req.TranGroup)
+	data.Set("AMOUNT", req.Amount)
+	data.Set("MAC", req.MAC)
+	data.Set("TRAN_GROUP", tranGroup)
 	data.Set("REDIRECT_URL", req.RedirectURL)
 
 	// Optional fields
@@ -230,19 +239,49 @@ func (a *keyExchangeAdapter) buildFormData(req *ports.KeyExchangeRequest) url.Va
 	return data
 }
 
+// keyExchangeResponse represents the XML structure of EPX Key Exchange response
+type keyExchangeResponse struct {
+	XMLName xml.Name             `xml:"RESPONSE"`
+	Fields  keyExchangeFields    `xml:"FIELDS"`
+}
+
+type keyExchangeFields struct {
+	Fields []keyExchangeField `xml:"FIELD"`
+}
+
+type keyExchangeField struct {
+	Key   string `xml:"KEY,attr"`
+	Value string `xml:",chardata"`
+}
+
 // parseResponse parses the EPX Key Exchange response
-// EPX returns the TAC token in the response body (format depends on EPX implementation)
+// EPX returns the TAC token in XML format:
+// <RESPONSE><FIELDS><FIELD KEY="TAC">token_value</FIELD></FIELDS></RESPONSE>
 func (a *keyExchangeAdapter) parseResponse(body []byte, req *ports.KeyExchangeRequest) (*ports.KeyExchangeResponse, error) {
 	responseStr := strings.TrimSpace(string(body))
 
-	// EPX typically returns the TAC token as plain text or in a simple format
-	// Example response: "TAC=abc123xyz..." or just "abc123xyz..."
-	// Parse based on actual EPX response format
-
 	var tac string
 
-	// Check if response is in key=value format
-	if strings.Contains(responseStr, "=") {
+	// Try to parse as XML first (EPX standard format)
+	if strings.HasPrefix(responseStr, "<RESPONSE>") {
+		var xmlResp keyExchangeResponse
+		if err := xml.Unmarshal(body, &xmlResp); err != nil {
+			return nil, fmt.Errorf("failed to parse XML response: %w", err)
+		}
+
+		// Extract TAC from fields
+		for _, field := range xmlResp.Fields.Fields {
+			if field.Key == "TAC" {
+				tac = field.Value
+				break
+			}
+		}
+
+		if tac == "" {
+			return nil, fmt.Errorf("TAC not found in XML response")
+		}
+	} else if strings.Contains(responseStr, "=") {
+		// Fallback: Try key=value format
 		params, err := url.ParseQuery(responseStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse response: %w", err)
@@ -252,7 +291,7 @@ func (a *keyExchangeAdapter) parseResponse(body []byte, req *ports.KeyExchangeRe
 			return nil, fmt.Errorf("TAC not found in response")
 		}
 	} else {
-		// Assume response is the TAC itself
+		// Fallback: Assume response is the TAC itself
 		tac = responseStr
 	}
 

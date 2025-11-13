@@ -1,12 +1,12 @@
 -- name: CreateSubscription :one
 INSERT INTO subscriptions (
-    id, agent_id, customer_id, amount, currency,
+    id, merchant_id, customer_id, amount, currency,
     interval_value, interval_unit, status,
     payment_method_id, next_billing_date,
     failure_retry_count, max_retries,
     gateway_subscription_id, metadata
 ) VALUES (
-    sqlc.arg(id), sqlc.arg(agent_id), sqlc.arg(customer_id), sqlc.arg(amount), sqlc.arg(currency),
+    sqlc.arg(id), sqlc.arg(merchant_id), sqlc.arg(customer_id), sqlc.arg(amount), sqlc.arg(currency),
     sqlc.arg(interval_value), sqlc.arg(interval_unit), sqlc.arg(status),
     sqlc.arg(payment_method_id), sqlc.arg(next_billing_date),
     sqlc.arg(failure_retry_count), sqlc.arg(max_retries),
@@ -19,13 +19,13 @@ WHERE id = sqlc.arg(id);
 
 -- name: ListSubscriptionsByCustomer :many
 SELECT * FROM subscriptions
-WHERE agent_id = sqlc.arg(agent_id) AND customer_id = sqlc.arg(customer_id)
+WHERE merchant_id = sqlc.arg(merchant_id) AND customer_id = sqlc.arg(customer_id)
 ORDER BY created_at DESC;
 
 -- name: ListSubscriptions :many
 SELECT * FROM subscriptions
 WHERE
-    (sqlc.narg(agent_id)::varchar IS NULL OR agent_id = sqlc.narg(agent_id)) AND
+    (sqlc.narg(merchant_id)::varchar IS NULL OR merchant_id = sqlc.narg(merchant_id)) AND
     (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status))
 ORDER BY created_at DESC
@@ -34,7 +34,7 @@ LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 -- name: CountSubscriptions :one
 SELECT COUNT(*) FROM subscriptions
 WHERE
-    (sqlc.narg(agent_id)::varchar IS NULL OR agent_id = sqlc.narg(agent_id)) AND
+    (sqlc.narg(merchant_id)::varchar IS NULL OR merchant_id = sqlc.narg(merchant_id)) AND
     (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status));
 

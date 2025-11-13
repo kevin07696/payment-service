@@ -140,7 +140,7 @@ func (SubscriptionStatus) EnumDescriptor() ([]byte, []int) {
 // CreateSubscriptionRequest creates a new subscription
 type CreateSubscriptionRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
-	AgentId    string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MerchantId string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
 	Amount     string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"` // Decimal as string
 	Currency   string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
@@ -186,9 +186,9 @@ func (*CreateSubscriptionRequest) Descriptor() ([]byte, []int) {
 	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *CreateSubscriptionRequest) GetAgentId() string {
+func (x *CreateSubscriptionRequest) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -555,7 +555,7 @@ func (x *GetSubscriptionRequest) GetSubscriptionId() string {
 // ListCustomerSubscriptionsRequest lists customer subscriptions
 type ListCustomerSubscriptionsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MerchantId    string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId    string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
 	Status        *SubscriptionStatus    `protobuf:"varint,3,opt,name=status,proto3,enum=subscription.v1.SubscriptionStatus,oneof" json:"status,omitempty"` // Optional: filter by status
 	unknownFields protoimpl.UnknownFields
@@ -592,9 +592,9 @@ func (*ListCustomerSubscriptionsRequest) Descriptor() ([]byte, []int) {
 	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ListCustomerSubscriptionsRequest) GetAgentId() string {
+func (x *ListCustomerSubscriptionsRequest) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -861,7 +861,7 @@ func (x *BillingError) GetRetriable() bool {
 type SubscriptionResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	SubscriptionId string                 `protobuf:"bytes,1,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"`
-	AgentId        string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MerchantId     string                 `protobuf:"bytes,2,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId     string                 `protobuf:"bytes,3,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
 	Amount         string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
 	Currency       string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`
@@ -916,9 +916,9 @@ func (x *SubscriptionResponse) GetSubscriptionId() string {
 	return ""
 }
 
-func (x *SubscriptionResponse) GetAgentId() string {
+func (x *SubscriptionResponse) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -1011,7 +1011,7 @@ func (x *SubscriptionResponse) GetCancelledAt() *timestamppb.Timestamp {
 type Subscription struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	AgentId    string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MerchantId string                 `protobuf:"bytes,2,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId string                 `protobuf:"bytes,3,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
 	Amount     string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
 	Currency   string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`
@@ -1069,9 +1069,9 @@ func (x *Subscription) GetId() string {
 	return ""
 }
 
-func (x *Subscription) GetAgentId() string {
+func (x *Subscription) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -1185,9 +1185,10 @@ var File_proto_subscription_v1_subscription_proto protoreflect.FileDescriptor
 
 const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\n" +
-	"(proto/subscription/v1/subscription.proto\x12\x0fsubscription.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"\xba\x04\n" +
-	"\x19CreateSubscriptionRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
+	"(proto/subscription/v1/subscription.proto\x12\x0fsubscription.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"\xc0\x04\n" +
+	"\x19CreateSubscriptionRequest\x12\x1f\n" +
+	"\vmerchant_id\x18\x01 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1a\n" +
@@ -1226,9 +1227,10 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\x19ResumeSubscriptionRequest\x12'\n" +
 	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\"A\n" +
 	"\x16GetSubscriptionRequest\x12'\n" +
-	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\"\xab\x01\n" +
-	" ListCustomerSubscriptionsRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
+	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\"\xb1\x01\n" +
+	" ListCustomerSubscriptionsRequest\x12\x1f\n" +
+	"\vmerchant_id\x18\x01 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12@\n" +
 	"\x06status\x18\x03 \x01(\x0e2#.subscription.v1.SubscriptionStatusH\x00R\x06status\x88\x01\x01B\t\n" +
@@ -1251,10 +1253,11 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x1c\n" +
-	"\tretriable\x18\x04 \x01(\bR\tretriable\"\xce\x05\n" +
+	"\tretriable\x18\x04 \x01(\bR\tretriable\"\xd4\x05\n" +
 	"\x14SubscriptionResponse\x12'\n" +
-	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x19\n" +
-	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1f\n" +
+	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x1f\n" +
+	"\vmerchant_id\x18\x02 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x03 \x01(\tR\n" +
 	"customerId\x12\x16\n" +
 	"\x06amount\x18\x04 \x01(\tR\x06amount\x12\x1a\n" +
@@ -1271,10 +1274,11 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12B\n" +
 	"\fcancelled_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampH\x00R\vcancelledAt\x88\x01\x01B\x0f\n" +
-	"\r_cancelled_at\"\x84\a\n" +
+	"\r_cancelled_at\"\x8a\a\n" +
 	"\fSubscription\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
-	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1f\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
+	"\vmerchant_id\x18\x02 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x03 \x01(\tR\n" +
 	"customerId\x12\x16\n" +
 	"\x06amount\x18\x04 \x01(\tR\x06amount\x12\x1a\n" +

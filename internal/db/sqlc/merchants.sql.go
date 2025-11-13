@@ -50,20 +50,20 @@ INSERT INTO merchants (
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
     $7, $8, $9, $10
-) RETURNING id, slug, mac_secret_path, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, environment, name, is_active, deleted_at, created_at, updated_at
+) RETURNING id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at
 `
 
 type CreateMerchantParams struct {
-	ID            uuid.UUID   `json:"id"`
-	Slug          string      `json:"slug"`
-	CustNbr       string      `json:"cust_nbr"`
-	MerchNbr      string      `json:"merch_nbr"`
-	DbaNbr        string      `json:"dba_nbr"`
-	TerminalNbr   string      `json:"terminal_nbr"`
-	MacSecretPath string      `json:"mac_secret_path"`
-	Environment   string      `json:"environment"`
-	IsActive      pgtype.Bool `json:"is_active"`
-	Name          string      `json:"name"`
+	ID            uuid.UUID `json:"id"`
+	Slug          string    `json:"slug"`
+	CustNbr       string    `json:"cust_nbr"`
+	MerchNbr      string    `json:"merch_nbr"`
+	DbaNbr        string    `json:"dba_nbr"`
+	TerminalNbr   string    `json:"terminal_nbr"`
+	MacSecretPath string    `json:"mac_secret_path"`
+	Environment   string    `json:"environment"`
+	IsActive      bool      `json:"is_active"`
+	Name          string    `json:"name"`
 }
 
 func (q *Queries) CreateMerchant(ctx context.Context, arg CreateMerchantParams) (Merchant, error) {
@@ -83,17 +83,17 @@ func (q *Queries) CreateMerchant(ctx context.Context, arg CreateMerchantParams) 
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
-		&i.MacSecretPath,
 		&i.CustNbr,
 		&i.MerchNbr,
 		&i.DbaNbr,
 		&i.TerminalNbr,
+		&i.MacSecretPath,
 		&i.Environment,
-		&i.Name,
 		&i.IsActive,
-		&i.DeletedAt,
+		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -110,7 +110,7 @@ func (q *Queries) DeactivateMerchant(ctx context.Context, id uuid.UUID) error {
 }
 
 const getMerchantByID = `-- name: GetMerchantByID :one
-SELECT id, slug, mac_secret_path, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, environment, name, is_active, deleted_at, created_at, updated_at FROM merchants
+SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at FROM merchants
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -120,23 +120,23 @@ func (q *Queries) GetMerchantByID(ctx context.Context, id uuid.UUID) (Merchant, 
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
-		&i.MacSecretPath,
 		&i.CustNbr,
 		&i.MerchNbr,
 		&i.DbaNbr,
 		&i.TerminalNbr,
+		&i.MacSecretPath,
 		&i.Environment,
-		&i.Name,
 		&i.IsActive,
-		&i.DeletedAt,
+		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getMerchantBySlug = `-- name: GetMerchantBySlug :one
-SELECT id, slug, mac_secret_path, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, environment, name, is_active, deleted_at, created_at, updated_at FROM merchants
+SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at FROM merchants
 WHERE slug = $1 AND deleted_at IS NULL
 `
 
@@ -146,23 +146,23 @@ func (q *Queries) GetMerchantBySlug(ctx context.Context, slug string) (Merchant,
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
-		&i.MacSecretPath,
 		&i.CustNbr,
 		&i.MerchNbr,
 		&i.DbaNbr,
 		&i.TerminalNbr,
+		&i.MacSecretPath,
 		&i.Environment,
-		&i.Name,
 		&i.IsActive,
-		&i.DeletedAt,
+		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const listActiveMerchants = `-- name: ListActiveMerchants :many
-SELECT id, slug, mac_secret_path, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, environment, name, is_active, deleted_at, created_at, updated_at FROM merchants
+SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at FROM merchants
 WHERE is_active = true AND deleted_at IS NULL
 ORDER BY created_at DESC
 `
@@ -179,17 +179,17 @@ func (q *Queries) ListActiveMerchants(ctx context.Context) ([]Merchant, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Slug,
-			&i.MacSecretPath,
 			&i.CustNbr,
 			&i.MerchNbr,
 			&i.DbaNbr,
 			&i.TerminalNbr,
+			&i.MacSecretPath,
 			&i.Environment,
-			&i.Name,
 			&i.IsActive,
-			&i.DeletedAt,
+			&i.Name,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -202,7 +202,7 @@ func (q *Queries) ListActiveMerchants(ctx context.Context) ([]Merchant, error) {
 }
 
 const listMerchants = `-- name: ListMerchants :many
-SELECT id, slug, mac_secret_path, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, environment, name, is_active, deleted_at, created_at, updated_at FROM merchants
+SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at FROM merchants
 WHERE
     deleted_at IS NULL AND
     ($1::varchar IS NULL OR environment = $1) AND
@@ -235,17 +235,17 @@ func (q *Queries) ListMerchants(ctx context.Context, arg ListMerchantsParams) ([
 		if err := rows.Scan(
 			&i.ID,
 			&i.Slug,
-			&i.MacSecretPath,
 			&i.CustNbr,
 			&i.MerchNbr,
 			&i.DbaNbr,
 			&i.TerminalNbr,
+			&i.MacSecretPath,
 			&i.Environment,
-			&i.Name,
 			&i.IsActive,
-			&i.DeletedAt,
+			&i.Name,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -290,7 +290,7 @@ SET
     name = $6,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $7 AND deleted_at IS NULL
-RETURNING id, slug, mac_secret_path, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, environment, name, is_active, deleted_at, created_at, updated_at
+RETURNING id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at
 `
 
 type UpdateMerchantParams struct {
@@ -317,17 +317,17 @@ func (q *Queries) UpdateMerchant(ctx context.Context, arg UpdateMerchantParams) 
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
-		&i.MacSecretPath,
 		&i.CustNbr,
 		&i.MerchNbr,
 		&i.DbaNbr,
 		&i.TerminalNbr,
+		&i.MacSecretPath,
 		&i.Environment,
-		&i.Name,
 		&i.IsActive,
-		&i.DeletedAt,
+		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }

@@ -81,7 +81,7 @@ service PaymentMethodService {
 
 // SavePaymentMethodRequest saves a new payment method
 message SavePaymentMethodRequest {
-  string agent_id = 1;
+  string merchant_id = 1;
   string customer_id = 2;
   string payment_token = 3; // EPX token (AUTH_GUID from tokenization)
   PaymentMethodType payment_type = 4;
@@ -109,7 +109,7 @@ message GetPaymentMethodRequest {
 
 // ListPaymentMethodsRequest lists payment methods
 message ListPaymentMethodsRequest {
-  string agent_id = 1;
+  string merchant_id = 1;
   string customer_id = 2;
   optional PaymentMethodType payment_type = 3; // Optional: filter by type
   optional bool is_active = 4; // Optional: filter by active status
@@ -123,7 +123,7 @@ message ListPaymentMethodsResponse {
 // UpdatePaymentMethodStatusRequest updates payment method status
 message UpdatePaymentMethodStatusRequest {
   string payment_method_id = 1;
-  string agent_id = 2;
+  string merchant_id = 2;
   string customer_id = 3;
   bool is_active = 4; // true = activate, false = deactivate
 }
@@ -143,14 +143,14 @@ message DeletePaymentMethodResponse {
 // SetDefaultPaymentMethodRequest sets default payment method
 message SetDefaultPaymentMethodRequest {
   string payment_method_id = 1;
-  string agent_id = 2;
+  string merchant_id = 2;
   string customer_id = 3;
 }
 
 // VerifyACHAccountRequest initiates ACH verification
 message VerifyACHAccountRequest {
   string payment_method_id = 1; // ACH payment method to verify
-  string agent_id = 2;
+  string merchant_id = 2;
   string customer_id = 3;
 }
 
@@ -164,7 +164,7 @@ message VerifyACHAccountResponse {
 
 // ConvertFinancialBRICRequest converts a Financial BRIC to Storage BRIC
 message ConvertFinancialBRICRequest {
-  string agent_id = 1;
+  string merchant_id = 1;
   string customer_id = 2;
   string financial_bric = 3; // AUTH_GUID from completed transaction
   PaymentMethodType payment_type = 4;
@@ -197,7 +197,7 @@ message ConvertFinancialBRICRequest {
 // PaymentMethodResponse is returned from payment method operations
 message PaymentMethodResponse {
   string payment_method_id = 1;
-  string agent_id = 2;
+  string merchant_id = 2;
   string customer_id = 3;
   PaymentMethodType payment_type = 4;
 
@@ -225,7 +225,7 @@ message PaymentMethodResponse {
 // PaymentMethod represents a complete payment method record
 message PaymentMethod {
   string id = 1;
-  string agent_id = 2;
+  string merchant_id = 2;
   string customer_id = 3;
   PaymentMethodType payment_type = 4;
 

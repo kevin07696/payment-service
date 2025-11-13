@@ -27,7 +27,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./secrets:/root/secrets:ro  # Mount secrets directory (read-only for security)
+      - ./secrets:/home/appuser/secrets:ro,z  # Mount secrets directory (read-only, SELinux relabel)
     environment:
       # Server
       PORT: 8080
@@ -44,8 +44,18 @@ services:
       DB_MIN_CONNS: 5
 
       # EPX Gateway (for payment processing)
-      EPX_BASE_URL: ${EPX_BASE_URL:-https://sandbox.north.com}
+      # REQUIRED - no fallback - will fail if not set in .env
+      EPX_SERVER_POST_URL: ${EPX_SERVER_POST_URL}
+      EPX_KEY_EXCHANGE_URL: ${EPX_KEY_EXCHANGE_URL}
+      EPX_BROWSER_POST_URL: ${EPX_BROWSER_POST_URL}
       EPX_TIMEOUT: 30
+
+      # EPX Credentials (4-part key)
+      EPX_CUST_NBR: ${EPX_CUST_NBR}
+      EPX_MERCH_NBR: ${EPX_MERCH_NBR}
+      EPX_DBA_NBR: ${EPX_DBA_NBR}
+      EPX_TERMINAL_NBR: ${EPX_TERMINAL_NBR}
+      EPX_MAC: ${EPX_MAC}
 
       # North API (for dispute/chargeback reporting - read-only)
       NORTH_API_URL: ${NORTH_API_URL:-https://api.north.com}
@@ -56,6 +66,12 @@ services:
 
       # Environment
       ENVIRONMENT: ${ENVIRONMENT:-development}
+
+      # Secret Manager Configuration
+      SECRET_MANAGER: ${SECRET_MANAGER:-mock}  # Use 'mock' for local dev, 'gcp' for production
+      SECRET_CACHE_TTL_MINUTES: ${SECRET_CACHE_TTL_MINUTES:-5}
+      # GCP_PROJECT_ID: ${GCP_PROJECT_ID}  # Required when SECRET_MANAGER=gcp
+      # GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-service-account.json  # Path to GCP service account JSON
 
     ports:
       - "8080:8080"   # gRPC server

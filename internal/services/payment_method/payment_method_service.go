@@ -47,7 +47,7 @@ func NewPaymentMethodService(
 // SavePaymentMethod tokenizes and saves a payment method
 func (s *paymentMethodService) SavePaymentMethod(ctx context.Context, req *ports.SavePaymentMethodRequest) (*domain.PaymentMethod, error) {
 	s.logger.Info("Saving payment method",
-		zap.String("agent_id", req.AgentID),
+		zap.String("merchant_id", req.MerchantID),
 		zap.String("customer_id", req.CustomerID),
 		zap.String("payment_type", string(req.PaymentType)),
 	)
@@ -84,12 +84,18 @@ func (s *paymentMethodService) SavePaymentMethod(ctx context.Context, req *ports
 		}
 	}
 
+	// Parse merchant ID
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
 	var paymentMethod *domain.PaymentMethod
-	err := s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
 		// If this is set as default, unset all other defaults first
 		if req.IsDefault {
 			err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
-				AgentID:    req.AgentID,
+				MerchantID: merchantID,
 				CustomerID: req.CustomerID,
 			})
 			if err != nil {
@@ -100,7 +106,7 @@ func (s *paymentMethodService) SavePaymentMethod(ctx context.Context, req *ports
 		// Create payment method
 		params := sqlc.CreatePaymentMethodParams{
 			ID:           uuid.New(),
-			AgentID:      req.AgentID,
+			MerchantID:   merchantID,
 			CustomerID:   req.CustomerID,
 			PaymentType:  string(req.PaymentType),
 			PaymentToken: req.PaymentToken,
@@ -139,7 +145,7 @@ func (s *paymentMethodService) SavePaymentMethod(ctx context.Context, req *ports
 // ConvertFinancialBRICToStorageBRIC converts a Financial BRIC to a Storage BRIC and saves it
 func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *ports.ConvertFinancialBRICRequest) (*domain.PaymentMethod, error) {
 	s.logger.Info("Converting Financial BRIC to Storage BRIC",
-		zap.String("agent_id", req.AgentID),
+		zap.String("merchant_id", req.MerchantID),
 		zap.String("customer_id", req.CustomerID),
 		zap.String("financial_bric", req.FinancialBRIC),
 		zap.String("payment_type", string(req.PaymentType)),
@@ -180,14 +186,19 @@ func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Con
 		}
 	}
 
-	// Get agent credentials
-	agent, err := s.db.Queries().GetAgentByAgentID(ctx, req.AgentID)
+	// Get merchant credentials
+	merchantID, err := uuid.Parse(req.MerchantID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get agent: %w", err)
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
-	if !agent.IsActive.Valid || !agent.IsActive.Bool {
-		return nil, fmt.Errorf("agent is not active")
+	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get merchant: %w", err)
+	}
+
+	if !merchant.IsActive {
+		return nil, fmt.Errorf("merchant is not active")
 	}
 
 	// Build BRIC Storage request
@@ -195,10 +206,10 @@ func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Con
 	tranNbr := uuid.New().String()
 
 	bricReq := &adapterports.BRICStorageRequest{
-		CustNbr:       agent.CustNbr,
-		MerchNbr:      agent.MerchNbr,
-		DBAnbr:        agent.DbaNbr,
-		TerminalNbr:   agent.TerminalNbr,
+		CustNbr:       merchant.CustNbr,
+		MerchNbr:      merchant.MerchNbr,
+		DBAnbr:        merchant.DbaNbr,
+		TerminalNbr:   merchant.TerminalNbr,
 		BatchID:       batchID,
 		TranNbr:       tranNbr,
 		PaymentType:   adapterports.PaymentMethodType(req.PaymentType),
@@ -246,7 +257,7 @@ func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Con
 		// If this is set as default, unset all other defaults first
 		if req.IsDefault {
 			err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
-				AgentID:    req.AgentID,
+				MerchantID: merchantID,
 				CustomerID: req.CustomerID,
 			})
 			if err != nil {
@@ -257,7 +268,7 @@ func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Con
 		// Create payment method with Storage BRIC
 		params := sqlc.CreatePaymentMethodParams{
 			ID:           uuid.New(),
-			AgentID:      req.AgentID,
+			MerchantID:   merchantID,
 			CustomerID:   req.CustomerID,
 			PaymentType:  string(req.PaymentType),
 			PaymentToken: bricResp.StorageBRIC, // Storage BRIC (never expires)
@@ -322,9 +333,15 @@ func (s *paymentMethodService) GetPaymentMethod(ctx context.Context, paymentMeth
 }
 
 // ListPaymentMethods lists all payment methods for a customer
-func (s *paymentMethodService) ListPaymentMethods(ctx context.Context, agentID, customerID string) ([]*domain.PaymentMethod, error) {
+func (s *paymentMethodService) ListPaymentMethods(ctx context.Context, merchantID, customerID string) ([]*domain.PaymentMethod, error) {
+	// Parse merchant ID
+	mid, err := uuid.Parse(merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
 	params := sqlc.ListPaymentMethodsByCustomerParams{
-		AgentID:    agentID,
+		MerchantID: mid,
 		CustomerID: customerID,
 	}
 
@@ -342,7 +359,7 @@ func (s *paymentMethodService) ListPaymentMethods(ctx context.Context, agentID, 
 }
 
 // UpdatePaymentMethodStatus updates the active status of a payment method
-func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, paymentMethodID, agentID, customerID string, isActive bool) (*domain.PaymentMethod, error) {
+func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, paymentMethodID, merchantID, customerID string, isActive bool) (*domain.PaymentMethod, error) {
 	action := "deactivating"
 	if isActive {
 		action = "activating"
@@ -359,13 +376,19 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
 	}
 
+	// Parse merchant ID
+	mid, err := uuid.Parse(merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
 	// Verify payment method exists and belongs to customer
 	pm, err := s.db.Queries().GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	if pm.AgentID != agentID || pm.CustomerID != customerID {
+	if pm.MerchantID != mid || pm.CustomerID != customerID {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -419,7 +442,7 @@ func (s *paymentMethodService) DeletePaymentMethod(ctx context.Context, paymentM
 }
 
 // SetDefaultPaymentMethod marks a payment method as default
-func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paymentMethodID, agentID, customerID string) (*domain.PaymentMethod, error) {
+func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paymentMethodID, merchantID, customerID string) (*domain.PaymentMethod, error) {
 	s.logger.Info("Setting default payment method",
 		zap.String("payment_method_id", paymentMethodID),
 		zap.String("customer_id", customerID),
@@ -430,13 +453,19 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
 	}
 
+	// Parse merchant ID
+	mid, err := uuid.Parse(merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
 	// Verify payment method exists and belongs to customer
 	pm, err := s.db.Queries().GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	if pm.AgentID != agentID || pm.CustomerID != customerID {
+	if pm.MerchantID != mid || pm.CustomerID != customerID {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -448,7 +477,7 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
 		// Unset all defaults for this customer
 		err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
-			AgentID:    agentID,
+			MerchantID: mid,
 			CustomerID: customerID,
 		})
 		if err != nil {
@@ -499,8 +528,14 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 		return fmt.Errorf("payment method not found: %w", err)
 	}
 
+	// Parse merchant ID
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		return fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
 	// Verify ownership
-	if pm.AgentID != req.AgentID || pm.CustomerID != req.CustomerID {
+	if pm.MerchantID != merchantID || pm.CustomerID != req.CustomerID {
 		return fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -517,28 +552,28 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 		return nil
 	}
 
-	// Get agent credentials
-	agent, err := s.db.Queries().GetAgentByAgentID(ctx, req.AgentID)
+	// Get merchant credentials
+	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return fmt.Errorf("failed to get agent: %w", err)
+		return fmt.Errorf("failed to get merchant: %w", err)
 	}
 
-	if !agent.IsActive.Valid || !agent.IsActive.Bool {
-		return fmt.Errorf("agent is not active")
+	if !merchant.IsActive {
+		return fmt.Errorf("merchant is not active")
 	}
 
 	// Get MAC secret
-	_, err = s.secretManager.GetSecret(ctx, agent.MacSecretPath)
+	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 	if err != nil {
 		return fmt.Errorf("failed to get MAC secret: %w", err)
 	}
 
 	// Send pre-note transaction through EPX
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         agent.CustNbr,
-		MerchNbr:        agent.MerchNbr,
-		DBAnbr:          agent.DbaNbr,
-		TerminalNbr:     agent.TerminalNbr,
+		CustNbr:         merchant.CustNbr,
+		MerchNbr:        merchant.MerchNbr,
+		DBAnbr:          merchant.DbaNbr,
+		TerminalNbr:     merchant.TerminalNbr,
 		TransactionType: adapterports.TransactionTypePreNote,
 		Amount:          "0.00", // Pre-note is $0
 		PaymentType:     adapterports.PaymentMethodTypeACH,
@@ -591,7 +626,7 @@ func (s *paymentMethodService) getPaymentMethodByIdempotencyKey(ctx context.Cont
 func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.PaymentMethod {
 	pm := &domain.PaymentMethod{
 		ID:           dbPM.ID.String(),
-		AgentID:      dbPM.AgentID,
+		MerchantID:   dbPM.MerchantID.String(),
 		CustomerID:   dbPM.CustomerID,
 		PaymentType:  domain.PaymentMethodType(dbPM.PaymentType),
 		PaymentToken: dbPM.PaymentToken,

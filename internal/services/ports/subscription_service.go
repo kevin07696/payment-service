@@ -9,7 +9,7 @@ import (
 
 // CreateSubscriptionRequest contains parameters for creating a subscription
 type CreateSubscriptionRequest struct {
-	AgentID         string
+	MerchantID      string
 	CustomerID      string
 	Amount          string
 	Currency        string

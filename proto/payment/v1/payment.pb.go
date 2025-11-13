@@ -23,30 +23,28 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// TransactionStatus represents the current state of a transaction
-// Matches database constraint: ('pending', 'completed', 'failed')
+// TransactionStatus represents the outcome of a transaction (success/failure)
+// Based on gateway response (EPX: auth_resp='00' = approved, else = failed)
+// Note: This is NOT the transaction lifecycle state - use 'type' field for that
 type TransactionStatus int32
 
 const (
 	TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED TransactionStatus = 0
-	TransactionStatus_TRANSACTION_STATUS_PENDING     TransactionStatus = 1
-	TransactionStatus_TRANSACTION_STATUS_COMPLETED   TransactionStatus = 2
-	TransactionStatus_TRANSACTION_STATUS_FAILED      TransactionStatus = 3
+	TransactionStatus_TRANSACTION_STATUS_APPROVED    TransactionStatus = 1 // Gateway approved (auth_resp='00')
+	TransactionStatus_TRANSACTION_STATUS_DECLINED    TransactionStatus = 2 // Gateway declined (auth_resp != '00')
 )
 
 // Enum value maps for TransactionStatus.
 var (
 	TransactionStatus_name = map[int32]string{
 		0: "TRANSACTION_STATUS_UNSPECIFIED",
-		1: "TRANSACTION_STATUS_PENDING",
-		2: "TRANSACTION_STATUS_COMPLETED",
-		3: "TRANSACTION_STATUS_FAILED",
+		1: "TRANSACTION_STATUS_APPROVED",
+		2: "TRANSACTION_STATUS_DECLINED",
 	}
 	TransactionStatus_value = map[string]int32{
 		"TRANSACTION_STATUS_UNSPECIFIED": 0,
-		"TRANSACTION_STATUS_PENDING":     1,
-		"TRANSACTION_STATUS_COMPLETED":   2,
-		"TRANSACTION_STATUS_FAILED":      3,
+		"TRANSACTION_STATUS_APPROVED":    1,
+		"TRANSACTION_STATUS_DECLINED":    2,
 	}
 )
 
@@ -193,7 +191,7 @@ func (PaymentMethodType) EnumDescriptor() ([]byte, []int) {
 // AuthorizeRequest authorizes a payment without capturing
 type AuthorizeRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
-	AgentId    string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`          // Multi-tenant: which agent/merchant
+	MerchantId string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"` // Multi-tenant: which agent/merchant
 	CustomerId string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"` // Customer ID (nullable for guest transactions)
 	Amount     string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`                           // Decimal as string (e.g., "29.99")
 	Currency   string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`                       // ISO 4217 code (e.g., "USD")
@@ -240,9 +238,9 @@ func (*AuthorizeRequest) Descriptor() ([]byte, []int) {
 	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *AuthorizeRequest) GetAgentId() string {
+func (x *AuthorizeRequest) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -387,7 +385,7 @@ func (x *CaptureRequest) GetIdempotencyKey() string {
 // SaleRequest combines authorize and capture
 type SaleRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
-	AgentId    string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MerchantId string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"` // Nullable for guest transactions
 	Amount     string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`                           // Decimal as string
 	Currency   string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
@@ -434,9 +432,9 @@ func (*SaleRequest) Descriptor() ([]byte, []int) {
 	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *SaleRequest) GetAgentId() string {
+func (x *SaleRequest) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -687,7 +685,7 @@ func (x *GetTransactionRequest) GetTransactionId() string {
 // ListTransactionsRequest lists transactions
 type ListTransactionsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MerchantId    string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId    string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`          // Optional: filter by customer
 	GroupId       string                 `protobuf:"bytes,3,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`                   // Optional: get all transactions in a group
 	Status        TransactionStatus      `protobuf:"varint,4,opt,name=status,proto3,enum=payment.v1.TransactionStatus" json:"status,omitempty"` // Optional: filter by status
@@ -727,9 +725,9 @@ func (*ListTransactionsRequest) Descriptor() ([]byte, []int) {
 	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ListTransactionsRequest) GetAgentId() string {
+func (x *ListTransactionsRequest) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -1011,7 +1009,7 @@ type Transaction struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	GroupId           string                 `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"` // Links related transactions (auth → capture → refund)
-	AgentId           string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MerchantId        string                 `protobuf:"bytes,3,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId        string                 `protobuf:"bytes,4,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"` // Nullable for guest transactions
 	Amount            string                 `protobuf:"bytes,5,opt,name=amount,proto3" json:"amount,omitempty"`
 	Currency          string                 `protobuf:"bytes,6,opt,name=currency,proto3" json:"currency,omitempty"`
@@ -1075,9 +1073,9 @@ func (x *Transaction) GetGroupId() string {
 	return ""
 }
 
-func (x *Transaction) GetAgentId() string {
+func (x *Transaction) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -1178,9 +1176,10 @@ var File_proto_payment_v1_payment_proto protoreflect.FileDescriptor
 const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"\x1eproto/payment/v1/payment.proto\x12\n" +
-	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"\x97\x03\n" +
-	"\x10AuthorizeRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
+	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"\x9d\x03\n" +
+	"\x10AuthorizeRequest\x12\x1f\n" +
+	"\vmerchant_id\x18\x01 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1a\n" +
@@ -1196,9 +1195,10 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x0eCaptureRequest\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\tR\x06amount\x12'\n" +
-	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"\x8d\x03\n" +
-	"\vSaleRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"\x93\x03\n" +
+	"\vSaleRequest\x12\x1f\n" +
+	"\vmerchant_id\x18\x01 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1a\n" +
@@ -1220,9 +1220,10 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12'\n" +
 	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\">\n" +
 	"\x15GetTransactionRequest\x12%\n" +
-	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\"\xd5\x01\n" +
-	"\x17ListTransactionsRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\"\xdb\x01\n" +
+	"\x17ListTransactionsRequest\x12\x1f\n" +
+	"\vmerchant_id\x18\x01 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12\x19\n" +
 	"\bgroup_id\x18\x03 \x01(\tR\agroupId\x125\n" +
@@ -1250,11 +1251,12 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x04card\x18\n" +
 	" \x01(\v2\x14.payment.v1.CardInfoR\x04card\x129\n" +
 	"\n" +
-	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x9d\x05\n" +
+	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xa3\x05\n" +
 	"\vTransaction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
-	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1f\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12\x1f\n" +
+	"\vmerchant_id\x18\x03 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x04 \x01(\tR\n" +
 	"customerId\x12\x16\n" +
 	"\x06amount\x18\x05 \x01(\tR\x06amount\x12\x1a\n" +
@@ -1271,12 +1273,11 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt*\x98\x01\n" +
+	"updated_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt*y\n" +
 	"\x11TransactionStatus\x12\"\n" +
-	"\x1eTRANSACTION_STATUS_UNSPECIFIED\x10\x00\x12\x1e\n" +
-	"\x1aTRANSACTION_STATUS_PENDING\x10\x01\x12 \n" +
-	"\x1cTRANSACTION_STATUS_COMPLETED\x10\x02\x12\x1d\n" +
-	"\x19TRANSACTION_STATUS_FAILED\x10\x03*\xe0\x01\n" +
+	"\x1eTRANSACTION_STATUS_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bTRANSACTION_STATUS_APPROVED\x10\x01\x12\x1f\n" +
+	"\x1bTRANSACTION_STATUS_DECLINED\x10\x02*\xe0\x01\n" +
 	"\x0fTransactionType\x12 \n" +
 	"\x1cTRANSACTION_TYPE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15TRANSACTION_TYPE_AUTH\x10\x01\x12\x1c\n" +

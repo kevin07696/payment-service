@@ -33,7 +33,7 @@ type Subscription struct {
 	ID string `json:"id"` // UUID
 
 	// Multi-tenant
-	AgentID string `json:"agent_id"`
+	MerchantID string `json:"merchant_id"`
 
 	// Customer
 	CustomerID string `json:"customer_id"`

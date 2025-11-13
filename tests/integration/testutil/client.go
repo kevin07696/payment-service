@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -44,6 +46,23 @@ func (c *Client) Do(method, path string, body interface{}) (*http.Response, erro
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+
+	return resp, nil
+}
+
+// DoForm performs an HTTP request with form data (application/x-www-form-urlencoded)
+func (c *Client) DoForm(method, path string, formData url.Values) (*http.Response, error) {
+	req, err := http.NewRequest(method, c.BaseURL+path, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

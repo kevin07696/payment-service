@@ -44,7 +44,7 @@ func NewDisputeSyncHandler(
 
 // SyncDisputesRequest represents the request body for dispute sync
 type SyncDisputesRequest struct {
-	AgentID  *string `json:"agent_id"`  // Optional: sync for specific agent, otherwise sync all
+	MerchantID  *string `json:"merchant_id"`  // Optional: sync for specific agent, otherwise sync all
 	FromDate *string `json:"from_date"` // Optional: ISO date string
 	ToDate   *string `json:"to_date"`   // Optional: ISO date string
 	DaysBack *int    `json:"days_back"` // Optional: sync last N days, defaults to 7
@@ -125,20 +125,20 @@ func (h *DisputeSyncHandler) SyncDisputes(w http.ResponseWriter, r *http.Request
 	ctx := context.Background()
 
 	// Get agents to sync
-	var agents []sqlc.AgentCredential
+	var agents []sqlc.Merchant
 	var err error
 
-	if req.AgentID != nil {
+	if req.MerchantID != nil {
 		// Sync specific agent
-		agent, err := h.db.Queries().GetAgentByAgentID(ctx, *req.AgentID)
+		agent, err := h.db.Queries().GetMerchantBySlug(ctx, *req.MerchantID)
 		if err != nil {
 			h.respondError(w, http.StatusBadRequest, fmt.Sprintf("agent not found: %v", err))
 			return
 		}
-		agents = []sqlc.AgentCredential{agent}
+		agents = []sqlc.Merchant{agent}
 	} else {
 		// Sync all active agents
-		agents, err = h.db.Queries().ListActiveAgents(ctx)
+		agents, err = h.db.Queries().ListActiveMerchants(ctx)
 		if err != nil {
 			h.respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list agents: %v", err))
 			return
@@ -156,9 +156,9 @@ func (h *DisputeSyncHandler) SyncDisputes(w http.ResponseWriter, r *http.Request
 		newCount, updatedCount, err := h.syncAgentDisputes(ctx, &agent, fromDate, toDate)
 		if err != nil {
 			resp.Success = false
-			resp.Errors = append(resp.Errors, fmt.Sprintf("agent %s: %v", agent.AgentID, err))
+			resp.Errors = append(resp.Errors, fmt.Sprintf("agent %s: %v", agent.ID.String(), err))
 			h.logger.Error("Failed to sync disputes for agent",
-				zap.String("agent_id", agent.AgentID),
+				zap.String("merchant_id", agent.ID.String()),
 				zap.Error(err),
 			)
 			continue
@@ -167,7 +167,7 @@ func (h *DisputeSyncHandler) SyncDisputes(w http.ResponseWriter, r *http.Request
 		resp.NewChargebacks += newCount
 		resp.UpdatedChargebacks += updatedCount
 		h.logger.Info("Synced disputes for agent",
-			zap.String("agent_id", agent.AgentID),
+			zap.String("merchant_id", agent.ID.String()),
 			zap.Int("new", newCount),
 			zap.Int("updated", updatedCount),
 		)
@@ -187,10 +187,10 @@ func (h *DisputeSyncHandler) SyncDisputes(w http.ResponseWriter, r *http.Request
 }
 
 // syncAgentDisputes syncs disputes for a single agent
-func (h *DisputeSyncHandler) syncAgentDisputes(ctx context.Context, agent *sqlc.AgentCredential, fromDate, toDate *time.Time) (newCount, updatedCount int, err error) {
+func (h *DisputeSyncHandler) syncAgentDisputes(ctx context.Context, agent *sqlc.Merchant, fromDate, toDate *time.Time) (newCount, updatedCount int, err error) {
 	// Call North API to search disputes
 	searchReq := &adapterports.DisputeSearchRequest{
-		MerchantID: agent.AgentID,
+		MerchantID: agent.ID.String(),
 		FromDate:   fromDate,
 		ToDate:     toDate,
 	}
@@ -201,13 +201,13 @@ func (h *DisputeSyncHandler) syncAgentDisputes(ctx context.Context, agent *sqlc.
 	}
 
 	h.logger.Info("Retrieved disputes from North API",
-		zap.String("agent_id", agent.AgentID),
+		zap.String("merchant_id", agent.ID.String()),
 		zap.Int("total_disputes", searchResp.TotalDisputes),
 	)
 
 	// Process each dispute
 	for _, dispute := range searchResp.Disputes {
-		isNew, err := h.upsertChargeback(ctx, agent.AgentID, dispute)
+		isNew, err := h.upsertChargeback(ctx, agent.ID.String(), dispute)
 		if err != nil {
 			h.logger.Error("Failed to upsert chargeback",
 				zap.String("case_number", dispute.CaseNumber),
@@ -432,7 +432,7 @@ func (h *DisputeSyncHandler) triggerChargebackWebhook(ctx context.Context, agent
 		if err := h.webhookService.DeliverEvent(context.Background(), event); err != nil {
 			h.logger.Error("Failed to deliver chargeback webhook",
 				zap.String("event_type", eventType),
-				zap.String("agent_id", agentID),
+				zap.String("merchant_id", agentID),
 				zap.String("case_number", chargeback.CaseNumber),
 				zap.Error(err),
 			)

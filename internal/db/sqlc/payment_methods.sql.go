@@ -25,7 +25,7 @@ func (q *Queries) ActivatePaymentMethod(ctx context.Context, id uuid.UUID) error
 
 const createPaymentMethod = `-- name: CreatePaymentMethod :one
 INSERT INTO customer_payment_methods (
-    id, agent_id, customer_id, payment_type,
+    id, merchant_id, customer_id, payment_type,
     payment_token, last_four,
     card_brand, card_exp_month, card_exp_year,
     bank_name, account_type,
@@ -36,12 +36,12 @@ INSERT INTO customer_payment_methods (
     $7, $8, $9,
     $10, $11,
     $12, $13, $14
-) RETURNING id, agent_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at
+) RETURNING id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at
 `
 
 type CreatePaymentMethodParams struct {
 	ID           uuid.UUID   `json:"id"`
-	AgentID      string      `json:"agent_id"`
+	MerchantID   uuid.UUID   `json:"merchant_id"`
 	CustomerID   string      `json:"customer_id"`
 	PaymentType  string      `json:"payment_type"`
 	PaymentToken string      `json:"payment_token"`
@@ -59,7 +59,7 @@ type CreatePaymentMethodParams struct {
 func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMethodParams) (CustomerPaymentMethod, error) {
 	row := q.db.QueryRow(ctx, createPaymentMethod,
 		arg.ID,
-		arg.AgentID,
+		arg.MerchantID,
 		arg.CustomerID,
 		arg.PaymentType,
 		arg.PaymentToken,
@@ -76,7 +76,7 @@ func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMeth
 	var i CustomerPaymentMethod
 	err := row.Scan(
 		&i.ID,
-		&i.AgentID,
+		&i.MerchantID,
 		&i.CustomerID,
 		&i.PaymentToken,
 		&i.PaymentType,
@@ -120,22 +120,22 @@ func (q *Queries) DeletePaymentMethod(ctx context.Context, id uuid.UUID) error {
 }
 
 const getDefaultPaymentMethod = `-- name: GetDefaultPaymentMethod :one
-SELECT id, agent_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
-WHERE agent_id = $1 AND customer_id = $2 AND is_default = true AND is_active = true AND deleted_at IS NULL
+SELECT id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+WHERE merchant_id = $1 AND customer_id = $2 AND is_default = true AND is_active = true AND deleted_at IS NULL
 LIMIT 1
 `
 
 type GetDefaultPaymentMethodParams struct {
-	AgentID    string `json:"agent_id"`
-	CustomerID string `json:"customer_id"`
+	MerchantID uuid.UUID `json:"merchant_id"`
+	CustomerID string    `json:"customer_id"`
 }
 
 func (q *Queries) GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPaymentMethodParams) (CustomerPaymentMethod, error) {
-	row := q.db.QueryRow(ctx, getDefaultPaymentMethod, arg.AgentID, arg.CustomerID)
+	row := q.db.QueryRow(ctx, getDefaultPaymentMethod, arg.MerchantID, arg.CustomerID)
 	var i CustomerPaymentMethod
 	err := row.Scan(
 		&i.ID,
-		&i.AgentID,
+		&i.MerchantID,
 		&i.CustomerID,
 		&i.PaymentToken,
 		&i.PaymentType,
@@ -157,7 +157,7 @@ func (q *Queries) GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPay
 }
 
 const getPaymentMethodByID = `-- name: GetPaymentMethodByID :one
-SELECT id, agent_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -166,7 +166,7 @@ func (q *Queries) GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (Custo
 	var i CustomerPaymentMethod
 	err := row.Scan(
 		&i.ID,
-		&i.AgentID,
+		&i.MerchantID,
 		&i.CustomerID,
 		&i.PaymentToken,
 		&i.PaymentType,
@@ -188,10 +188,10 @@ func (q *Queries) GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (Custo
 }
 
 const listPaymentMethods = `-- name: ListPaymentMethods :many
-SELECT id, agent_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
 WHERE
     deleted_at IS NULL AND
-    ($1::varchar IS NULL OR agent_id = $1) AND
+    ($1::varchar IS NULL OR merchant_id = $1) AND
     ($2::varchar IS NULL OR customer_id = $2) AND
     ($3::varchar IS NULL OR payment_type = $3) AND
     ($4::boolean IS NULL OR is_active = $4) AND
@@ -200,7 +200,7 @@ ORDER BY is_default DESC, created_at DESC
 `
 
 type ListPaymentMethodsParams struct {
-	AgentID     pgtype.Text `json:"agent_id"`
+	MerchantID  pgtype.Text `json:"merchant_id"`
 	CustomerID  pgtype.Text `json:"customer_id"`
 	PaymentType pgtype.Text `json:"payment_type"`
 	IsActive    pgtype.Bool `json:"is_active"`
@@ -209,7 +209,7 @@ type ListPaymentMethodsParams struct {
 
 func (q *Queries) ListPaymentMethods(ctx context.Context, arg ListPaymentMethodsParams) ([]CustomerPaymentMethod, error) {
 	rows, err := q.db.Query(ctx, listPaymentMethods,
-		arg.AgentID,
+		arg.MerchantID,
 		arg.CustomerID,
 		arg.PaymentType,
 		arg.IsActive,
@@ -224,7 +224,7 @@ func (q *Queries) ListPaymentMethods(ctx context.Context, arg ListPaymentMethods
 		var i CustomerPaymentMethod
 		if err := rows.Scan(
 			&i.ID,
-			&i.AgentID,
+			&i.MerchantID,
 			&i.CustomerID,
 			&i.PaymentToken,
 			&i.PaymentType,
@@ -253,18 +253,18 @@ func (q *Queries) ListPaymentMethods(ctx context.Context, arg ListPaymentMethods
 }
 
 const listPaymentMethodsByCustomer = `-- name: ListPaymentMethodsByCustomer :many
-SELECT id, agent_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
-WHERE agent_id = $1 AND customer_id = $2 AND deleted_at IS NULL
+SELECT id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+WHERE merchant_id = $1 AND customer_id = $2 AND deleted_at IS NULL
 ORDER BY is_default DESC, created_at DESC
 `
 
 type ListPaymentMethodsByCustomerParams struct {
-	AgentID    string `json:"agent_id"`
-	CustomerID string `json:"customer_id"`
+	MerchantID uuid.UUID `json:"merchant_id"`
+	CustomerID string    `json:"customer_id"`
 }
 
 func (q *Queries) ListPaymentMethodsByCustomer(ctx context.Context, arg ListPaymentMethodsByCustomerParams) ([]CustomerPaymentMethod, error) {
-	rows, err := q.db.Query(ctx, listPaymentMethodsByCustomer, arg.AgentID, arg.CustomerID)
+	rows, err := q.db.Query(ctx, listPaymentMethodsByCustomer, arg.MerchantID, arg.CustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +274,7 @@ func (q *Queries) ListPaymentMethodsByCustomer(ctx context.Context, arg ListPaym
 		var i CustomerPaymentMethod
 		if err := rows.Scan(
 			&i.ID,
-			&i.AgentID,
+			&i.MerchantID,
 			&i.CustomerID,
 			&i.PaymentToken,
 			&i.PaymentType,
@@ -339,16 +339,16 @@ func (q *Queries) MarkPaymentMethodVerified(ctx context.Context, id uuid.UUID) e
 const setPaymentMethodAsDefault = `-- name: SetPaymentMethodAsDefault :exec
 UPDATE customer_payment_methods
 SET is_default = false, updated_at = CURRENT_TIMESTAMP
-WHERE agent_id = $1 AND customer_id = $2 AND deleted_at IS NULL
+WHERE merchant_id = $1 AND customer_id = $2 AND deleted_at IS NULL
 `
 
 type SetPaymentMethodAsDefaultParams struct {
-	AgentID    string `json:"agent_id"`
-	CustomerID string `json:"customer_id"`
+	MerchantID uuid.UUID `json:"merchant_id"`
+	CustomerID string    `json:"customer_id"`
 }
 
 // First unset all defaults for this customer
 func (q *Queries) SetPaymentMethodAsDefault(ctx context.Context, arg SetPaymentMethodAsDefaultParams) error {
-	_, err := q.db.Exec(ctx, setPaymentMethodAsDefault, arg.AgentID, arg.CustomerID)
+	_, err := q.db.Exec(ctx, setPaymentMethodAsDefault, arg.MerchantID, arg.CustomerID)
 	return err
 }

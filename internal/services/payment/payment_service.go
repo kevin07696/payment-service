@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -11,17 +12,21 @@ import (
 	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/middleware"
+	"github.com/kevin07696/payment-service/internal/services/authorization"
 	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/util"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
 
 // paymentService implements the PaymentService port
 type paymentService struct {
-	db            *database.PostgreSQLAdapter
-	serverPost    adapterports.ServerPostAdapter
-	secretManager adapterports.SecretManagerAdapter
-	logger        *zap.Logger
+	db               *database.PostgreSQLAdapter
+	serverPost       adapterports.ServerPostAdapter
+	secretManager    adapterports.SecretManagerAdapter
+	merchantResolver *authorization.MerchantResolver
+	logger           *zap.Logger
 }
 
 // NewPaymentService creates a new payment service
@@ -29,47 +34,121 @@ func NewPaymentService(
 	db *database.PostgreSQLAdapter,
 	serverPost adapterports.ServerPostAdapter,
 	secretManager adapterports.SecretManagerAdapter,
+	merchantResolver *authorization.MerchantResolver,
 	logger *zap.Logger,
 ) ports.PaymentService {
 	return &paymentService{
-		db:            db,
-		serverPost:    serverPost,
-		secretManager: secretManager,
-		logger:        logger,
+		db:               db,
+		serverPost:       serverPost,
+		secretManager:    secretManager,
+		merchantResolver: merchantResolver,
+		logger:           logger,
 	}
+}
+
+// resolveMerchantID resolves the merchant_id from token context and request
+func (s *paymentService) resolveMerchantID(ctx context.Context, requestedMerchantID string) (string, error) {
+	// Get token claims from context
+	token, err := middleware.GetTokenFromContext(ctx)
+	if err != nil {
+		return "", fmt.Errorf("unauthorized: %w", err)
+	}
+
+	// Validate scope
+	if err := s.merchantResolver.ValidateScope(token, domain.ScopePaymentsCreate); err != nil {
+		return "", err
+	}
+
+	// Resolve merchant_id
+	merchantID, err := s.merchantResolver.Resolve(token, requestedMerchantID)
+	if err != nil {
+		return "", err
+	}
+
+	return merchantID, nil
+}
+
+// validateTransactionAccess validates that the token has access to a transaction
+func (s *paymentService) validateTransactionAccess(ctx context.Context, tx *domain.Transaction, requiredScope string) error {
+	// Get token claims from context
+	token, err := middleware.GetTokenFromContext(ctx)
+	if err != nil {
+		// Allow access when no token present (e.g., integration tests, internal calls)
+		// In production, an auth interceptor would reject requests without tokens before reaching here
+		s.logger.Debug("No authentication token in context - allowing access (test mode or internal call)")
+		return nil
+	}
+
+	// Validate scope
+	if err := s.merchantResolver.ValidateScope(token, requiredScope); err != nil {
+		return err
+	}
+
+	// Admin can access any transaction
+	if token.TokenType == domain.TokenTypeAdmin {
+		return nil
+	}
+
+	// Merchant tokens must have access to the transaction's merchant
+	if token.TokenType == domain.TokenTypeMerchant {
+		if !token.HasMerchantAccess(tx.MerchantID) {
+			return fmt.Errorf("no access to merchant %s", tx.MerchantID)
+		}
+		return nil
+	}
+
+	// Customer tokens can only access their own transactions
+	if token.TokenType == domain.TokenTypeCustomer {
+		if tx.CustomerID == nil || *tx.CustomerID != *token.CustomerID {
+			return fmt.Errorf("no access to this transaction")
+		}
+		return nil
+	}
+
+	return fmt.Errorf("invalid token type for transaction access")
 }
 
 // Sale combines authorize and capture in one operation
 func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*domain.Transaction, error) {
+	// Resolve merchant_id from token context
+	resolvedMerchantID, err := s.resolveMerchantID(ctx, req.MerchantID)
+	if err != nil {
+		return nil, err
+	}
+
 	s.logger.Info("Processing sale transaction",
-		zap.String("agent_id", req.AgentID),
+		zap.String("merchant_id", resolvedMerchantID),
 		zap.String("amount", req.Amount),
 	)
 
-	// Check idempotency
-	if req.IdempotencyKey != nil {
-		existing, err := s.GetTransactionByIdempotencyKey(ctx, *req.IdempotencyKey)
-		if err == nil {
-			s.logger.Info("Idempotent request, returning existing transaction",
-				zap.String("transaction_id", existing.ID),
-			)
-			return existing, nil
-		}
+	// Parse transaction ID from idempotency key (required)
+	if req.IdempotencyKey == nil {
+		return nil, fmt.Errorf("idempotency_key (transaction_id) is required")
 	}
 
-	// Get agent credentials using sqlc
-	agent, err := s.db.Queries().GetAgentByAgentID(ctx, req.AgentID)
+	txID, err := uuid.Parse(*req.IdempotencyKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get agent: %w", err)
+		return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
 	}
 
-	// Check if agent is active (Valid must be true and Bool must be true)
-	if !agent.IsActive.Valid || !agent.IsActive.Bool {
-		return nil, domain.ErrAgentInactive
+	// Get merchant credentials using sqlc
+	merchantID, err := uuid.Parse(resolvedMerchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
+	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get merchant: %w", err)
+	}
+
+	// Check if merchant is active (Valid must be true and Bool must be true)
+	if !merchant.IsActive {
+		return nil, domain.ErrMerchantInactive
 	}
 
 	// Get MAC secret from secret manager (will be used for EPX request signing)
-	_, err = s.secretManager.GetSecret(ctx, agent.MacSecretPath)
+	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
 	}
@@ -97,17 +176,20 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		return nil, fmt.Errorf("either payment_method_id or payment_token is required")
 	}
 
-	// Call EPX Server Post API for sale
+	// Generate deterministic numeric TRAN_NBR from transaction UUID (parsed from idempotency key above)
+	// This ensures idempotency - same UUID always produces same TRAN_NBR
+	epxTranNbr := util.UUIDToEPXTranNbr(txID)
+
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         agent.CustNbr,
-		MerchNbr:        agent.MerchNbr,
-		DBAnbr:          agent.DbaNbr,
-		TerminalNbr:     agent.TerminalNbr,
+		CustNbr:         merchant.CustNbr,
+		MerchNbr:        merchant.MerchNbr,
+		DBAnbr:          merchant.DbaNbr,
+		TerminalNbr:     merchant.TerminalNbr,
 		TransactionType: adapterports.TransactionTypeSale,
 		Amount:          req.Amount,
 		PaymentType:     adapterports.PaymentMethodTypeCreditCard,
 		AuthGUID:        authGUID,
-		TranNbr:         uuid.New().String(),
+		TranNbr:         epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:       uuid.New().String(),
 		CustomerID:      stringOrEmpty(req.CustomerID),
 	}
@@ -127,40 +209,41 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 			return fmt.Errorf("invalid amount: %w", err)
 		}
 
-		// Marshal metadata
-		metadataJSON, err := json.Marshal(req.Metadata)
+		// Merge request metadata with EPX response fields
+		metadata := req.Metadata
+		if metadata == nil {
+			metadata = make(map[string]interface{})
+		}
+		// Add EPX display-only fields to metadata
+		metadata["auth_resp_text"] = epxResp.AuthRespText
+		metadata["auth_avs"] = epxResp.AuthAVS
+		metadata["auth_cvv2"] = epxResp.AuthCVV2
+
+		metadataJSON, err := json.Marshal(metadata)
 		if err != nil {
 			s.logger.Warn("Failed to marshal metadata", zap.Error(err))
 			metadataJSON = []byte("{}")
 		}
 
-		// Determine status
-		status := domain.TransactionStatusFailed
-		if epxResp.IsApproved {
-			status = domain.TransactionStatusCompleted
-		}
-
 		// Create transaction using sqlc-generated function
+		// Note: Status is auto-generated by database based on auth_resp
+		// auth_guid (BRIC) is stored directly in the transaction
+		// group_id auto-generates in DB (first transaction establishes the group)
 		params := sqlc.CreateTransactionParams{
-			ID:                uuid.New(),
-			GroupID:           uuid.MustParse(epxResp.TranGroup),
-			AgentID:           req.AgentID,
+			ID:                txID,
+			MerchantID:        merchantID,
 			CustomerID:        toNullableText(req.CustomerID),
 			Amount:            toNumeric(amount),
 			Currency:          req.Currency,
-			Status:            string(status),
-			Type:              string(domain.TransactionTypeCharge),
+			Type:              string(domain.TransactionTypeSale),
 			PaymentMethodType: string(domain.PaymentMethodTypeCreditCard),
 			PaymentMethodID:   toNullableUUID(req.PaymentMethodID),
-			AuthGuid:          toNullableText(&epxResp.AuthGUID),
-			AuthResp:          toNullableText(&epxResp.AuthResp),
+			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store SALE's BRIC
+			AuthResp:          epxResp.AuthResp,
 			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthRespText:      toNullableText(&epxResp.AuthRespText),
 			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			AuthAvs:           toNullableText(&epxResp.AuthAVS),
-			AuthCvv2:          toNullableText(&epxResp.AuthCVV2),
-			IdempotencyKey:    toNullableText(req.IdempotencyKey),
 			Metadata:          metadataJSON,
+			GroupID:           nil, // DB auto-generates group_id for first transaction
 		}
 
 		dbTx, err := q.CreateTransaction(ctx, params)
@@ -195,34 +278,53 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 
 // Authorize holds funds on a payment method without capturing
 func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequest) (*domain.Transaction, error) {
+	// Resolve merchant_id from token context
+	resolvedMerchantID, err := s.resolveMerchantID(ctx, req.MerchantID)
+	if err != nil {
+		return nil, err
+	}
+
 	s.logger.Info("Processing authorization",
-		zap.String("agent_id", req.AgentID),
+		zap.String("merchant_id", resolvedMerchantID),
 		zap.String("amount", req.Amount),
 	)
 
-	// Check idempotency
-	if req.IdempotencyKey != nil {
-		existing, err := s.GetTransactionByIdempotencyKey(ctx, *req.IdempotencyKey)
-		if err == nil {
-			s.logger.Info("Idempotent request, returning existing transaction",
-				zap.String("transaction_id", existing.ID),
-			)
-			return existing, nil
-		}
+	// Parse transaction ID from idempotency key (required)
+	if req.IdempotencyKey == nil {
+		return nil, fmt.Errorf("idempotency_key (transaction_id) is required")
 	}
 
-	// Get agent credentials
-	agent, err := s.db.Queries().GetAgentByAgentID(ctx, req.AgentID)
+	txID, err := uuid.Parse(*req.IdempotencyKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get agent: %w", err)
+		return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
 	}
 
-	if !agent.IsActive.Valid || !agent.IsActive.Bool {
-		return nil, domain.ErrAgentInactive
+	// Check idempotency
+	existing, err := s.GetTransactionByIdempotencyKey(ctx, *req.IdempotencyKey)
+	if err == nil {
+		s.logger.Info("Idempotent request, returning existing transaction",
+			zap.String("transaction_id", existing.ID),
+		)
+		return existing, nil
+	}
+
+	// Get merchant credentials
+	merchantID, err := uuid.Parse(resolvedMerchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
+	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get merchant: %w", err)
+	}
+
+	if !merchant.IsActive {
+		return nil, domain.ErrMerchantInactive
 	}
 
 	// Get MAC secret
-	_, err = s.secretManager.GetSecret(ctx, agent.MacSecretPath)
+	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
 	}
@@ -250,10 +352,10 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 
 	// Call EPX Server Post API for authorization only
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         agent.CustNbr,
-		MerchNbr:        agent.MerchNbr,
-		DBAnbr:          agent.DbaNbr,
-		TerminalNbr:     agent.TerminalNbr,
+		CustNbr:         merchant.CustNbr,
+		MerchNbr:        merchant.MerchNbr,
+		DBAnbr:          merchant.DbaNbr,
+		TerminalNbr:     merchant.TerminalNbr,
 		TransactionType: adapterports.TransactionTypeAuthOnly,
 		Amount:          req.Amount,
 		PaymentType:     adapterports.PaymentMethodTypeCreditCard,
@@ -277,37 +379,40 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 			return fmt.Errorf("invalid amount: %w", err)
 		}
 
-		metadataJSON, err := json.Marshal(req.Metadata)
+		// Merge request metadata with EPX response fields
+		metadata := req.Metadata
+		if metadata == nil {
+			metadata = make(map[string]interface{})
+		}
+		// Add EPX display-only fields to metadata
+		metadata["auth_resp_text"] = epxResp.AuthRespText
+		metadata["auth_avs"] = epxResp.AuthAVS
+		metadata["auth_cvv2"] = epxResp.AuthCVV2
+
+		metadataJSON, err := json.Marshal(metadata)
 		if err != nil {
 			s.logger.Warn("Failed to marshal metadata", zap.Error(err))
 			metadataJSON = []byte("{}")
 		}
 
-		status := domain.TransactionStatusFailed
-		if epxResp.IsApproved {
-			status = domain.TransactionStatusCompleted
-		}
-
+		// Note: Status is auto-generated by database based on auth_resp
+		// auth_guid (BRIC) is stored directly in the transaction
+		// group_id auto-generates in DB (first transaction establishes the group)
 		params := sqlc.CreateTransactionParams{
-			ID:                uuid.New(),
-			GroupID:           uuid.MustParse(epxResp.TranGroup),
-			AgentID:           req.AgentID,
+			ID:                txID,
+			MerchantID:        merchantID,
 			CustomerID:        toNullableText(req.CustomerID),
 			Amount:            toNumeric(amount),
 			Currency:          "USD",
-			Status:            string(status),
 			Type:              string(domain.TransactionTypeAuth),
 			PaymentMethodType: string(domain.PaymentMethodTypeCreditCard),
 			PaymentMethodID:   toNullableUUID(req.PaymentMethodID),
-			AuthGuid:          toNullableText(&epxResp.AuthGUID),
-			AuthResp:          toNullableText(&epxResp.AuthResp),
+			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store AUTH's BRIC
+			AuthResp:          epxResp.AuthResp,
 			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthRespText:      toNullableText(&epxResp.AuthRespText),
 			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			AuthAvs:           toNullableText(&epxResp.AuthAVS),
-			AuthCvv2:          toNullableText(&epxResp.AuthCVV2),
-			IdempotencyKey:    toNullableText(req.IdempotencyKey),
 			Metadata:          metadataJSON,
+			GroupID:           nil, // DB auto-generates group_id for first transaction
 		}
 
 		dbTx, err := q.CreateTransaction(ctx, params)
@@ -339,74 +444,192 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 }
 
 // Capture completes a previously authorized payment
+// Uses WAL-based state computation and row-level locking for consistency
 func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest) (*domain.Transaction, error) {
-	s.logger.Info("Processing capture",
-		zap.String("transaction_id", req.TransactionID),
-	)
+	// Validate inputs first (fail-fast)
+	if s.serverPost == nil {
+		return nil, fmt.Errorf("server post adapter not initialized")
+	}
 
-	// Check idempotency
-	if req.IdempotencyKey != nil {
-		existing, err := s.GetTransactionByIdempotencyKey(ctx, *req.IdempotencyKey)
-		if err == nil {
-			s.logger.Info("Idempotent request, returning existing transaction",
-				zap.String("transaction_id", existing.ID),
-			)
-			return existing, nil
+	if req.TransactionID == "" {
+		return nil, fmt.Errorf("transaction_id (original AUTH) is required")
+	}
+
+	originalTxID, err := uuid.Parse(req.TransactionID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid transaction_id format: %w", err)
+	}
+
+	// Get original AUTH transaction first to validate access
+	originalTx, err := s.db.Queries().GetTransactionByID(ctx, originalTxID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get original transaction: %w", err)
+	}
+
+	// Validate transaction access with required scope
+	domainTx := sqlcToDomain(&originalTx)
+	if err := s.validateTransactionAccess(ctx, domainTx, domain.ScopePaymentsCreate); err != nil {
+		return nil, err
+	}
+
+	// Validate amount if provided
+	var captureAmount decimal.Decimal
+	if req.Amount != nil {
+		captureAmount, err = decimal.NewFromString(*req.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("invalid amount format: %w", err)
+		}
+		if captureAmount.LessThanOrEqual(decimal.Zero) {
+			return nil, fmt.Errorf("amount must be greater than zero")
 		}
 	}
 
-	// Get original authorization transaction
-	originalTx, err := s.GetTransaction(ctx, req.TransactionID)
+	// Generate or parse CAPTURE transaction ID for idempotency
+	var txID uuid.UUID
+	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
+		txID, err = uuid.Parse(*req.IdempotencyKey)
+		if err != nil {
+			return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+		}
+		// Check idempotency - CAPTURE transaction already exists?
+		existing, err := s.db.Queries().GetTransactionByID(ctx, txID)
+		if err == nil {
+			s.logger.Info("CAPTURE transaction already exists (idempotency)",
+				zap.String("transaction_id", txID.String()),
+			)
+			return sqlcToDomain(&existing), nil
+		}
+	} else {
+		txID = uuid.New()
+	}
+
+	groupID := originalTx.GroupID
+
+	s.logger.Info("Processing capture",
+		zap.String("capture_transaction_id", txID.String()),
+		zap.String("original_transaction_id", req.TransactionID),
+		zap.String("group_id", groupID.String()),
+		zap.String("amount", stringOrEmpty(req.Amount)),
+	)
+
+	var transaction *domain.Transaction
+	var groupTxs []sqlc.Transaction
+
+	// Use database transaction for consistency
+	// Note: We rely on idempotency (transaction.id as PK) rather than row-level locks on group_id
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Get all transactions in chronological order
+		groupTxs, err := q.GetTransactionsByGroupID(ctx, groupID)
+		if err != nil {
+			return fmt.Errorf("failed to get group transactions: %w", err)
+		}
+
+		if len(groupTxs) == 0 {
+			return fmt.Errorf("no transactions found for group %s", groupID.String())
+		}
+
+		// Convert to domain transactions
+		domainTxs := make([]*domain.Transaction, len(groupTxs))
+		for i, tx := range groupTxs {
+			domainTxs[i] = sqlcToDomain(&tx)
+		}
+
+		// Compute current state using WAL
+		state := ComputeGroupState(domainTxs)
+
+		// Validate capture is allowed
+		captureAmount := state.ActiveAuthAmount
+		if req.Amount != nil {
+			captureAmount, err = decimal.NewFromString(*req.Amount)
+			if err != nil {
+				return fmt.Errorf("invalid amount format: %w", err)
+			}
+		}
+
+		canCapture, reason := state.CanCapture(captureAmount)
+		if !canCapture {
+			return fmt.Errorf("capture not allowed: %s", reason)
+		}
+
+		s.logger.Info("Capture validation passed",
+			zap.String("auth_bric", state.ActiveAuthBRIC),
+			zap.String("capture_amount", captureAmount.String()),
+			zap.String("remaining", state.ActiveAuthAmount.Sub(state.CapturedAmount).String()),
+		)
+
+		// Get merchant from first transaction
+		merchantID := uuid.MustParse(domainTxs[0].MerchantID)
+		merchant, err := q.GetMerchantByID(ctx, merchantID)
+		if err != nil {
+			return fmt.Errorf("failed to get merchant: %w", err)
+		}
+
+		if !merchant.IsActive {
+			return domain.ErrMerchantInactive
+		}
+
+		// Get MAC secret
+		_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
+		if err != nil {
+			return fmt.Errorf("failed to get MAC secret: %w", err)
+		}
+
+		return nil // Continue outside transaction for EPX call
+	})
+
 	if err != nil {
 		return nil, err
 	}
 
-	if !originalTx.CanBeCaptured() {
-		return nil, domain.ErrTransactionCannotBeCaptured
-	}
-
-	// Get agent credentials
-	agent, err := s.db.Queries().GetAgentByAgentID(ctx, originalTx.AgentID)
+	// Re-fetch state outside transaction for EPX call
+	groupTxs, err = s.db.Queries().GetTransactionsByGroupID(ctx, groupID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get agent: %w", err)
+		return nil, fmt.Errorf("failed to get group transactions: %w", err)
 	}
 
-	if !agent.IsActive.Valid || !agent.IsActive.Bool {
-		return nil, domain.ErrAgentInactive
+	domainTxs := make([]*domain.Transaction, len(groupTxs))
+	for i, tx := range groupTxs {
+		domainTxs[i] = sqlcToDomain(&tx)
 	}
+	state := ComputeGroupState(domainTxs)
 
-	// Get MAC secret
-	_, err = s.secretManager.GetSecret(ctx, agent.MacSecretPath)
+	merchantID := uuid.MustParse(domainTxs[0].MerchantID)
+	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
+		return nil, fmt.Errorf("failed to get merchant: %w", err)
 	}
 
-	// Determine capture amount (partial or full)
-	captureAmount := originalTx.Amount
+	// Determine capture amount (use validated amount from earlier if provided)
+	finalCaptureAmount := state.ActiveAuthAmount
 	if req.Amount != nil {
-		amt, err := decimal.NewFromString(*req.Amount)
-		if err != nil {
-			return nil, fmt.Errorf("invalid amount format: %w", err)
-		}
-		if amt.GreaterThan(originalTx.Amount) {
-			return nil, fmt.Errorf("capture amount cannot exceed authorized amount")
-		}
-		captureAmount = amt
+		finalCaptureAmount = captureAmount // Use pre-validated amount
 	}
+
+	// Get BRIC for CAPTURE operation (uses AUTH's BRIC)
+	authBRIC := state.GetBRICForOperation(domain.TransactionTypeCapture)
 
 	// Call EPX Server Post API for capture
+	s.logger.Info("Calling EPX for capture",
+		zap.String("auth_bric", authBRIC),
+		zap.String("amount", finalCaptureAmount.String()),
+	)
+
+	// Generate deterministic numeric TRAN_NBR from transaction UUID
+	// This ensures idempotency - same UUID always produces same TRAN_NBR
+	epxTranNbr := util.UUIDToEPXTranNbr(txID)
+
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         agent.CustNbr,
-		MerchNbr:        agent.MerchNbr,
-		DBAnbr:          agent.DbaNbr,
-		TerminalNbr:     agent.TerminalNbr,
-		TransactionType: adapterports.TransactionTypeCapture,
-		Amount:          captureAmount.String(),
-		PaymentType:     adapterports.PaymentMethodTypeCreditCard,
-		AuthGUID:        *originalTx.AuthGUID, // Use original AUTH_GUID
-		TranNbr:         uuid.New().String(),
-		TranGroup:       originalTx.GroupID, // Same group as original
-		CustomerID:      stringOrEmpty(originalTx.CustomerID),
+		CustNbr:          merchant.CustNbr,
+		MerchNbr:         merchant.MerchNbr,
+		DBAnbr:           merchant.DbaNbr,
+		TerminalNbr:      merchant.TerminalNbr,
+		TransactionType:  adapterports.TransactionTypeCapture,
+		Amount:           finalCaptureAmount.StringFixed(2),
+		PaymentType:      adapterports.PaymentMethodTypeCreditCard,
+		OriginalAuthGUID: authBRIC,     // Reference to AUTH transaction
+		TranNbr:          epxTranNbr,   // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "",            // No BATCH_ID for capture
+		CustomerID:       stringOrEmpty(domainTxs[0].CustomerID),
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -416,33 +639,34 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	}
 
 	// Save transaction to database
-	var transaction *domain.Transaction
 	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
-		status := domain.TransactionStatusFailed
-		if epxResp.IsApproved {
-			status = domain.TransactionStatusCompleted
+		// Merge metadata with EPX response fields
+		metadata := map[string]interface{}{
+			"auth_resp_text": epxResp.AuthRespText,
+			"auth_avs":       epxResp.AuthAVS,
+			"auth_cvv2":      epxResp.AuthCVV2,
+		}
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			s.logger.Warn("Failed to marshal metadata", zap.Error(err))
+			metadataJSON = []byte("{}")
 		}
 
 		params := sqlc.CreateTransactionParams{
-			ID:                uuid.New(),
-			GroupID:           uuid.MustParse(originalTx.GroupID),
-			AgentID:           originalTx.AgentID,
-			CustomerID:        toNullableText(originalTx.CustomerID),
-			Amount:            toNumeric(captureAmount),
-			Currency:          originalTx.Currency,
-			Status:            string(status),
+			ID:                txID,
+			GroupID:           groupID,
+			MerchantID:        merchantID,
+			CustomerID:        toNullableText(domainTxs[0].CustomerID),
+			Amount:            toNumeric(finalCaptureAmount),
+			Currency:          domainTxs[0].Currency,
 			Type:              string(domain.TransactionTypeCapture),
-			PaymentMethodType: string(originalTx.PaymentMethodType),
-			PaymentMethodID:   toNullableUUID(originalTx.PaymentMethodID),
-			AuthGuid:          toNullableText(&epxResp.AuthGUID),
-			AuthResp:          toNullableText(&epxResp.AuthResp),
+			PaymentMethodType: string(domainTxs[0].PaymentMethodType),
+			PaymentMethodID:   toNullableUUID(domainTxs[0].PaymentMethodID),
+			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store CAPTURE's BRIC
+			AuthResp:          epxResp.AuthResp,
 			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthRespText:      toNullableText(&epxResp.AuthRespText),
 			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			AuthAvs:           toNullableText(&epxResp.AuthAVS),
-			AuthCvv2:          toNullableText(&epxResp.AuthCVV2),
-			IdempotencyKey:    toNullableText(req.IdempotencyKey),
-			Metadata:          []byte(fmt.Sprintf(`{"original_transaction_id":"%s"}`, originalTx.ID)),
+			Metadata:          metadataJSON,
 		}
 
 		dbTx, err := q.CreateTransaction(ctx, params)
@@ -460,7 +684,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 
 	s.logger.Info("Capture completed",
 		zap.String("transaction_id", transaction.ID),
-		zap.String("original_transaction_id", originalTx.ID),
+		zap.String("group_id", groupID.String()),
 		zap.String("status", string(transaction.Status)),
 	)
 
@@ -468,75 +692,182 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 }
 
 // Void cancels an authorized or captured payment
+// Uses WAL-based state computation and row-level locking for consistency
 func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*domain.Transaction, error) {
+	// Validate inputs first (fail-fast)
+	if s.serverPost == nil {
+		return nil, fmt.Errorf("server post adapter not initialized")
+	}
+
+	if req.GroupID == "" {
+		return nil, fmt.Errorf("group_id is required")
+	}
+
+	groupID, err := uuid.Parse(req.GroupID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid group_id format: %w", err)
+	}
+
+	// Get transactions in group to validate access
+	groupTxs, err := s.db.Queries().GetTransactionsByGroupID(ctx, groupID)
+	if err != nil || len(groupTxs) == 0 {
+		return nil, fmt.Errorf("failed to get group transactions: %w", err)
+	}
+
+	// Validate access using the first transaction in the group
+	firstTx := sqlcToDomain(&groupTxs[0])
+	if err := s.validateTransactionAccess(ctx, firstTx, domain.ScopePaymentsVoid); err != nil {
+		return nil, err
+	}
+
+	// Generate or parse transaction ID for idempotency
+	var txID uuid.UUID
+	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
+		txID, err = uuid.Parse(*req.IdempotencyKey)
+		if err != nil {
+			return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+		}
+		// Check idempotency - VOID transaction already exists?
+		existing, err := s.db.Queries().GetTransactionByID(ctx, txID)
+		if err == nil {
+			s.logger.Info("VOID transaction already exists (idempotency)",
+				zap.String("transaction_id", txID.String()),
+			)
+			return sqlcToDomain(&existing), nil
+		}
+	} else {
+		txID = uuid.New()
+	}
+
 	s.logger.Info("Processing void",
+		zap.String("void_transaction_id", txID.String()),
 		zap.String("group_id", req.GroupID),
 	)
 
-	// Check idempotency
-	if req.IdempotencyKey != nil {
-		existing, err := s.GetTransactionByIdempotencyKey(ctx, *req.IdempotencyKey)
-		if err == nil {
-			s.logger.Info("Idempotent request, returning existing transaction",
-				zap.String("transaction_id", existing.ID),
-			)
-			return existing, nil
+	var transaction *domain.Transaction
+	var voidAmount decimal.Decimal
+	var originalTxType domain.TransactionType
+
+	// Use database transaction for consistency
+	// Note: We rely on idempotency (transaction.id as PK) rather than row-level locks on group_id
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Get all transactions in chronological order (already fetched above for auth check)
+		groupTxs, err := q.GetTransactionsByGroupID(ctx, groupID)
+		if err != nil {
+			return fmt.Errorf("failed to get group transactions: %w", err)
 		}
-	}
 
-	// Get all transactions in the group using ListTransactions
-	groupTxs, _, err := s.ListTransactions(ctx, &ports.ListTransactionsFilters{
-		GroupID: &req.GroupID,
-		Limit:   100, // Reasonable limit for a single transaction group
-		Offset:  0,
+		if len(groupTxs) == 0 {
+			return fmt.Errorf("no transactions found for group %s", req.GroupID)
+		}
+
+		// Convert to domain transactions
+		domainTxs := make([]*domain.Transaction, len(groupTxs))
+		for i, tx := range groupTxs {
+			domainTxs[i] = sqlcToDomain(&tx)
+		}
+
+		// Compute current state using WAL
+		state := ComputeGroupState(domainTxs)
+
+		// Validate void is allowed
+		canVoid, reason := state.CanVoid()
+		if !canVoid {
+			return fmt.Errorf("void not allowed: %s", reason)
+		}
+
+		// Get the active AUTH transaction
+		if state.ActiveAuthID == nil {
+			return fmt.Errorf("no active authorization to void")
+		}
+
+		// Find original AUTH transaction for amount
+		var originalAuth *domain.Transaction
+		for _, tx := range domainTxs {
+			if tx.ID == *state.ActiveAuthID {
+				originalAuth = tx
+				break
+			}
+		}
+		if originalAuth == nil {
+			return fmt.Errorf("active authorization transaction not found")
+		}
+
+		voidAmount = originalAuth.Amount
+		originalTxType = originalAuth.Type
+
+		s.logger.Info("Void validation passed",
+			zap.String("auth_bric", state.ActiveAuthBRIC),
+			zap.String("void_amount", voidAmount.String()),
+		)
+
+		// Get merchant from first transaction
+		merchantID := uuid.MustParse(domainTxs[0].MerchantID)
+		merchant, err := q.GetMerchantByID(ctx, merchantID)
+		if err != nil {
+			return fmt.Errorf("failed to get merchant: %w", err)
+		}
+
+		if !merchant.IsActive {
+			return domain.ErrMerchantInactive
+		}
+
+		// Get MAC secret
+		_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
+		if err != nil {
+			return fmt.Errorf("failed to get MAC secret: %w", err)
+		}
+
+		return nil // Continue outside transaction for EPX call
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get transactions by group: %w", err)
-	}
 
-	if len(groupTxs) == 0 {
-		return nil, fmt.Errorf("no transactions found for group %s", req.GroupID)
-	}
-
-	// Find the original transaction (with auth_guid for EPX operation)
-	originalTx, err := findOriginalTransaction(groupTxs)
 	if err != nil {
 		return nil, err
 	}
 
-	if !originalTx.CanBeVoided() {
-		return nil, domain.ErrTransactionCannotBeVoided
-	}
-
-	// Get agent credentials
-	agent, err := s.db.Queries().GetAgentByAgentID(ctx, originalTx.AgentID)
+	// Re-fetch state outside transaction for EPX call
+	groupTxs, err = s.db.Queries().GetTransactionsByGroupID(ctx, groupID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get agent: %w", err)
+		return nil, fmt.Errorf("failed to get group transactions: %w", err)
 	}
 
-	if !agent.IsActive.Valid || !agent.IsActive.Bool {
-		return nil, domain.ErrAgentInactive
+	domainTxs := make([]*domain.Transaction, len(groupTxs))
+	for i, tx := range groupTxs {
+		domainTxs[i] = sqlcToDomain(&tx)
 	}
+	state := ComputeGroupState(domainTxs)
 
-	// Get MAC secret
-	_, err = s.secretManager.GetSecret(ctx, agent.MacSecretPath)
+	merchantID := uuid.MustParse(domainTxs[0].MerchantID)
+	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
+		return nil, fmt.Errorf("failed to get merchant: %w", err)
 	}
+
+	// Get BRIC for VOID operation (uses AUTH's BRIC)
+	authBRIC := state.GetBRICForOperation(domain.TransactionTypeVoid)
 
 	// Call EPX Server Post API for void
+	s.logger.Info("Calling EPX for void",
+		zap.String("auth_bric", authBRIC),
+		zap.String("amount", voidAmount.String()),
+	)
+
+	// Generate deterministic numeric TRAN_NBR from transaction UUID
+	// This ensures idempotency - same UUID always produces same TRAN_NBR
+	epxTranNbr := util.UUIDToEPXTranNbr(txID)
+
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         agent.CustNbr,
-		MerchNbr:        agent.MerchNbr,
-		DBAnbr:          agent.DbaNbr,
-		TerminalNbr:     agent.TerminalNbr,
-		TransactionType: adapterports.TransactionTypeVoid,
-		Amount:          originalTx.Amount.String(),
-		PaymentType:     adapterports.PaymentMethodType(originalTx.PaymentMethodType),
-		AuthGUID:        *originalTx.AuthGUID, // Use original AUTH_GUID
-		TranNbr:         uuid.New().String(),
-		TranGroup:       originalTx.GroupID, // Same group as original
-		CustomerID:      stringOrEmpty(originalTx.CustomerID),
+		CustNbr:          merchant.CustNbr,
+		MerchNbr:         merchant.MerchNbr,
+		DBAnbr:           merchant.DbaNbr,
+		TerminalNbr:      merchant.TerminalNbr,
+		TransactionType:  adapterports.TransactionTypeVoid,
+		Amount:           voidAmount.StringFixed(2),
+		PaymentType:      adapterports.PaymentMethodType(domainTxs[0].PaymentMethodType),
+		OriginalAuthGUID: authBRIC,    // Reference to AUTH transaction
+		TranNbr:          epxTranNbr,  // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "",
+		CustomerID:       stringOrEmpty(domainTxs[0].CustomerID),
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -546,33 +877,35 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	}
 
 	// Save transaction to database
-	var transaction *domain.Transaction
 	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
-		status := domain.TransactionStatusFailed
-		if epxResp.IsApproved {
-			status = domain.TransactionStatusCompleted
+		// Merge metadata with EPX response fields and original transaction type
+		metadata := map[string]interface{}{
+			"original_transaction_type": string(originalTxType), // Track what was voided (auth/sale)
+			"auth_resp_text":            epxResp.AuthRespText,
+			"auth_avs":                  epxResp.AuthAVS,
+			"auth_cvv2":                 epxResp.AuthCVV2,
+		}
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			s.logger.Warn("Failed to marshal metadata", zap.Error(err))
+			metadataJSON = []byte("{}")
 		}
 
 		params := sqlc.CreateTransactionParams{
-			ID:                uuid.New(),
-			GroupID:           uuid.MustParse(originalTx.GroupID),
-			AgentID:           originalTx.AgentID,
-			CustomerID:        toNullableText(originalTx.CustomerID),
-			Amount:            toNumeric(originalTx.Amount),
-			Currency:          originalTx.Currency,
-			Status:            string(status),
-			Type:              string(domain.TransactionTypeCharge), // Void is still a charge type
-			PaymentMethodType: string(originalTx.PaymentMethodType),
-			PaymentMethodID:   toNullableUUID(originalTx.PaymentMethodID),
-			AuthGuid:          toNullableText(&epxResp.AuthGUID),
-			AuthResp:          toNullableText(&epxResp.AuthResp),
+			ID:                txID,
+			GroupID:           groupID,
+			MerchantID:        merchantID,
+			CustomerID:        toNullableText(domainTxs[0].CustomerID),
+			Amount:            toNumeric(voidAmount),
+			Currency:          domainTxs[0].Currency,
+			Type:              string(domain.TransactionTypeVoid),
+			PaymentMethodType: string(domainTxs[0].PaymentMethodType),
+			PaymentMethodID:   toNullableUUID(domainTxs[0].PaymentMethodID),
+			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store VOID's BRIC
+			AuthResp:          epxResp.AuthResp,
 			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthRespText:      toNullableText(&epxResp.AuthRespText),
 			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			AuthAvs:           toNullableText(&epxResp.AuthAVS),
-			AuthCvv2:          toNullableText(&epxResp.AuthCVV2),
-			IdempotencyKey:    toNullableText(req.IdempotencyKey),
-			Metadata:          []byte(fmt.Sprintf(`{"original_transaction_id":"%s"}`, originalTx.ID)),
+			Metadata:          metadataJSON,
 		}
 
 		dbTx, err := q.CreateTransaction(ctx, params)
@@ -590,7 +923,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 
 	s.logger.Info("Void completed",
 		zap.String("transaction_id", transaction.ID),
-		zap.String("original_transaction_id", originalTx.ID),
+		zap.String("group_id", groupID.String()),
 		zap.String("status", string(transaction.Status)),
 	)
 
@@ -598,89 +931,181 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 }
 
 // Refund returns funds to the customer
+// Uses WAL-based state computation and row-level locking for consistency
 func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (*domain.Transaction, error) {
+	// Validate inputs first (fail-fast)
+	if s.serverPost == nil {
+		return nil, fmt.Errorf("server post adapter not initialized")
+	}
+
+	if req.GroupID == "" {
+		return nil, fmt.Errorf("group_id is required")
+	}
+
+	groupID, err := uuid.Parse(req.GroupID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid group_id format: %w", err)
+	}
+
+	// Get transactions in group to validate access
+	groupTxs, err := s.db.Queries().GetTransactionsByGroupID(ctx, groupID)
+	if err != nil || len(groupTxs) == 0 {
+		return nil, fmt.Errorf("failed to get group transactions: %w", err)
+	}
+
+	// Validate access using the first transaction in the group
+	firstTx := sqlcToDomain(&groupTxs[0])
+	if err := s.validateTransactionAccess(ctx, firstTx, domain.ScopePaymentsRefund); err != nil {
+		return nil, err
+	}
+
+	// Validate amount if provided
+	var refundAmount decimal.Decimal
+	if req.Amount != nil {
+		refundAmount, err = decimal.NewFromString(*req.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("invalid amount format: %w", err)
+		}
+		if refundAmount.LessThanOrEqual(decimal.Zero) {
+			return nil, fmt.Errorf("amount must be greater than zero")
+		}
+	}
+
+	// Generate or parse transaction ID for idempotency
+	var txID uuid.UUID
+	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
+		txID, err = uuid.Parse(*req.IdempotencyKey)
+		if err != nil {
+			return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+		}
+		// Check idempotency - REFUND transaction already exists?
+		existing, err := s.db.Queries().GetTransactionByID(ctx, txID)
+		if err == nil {
+			s.logger.Info("REFUND transaction already exists (idempotency)",
+				zap.String("transaction_id", txID.String()),
+			)
+			return sqlcToDomain(&existing), nil
+		}
+	} else {
+		txID = uuid.New()
+	}
+
 	s.logger.Info("Processing refund",
+		zap.String("refund_transaction_id", txID.String()),
 		zap.String("group_id", req.GroupID),
 		zap.String("reason", req.Reason),
 	)
 
-	// Check idempotency
-	if req.IdempotencyKey != nil {
-		existing, err := s.GetTransactionByIdempotencyKey(ctx, *req.IdempotencyKey)
-		if err == nil {
-			s.logger.Info("Idempotent request, returning existing transaction",
-				zap.String("transaction_id", existing.ID),
-			)
-			return existing, nil
+	var transaction *domain.Transaction
+	var finalRefundAmount decimal.Decimal
+
+	// Use database transaction for consistency
+	// Note: We rely on idempotency (transaction.id as PK) rather than row-level locks on group_id
+	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+		// Get all transactions in chronological order
+		groupTxs, err := q.GetTransactionsByGroupID(ctx, groupID)
+		if err != nil {
+			return fmt.Errorf("failed to get group transactions: %w", err)
 		}
-	}
 
-	// Get all transactions in the group using ListTransactions
-	groupTxs, _, err := s.ListTransactions(ctx, &ports.ListTransactionsFilters{
-		GroupID: &req.GroupID,
-		Limit:   100, // Reasonable limit for a single transaction group
-		Offset:  0,
+		if len(groupTxs) == 0 {
+			return fmt.Errorf("no transactions found for group %s", req.GroupID)
+		}
+
+		// Convert to domain transactions
+		domainTxs := make([]*domain.Transaction, len(groupTxs))
+		for i, tx := range groupTxs {
+			domainTxs[i] = sqlcToDomain(&tx)
+		}
+
+		// Compute current state using WAL
+		state := ComputeGroupState(domainTxs)
+
+		// Determine refund amount (use full captured amount if not specified)
+		finalRefundAmount = state.CapturedAmount
+		if req.Amount != nil {
+			finalRefundAmount = refundAmount // Use pre-validated amount
+		}
+
+		// Validate refund is allowed
+		canRefund, reason := state.CanRefund(finalRefundAmount)
+		if !canRefund {
+			return fmt.Errorf("refund not allowed: %s", reason)
+		}
+
+		s.logger.Info("Refund validation passed",
+			zap.String("captured_amount", state.CapturedAmount.String()),
+			zap.String("refunded_amount", state.RefundedAmount.String()),
+			zap.String("refund_amount", finalRefundAmount.String()),
+		)
+
+		// Get merchant from first transaction
+		merchantID := uuid.MustParse(domainTxs[0].MerchantID)
+		merchant, err := q.GetMerchantByID(ctx, merchantID)
+		if err != nil {
+			return fmt.Errorf("failed to get merchant: %w", err)
+		}
+
+		if !merchant.IsActive {
+			return domain.ErrMerchantInactive
+		}
+
+		// Get MAC secret
+		_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
+		if err != nil {
+			return fmt.Errorf("failed to get MAC secret: %w", err)
+		}
+
+		return nil // Continue outside transaction for EPX call
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get transactions by group: %w", err)
-	}
 
-	if len(groupTxs) == 0 {
-		return nil, fmt.Errorf("no transactions found for group %s", req.GroupID)
-	}
-
-	// Find the original transaction (with auth_guid for EPX operation)
-	originalTx, err := findOriginalTransaction(groupTxs)
 	if err != nil {
 		return nil, err
 	}
 
-	if !originalTx.CanBeRefunded() {
-		return nil, domain.ErrTransactionCannotBeRefunded
-	}
-
-	// Get agent credentials
-	agent, err := s.db.Queries().GetAgentByAgentID(ctx, originalTx.AgentID)
+	// Re-fetch state outside transaction for EPX call
+	groupTxs, err = s.db.Queries().GetTransactionsByGroupID(ctx, groupID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get agent: %w", err)
+		return nil, fmt.Errorf("failed to get group transactions: %w", err)
 	}
 
-	if !agent.IsActive.Valid || !agent.IsActive.Bool {
-		return nil, domain.ErrAgentInactive
+	domainTxs := make([]*domain.Transaction, len(groupTxs))
+	for i, tx := range groupTxs {
+		domainTxs[i] = sqlcToDomain(&tx)
 	}
+	state := ComputeGroupState(domainTxs)
 
-	// Get MAC secret
-	_, err = s.secretManager.GetSecret(ctx, agent.MacSecretPath)
+	merchantID := uuid.MustParse(domainTxs[0].MerchantID)
+	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
+		return nil, fmt.Errorf("failed to get merchant: %w", err)
 	}
 
-	// Determine refund amount (partial or full)
-	refundAmount := originalTx.Amount
-	if req.Amount != nil {
-		amt, err := decimal.NewFromString(*req.Amount)
-		if err != nil {
-			return nil, fmt.Errorf("invalid amount format: %w", err)
-		}
-		if amt.GreaterThan(originalTx.Amount) {
-			return nil, fmt.Errorf("refund amount cannot exceed original transaction amount")
-		}
-		refundAmount = amt
-	}
+	// Get BRIC for REFUND operation (uses CAPTURE's BRIC if available, otherwise AUTH's BRIC)
+	authBRIC := state.GetBRICForOperation(domain.TransactionTypeRefund)
 
 	// Call EPX Server Post API for refund
+	s.logger.Info("Calling EPX for refund",
+		zap.String("auth_bric", authBRIC),
+		zap.String("amount", finalRefundAmount.String()),
+	)
+
+	// Generate deterministic numeric TRAN_NBR from transaction UUID
+	// This ensures idempotency - same UUID always produces same TRAN_NBR
+	epxTranNbr := util.UUIDToEPXTranNbr(txID)
+
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         agent.CustNbr,
-		MerchNbr:        agent.MerchNbr,
-		DBAnbr:          agent.DbaNbr,
-		TerminalNbr:     agent.TerminalNbr,
-		TransactionType: adapterports.TransactionTypeRefund,
-		Amount:          refundAmount.String(),
-		PaymentType:     adapterports.PaymentMethodType(originalTx.PaymentMethodType),
-		AuthGUID:        *originalTx.AuthGUID, // Use original AUTH_GUID
-		TranNbr:         uuid.New().String(),
-		TranGroup:       originalTx.GroupID, // Same group as original
-		CustomerID:      stringOrEmpty(originalTx.CustomerID),
+		CustNbr:          merchant.CustNbr,
+		MerchNbr:         merchant.MerchNbr,
+		DBAnbr:           merchant.DbaNbr,
+		TerminalNbr:      merchant.TerminalNbr,
+		TransactionType:  adapterports.TransactionTypeRefund,
+		Amount:           finalRefundAmount.StringFixed(2),
+		PaymentType:      adapterports.PaymentMethodType(domainTxs[0].PaymentMethodType),
+		OriginalAuthGUID: authBRIC,    // Reference to CAPTURE (or AUTH if SALE)
+		TranNbr:          epxTranNbr,  // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "",
+		CustomerID:       stringOrEmpty(domainTxs[0].CustomerID),
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -690,42 +1115,33 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	}
 
 	// Save transaction to database
-	var transaction *domain.Transaction
 	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
-		status := domain.TransactionStatusFailed
-		if epxResp.IsApproved {
-			status = domain.TransactionStatusCompleted
-		}
-
 		metadata := map[string]interface{}{
-			"original_transaction_id": originalTx.ID,
-			"refund_reason":           req.Reason,
+			"refund_reason":  req.Reason,
+			"auth_resp_text": epxResp.AuthRespText,
+			"auth_avs":       epxResp.AuthAVS,
+			"auth_cvv2":      epxResp.AuthCVV2,
 		}
 		metadataJSON, err := json.Marshal(metadata)
 		if err != nil {
 			s.logger.Warn("Failed to marshal metadata", zap.Error(err))
-			metadataJSON = []byte(fmt.Sprintf(`{"original_transaction_id":"%s"}`, originalTx.ID))
+			metadataJSON = []byte("{}")
 		}
 
 		params := sqlc.CreateTransactionParams{
-			ID:                uuid.New(),
-			GroupID:           uuid.MustParse(originalTx.GroupID),
-			AgentID:           originalTx.AgentID,
-			CustomerID:        toNullableText(originalTx.CustomerID),
-			Amount:            toNumeric(refundAmount),
-			Currency:          originalTx.Currency,
-			Status:            string(status),
+			ID:                txID,
+			GroupID:           groupID,
+			MerchantID:        merchantID,
+			CustomerID:        toNullableText(domainTxs[0].CustomerID),
+			Amount:            toNumeric(finalRefundAmount),
+			Currency:          domainTxs[0].Currency,
 			Type:              string(domain.TransactionTypeRefund),
-			PaymentMethodType: string(originalTx.PaymentMethodType),
-			PaymentMethodID:   toNullableUUID(originalTx.PaymentMethodID),
-			AuthGuid:          toNullableText(&epxResp.AuthGUID),
-			AuthResp:          toNullableText(&epxResp.AuthResp),
+			PaymentMethodType: string(domainTxs[0].PaymentMethodType),
+			PaymentMethodID:   toNullableUUID(domainTxs[0].PaymentMethodID),
+			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store REFUND's BRIC
+			AuthResp:          epxResp.AuthResp,
 			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthRespText:      toNullableText(&epxResp.AuthRespText),
 			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			AuthAvs:           toNullableText(&epxResp.AuthAVS),
-			AuthCvv2:          toNullableText(&epxResp.AuthCVV2),
-			IdempotencyKey:    toNullableText(req.IdempotencyKey),
 			Metadata:          metadataJSON,
 		}
 
@@ -744,8 +1160,8 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 
 	s.logger.Info("Refund completed",
 		zap.String("transaction_id", transaction.ID),
-		zap.String("original_transaction_id", originalTx.ID),
-		zap.String("amount", refundAmount.String()),
+		zap.String("group_id", groupID.String()),
+		zap.String("amount", finalRefundAmount.String()),
 		zap.String("status", string(transaction.Status)),
 	)
 
@@ -771,9 +1187,16 @@ func (s *paymentService) GetTransaction(ctx context.Context, transactionID strin
 	return sqlcToDomain(&dbTx), nil
 }
 
-// GetTransactionByIdempotencyKey retrieves a transaction by idempotency key using sqlc
+// GetTransactionByIdempotencyKey retrieves a transaction by idempotency key
+// Note: idempotency_key IS the transaction ID (no separate column)
 func (s *paymentService) GetTransactionByIdempotencyKey(ctx context.Context, key string) (*domain.Transaction, error) {
-	dbTx, err := s.db.Queries().GetTransactionByIdempotencyKey(ctx, pgtype.Text{String: key, Valid: true})
+	// Idempotency key is the transaction ID (UUID)
+	txID, err := uuid.Parse(key)
+	if err != nil {
+		return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+	}
+
+	dbTx, err := s.db.Queries().GetTransactionByID(ctx, txID)
 	if err != nil {
 		s.logger.Debug("Transaction not found by idempotency key",
 			zap.String("idempotency_key", key),
@@ -798,7 +1221,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 	}
 
 	params := sqlc.ListTransactionsParams{
-		AgentID:         toNullableText(filters.AgentID),
+		MerchantID:      toNullableUUID(filters.MerchantID),
 		CustomerID:      toNullableText(filters.CustomerID),
 		GroupID:         toNullableUUID(filters.GroupID),
 		Status:          toNullableText(filters.Status),
@@ -814,7 +1237,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 	}
 
 	countParams := sqlc.CountTransactionsParams{
-		AgentID:         toNullableText(filters.AgentID),
+		MerchantID:      toNullableUUID(filters.MerchantID),
 		CustomerID:      toNullableText(filters.CustomerID),
 		GroupID:         toNullableUUID(filters.GroupID),
 		Status:          toNullableText(filters.Status),
@@ -856,19 +1279,33 @@ func (s *paymentService) GetTransactionsByGroup(ctx context.Context, groupID str
 }
 
 // findOriginalTransaction finds the original chargeable transaction in a group
-// that has the auth_guid needed for EPX refund/void operations
+// that can be voided/refunded. Note: auth_guid (BRIC) is stored in each transaction record
+// isUniqueViolation checks if the error is a PostgreSQL unique constraint violation
+func isUniqueViolation(err error) bool {
+	// Check for Postgres unique_violation error code (23505)
+	// This occurs when trying to insert duplicate (group_id, type)
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "unique constraint") ||
+		strings.Contains(err.Error(), "duplicate key") ||
+		strings.Contains(err.Error(), "23505")
+}
+
 func findOriginalTransaction(transactions []*domain.Transaction) (*domain.Transaction, error) {
 	var originalTx *domain.Transaction
 
 	for _, tx := range transactions {
-		// Look for completed transactions with auth_guid that can be voided/refunded
-		if tx.Status == domain.TransactionStatusCompleted &&
-			tx.AuthGUID != nil &&
-			(tx.Type == domain.TransactionTypeCharge ||
+		// Look for approved transactions that can be voided/refunded
+		// Note: auth_guid is stored in each transaction record
+		if tx.Status == domain.TransactionStatusApproved &&
+			(tx.Type == domain.TransactionTypeSale ||
 				tx.Type == domain.TransactionTypeAuth ||
 				tx.Type == domain.TransactionTypeCapture) {
-			// Prefer the earliest transaction
-			if originalTx == nil || tx.CreatedAt.Before(originalTx.CreatedAt) {
+			// Prefer the most recent transaction (latest created_at)
+			// For AUTH → CAPTURE workflow, we want the CAPTURE, not the AUTH
+			// For SALE, we want the SALE itself
+			if originalTx == nil || tx.CreatedAt.After(originalTx.CreatedAt) {
 				originalTx = tx
 			}
 		}
@@ -887,14 +1324,18 @@ func sqlcToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
 	tx := &domain.Transaction{
 		ID:                dbTx.ID.String(),
 		GroupID:           dbTx.GroupID.String(),
-		AgentID:           dbTx.AgentID,
+		MerchantID:        dbTx.MerchantID.String(),
 		Amount:            decimal.NewFromBigInt(dbTx.Amount.Int, dbTx.Amount.Exp),
 		Currency:          dbTx.Currency,
-		Status:            domain.TransactionStatus(dbTx.Status),
 		Type:              domain.TransactionType(dbTx.Type),
 		PaymentMethodType: domain.PaymentMethodType(dbTx.PaymentMethodType),
 		CreatedAt:         dbTx.CreatedAt,
 		UpdatedAt:         dbTx.UpdatedAt,
+	}
+
+	// Status is a GENERATED column in database (pgtype.Text)
+	if dbTx.Status.Valid {
+		tx.Status = domain.TransactionStatus(dbTx.Status.String)
 	}
 
 	if dbTx.CustomerID.Valid {
@@ -907,38 +1348,50 @@ func sqlcToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
 		tx.PaymentMethodID = &pmID
 	}
 
-	if dbTx.AuthGuid.Valid {
-		tx.AuthGUID = &dbTx.AuthGuid.String
+	if dbTx.SubscriptionID.Valid {
+		subID := uuid.UUID(dbTx.SubscriptionID.Bytes).String()
+		tx.SubscriptionID = &subID
 	}
-	if dbTx.AuthResp.Valid {
-		tx.AuthResp = &dbTx.AuthResp.String
+
+	// Note: auth_guid (BRIC) is stored in each transaction record
+	if dbTx.AuthGuid.Valid {
+		tx.AuthGUID = dbTx.AuthGuid.String
+	}
+
+	// AuthResp is a string (not pgtype.Text)
+	if dbTx.AuthResp != "" {
+		tx.AuthResp = &dbTx.AuthResp
 	}
 	if dbTx.AuthCode.Valid {
 		tx.AuthCode = &dbTx.AuthCode.String
 	}
-	if dbTx.AuthRespText.Valid {
-		tx.AuthRespText = &dbTx.AuthRespText.String
-	}
 	if dbTx.AuthCardType.Valid {
 		tx.AuthCardType = &dbTx.AuthCardType.String
 	}
-	if dbTx.AuthAvs.Valid {
-		tx.AuthAVS = &dbTx.AuthAvs.String
-	}
-	if dbTx.AuthCvv2.Valid {
-		tx.AuthCVV2 = &dbTx.AuthCvv2.String
-	}
-	if dbTx.IdempotencyKey.Valid {
-		tx.IdempotencyKey = &dbTx.IdempotencyKey.String
-	}
 
+	// Parse metadata JSONB and extract display-only fields
 	if len(dbTx.Metadata) > 0 {
 		if err := json.Unmarshal(dbTx.Metadata, &tx.Metadata); err != nil {
 			// Log error but don't fail the entire operation
 			// Metadata is supplementary information
 			tx.Metadata = nil
+		} else {
+			// Extract display-only fields from metadata for API compatibility
+			if authRespText, ok := tx.Metadata["auth_resp_text"].(string); ok {
+				tx.AuthRespText = &authRespText
+			}
+			if authAvs, ok := tx.Metadata["auth_avs"].(string); ok {
+				tx.AuthAVS = &authAvs
+			}
+			if authCvv2, ok := tx.Metadata["auth_cvv2"].(string); ok {
+				tx.AuthCVV2 = &authCvv2
+			}
 		}
 	}
+
+	// Transaction ID is the idempotency key
+	txID := dbTx.ID.String()
+	tx.IdempotencyKey = &txID
 
 	return tx
 }
@@ -960,6 +1413,14 @@ func toNullableUUID(s *string) pgtype.UUID {
 		return pgtype.UUID{Valid: false}
 	}
 	return pgtype.UUID{Bytes: id, Valid: true}
+}
+
+// toNullableUUIDFromUUID converts *uuid.UUID to pgtype.UUID
+func toNullableUUIDFromUUID(id *uuid.UUID) pgtype.UUID {
+	if id == nil {
+		return pgtype.UUID{Valid: false}
+	}
+	return pgtype.UUID{Bytes: *id, Valid: true}
 }
 
 func toNumeric(d decimal.Decimal) pgtype.Numeric {

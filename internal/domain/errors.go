@@ -32,11 +32,11 @@ var (
 	ErrChargebackAlreadyResolved = errors.New("chargeback is already resolved")
 	ErrInvalidChargebackStatus   = errors.New("invalid chargeback status")
 
-	// Agent errors
-	ErrAgentNotFound      = errors.New("agent not found")
-	ErrAgentInactive      = errors.New("agent is inactive")
-	ErrAgentAlreadyExists = errors.New("agent already exists")
-	ErrInvalidEnvironment = errors.New("invalid environment")
+	// Merchant errors
+	ErrMerchantNotFound      = errors.New("merchant not found")
+	ErrMerchantInactive      = errors.New("merchant is inactive")
+	ErrMerchantAlreadyExists = errors.New("merchant already exists")
+	ErrInvalidEnvironment    = errors.New("invalid environment")
 
 	// Gateway errors
 	ErrGatewayTimeout         = errors.New("gateway request timed out")

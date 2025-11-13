@@ -21,22 +21,22 @@ import (
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	"github.com/kevin07696/payment-service/internal/adapters/epx"
 	"github.com/kevin07696/payment-service/internal/adapters/north"
-	"github.com/kevin07696/payment-service/internal/adapters/secrets"
-	agentHandler "github.com/kevin07696/payment-service/internal/handlers/agent"
 	chargebackHandler "github.com/kevin07696/payment-service/internal/handlers/chargeback"
 	cronHandler "github.com/kevin07696/payment-service/internal/handlers/cron"
+	merchantHandler "github.com/kevin07696/payment-service/internal/handlers/merchant"
 	paymentHandler "github.com/kevin07696/payment-service/internal/handlers/payment"
 	paymentmethodHandler "github.com/kevin07696/payment-service/internal/handlers/payment_method"
 	subscriptionHandler "github.com/kevin07696/payment-service/internal/handlers/subscription"
-	agentService "github.com/kevin07696/payment-service/internal/services/agent"
+	"github.com/kevin07696/payment-service/internal/services/authorization"
+	merchantService "github.com/kevin07696/payment-service/internal/services/merchant"
 	paymentService "github.com/kevin07696/payment-service/internal/services/payment"
 	paymentmethodService "github.com/kevin07696/payment-service/internal/services/payment_method"
 	subscriptionService "github.com/kevin07696/payment-service/internal/services/subscription"
 	webhookService "github.com/kevin07696/payment-service/internal/services/webhook"
 	"github.com/kevin07696/payment-service/pkg/middleware"
 	"github.com/kevin07696/payment-service/pkg/security"
-	agentv1 "github.com/kevin07696/payment-service/proto/agent/v1"
 	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
+	merchantv1 "github.com/kevin07696/payment-service/proto/merchant/v1"
 	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
 	paymentmethodv1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
 	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
@@ -80,8 +80,8 @@ func main() {
 	paymentv1.RegisterPaymentServiceServer(grpcServer, deps.paymentHandler)
 	subscriptionv1.RegisterSubscriptionServiceServer(grpcServer, deps.subscriptionHandler)
 	paymentmethodv1.RegisterPaymentMethodServiceServer(grpcServer, deps.paymentMethodHandler)
-	agentv1.RegisterAgentServiceServer(grpcServer, deps.agentHandler)
 	chargebackv1.RegisterChargebackServiceServer(grpcServer, deps.chargebackHandler)
+	merchantv1.RegisterMerchantServiceServer(grpcServer, deps.merchantHandler)
 
 	// Register reflection service (for tools like grpcurl)
 	reflection.Register(grpcServer)
@@ -193,12 +193,14 @@ type Config struct {
 	MinConns   int32
 
 	// EPX Payment Gateway (Server Post API for transactions)
-	EPXServerPostURL string // EPX Server Post API URL (e.g., https://secure.epxuap.com)
-	EPXTimeout       int
-	EPXCustNbr       string // EPX Customer Number
-	EPXMerchNbr      string // EPX Merchant Number
-	EPXDBAnbr        string // EPX DBA Number
-	EPXTerminalNbr   string // EPX Terminal Number
+	EPXServerPostURL    string // EPX Server Post API URL (e.g., https://secure.epxuap.com)
+	EPXKeyExchangeURL   string // EPX Key Exchange URL (e.g., https://keyexch.epxuap.com)
+	EPXBrowserPostURL   string // EPX Browser Post URL (e.g., https://services.epxuap.com/browserpost/)
+	EPXTimeout          int
+	EPXCustNbr          string // EPX Customer Number
+	EPXMerchNbr         string // EPX Merchant Number
+	EPXDBAnbr           string // EPX DBA Number
+	EPXTerminalNbr      string // EPX Terminal Number
 
 	// North Merchant Reporting API (for disputes/chargebacks, NOT payments)
 	NorthMerchantReportingURL string // North Reporting API URL (e.g., https://api.north.com)
@@ -216,8 +218,8 @@ type Dependencies struct {
 	paymentHandler             paymentv1.PaymentServiceServer
 	subscriptionHandler        subscriptionv1.SubscriptionServiceServer
 	paymentMethodHandler       paymentmethodv1.PaymentMethodServiceServer
-	agentHandler               agentv1.AgentServiceServer
 	chargebackHandler          chargebackv1.ChargebackServiceServer
+	merchantHandler            merchantv1.MerchantServiceServer
 	billingCronHandler         *cronHandler.BillingHandler
 	disputeSyncCronHandler     *cronHandler.DisputeSyncHandler
 	browserPostCallbackHandler *paymentHandler.BrowserPostCallbackHandler
@@ -236,8 +238,10 @@ func loadConfig(logger *zap.Logger) *Config {
 		DBSSLMode:  getEnv("DB_SSL_MODE", "disable"),
 		MaxConns:   int32(getEnvInt("DB_MAX_CONNS", 25)),
 		MinConns:   int32(getEnvInt("DB_MIN_CONNS", 5)),
-		// Try new variable name first, fallback to old name for backwards compatibility
-		EPXServerPostURL:          getEnvWithFallback("EPX_SERVER_POST_URL", "EPX_BASE_URL", "https://sandbox.north.com"),
+		// EPX URLs are required - no fallbacks to ensure proper configuration
+		EPXServerPostURL:          getEnvWithFallback("EPX_SERVER_POST_URL", "EPX_BASE_URL", ""),
+		EPXKeyExchangeURL:         getEnv("EPX_KEY_EXCHANGE_URL", ""),
+		EPXBrowserPostURL:         getEnv("EPX_BROWSER_POST_URL", ""),
 		EPXTimeout:                getEnvInt("EPX_TIMEOUT", 30),
 		EPXCustNbr:                getEnv("EPX_CUST_NBR", "9001"),    // EPX sandbox customer number
 		EPXMerchNbr:               getEnv("EPX_MERCH_NBR", "900300"), // EPX sandbox merchant number
@@ -345,16 +349,22 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 
 	// Browser Post adapter configuration
 	browserPostCfg := epx.DefaultBrowserPostConfig(epxEnv)
-	browserPostCfg.PostURL = cfg.EPXServerPostURL + "/browserpost" // Derived from Server Post URL
+	browserPostCfg.PostURL = cfg.EPXBrowserPostURL // Use env var directly - no fallback
 	browserPost := epx.NewBrowserPostAdapter(browserPostCfg, logger)
+
+	// Key Exchange adapter configuration
+	keyExchangeCfg := epx.DefaultKeyExchangeConfig(epxEnv)
+	keyExchangeCfg.BaseURL = cfg.EPXKeyExchangeURL // Use env var directly - no fallback
+	keyExchange := epx.NewKeyExchangeAdapter(keyExchangeCfg, logger)
 
 	// BRIC Storage adapter configuration
 	bricStorageCfg := epx.DefaultBRICStorageConfig(epxEnv)
 	bricStorageCfg.BaseURL = cfg.EPXServerPostURL // Same as Server Post
 	bricStorage := epx.NewBRICStorageAdapter(bricStorageCfg, logger)
 
-	// Initialize secret manager (using local file system for development)
-	secretManager := secrets.NewLocalSecretManager("./secrets", logger)
+	// Initialize secret manager based on environment
+	// Supports: GCP Secret Manager (production) or Mock (development)
+	secretManager := initSecretManager(context.Background(), cfg, logger)
 
 	// Initialize North merchant reporting adapter
 	merchantReportingCfg := &north.MerchantReportingConfig{
@@ -365,11 +375,15 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	loggerAdapter := security.NewZapLogger(logger)
 	merchantReporting := north.NewMerchantReportingAdapter(merchantReportingCfg, httpClient, loggerAdapter)
 
+	// Initialize authorization resolver
+	merchantResolver := authorization.NewMerchantResolver()
+
 	// Initialize services
 	paymentSvc := paymentService.NewPaymentService(
 		dbAdapter,
 		serverPost,
 		secretManager,
+		merchantResolver,
 		logger,
 	)
 
@@ -389,7 +403,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 		logger,
 	)
 
-	agentSvc := agentService.NewAgentService(
+	merchantSvc := merchantService.NewMerchantService(
 		dbAdapter,
 		secretManager,
 		logger,
@@ -402,8 +416,8 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	paymentHdlr := paymentHandler.NewHandler(paymentSvc, logger)
 	subscriptionHdlr := subscriptionHandler.NewHandler(subscriptionSvc, logger)
 	paymentMethodHdlr := paymentmethodHandler.NewHandler(paymentMethodSvc, logger)
-	agentHdlr := agentHandler.NewHandler(agentSvc, logger)
 	chargebackHdlr := chargebackHandler.NewHandler(dbAdapter, logger)
+	merchantHdlr := merchantHandler.NewHandler(merchantSvc, logger)
 
 	// Initialize cron handlers (for HTTP endpoints)
 	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, logger, cfg.CronSecret)
@@ -413,13 +427,11 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(
 		dbAdapter,
 		browserPost,
+		keyExchange,
+		secretManager,          // Secret manager for fetching merchant-specific MACs
 		paymentMethodSvc,
 		logger,
 		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
-		cfg.EPXCustNbr,         // EPX Customer Number
-		cfg.EPXMerchNbr,        // EPX Merchant Number
-		cfg.EPXDBAnbr,          // EPX DBA Number
-		cfg.EPXTerminalNbr,     // EPX Terminal Number
 		cfg.CallbackBaseURL,    // Base URL for callbacks
 	)
 
@@ -427,8 +439,8 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 		paymentHandler:             paymentHdlr,
 		subscriptionHandler:        subscriptionHdlr,
 		paymentMethodHandler:       paymentMethodHdlr,
-		agentHandler:               agentHdlr,
 		chargebackHandler:          chargebackHdlr,
+		merchantHandler:            merchantHdlr,
 		billingCronHandler:         billingCronHdlr,
 		disputeSyncCronHandler:     disputeSyncCronHdlr,
 		browserPostCallbackHandler: browserPostCallbackHdlr,
@@ -479,6 +491,7 @@ func recoveryInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
 				logger.Error("Panic recovered in gRPC handler",
 					zap.String("method", info.FullMethod),
 					zap.Any("panic", r),
+					zap.Stack("stack"),
 				)
 				err = fmt.Errorf("internal server error")
 			}
@@ -516,4 +529,9 @@ func getEnvWithFallback(primaryKey, fallbackKey, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+func getEnvDuration(key string, defaultMinutes int) time.Duration {
+	minutes := getEnvInt(key, defaultMinutes)
+	return time.Duration(minutes) * time.Minute
 }

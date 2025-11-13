@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Get Real BRIC from EPX - Manual Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .instructions {
+            background: #e3f2fd;
+            padding: 15px;
+            border-left: 4px solid #2196F3;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .info {
+            background: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin-top: 20px;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 Get Real BRIC from EPX</h1>
+
+        <div class="instructions">
+            <h3>Instructions:</h3>
+            <ol>
+                <li>Make sure your payment-server is running: <code>podman-compose up -d</code></li>
+                <li>Start ngrok: <code>ngrok http 8081</code></li>
+                <li>Copy the ngrok HTTPS URL (e.g., https://abc123.ngrok.io)</li>
+                <li>Paste it in the "Callback Base URL" field below</li>
+                <li>Click "Get Form Config" to fetch EPX form details</li>
+                <li>Click "Submit to EPX" to process the payment</li>
+                <li>EPX will redirect back with the BRIC token</li>
+                <li>Check the console or database for the BRIC</li>
+            </ol>
+        </div>
+
+        <div class="form-group">
+            <label>Callback Base URL (ngrok URL):</label>
+            <input type="text" id="callbackUrl" placeholder="https://your-ngrok-url.ngrok.io" value="">
+        </div>
+
+        <div class="form-group">
+            <label>Transaction Type:</label>
+            <select id="tranType" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <option value="AUTH">AUTH (authorization only)</option>
+                <option value="SALE">SALE (auth + capture)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Amount:</label>
+            <input type="text" id="amount" value="10.00">
+        </div>
+
+        <button onclick="getFormConfig()">1. Get Form Config</button>
+        <button onclick="submitToEPX()" id="submitBtn" disabled style="background: #ccc;">2. Submit to EPX</button>
+
+        <div class="info">
+            <h4>Test Card Details (EPX Sandbox):</h4>
+            <ul>
+                <li><strong>Card Number:</strong> 4111111111111111 (Visa)</li>
+                <li><strong>Expiration:</strong> 12/25 (MMYY format: 1225)</li>
+                <li><strong>CVV:</strong> 123</li>
+            </ul>
+            <p><strong>After submission:</strong> Check database for BRIC:<br>
+            <code>podman exec payment-postgres psql -U postgres -d payment_service -c "SELECT group_id, auth_guid, created_at FROM transaction_groups WHERE auth_guid IS NOT NULL ORDER BY created_at DESC LIMIT 1;"</code>
+            </p>
+        </div>
+
+        <div id="formContainer" style="display:none;">
+            <!-- EPX form will be inserted here -->
+        </div>
+    </div>
+
+    <script>
+        let formConfig = null;
+        const merchantId = "00000000-0000-0000-0000-000000000001";
+
+        async function getFormConfig() {
+            const callbackUrl = document.getElementById('callbackUrl').value.trim();
+            if (!callbackUrl) {
+                alert('Please enter your ngrok callback URL');
+                return;
+            }
+
+            const tranType = document.getElementById('tranType').value;
+            const amount = document.getElementById('amount').value;
+            const transactionId = generateUUID();
+
+            const returnUrl = `${callbackUrl}/api/v1/payments/browser-post/callback`;
+
+            // Call local server to get form config
+            const localServerUrl = 'http://localhost:8081';
+            const formUrl = `${localServerUrl}/api/v1/payments/browser-post/form?transaction_id=${transactionId}&merchant_id=${merchantId}&amount=${amount}&transaction_type=${tranType}&return_url=${encodeURIComponent(returnUrl)}`;
+
+            console.log('Fetching form config from:', formUrl);
+
+            try {
+                const response = await fetch(formUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                formConfig = await response.json();
+                console.log('Form config received:', formConfig);
+
+                alert('✅ Form config loaded! Click "Submit to EPX" to continue.');
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').style.background = '#2196F3';
+            } catch (error) {
+                console.error('Error getting form config:', error);
+                alert(`Error: ${error.message}\n\nMake sure payment-server is running on localhost:8081`);
+            }
+        }
+
+        function submitToEPX() {
+            if (!formConfig) {
+                alert('Please get form config first');
+                return;
+            }
+
+            // Create form
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = formConfig.postURL;
+
+            // Add all required fields
+            const fields = {
+                'TAC': formConfig.tac,
+                'CUST_NBR': formConfig.custNbr,
+                'MERCH_NBR': formConfig.merchNbr,
+                'DBA_NBR': formConfig.dbaName,
+                'TERMINAL_NBR': formConfig.terminalNbr,
+                'TRAN_NBR': formConfig.transactionId,
+                'TRAN_GROUP': document.getElementById('tranType').value === 'AUTH' ? 'A' : 'U',
+                'AMOUNT': document.getElementById('amount').value,
+                'CARD_NBR': '4111111111111111',
+                'EXP_DATE': '1225',
+                'CVV': '123',
+                'REDIRECT_URL': formConfig.returnUrl,
+                'USER_DATA_1': formConfig.returnUrl,
+                'USER_DATA_2': 'test-customer-manual-bric',
+                'USER_DATA_3': formConfig.merchantId,
+                'INDUSTRY_TYPE': 'E'
+            };
+
+            for (const [name, value] of Object.entries(fields)) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = name;
+                input.value = value;
+                form.appendChild(input);
+            }
+
+            document.body.appendChild(form);
+            console.log('Submitting to EPX:', formConfig.postURL);
+            console.log('Form fields:', fields);
+            form.submit();
+        }
+
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+    </script>
+</body>
+</html>

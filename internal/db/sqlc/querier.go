@@ -12,46 +12,54 @@ import (
 )
 
 type Querier interface {
-	ActivateAgent(ctx context.Context, agentID string) error
+	ActivateMerchant(ctx context.Context, id uuid.UUID) error
 	ActivatePaymentMethod(ctx context.Context, id uuid.UUID) error
 	AddEvidenceFile(ctx context.Context, arg AddEvidenceFileParams) error
-	AgentExists(ctx context.Context, agentID string) (bool, error)
 	CancelSubscription(ctx context.Context, arg CancelSubscriptionParams) (Subscription, error)
-	CountAgents(ctx context.Context, arg CountAgentsParams) (int64, error)
 	CountChargebacks(ctx context.Context, arg CountChargebacksParams) (int64, error)
+	CountMerchants(ctx context.Context, arg CountMerchantsParams) (int64, error)
 	CountSubscriptions(ctx context.Context, arg CountSubscriptionsParams) (int64, error)
 	CountTransactions(ctx context.Context, arg CountTransactionsParams) (int64, error)
-	CreateAgent(ctx context.Context, arg CreateAgentParams) (AgentCredential, error)
 	CreateChargeback(ctx context.Context, arg CreateChargebackParams) (Chargeback, error)
+	CreateMerchant(ctx context.Context, arg CreateMerchantParams) (Merchant, error)
 	CreatePaymentMethod(ctx context.Context, arg CreatePaymentMethodParams) (CustomerPaymentMethod, error)
 	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error)
+	// Transactions are append-only/immutable event logs
+	// status is GENERATED column based on auth_resp, so we don't insert it
+	// Uses ON CONFLICT DO NOTHING for idempotency: EPX callback retries return existing record unchanged
+	// Modifications (VOID/REFUND) create NEW transaction records with same group_id
+	// auth_guid stores EPX BRIC for this transaction (each transaction can have its own BRIC)
+	// tran_nbr stores EPX TRAN_NBR (deterministic 10-digit numeric ID from UUID)
+	// group_id is a logical grouping UUID (NOT a foreign key) - auto-generates if not provided
 	CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error)
 	CreateWebhookDelivery(ctx context.Context, arg CreateWebhookDeliveryParams) (WebhookDelivery, error)
 	CreateWebhookSubscription(ctx context.Context, arg CreateWebhookSubscriptionParams) (WebhookSubscription, error)
-	DeactivateAgent(ctx context.Context, agentID string) error
+	DeactivateMerchant(ctx context.Context, id uuid.UUID) error
 	DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error
 	DeletePaymentMethod(ctx context.Context, id uuid.UUID) error
 	DeleteWebhookSubscription(ctx context.Context, arg DeleteWebhookSubscriptionParams) error
-	GetAgentByAgentID(ctx context.Context, agentID string) (AgentCredential, error)
-	GetAgentByID(ctx context.Context, id uuid.UUID) (AgentCredential, error)
 	GetChargebackByCaseNumber(ctx context.Context, arg GetChargebackByCaseNumberParams) (Chargeback, error)
 	GetChargebackByGroupID(ctx context.Context, groupID pgtype.UUID) (Chargeback, error)
 	GetChargebackByID(ctx context.Context, id uuid.UUID) (Chargeback, error)
 	GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPaymentMethodParams) (CustomerPaymentMethod, error)
+	GetMerchantByID(ctx context.Context, id uuid.UUID) (Merchant, error)
+	GetMerchantBySlug(ctx context.Context, slug string) (Merchant, error)
 	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (CustomerPaymentMethod, error)
 	GetSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscription, error)
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (Transaction, error)
-	GetTransactionByIdempotencyKey(ctx context.Context, idempotencyKey pgtype.Text) (Transaction, error)
+	// UpdateTransaction removed: transactions are immutable/append-only
+	// To modify a transaction (VOID/REFUND), create a NEW transaction record with same group_id
+	GetTransactionByTranNbr(ctx context.Context, tranNbr pgtype.Text) (Transaction, error)
 	GetTransactionsByGroupID(ctx context.Context, groupID uuid.UUID) ([]Transaction, error)
 	GetWebhookDeliveryHistory(ctx context.Context, arg GetWebhookDeliveryHistoryParams) ([]WebhookDelivery, error)
 	GetWebhookSubscription(ctx context.Context, id uuid.UUID) (WebhookSubscription, error)
 	IncrementSubscriptionFailureCount(ctx context.Context, arg IncrementSubscriptionFailureCountParams) (Subscription, error)
 	IncrementSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
-	ListActiveAgents(ctx context.Context) ([]AgentCredential, error)
+	ListActiveMerchants(ctx context.Context) ([]Merchant, error)
 	ListActiveWebhooksByEvent(ctx context.Context, arg ListActiveWebhooksByEventParams) ([]WebhookSubscription, error)
-	ListAgents(ctx context.Context, arg ListAgentsParams) ([]AgentCredential, error)
 	ListChargebacks(ctx context.Context, arg ListChargebacksParams) ([]Chargeback, error)
 	ListDueSubscriptions(ctx context.Context, arg ListDueSubscriptionsParams) ([]Subscription, error)
+	ListMerchants(ctx context.Context, arg ListMerchantsParams) ([]Merchant, error)
 	ListPaymentMethods(ctx context.Context, arg ListPaymentMethodsParams) ([]CustomerPaymentMethod, error)
 	ListPaymentMethodsByCustomer(ctx context.Context, arg ListPaymentMethodsByCustomerParams) ([]CustomerPaymentMethod, error)
 	ListPendingWebhookDeliveries(ctx context.Context, limitVal int32) ([]WebhookDelivery, error)
@@ -65,21 +73,24 @@ type Querier interface {
 	MarkPaymentMethodAsDefault(ctx context.Context, id uuid.UUID) error
 	MarkPaymentMethodUsed(ctx context.Context, id uuid.UUID) error
 	MarkPaymentMethodVerified(ctx context.Context, id uuid.UUID) error
+	MerchantExists(ctx context.Context, id uuid.UUID) (bool, error)
+	MerchantExistsBySlug(ctx context.Context, slug string) (bool, error)
 	ResetSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
 	// First unset all defaults for this customer
 	SetPaymentMethodAsDefault(ctx context.Context, arg SetPaymentMethodAsDefaultParams) error
-	UpdateAgent(ctx context.Context, arg UpdateAgentParams) (AgentCredential, error)
-	UpdateAgentMACPath(ctx context.Context, arg UpdateAgentMACPathParams) error
 	UpdateChargeback(ctx context.Context, arg UpdateChargebackParams) (Chargeback, error)
 	UpdateChargebackNotes(ctx context.Context, arg UpdateChargebackNotesParams) error
 	UpdateChargebackResponse(ctx context.Context, arg UpdateChargebackResponseParams) error
 	UpdateChargebackStatus(ctx context.Context, arg UpdateChargebackStatusParams) (Chargeback, error)
+	UpdateMerchant(ctx context.Context, arg UpdateMerchantParams) (Merchant, error)
+	UpdateMerchantMACPath(ctx context.Context, arg UpdateMerchantMACPathParams) error
 	UpdateNextBillingDate(ctx context.Context, arg UpdateNextBillingDateParams) error
 	UpdateSubscription(ctx context.Context, arg UpdateSubscriptionParams) (Subscription, error)
 	UpdateSubscriptionBilling(ctx context.Context, arg UpdateSubscriptionBillingParams) (Subscription, error)
 	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) (Subscription, error)
-	UpdateTransaction(ctx context.Context, arg UpdateTransactionParams) (Transaction, error)
-	UpdateTransactionStatus(ctx context.Context, arg UpdateTransactionStatusParams) error
+	// Updates transaction with EPX response data (for Browser Post callback)
+	// Only updates EPX response fields, leaves core transaction data unchanged
+	UpdateTransactionFromEPXResponse(ctx context.Context, arg UpdateTransactionFromEPXResponseParams) (Transaction, error)
 	UpdateWebhookDeliveryStatus(ctx context.Context, arg UpdateWebhookDeliveryStatusParams) (WebhookDelivery, error)
 	UpdateWebhookSubscription(ctx context.Context, arg UpdateWebhookSubscriptionParams) (WebhookSubscription, error)
 }

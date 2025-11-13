@@ -13,28 +13,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type AgentCredential struct {
-	ID            uuid.UUID          `json:"id"`
-	AgentID       string             `json:"agent_id"`
-	MacSecretPath string             `json:"mac_secret_path"`
-	CustNbr       string             `json:"cust_nbr"`
-	MerchNbr      string             `json:"merch_nbr"`
-	DbaNbr        string             `json:"dba_nbr"`
-	TerminalNbr   string             `json:"terminal_nbr"`
-	Environment   string             `json:"environment"`
-	AgentName     string             `json:"agent_name"`
-	IsActive      pgtype.Bool        `json:"is_active"`
-	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
-	CreatedAt     time.Time          `json:"created_at"`
-	UpdatedAt     time.Time          `json:"updated_at"`
-}
-
 type AuditLog struct {
 	ID          int64       `json:"id"`
 	EventType   string      `json:"event_type"`
 	EntityType  string      `json:"entity_type"`
 	EntityID    string      `json:"entity_id"`
-	AgentID     string      `json:"agent_id"`
+	MerchantID  uuid.UUID   `json:"merchant_id"`
 	UserID      pgtype.Text `json:"user_id"`
 	Action      string      `json:"action"`
 	BeforeState []byte      `json:"before_state"`
@@ -72,7 +56,7 @@ type Chargeback struct {
 
 type CustomerPaymentMethod struct {
 	ID           uuid.UUID          `json:"id"`
-	AgentID      string             `json:"agent_id"`
+	MerchantID   uuid.UUID          `json:"merchant_id"`
 	CustomerID   string             `json:"customer_id"`
 	PaymentToken string             `json:"payment_token"`
 	PaymentType  string             `json:"payment_type"`
@@ -91,14 +75,25 @@ type CustomerPaymentMethod struct {
 	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
 }
 
-type SchemaInfo struct {
-	Version   string           `json:"version"`
-	AppliedAt pgtype.Timestamp `json:"applied_at"`
+type Merchant struct {
+	ID            uuid.UUID        `json:"id"`
+	Slug          string           `json:"slug"`
+	CustNbr       string           `json:"cust_nbr"`
+	MerchNbr      string           `json:"merch_nbr"`
+	DbaNbr        string           `json:"dba_nbr"`
+	TerminalNbr   string           `json:"terminal_nbr"`
+	MacSecretPath string           `json:"mac_secret_path"`
+	Environment   string           `json:"environment"`
+	IsActive      bool             `json:"is_active"`
+	Name          string           `json:"name"`
+	CreatedAt     pgtype.Timestamp `json:"created_at"`
+	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
+	DeletedAt     pgtype.Timestamp `json:"deleted_at"`
 }
 
 type Subscription struct {
 	ID                    uuid.UUID          `json:"id"`
-	AgentID               string             `json:"agent_id"`
+	MerchantID            uuid.UUID          `json:"merchant_id"`
 	CustomerID            string             `json:"customer_id"`
 	Amount                pgtype.Numeric     `json:"amount"`
 	Currency              string             `json:"currency"`
@@ -118,28 +113,29 @@ type Subscription struct {
 }
 
 type Transaction struct {
-	ID                uuid.UUID          `json:"id"`
-	GroupID           uuid.UUID          `json:"group_id"`
-	AgentID           string             `json:"agent_id"`
-	CustomerID        pgtype.Text        `json:"customer_id"`
-	Amount            pgtype.Numeric     `json:"amount"`
-	Currency          string             `json:"currency"`
-	Status            string             `json:"status"`
-	Type              string             `json:"type"`
-	PaymentMethodType string             `json:"payment_method_type"`
-	PaymentMethodID   pgtype.UUID        `json:"payment_method_id"`
-	AuthGuid          pgtype.Text        `json:"auth_guid"`
-	AuthResp          pgtype.Text        `json:"auth_resp"`
-	AuthCode          pgtype.Text        `json:"auth_code"`
-	AuthRespText      pgtype.Text        `json:"auth_resp_text"`
-	AuthCardType      pgtype.Text        `json:"auth_card_type"`
-	AuthAvs           pgtype.Text        `json:"auth_avs"`
-	AuthCvv2          pgtype.Text        `json:"auth_cvv2"`
-	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
-	Metadata          []byte             `json:"metadata"`
-	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
+	ID uuid.UUID `json:"id"`
+	// Logical grouping UUID for related transactions (auth -> capture -> refund). NOT a foreign key - just an index for grouping. Auto-generates if not provided.
+	GroupID           uuid.UUID      `json:"group_id"`
+	MerchantID        uuid.UUID      `json:"merchant_id"`
+	CustomerID        pgtype.Text    `json:"customer_id"`
+	Amount            pgtype.Numeric `json:"amount"`
+	Currency          string         `json:"currency"`
+	Type              string         `json:"type"`
+	PaymentMethodType string         `json:"payment_method_type"`
+	PaymentMethodID   pgtype.UUID    `json:"payment_method_id"`
+	SubscriptionID    pgtype.UUID    `json:"subscription_id"`
+	// EPX TRAN_NBR: Deterministic 10-digit numeric ID derived from transaction UUID via FNV-1a hash. Used for all EPX API calls.
+	TranNbr pgtype.Text `json:"tran_nbr"`
+	// EPX AUTH_GUID (BRIC) for this specific transaction. Each transaction can have its own BRIC. CAPTURE uses AUTH BRIC as input but gets new BRIC. REFUND uses CAPTURE BRIC.
+	AuthGuid     pgtype.Text        `json:"auth_guid"`
+	AuthResp     string             `json:"auth_resp"`
+	AuthCode     pgtype.Text        `json:"auth_code"`
+	AuthCardType pgtype.Text        `json:"auth_card_type"`
+	Status       pgtype.Text        `json:"status"`
+	Metadata     []byte             `json:"metadata"`
+	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
 }
 
 // Webhook delivery log for tracking and retries
