@@ -162,7 +162,7 @@ func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (
 		AuthCVV2:     getValue("AUTH_CVV2"),
 		TranNbr:      getValue("TRAN_NBR"),
 		TranGroup:    getValue("TRAN_GROUP"),
-		Amount:       getValue("AMOUNT"), // EPX returns amount in AMOUNT field
+		Amount:       getValue("AUTH_AMOUNT"), // EPX returns amount in AUTH_AMOUNT field
 		ProcessedAt:  processedAt,
 		RawParams:    rawParams,
 	}
