@@ -65,6 +65,7 @@ LIMIT 1;
 -- Updates transaction with EPX response data (for Browser Post callback)
 -- Only updates EPX response fields, leaves core transaction data unchanged
 UPDATE transactions SET
+    customer_id = COALESCE(sqlc.narg(customer_id), customer_id),
     auth_guid = COALESCE(sqlc.narg(auth_guid), auth_guid),
     auth_resp = COALESCE(sqlc.arg(auth_resp), auth_resp),
     auth_code = COALESCE(sqlc.narg(auth_code), auth_code),

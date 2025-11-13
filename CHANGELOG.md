@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Browser Post callback processing fixes** - Fixed AMOUNT field extraction and customer_id population (2025-11-13)
+  - **Problem**: Browser Post callback handler was not properly extracting AMOUNT and customer_id from EPX response
+  - **Issues**:
+    - Callback handler looking for "AUTH_AMOUNT" field, but EPX returns "AMOUNT"
+    - customer_id not being extracted from USER_DATA_2 and saved to database
+    - Transactions showing status="declined" due to empty auth_resp
+  - **Solution**:
+    - Fixed AMOUNT field extraction in `browser_post_adapter.go:165` (AUTH_AMOUNT → AMOUNT)
+    - Added customer_id extraction from USER_DATA_2 in callback handler
+    - Updated UpdateTransactionFromEPXResponse query to accept and update customer_id
+    - Updated transaction_helper.go to pass customer_id parameter
+  - **Files Changed**:
+    - `internal/adapters/epx/browser_post_adapter.go` - Fixed AMOUNT field name
+    - `internal/db/queries/transactions.sql` - Added customer_id to UPDATE query
+    - `internal/handlers/payment/browser_post_callback_handler.go` - Extract customer_id from USER_DATA_2
+    - `internal/services/payment/transaction_helper.go` - Added customer_id parameter
+  - **Result**: ✅ All 4 Browser Post callback tests now passing with correct status and customer_id
+
 - **CRITICAL: Implemented proper idempotency with deterministic TRAN_NBR** - Fixed EPX refund RR error and added full idempotency support
   - **Problem**: EPX Server Post API requires TRAN_NBR to be numeric (max 10 digits), but we were sending UUIDs (36 characters)
   - **Root Cause**: "Invalid TRAN_NBR[LEN]" error causing AUTH_RESP="RR" on refunds

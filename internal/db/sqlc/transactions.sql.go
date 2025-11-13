@@ -328,17 +328,19 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 
 const updateTransactionFromEPXResponse = `-- name: UpdateTransactionFromEPXResponse :one
 UPDATE transactions SET
-    auth_guid = COALESCE($1, auth_guid),
-    auth_resp = COALESCE($2, auth_resp),
-    auth_code = COALESCE($3, auth_code),
-    auth_card_type = COALESCE($4, auth_card_type),
-    metadata = COALESCE($5, metadata),
+    customer_id = COALESCE($1, customer_id),
+    auth_guid = COALESCE($2, auth_guid),
+    auth_resp = COALESCE($3, auth_resp),
+    auth_code = COALESCE($4, auth_code),
+    auth_card_type = COALESCE($5, auth_card_type),
+    metadata = COALESCE($6, metadata),
     updated_at = CURRENT_TIMESTAMP
-WHERE tran_nbr = $6
+WHERE tran_nbr = $7
 RETURNING id, group_id, merchant_id, customer_id, amount, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, metadata, deleted_at, created_at, updated_at
 `
 
 type UpdateTransactionFromEPXResponseParams struct {
+	CustomerID   pgtype.Text `json:"customer_id"`
 	AuthGuid     pgtype.Text `json:"auth_guid"`
 	AuthResp     string      `json:"auth_resp"`
 	AuthCode     pgtype.Text `json:"auth_code"`
@@ -351,6 +353,7 @@ type UpdateTransactionFromEPXResponseParams struct {
 // Only updates EPX response fields, leaves core transaction data unchanged
 func (q *Queries) UpdateTransactionFromEPXResponse(ctx context.Context, arg UpdateTransactionFromEPXResponseParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, updateTransactionFromEPXResponse,
+		arg.CustomerID,
 		arg.AuthGuid,
 		arg.AuthResp,
 		arg.AuthCode,

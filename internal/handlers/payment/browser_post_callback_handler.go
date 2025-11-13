@@ -566,10 +566,17 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 		zap.String("transaction_id", transactionID.String()),
 	)
 
+	// Extract customer_id from USER_DATA_2 (calling application's customer identifier)
+	customerID := response.RawParams["USER_DATA_2"]
+
 	// Update transaction with EPX response data
 	// Transaction was created as pending in GetPaymentForm, now update with EPX results
 	// Uses tran_nbr from EPX response to find the transaction record
 	tx, err := h.dbAdapter.Queries().UpdateTransactionFromEPXResponse(r.Context(), sqlc.UpdateTransactionFromEPXResponseParams{
+		CustomerID: pgtype.Text{
+			String: customerID,
+			Valid:  customerID != "",
+		},
 		TranNbr: pgtype.Text{
 			String: response.TranNbr,
 			Valid:  response.TranNbr != "",

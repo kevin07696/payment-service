@@ -91,7 +91,7 @@ func (s *paymentService) CreatePendingTransaction(ctx context.Context, params Cr
 }
 
 // UpdateTransactionWithEPXResponse updates a pending transaction with EPX response data
-func (s *paymentService) UpdateTransactionWithEPXResponse(ctx context.Context, tranNbr string, authGUID, authResp, authCode, authCardType *string, metadata map[string]interface{}) error {
+func (s *paymentService) UpdateTransactionWithEPXResponse(ctx context.Context, tranNbr string, customerID, authGUID, authResp, authCode, authCardType *string, metadata map[string]interface{}) error {
 	// Merge metadata
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
@@ -101,6 +101,7 @@ func (s *paymentService) UpdateTransactionWithEPXResponse(ctx context.Context, t
 
 	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
 		_, err := q.UpdateTransactionFromEPXResponse(ctx, sqlc.UpdateTransactionFromEPXResponseParams{
+			CustomerID:   toNullableText(customerID),
 			TranNbr: pgtype.Text{
 				String: tranNbr,
 				Valid:  true,

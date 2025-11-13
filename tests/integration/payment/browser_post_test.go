@@ -53,30 +53,41 @@ func TestBrowserPost_EndToEnd_Success(t *testing.T) {
 	assert.NotEmpty(t, formConfig["custNbr"], "Should return merchant credentials")
 	assert.NotEmpty(t, formConfig["merchNbr"], "Should return merchant credentials")
 
-	t.Logf("✅ Step 1: Got form configuration - TAC: %v, Transaction ID: %s", formConfig["tac"], transactionID)
+	// Extract EPX numeric TRAN_NBR (10 digits)
+	epxTranNbr, ok := formConfig["epxTranNbr"].(string)
+	require.True(t, ok, "Should have epxTranNbr in response")
+	require.NotEmpty(t, epxTranNbr, "epxTranNbr should not be empty")
+
+	t.Logf("✅ Step 1: Got form configuration - TAC: %v, Transaction ID: %s, EPX TRAN_NBR: %s", formConfig["tac"], transactionID, epxTranNbr)
 
 	time.Sleep(1 * time.Second)
 
 	// Step 2: Simulate EPX callback with approved response
 	// Build callback form data (simulating what EPX would send)
-	// EPX echoes back TRAN_NBR (contains transaction_id) and USER_DATA_1 (contains return_url)
+	// EPX echoes back:
+	// - TRAN_NBR: numeric 10-digit ID we sent to EPX
+	// - REDIRECT_URL query params as form fields: transaction_id, merchant_id, transaction_type
 	callbackData := url.Values{
 		"AUTH_GUID":      {uuid.New().String()}, // Simulated BRIC token
 		"AUTH_RESP":      {"00"},                 // 00 = approved
 		"AUTH_CODE":      {"123456"},             // Bank auth code
 		"AUTH_RESP_TEXT": {"APPROVED"},
-		"AUTH_CARD_TYPE": {"V"},           // Visa
-		"AUTH_AVS":       {"Y"},           // Address match
-		"AUTH_CVV2":      {"M"},           // CVV match
-		"TRAN_NBR":       {transactionID}, // EPX echoes back our transaction_id (idempotency key)
+		"AUTH_CARD_TYPE": {"V"},              // Visa
+		"AUTH_AVS":       {"Y"},              // Address match
+		"AUTH_CVV2":      {"M"},              // CVV match
+		"TRAN_NBR":       {epxTranNbr},       // Numeric EPX TRAN_NBR (10 digits)
 		"TRAN_GROUP":     {"SALE"},
 		"AMOUNT":         {amount},
-		"USER_DATA_1":    {returnURL},               // EPX echoes back return_url
-		"USER_DATA_2":    {"test-customer-001"},     // Customer ID
-		"USER_DATA_3":    {merchantID},              // Merchant ID
-		"CARD_NBR":       {"************1111"},      // Masked card
-		"EXP_DATE":       {"2512"},                  // Dec 2025
+		"USER_DATA_1":    {returnURL},            // EPX echoes back return_url
+		"USER_DATA_2":    {"test-customer-001"}, // Customer ID
+		"USER_DATA_3":    {merchantID},           // Merchant ID
+		"CARD_NBR":       {"************1111"},   // Masked card
+		"EXP_DATE":       {"2512"},               // Dec 2025
 		"INVOICE_NBR":    {"INV-" + transactionID},
+		// EPX echoes back REDIRECT_URL query params as form fields
+		"transaction_id":   {transactionID},
+		"merchant_id":      {merchantID},
+		"transaction_type": {"SALE"},
 	}
 
 	// POST callback to our service
@@ -128,7 +139,28 @@ func TestBrowserPost_Callback_Idempotency(t *testing.T) {
 	amount := "25.00"
 	returnURL := "http://localhost:3000/complete"
 
-	// Build callback form data
+	// Step 1: Get payment form configuration to create pending transaction
+	formReq := fmt.Sprintf("/api/v1/payments/browser-post/form?transaction_id=%s&merchant_id=%s&amount=%s&transaction_type=SALE&return_url=%s",
+		transactionID, merchantID, amount, url.QueryEscape(returnURL))
+
+	formResp, err := client.Do("GET", formReq, nil)
+	require.NoError(t, err)
+	defer formResp.Body.Close()
+
+	assert.Equal(t, 200, formResp.StatusCode, "Should return form configuration")
+
+	var formConfig map[string]interface{}
+	err = testutil.DecodeResponse(formResp, &formConfig)
+	require.NoError(t, err)
+
+	// Extract EPX numeric TRAN_NBR
+	epxTranNbr, ok := formConfig["epxTranNbr"].(string)
+	require.True(t, ok, "Should have epxTranNbr in response")
+	require.NotEmpty(t, epxTranNbr, "epxTranNbr should not be empty")
+
+	t.Logf("✅ Got form config with EPX TRAN_NBR: %s", epxTranNbr)
+
+	// Step 2: Build callback form data
 	callbackData := url.Values{
 		"AUTH_GUID":      {uuid.New().String()},
 		"AUTH_RESP":      {"00"}, // Approved
@@ -137,7 +169,7 @@ func TestBrowserPost_Callback_Idempotency(t *testing.T) {
 		"AUTH_CARD_TYPE": {"M"}, // Mastercard
 		"AUTH_AVS":       {"Y"},
 		"AUTH_CVV2":      {"M"},
-		"TRAN_NBR":       {transactionID}, // EPX echoes back transaction_id (idempotency)
+		"TRAN_NBR":       {epxTranNbr}, // Numeric EPX TRAN_NBR (10 digits)
 		"TRAN_GROUP":     {"SALE"},
 		"AMOUNT":         {amount},
 		"USER_DATA_1":    {returnURL},                   // EPX echoes back return_url
@@ -146,6 +178,10 @@ func TestBrowserPost_Callback_Idempotency(t *testing.T) {
 		"CARD_NBR":       {"************5454"},
 		"EXP_DATE":       {"2612"},
 		"INVOICE_NBR":    {"INV-" + transactionID},
+		// EPX echoes back REDIRECT_URL query params
+		"transaction_id":   {transactionID},
+		"merchant_id":      {merchantID},
+		"transaction_type": {"SALE"},
 	}
 
 	// First callback - should create transaction
@@ -211,6 +247,21 @@ func TestBrowserPost_Callback_DeclinedTransaction(t *testing.T) {
 	amount := "15.00"
 	returnURL := "http://localhost:3000/declined"
 
+	// Step 1: Get payment form configuration
+	formReq := fmt.Sprintf("/api/v1/payments/browser-post/form?transaction_id=%s&merchant_id=%s&amount=%s&transaction_type=SALE&return_url=%s",
+		transactionID, merchantID, amount, url.QueryEscape(returnURL))
+
+	formResp, err := client.Do("GET", formReq, nil)
+	require.NoError(t, err)
+	defer formResp.Body.Close()
+
+	var formConfig map[string]interface{}
+	err = testutil.DecodeResponse(formResp, &formConfig)
+	require.NoError(t, err)
+
+	epxTranNbr, ok := formConfig["epxTranNbr"].(string)
+	require.True(t, ok, "Should have epxTranNbr")
+
 	// Build callback data for DECLINED transaction (AUTH_RESP != "00")
 	callbackData := url.Values{
 		"AUTH_GUID":      {uuid.New().String()}, // EPX still provides BRIC even for declined
@@ -218,9 +269,9 @@ func TestBrowserPost_Callback_DeclinedTransaction(t *testing.T) {
 		"AUTH_CODE":      {""},                  // No auth code for declined
 		"AUTH_RESP_TEXT": {"DECLINED - INSUFFICIENT FUNDS"},
 		"AUTH_CARD_TYPE": {"V"},
-		"AUTH_AVS":       {"U"}, // Unavailable
-		"AUTH_CVV2":      {"P"}, // Not processed
-		"TRAN_NBR":       {transactionID},
+		"AUTH_AVS":       {"U"},           // Unavailable
+		"AUTH_CVV2":      {"P"},           // Not processed
+		"TRAN_NBR":       {epxTranNbr},    // Numeric EPX TRAN_NBR
 		"TRAN_GROUP":     {"SALE"},
 		"AMOUNT":         {amount},
 		"USER_DATA_1":    {returnURL},
@@ -229,6 +280,10 @@ func TestBrowserPost_Callback_DeclinedTransaction(t *testing.T) {
 		"CARD_NBR":       {"************0002"}, // Decline test card
 		"EXP_DATE":       {"2512"},
 		"INVOICE_NBR":    {"INV-" + transactionID},
+		// EPX echoes back REDIRECT_URL query params
+		"transaction_id":   {transactionID},
+		"merchant_id":      {merchantID},
+		"transaction_type": {"SALE"},
 	}
 
 	// POST declined callback
@@ -270,16 +325,31 @@ func TestBrowserPost_Callback_GuestCheckout(t *testing.T) {
 	amount := "35.00"
 	returnURL := "http://localhost:3000/guest-complete"
 
+	// Step 1: Get payment form configuration
+	formReq := fmt.Sprintf("/api/v1/payments/browser-post/form?transaction_id=%s&merchant_id=%s&amount=%s&transaction_type=SALE&return_url=%s",
+		transactionID, merchantID, amount, url.QueryEscape(returnURL))
+
+	formResp, err := client.Do("GET", formReq, nil)
+	require.NoError(t, err)
+	defer formResp.Body.Close()
+
+	var formConfig map[string]interface{}
+	err = testutil.DecodeResponse(formResp, &formConfig)
+	require.NoError(t, err)
+
+	epxTranNbr, ok := formConfig["epxTranNbr"].(string)
+	require.True(t, ok, "Should have epxTranNbr")
+
 	// Build callback data WITHOUT customer ID (guest checkout)
 	callbackData := url.Values{
 		"AUTH_GUID":      {uuid.New().String()},
 		"AUTH_RESP":      {"00"}, // Approved
 		"AUTH_CODE":      {"456789"},
 		"AUTH_RESP_TEXT": {"APPROVED"},
-		"AUTH_CARD_TYPE": {"A"}, // Amex
+		"AUTH_CARD_TYPE": {"A"},        // Amex
 		"AUTH_AVS":       {"Y"},
 		"AUTH_CVV2":      {"M"},
-		"TRAN_NBR":       {transactionID},
+		"TRAN_NBR":       {epxTranNbr}, // Numeric EPX TRAN_NBR
 		"TRAN_GROUP":     {"SALE"},
 		"AMOUNT":         {amount},
 		"USER_DATA_1":    {returnURL},
@@ -288,6 +358,10 @@ func TestBrowserPost_Callback_GuestCheckout(t *testing.T) {
 		"CARD_NBR":       {"***********0005"},
 		"EXP_DATE":       {"2812"},
 		"INVOICE_NBR":    {"GUEST-" + transactionID},
+		// EPX echoes back REDIRECT_URL query params
+		"transaction_id":   {transactionID},
+		"merchant_id":      {merchantID},
+		"transaction_type": {"SALE"},
 	}
 
 	// POST guest checkout callback
