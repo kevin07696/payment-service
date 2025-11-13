@@ -491,16 +491,29 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		if err != nil {
 			return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
 		}
-		// Check idempotency - CAPTURE transaction already exists?
-		existing, err := s.db.Queries().GetTransactionByID(ctx, txID)
-		if err == nil {
-			s.logger.Info("CAPTURE transaction already exists (idempotency)",
-				zap.String("transaction_id", txID.String()),
-			)
-			return sqlcToDomain(&existing), nil
-		}
 	} else {
 		txID = uuid.New()
+	}
+
+	// Check idempotency - CAPTURE transaction already exists?
+	var existingTx *sqlc.Transaction
+	existingTxDB, existErr := s.db.Queries().GetTransactionByID(ctx, txID)
+	if existErr == nil {
+		existingTx = &existingTxDB
+		// Transaction exists - check if it's complete (has auth_resp)
+		if existingTx.AuthResp != "" {
+			// Transaction is complete - return existing (idempotent)
+			s.logger.Info("CAPTURE transaction already complete (idempotency)",
+				zap.String("transaction_id", txID.String()),
+				zap.String("status", existingTx.Status.String),
+			)
+			return sqlcToDomain(existingTx), nil
+		}
+		// Transaction exists but auth_resp is empty - it's still pending
+		s.logger.Warn("CAPTURE transaction is pending - possible retry",
+			zap.String("transaction_id", txID.String()),
+		)
+		// Continue to process (will update the pending transaction)
 	}
 
 	groupID := originalTx.GroupID
@@ -608,6 +621,31 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	// Get BRIC for CAPTURE operation (uses AUTH's BRIC)
 	authBRIC := state.GetBRICForOperation(domain.TransactionTypeCapture)
 
+	// Create pending transaction BEFORE calling EPX
+	// Only create if transaction doesn't exist yet
+	if existingTx == nil {
+		captureMetadata := map[string]interface{}{}
+		_, _, err := s.CreatePendingTransaction(ctx, CreatePendingTransactionParams{
+			ID:                txID,
+			GroupID:           &groupID,
+			MerchantID:        merchantID,
+			CustomerID:        domainTxs[0].CustomerID,
+			Amount:            finalCaptureAmount,
+			Currency:          domainTxs[0].Currency,
+			Type:              domain.TransactionTypeCapture,
+			PaymentMethodType: domain.PaymentMethodType(domainTxs[0].PaymentMethodType),
+			PaymentMethodID:   stringToUUIDPtr(domainTxs[0].PaymentMethodID),
+			Metadata:          captureMetadata,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create pending transaction: %w", err)
+		}
+
+		s.logger.Info("Created pending CAPTURE transaction",
+			zap.String("transaction_id", txID.String()),
+		)
+	}
+
 	// Call EPX Server Post API for capture
 	s.logger.Info("Calling EPX for capture",
 		zap.String("auth_bric", authBRIC),
@@ -638,49 +676,32 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		return nil, fmt.Errorf("gateway error: %w", err)
 	}
 
-	// Save transaction to database
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
-		// Merge metadata with EPX response fields
-		metadata := map[string]interface{}{
-			"auth_resp_text": epxResp.AuthRespText,
-			"auth_avs":       epxResp.AuthAVS,
-			"auth_cvv2":      epxResp.AuthCVV2,
-		}
-		metadataJSON, err := json.Marshal(metadata)
-		if err != nil {
-			s.logger.Warn("Failed to marshal metadata", zap.Error(err))
-			metadataJSON = []byte("{}")
-		}
-
-		params := sqlc.CreateTransactionParams{
-			ID:                txID,
-			GroupID:           groupID,
-			MerchantID:        merchantID,
-			CustomerID:        toNullableText(domainTxs[0].CustomerID),
-			Amount:            toNumeric(finalCaptureAmount),
-			Currency:          domainTxs[0].Currency,
-			Type:              string(domain.TransactionTypeCapture),
-			PaymentMethodType: string(domainTxs[0].PaymentMethodType),
-			PaymentMethodID:   toNullableUUID(domainTxs[0].PaymentMethodID),
-			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store CAPTURE's BRIC
-			AuthResp:          epxResp.AuthResp,
-			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			Metadata:          metadataJSON,
-		}
-
-		dbTx, err := q.CreateTransaction(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to create transaction: %w", err)
-		}
-
-		transaction = sqlcToDomain(&dbTx)
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
+	// Update pending transaction with EPX response
+	metadata := map[string]interface{}{
+		"auth_resp_text": epxResp.AuthRespText,
+		"auth_avs":       epxResp.AuthAVS,
+		"auth_cvv2":      epxResp.AuthCVV2,
 	}
+	err = s.UpdateTransactionWithEPXResponse(
+		ctx,
+		epxTranNbr,
+		domainTxs[0].CustomerID,
+		&epxResp.AuthGUID,
+		&epxResp.AuthResp,
+		&epxResp.AuthCode,
+		&epxResp.AuthCardType,
+		metadata,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update transaction with EPX response: %w", err)
+	}
+
+	// Fetch the updated transaction
+	updatedTx, err := s.db.Queries().GetTransactionByID(ctx, txID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get updated transaction: %w", err)
+	}
+	transaction = sqlcToDomain(&updatedTx)
 
 	s.logger.Info("Capture completed",
 		zap.String("transaction_id", transaction.ID),
@@ -727,16 +748,29 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		if err != nil {
 			return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
 		}
-		// Check idempotency - VOID transaction already exists?
-		existing, err := s.db.Queries().GetTransactionByID(ctx, txID)
-		if err == nil {
-			s.logger.Info("VOID transaction already exists (idempotency)",
-				zap.String("transaction_id", txID.String()),
-			)
-			return sqlcToDomain(&existing), nil
-		}
 	} else {
 		txID = uuid.New()
+	}
+
+	// Check idempotency - VOID transaction already exists?
+	var existingTx *sqlc.Transaction
+	existingTxDB, existErr := s.db.Queries().GetTransactionByID(ctx, txID)
+	if existErr == nil {
+		existingTx = &existingTxDB
+		// Transaction exists - check if it's complete (has auth_resp)
+		if existingTx.AuthResp != "" {
+			// Transaction is complete - return existing (idempotent)
+			s.logger.Info("VOID transaction already complete (idempotency)",
+				zap.String("transaction_id", txID.String()),
+				zap.String("status", existingTx.Status.String),
+			)
+			return sqlcToDomain(existingTx), nil
+		}
+		// Transaction exists but auth_resp is empty - it's still pending
+		s.logger.Warn("VOID transaction is pending - possible retry",
+			zap.String("transaction_id", txID.String()),
+		)
+		// Continue to process (will update the pending transaction)
 	}
 
 	s.logger.Info("Processing void",
@@ -846,6 +880,33 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	// Get BRIC for VOID operation (uses AUTH's BRIC)
 	authBRIC := state.GetBRICForOperation(domain.TransactionTypeVoid)
 
+	// Create pending transaction BEFORE calling EPX
+	// Only create if transaction doesn't exist yet
+	if existingTx == nil {
+		voidMetadata := map[string]interface{}{
+			"original_transaction_type": string(originalTxType),
+		}
+		_, _, err := s.CreatePendingTransaction(ctx, CreatePendingTransactionParams{
+			ID:                txID,
+			GroupID:           &groupID,
+			MerchantID:        merchantID,
+			CustomerID:        domainTxs[0].CustomerID,
+			Amount:            voidAmount,
+			Currency:          domainTxs[0].Currency,
+			Type:              domain.TransactionTypeVoid,
+			PaymentMethodType: domain.PaymentMethodType(domainTxs[0].PaymentMethodType),
+			PaymentMethodID:   stringToUUIDPtr(domainTxs[0].PaymentMethodID),
+			Metadata:          voidMetadata,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create pending transaction: %w", err)
+		}
+
+		s.logger.Info("Created pending VOID transaction",
+			zap.String("transaction_id", txID.String()),
+		)
+	}
+
 	// Call EPX Server Post API for void
 	s.logger.Info("Calling EPX for void",
 		zap.String("auth_bric", authBRIC),
@@ -876,50 +937,33 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		return nil, fmt.Errorf("gateway error: %w", err)
 	}
 
-	// Save transaction to database
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
-		// Merge metadata with EPX response fields and original transaction type
-		metadata := map[string]interface{}{
-			"original_transaction_type": string(originalTxType), // Track what was voided (auth/sale)
-			"auth_resp_text":            epxResp.AuthRespText,
-			"auth_avs":                  epxResp.AuthAVS,
-			"auth_cvv2":                 epxResp.AuthCVV2,
-		}
-		metadataJSON, err := json.Marshal(metadata)
-		if err != nil {
-			s.logger.Warn("Failed to marshal metadata", zap.Error(err))
-			metadataJSON = []byte("{}")
-		}
-
-		params := sqlc.CreateTransactionParams{
-			ID:                txID,
-			GroupID:           groupID,
-			MerchantID:        merchantID,
-			CustomerID:        toNullableText(domainTxs[0].CustomerID),
-			Amount:            toNumeric(voidAmount),
-			Currency:          domainTxs[0].Currency,
-			Type:              string(domain.TransactionTypeVoid),
-			PaymentMethodType: string(domainTxs[0].PaymentMethodType),
-			PaymentMethodID:   toNullableUUID(domainTxs[0].PaymentMethodID),
-			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store VOID's BRIC
-			AuthResp:          epxResp.AuthResp,
-			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			Metadata:          metadataJSON,
-		}
-
-		dbTx, err := q.CreateTransaction(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to create transaction: %w", err)
-		}
-
-		transaction = sqlcToDomain(&dbTx)
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
+	// Update pending transaction with EPX response
+	metadata := map[string]interface{}{
+		"original_transaction_type": string(originalTxType),
+		"auth_resp_text":            epxResp.AuthRespText,
+		"auth_avs":                  epxResp.AuthAVS,
+		"auth_cvv2":                 epxResp.AuthCVV2,
 	}
+	err = s.UpdateTransactionWithEPXResponse(
+		ctx,
+		epxTranNbr,
+		domainTxs[0].CustomerID,
+		&epxResp.AuthGUID,
+		&epxResp.AuthResp,
+		&epxResp.AuthCode,
+		&epxResp.AuthCardType,
+		metadata,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update transaction with EPX response: %w", err)
+	}
+
+	// Fetch the updated transaction
+	updatedTx, err := s.db.Queries().GetTransactionByID(ctx, txID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get updated transaction: %w", err)
+	}
+	transaction = sqlcToDomain(&updatedTx)
 
 	s.logger.Info("Void completed",
 		zap.String("transaction_id", transaction.ID),
@@ -978,16 +1022,30 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		if err != nil {
 			return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
 		}
-		// Check idempotency - REFUND transaction already exists?
-		existing, err := s.db.Queries().GetTransactionByID(ctx, txID)
-		if err == nil {
-			s.logger.Info("REFUND transaction already exists (idempotency)",
-				zap.String("transaction_id", txID.String()),
-			)
-			return sqlcToDomain(&existing), nil
-		}
 	} else {
 		txID = uuid.New()
+	}
+
+	// Check idempotency - REFUND transaction already exists?
+	var existingTx *sqlc.Transaction
+	existingTxDB, existErr := s.db.Queries().GetTransactionByID(ctx, txID)
+	if existErr == nil {
+		existingTx = &existingTxDB
+		// Transaction exists - check if it's complete (has auth_resp)
+		if existingTx.AuthResp != "" {
+			// Transaction is complete - return existing (idempotent)
+			s.logger.Info("REFUND transaction already complete (idempotency)",
+				zap.String("transaction_id", txID.String()),
+				zap.String("status", existingTx.Status.String),
+			)
+			return sqlcToDomain(existingTx), nil
+		}
+		// Transaction exists but auth_resp is empty - it's still pending
+		// This means another request is processing it, or it failed mid-way
+		s.logger.Warn("REFUND transaction is pending - possible retry",
+			zap.String("transaction_id", txID.String()),
+		)
+		// Continue to process (will update the pending transaction)
 	}
 
 	s.logger.Info("Processing refund",
@@ -1084,6 +1142,34 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	// Get BRIC for REFUND operation (uses CAPTURE's BRIC if available, otherwise AUTH's BRIC)
 	authBRIC := state.GetBRICForOperation(domain.TransactionTypeRefund)
 
+	// Create pending transaction BEFORE calling EPX
+	// This ensures idempotency - if this call is retried, the transaction already exists
+	// Only create if transaction doesn't exist yet
+	if existingTx == nil {
+		refundMetadata := map[string]interface{}{
+			"refund_reason": req.Reason,
+		}
+		_, _, err := s.CreatePendingTransaction(ctx, CreatePendingTransactionParams{
+			ID:                txID,
+			GroupID:           &groupID,
+			MerchantID:        merchantID,
+			CustomerID:        domainTxs[0].CustomerID,
+			Amount:            finalRefundAmount,
+			Currency:          domainTxs[0].Currency,
+			Type:              domain.TransactionTypeRefund,
+			PaymentMethodType: domain.PaymentMethodType(domainTxs[0].PaymentMethodType),
+			PaymentMethodID:   stringToUUIDPtr(domainTxs[0].PaymentMethodID),
+			Metadata:          refundMetadata,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create pending transaction: %w", err)
+		}
+
+		s.logger.Info("Created pending REFUND transaction",
+			zap.String("transaction_id", txID.String()),
+		)
+	}
+
 	// Call EPX Server Post API for refund
 	s.logger.Info("Calling EPX for refund",
 		zap.String("auth_bric", authBRIC),
@@ -1114,49 +1200,33 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		return nil, fmt.Errorf("gateway error: %w", err)
 	}
 
-	// Save transaction to database
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
-		metadata := map[string]interface{}{
-			"refund_reason":  req.Reason,
-			"auth_resp_text": epxResp.AuthRespText,
-			"auth_avs":       epxResp.AuthAVS,
-			"auth_cvv2":      epxResp.AuthCVV2,
-		}
-		metadataJSON, err := json.Marshal(metadata)
-		if err != nil {
-			s.logger.Warn("Failed to marshal metadata", zap.Error(err))
-			metadataJSON = []byte("{}")
-		}
-
-		params := sqlc.CreateTransactionParams{
-			ID:                txID,
-			GroupID:           groupID,
-			MerchantID:        merchantID,
-			CustomerID:        toNullableText(domainTxs[0].CustomerID),
-			Amount:            toNumeric(finalRefundAmount),
-			Currency:          domainTxs[0].Currency,
-			Type:              string(domain.TransactionTypeRefund),
-			PaymentMethodType: string(domainTxs[0].PaymentMethodType),
-			PaymentMethodID:   toNullableUUID(domainTxs[0].PaymentMethodID),
-			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store REFUND's BRIC
-			AuthResp:          epxResp.AuthResp,
-			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			Metadata:          metadataJSON,
-		}
-
-		dbTx, err := q.CreateTransaction(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to create transaction: %w", err)
-		}
-
-		transaction = sqlcToDomain(&dbTx)
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
+	// Update pending transaction with EPX response
+	metadata := map[string]interface{}{
+		"refund_reason":  req.Reason,
+		"auth_resp_text": epxResp.AuthRespText,
+		"auth_avs":       epxResp.AuthAVS,
+		"auth_cvv2":      epxResp.AuthCVV2,
 	}
+	err = s.UpdateTransactionWithEPXResponse(
+		ctx,
+		epxTranNbr,
+		domainTxs[0].CustomerID,
+		&epxResp.AuthGUID,
+		&epxResp.AuthResp,
+		&epxResp.AuthCode,
+		&epxResp.AuthCardType,
+		metadata,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update transaction with EPX response: %w", err)
+	}
+
+	// Fetch the updated transaction
+	updatedTx, err := s.db.Queries().GetTransactionByID(ctx, txID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get updated transaction: %w", err)
+	}
+	transaction = sqlcToDomain(&updatedTx)
 
 	s.logger.Info("Refund completed",
 		zap.String("transaction_id", transaction.ID),
@@ -1436,4 +1506,17 @@ func stringOrEmpty(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// stringToUUIDPtr converts an optional string to a UUID pointer
+// Returns nil if string is empty or nil
+func stringToUUIDPtr(s *string) *uuid.UUID {
+	if s == nil || *s == "" {
+		return nil
+	}
+	id, err := uuid.Parse(*s)
+	if err != nil {
+		return nil
+	}
+	return &id
 }

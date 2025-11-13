@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Server Post idempotency with pending transaction pattern** - Implemented full idempotency for Refund, Void, and Capture operations (2025-11-13)
+  - **Problem**: Server Post operations had a race condition where concurrent requests with the same idempotency_key could both call EPX, causing duplicate processing
+  - **Root Cause**: Idempotency check happened before EPX call, but transaction was created after EPX response, leaving a gap where two requests could both pass the idempotency check
+  - **Solution**: Implemented pending transaction pattern (same as Browser Post)
+    - CREATE pending transaction (auth_resp="") BEFORE calling EPX
+    - If transaction exists with auth_resp="": it's complete, return it (idempotent)
+    - If transaction exists with auth_resp="": it's pending, continue to process (retry scenario)
+    - CALL EPX with deterministic TRAN_NBR
+    - UPDATE transaction with EPX response (auth_resp, status computed from auth_resp)
+  - **Key Benefits**:
+    - Prevents duplicate EPX calls from concurrent requests
+    - Enables safe retries if EPX call fails mid-way
+    - Same idempotency_key always returns the same transaction
+    - Transaction status computed consistently from auth_resp GENERATED column
+  - **Files Changed**:
+    - `internal/services/payment/payment_service.go` - Updated Refund, Void, and Capture methods
+      - Enhanced idempotency check to distinguish complete vs pending transactions
+      - Added CreatePendingTransaction call before EPX
+      - Replaced CreateTransaction with UpdateTransactionWithEPXResponse after EPX
+    - `internal/services/payment/payment_service.go:1513` - Added stringToUUIDPtr helper
+  - **Result**: ✅ True idempotency for all Server Post operations with race condition protection
+
 ### Fixed
 - **Browser Post callback processing fixes** - Fixed AMOUNT field extraction and customer_id population (2025-11-13)
   - **Problem**: Browser Post callback handler was not properly extracting AMOUNT and customer_id from EPX response
