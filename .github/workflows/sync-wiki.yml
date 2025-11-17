@@ -1,0 +1,108 @@
+name: Sync Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Wiki templates (will be renamed when copied)
+      - 'docs/wiki-templates/**'
+      # Direct documentation files
+      - 'docs/DATAFLOW.md'
+      - 'docs/DEVELOP.md'
+      - 'docs/API_SPECS.md'
+      - 'docs/CICD.md'
+      - 'docs/DATABASE.md'
+      - 'docs/AUTH.md'
+      - 'docs/EPX_API_REFERENCE.md'
+      - 'docs/GCP_PRODUCTION_SETUP.md'
+      - 'docs/INTEGRATION_TEST_STRATEGY.md'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+
+      - name: Checkout wiki
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy documentation files
+        run: |
+          echo "📋 Copying wiki templates..."
+
+          # Copy wiki template files (these become the wiki pages)
+          cp docs/wiki-templates/Home.md wiki/Home.md
+          cp docs/wiki-templates/Quick-Start.md wiki/Quick-Start.md
+          cp docs/wiki-templates/EPX-Credentials.md wiki/EPX-Credentials.md
+          cp docs/wiki-templates/FAQ.md wiki/FAQ.md
+          cp docs/wiki-templates/_Sidebar.md wiki/_Sidebar.md
+          cp docs/wiki-templates/_Footer.md wiki/_Footer.md
+
+          echo "📋 Copying main documentation files..."
+
+          # Copy main documentation (becomes wiki pages)
+          cp docs/DATAFLOW.md wiki/DATAFLOW.md
+          cp docs/DEVELOP.md wiki/DEVELOP.md
+          cp docs/API_SPECS.md wiki/API-Specs.md
+          cp docs/CICD.md wiki/CICD.md
+          cp docs/DATABASE.md wiki/DATABASE.md
+          cp docs/AUTH.md wiki/AUTH.md
+          cp docs/EPX_API_REFERENCE.md wiki/EPX-API-REFERENCE.md
+          cp docs/GCP_PRODUCTION_SETUP.md wiki/GCP-PRODUCTION-SETUP.md
+          cp docs/INTEGRATION_TEST_STRATEGY.md wiki/INTEGRATION-TEST-STRATEGY.md
+
+          echo "✅ All documentation files copied"
+
+      - name: Check for changes
+        id: check
+        run: |
+          cd wiki
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "✅ No changes to sync"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "📝 Changes detected:"
+            git status --short
+          fi
+
+      - name: Push to wiki
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          cd wiki
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "docs: Auto-sync from main repo ($(date +%Y-%m-%d))"
+          git push
+
+      - name: Summary
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          echo "✅ Documentation synced successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📚 Wiki Pages Updated:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Home" >> $GITHUB_STEP_SUMMARY
+          echo "- Quick Start" >> $GITHUB_STEP_SUMMARY
+          echo "- EPX Credentials Guide" >> $GITHUB_STEP_SUMMARY
+          echo "- FAQ" >> $GITHUB_STEP_SUMMARY
+          echo "- DATAFLOW" >> $GITHUB_STEP_SUMMARY
+          echo "- DEVELOP" >> $GITHUB_STEP_SUMMARY
+          echo "- API-Specs" >> $GITHUB_STEP_SUMMARY
+          echo "- CICD" >> $GITHUB_STEP_SUMMARY
+          echo "- DATABASE" >> $GITHUB_STEP_SUMMARY
+          echo "- AUTH" >> $GITHUB_STEP_SUMMARY
+          echo "- EPX-API-REFERENCE" >> $GITHUB_STEP_SUMMARY
+          echo "- GCP-PRODUCTION-SETUP" >> $GITHUB_STEP_SUMMARY
+          echo "- INTEGRATION-TEST-STRATEGY" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🌐 View at: https://github.com/${{ github.repository }}/wiki" >> $GITHUB_STEP_SUMMARY
