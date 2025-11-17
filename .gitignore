@@ -1,6 +1,7 @@
 # Binaries
 bin/
-server
+/server
+!cmd/server/*.go
 
 # Environment
 .env

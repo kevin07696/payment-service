@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **CI/CD build failure - missing secret manager initialization** (2025-01-17)
+  - **Problem**: GitHub Actions workflow failing with "undefined: initSecretManager" error
+  - **Root Cause**: `cmd/server/secret_manager.go` file was created locally but:
+    1. Never committed to git repository
+    2. Accidentally ignored by overly broad `.gitignore` pattern (`server` matched `cmd/server/*`)
+  - **Solution**:
+    - Fixed `.gitignore` to use `/server` (root only) and added `!cmd/server/*.go` exception
+    - Added `cmd/server/secret_manager.go` to repository
+  - **Impact**: CI/CD pipeline unit tests now pass, enabling automated deployments
+  - **Files Changed**:
+    - `.gitignore` - Fixed binary ignore pattern to not exclude source code
+    - `cmd/server/secret_manager.go` - Secret manager initialization (GCP/Mock)
+
 ### Added
 - **Comprehensive GitHub Wiki documentation** - Complete documentation restructure with auto-sync (2025-01-17)
   - **Purpose**: Provide user-friendly, organized documentation for developers integrating the payment service
