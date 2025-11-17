@@ -37,6 +37,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `docs/archive/` - 29 files removed (replaced by wiki)
   - **Result**: ✅ Complete, organized documentation accessible via GitHub Wiki
 
+- **Integration Guide for merchant onboarding** - Step-by-step guide for integrating the payment service (2025-01-17)
+  - **Purpose**: Answer "how do I setup and register with the payment microservice?"
+  - **Coverage** (7-step integration workflow):
+    1. **Merchant Registration** - How to register merchant account via API or SQL
+    2. **Authentication Setup** - JWT token generation and API access
+    3. **Browser Post Integration** - Frontend payment form implementation with TAC tokens
+    4. **Payment Callbacks** - Backend endpoint to receive EPX payment results
+    5. **Server API Integration** - Backend operations (authorize, capture, refund)
+    6. **Testing** - EPX sandbox test cards and idempotency verification
+    7. **Production Checklist** - Pre-deployment security and compliance review
+  - **Common Integration Patterns**:
+    - E-commerce checkout flow
+    - Subscription billing with recurring payments
+    - Marketplace multi-merchant setup
+  - **Troubleshooting Guide**:
+    - Browser Post callback not received
+    - EPX authentication failures (Code 58)
+    - Idempotency key handling
+    - Refund amount validation
+  - **Files Changed**:
+    - `docs/INTEGRATION_GUIDE.md` - New comprehensive integration guide (579 lines)
+    - `.github/workflows/sync-wiki.yml` - Added INTEGRATION-GUIDE to auto-sync
+    - `docs/wiki-templates/Home.md` - Featured Integration Guide in quick start
+    - `docs/wiki-templates/_Sidebar.md` - Added navigation link
+  - **Result**: ✅ Complete merchant onboarding documentation from registration to first payment
+
 - **Phase 1 critical business logic integration tests** - Implemented and refactored 5 critical tests from risk-based testing strategy (2025-11-17)
   - **Purpose**: Verify most critical payment scenarios identified by likelihood × impact analysis
   - **Test Coverage** (5 integration tests, all table-driven where applicable):
