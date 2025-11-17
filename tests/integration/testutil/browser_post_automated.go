@@ -15,6 +15,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// CardDetails represents payment card information for Browser Post testing
+type CardDetails struct {
+	Number     string // Card number (e.g., "4111111111111111" for approval, "4000000000000002" for declines)
+	CVV        string // Card verification value (e.g., "123")
+	ExpDate    string // Expiration date in MMYY format (e.g., "2512")
+	Zip        string // Billing zip code (e.g., "12345")
+	FirstName  string // Cardholder first name (optional)
+	LastName   string // Cardholder last name (optional)
+	Address    string // Billing address (optional)
+}
+
+// DefaultApprovalCard returns the standard EPX test card that always approves
+func DefaultApprovalCard() *CardDetails {
+	return &CardDetails{
+		Number:  "4111111111111111", // Standard Visa approval test card
+		CVV:     "123",
+		ExpDate: "2512",
+		Zip:     "12345",
+	}
+}
+
+// VisaDeclineCard returns the EPX Visa test card that triggers decline codes based on amount
+// Use with amount triggers like "1.05" (code 05), "1.20" (code 51), etc.
+// See: EPX Certification - Response Code Triggers - Visa.pdf
+func VisaDeclineCard() *CardDetails {
+	return &CardDetails{
+		Number:  "4000000000000002", // EPX Visa decline test card
+		CVV:     "123",
+		ExpDate: "2512",
+		Zip:     "12345",
+		Address: "123 N CENTRAL",
+	}
+}
+
 // GetRealBRICAutomated uses headless Chrome to get a real BRIC from EPX
 // This fully automates the Browser Post flow by controlling a real browser
 //
@@ -24,8 +58,15 @@ import (
 // 3. EPX processes in browser and redirects to callback
 // 4. Query database for BRIC
 // 5. Return BRIC for use in subsequent operations
-func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount string, transactionType string, callbackBaseURL string) *RealBRICResult {
+//
+// cardDetails: optional card details for testing. If nil, uses DefaultApprovalCard()
+func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount string, transactionType string, callbackBaseURL string, cardDetails *CardDetails) *RealBRICResult {
 	t.Helper()
+
+	// Use default approval card if not specified
+	if cardDetails == nil {
+		cardDetails = DefaultApprovalCard()
+	}
 
 	// Step 1: Get Browser Post form configuration
 	transactionID := uuid.New().String()
@@ -126,9 +167,9 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
     <input type="hidden" name="TRAN_NBR" value="%s">
     <input type="hidden" name="TRAN_CODE" value="%s">
     <input type="hidden" name="AMOUNT" value="%s">
-    <input type="hidden" name="ACCOUNT_NBR" value="4111111111111111">
-    <input type="hidden" name="EXP_DATE" value="2512">
-    <input type="hidden" name="CVV" value="123">
+    <input type="hidden" name="ACCOUNT_NBR" value="%s">
+    <input type="hidden" name="EXP_DATE" value="%s">
+    <input type="hidden" name="CVV" value="%s">
     <input type="hidden" name="USER_DATA_1" value="%s">
     <input type="hidden" name="USER_DATA_2" value="test-customer">
     <input type="hidden" name="USER_DATA_3" value="%s">
@@ -138,7 +179,9 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 </body>
 </html>`,
 		postURL, tac, custNbr, merchNbr, dbaName, terminalNbr,
-		epxTranNbr, epxTranCode, amount, transactionID, merchantID)
+		epxTranNbr, epxTranCode, amount,
+		cardDetails.Number, cardDetails.ExpDate, cardDetails.CVV, // Use parameterized card details
+		transactionID, merchantID)
 
 	// Use data URL to load the form
 	dataURL := "data:text/html;base64," + base64Encode(formHTML)
@@ -200,16 +243,23 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	}
 }
 
-// GetRealBRICForAuthAutomated is a convenience wrapper for AUTH transactions using automated browser
+// GetRealBRICForAuthAutomated is a convenience wrapper for AUTH transactions using automated browser with default approval card
 // callbackBaseURL: optional public URL for EPX to call back (e.g., ngrok URL). If empty, uses cfg.ServiceURL
 func GetRealBRICForAuthAutomated(t *testing.T, client *Client, cfg *Config, amount string, callbackBaseURL string) *RealBRICResult {
-	return GetRealBRICAutomated(t, client, cfg, amount, "AUTH", callbackBaseURL)
+	return GetRealBRICAutomated(t, client, cfg, amount, "AUTH", callbackBaseURL, nil) // nil = use default approval card
 }
 
-// GetRealBRICForSaleAutomated is a convenience wrapper for SALE transactions using automated browser
+// GetRealBRICForSaleAutomated is a convenience wrapper for SALE transactions using automated browser with default approval card
 // callbackBaseURL: optional public URL for EPX to call back (e.g., ngrok URL). If empty, uses cfg.ServiceURL
 func GetRealBRICForSaleAutomated(t *testing.T, client *Client, cfg *Config, amount string, callbackBaseURL string) *RealBRICResult {
-	return GetRealBRICAutomated(t, client, cfg, amount, "SALE", callbackBaseURL)
+	return GetRealBRICAutomated(t, client, cfg, amount, "SALE", callbackBaseURL, nil) // nil = use default approval card
+}
+
+// GetRealBRICForSaleAutomatedWithCard is a convenience wrapper for SALE transactions with custom card details
+// Useful for testing decline codes, different card types, etc.
+// callbackBaseURL: optional public URL for EPX to call back (e.g., ngrok URL). If empty, uses cfg.ServiceURL
+func GetRealBRICForSaleAutomatedWithCard(t *testing.T, client *Client, cfg *Config, amount string, callbackBaseURL string, cardDetails *CardDetails) *RealBRICResult {
+	return GetRealBRICAutomated(t, client, cfg, amount, "SALE", callbackBaseURL, cardDetails)
 }
 
 // base64Encode encodes a string to base64

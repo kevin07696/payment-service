@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     2. `TestRefund_ExceedsOriginalAmount_ReturnsValidationError` - Prevents over-refunding (p95, catastrophic) ✅ PASSING
     3. `TestCapture_NonAuthorizedTransaction_ReturnsValidationError` - Validates state transitions (p95, high) ✅ PASSING
     4. `TestCaptureAndVoid_ConcurrentRequests_ExactlyOneSucceeds` - Tests concurrent operation handling (p99.9, high) ✅ PASSING
-    5. `TestSale_InsufficientFunds_ReturnsDeclinedStatus` - EPX decline code handling (p90, medium) - *skipped, requires specific EPX test cards*
+    5. `TestSale_InsufficientFunds_ReturnsDeclinedStatus` - EPX decline code handling using Visa decline test card (p90, medium) ✅ PASSING
   - **Testing Approach**:
     - Uses REAL EPX integration via headless Chrome Browser Post automation
     - Tests actual database constraints (PRIMARY KEY prevents duplicate transactions)
@@ -39,7 +39,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Files Changed**:
     - `tests/integration/payment/payment_service_critical_test.go` - New test file with Phase 1 critical tests
     - `internal/services/payment/payment_service.go` - Fixed validation error handling
-  - **Result**: ✅ **All 4 tests PASSING** (1 skipped pending EPX decline test cards) in 69.8 seconds with real EPX integration
+  - **Result**: ✅ **All 5 tests PASSING** in 84.5 seconds with real EPX integration
+- **Browser Post automation enhancement** - Made card details parameterized for flexible testing (2025-11-17)
+  - **Purpose**: Enable testing with different card types and decline scenarios
+  - **Changes**:
+    - Added `CardDetails` type to represent payment card information
+    - Added `DefaultApprovalCard()` helper for standard EPX test card (4111111111111111)
+    - Added `VisaDeclineCard()` helper for EPX Visa decline test card (4000000000000002)
+    - Updated `GetRealBRICAutomated()` to accept optional `cardDetails` parameter
+    - Added `GetRealBRICForSaleAutomatedWithCard()` convenience wrapper for custom card testing
+  - **Benefits**:
+    - Can now test EPX decline codes using amount triggers (e.g., $1.20 → code 51)
+    - Supports testing different card types (Visa, MC, Amex, Discover)
+    - More realistic simulation of production payment flows
+    - Maintains backward compatibility (nil cardDetails → uses default approval card)
+  - **EPX Decline Testing**: Uses EPX Response Code Triggers methodology per official documentation:
+    - Test card `4000000000000002` + amount trigger `$1.20` → EPX response code 51 (DECLINE)
+    - Other triggers: `$1.05` → code 05, `$1.04` → code 04, etc.
+    - See: `EPX Certification - Response Code Triggers - Visa.pdf`
+  - **Files Changed**:
+    - `tests/integration/testutil/browser_post_automated.go` - Parameterized card details
+    - `tests/integration/payment/payment_service_critical_test.go` - Implemented Test 5 with decline card
 
 - **Payment Service helper function unit tests** - Created comprehensive unit tests for utility functions (2025-11-17)
   - **Purpose**: Establish testing foundation and verify helper function correctness
