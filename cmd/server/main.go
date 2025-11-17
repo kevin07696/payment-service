@@ -193,14 +193,14 @@ type Config struct {
 	MinConns   int32
 
 	// EPX Payment Gateway (Server Post API for transactions)
-	EPXServerPostURL    string // EPX Server Post API URL (e.g., https://secure.epxuap.com)
-	EPXKeyExchangeURL   string // EPX Key Exchange URL (e.g., https://keyexch.epxuap.com)
-	EPXBrowserPostURL   string // EPX Browser Post URL (e.g., https://services.epxuap.com/browserpost/)
-	EPXTimeout          int
-	EPXCustNbr          string // EPX Customer Number
-	EPXMerchNbr         string // EPX Merchant Number
-	EPXDBAnbr           string // EPX DBA Number
-	EPXTerminalNbr      string // EPX Terminal Number
+	EPXServerPostURL  string // EPX Server Post API URL (e.g., https://secure.epxuap.com)
+	EPXKeyExchangeURL string // EPX Key Exchange URL (e.g., https://keyexch.epxuap.com)
+	EPXBrowserPostURL string // EPX Browser Post URL (e.g., https://services.epxuap.com/browserpost/)
+	EPXTimeout        int
+	EPXCustNbr        string // EPX Customer Number
+	EPXMerchNbr       string // EPX Merchant Number
+	EPXDBAnbr         string // EPX DBA Number
+	EPXTerminalNbr    string // EPX Terminal Number
 
 	// North Merchant Reporting API (for disputes/chargebacks, NOT payments)
 	NorthMerchantReportingURL string // North Reporting API URL (e.g., https://api.north.com)
@@ -428,7 +428,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 		dbAdapter,
 		browserPost,
 		keyExchange,
-		secretManager,          // Secret manager for fetching merchant-specific MACs
+		secretManager, // Secret manager for fetching merchant-specific MACs
 		paymentMethodSvc,
 		logger,
 		browserPostCfg.PostURL, // EPX Browser Post endpoint URL

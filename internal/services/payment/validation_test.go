@@ -74,13 +74,13 @@ func TestTransactionAmountEdgeCases(t *testing.T) {
 // TestCaptureValidation_TableDriven tests CAPTURE validation with comprehensive scenarios
 func TestCaptureValidation_TableDriven(t *testing.T) {
 	tests := []struct {
-		name           string
-		authAmount     string
-		capturedSoFar  string
-		captureAmount  string
-		isVoided       bool
-		expectAllow    bool
-		expectReason   string
+		name          string
+		authAmount    string
+		capturedSoFar string
+		captureAmount string
+		isVoided      bool
+		expectAllow   bool
+		expectReason  string
 	}{
 		// Valid scenarios
 		{
@@ -306,11 +306,11 @@ func TestRefundValidation_TableDriven(t *testing.T) {
 // TestVoidValidation_TableDriven tests VOID validation with comprehensive scenarios
 func TestVoidValidation_TableDriven(t *testing.T) {
 	tests := []struct {
-		name         string
+		name          string
 		hasActiveAuth bool
-		isVoided     bool
-		expectAllow  bool
-		expectReason string
+		isVoided      bool
+		expectAllow   bool
+		expectReason  string
 	}{
 		{
 			name:          "valid void of active AUTH",

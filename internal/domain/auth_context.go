@@ -28,15 +28,15 @@ const (
 
 // Scope constants
 const (
-	ScopePaymentsCreate        = "payments:create"
-	ScopePaymentsRead          = "payments:read"
-	ScopePaymentsVoid          = "payments:void"
-	ScopePaymentsRefund        = "payments:refund"
-	ScopePaymentMethodsRead    = "payment_methods:read"
-	ScopePaymentMethodsCreate  = "payment_methods:create"
-	ScopeStorageTokenize       = "storage:tokenize"
-	ScopeStorageDetokenize     = "storage:detokenize"
-	ScopeAll                   = "*"
+	ScopePaymentsCreate       = "payments:create"
+	ScopePaymentsRead         = "payments:read"
+	ScopePaymentsVoid         = "payments:void"
+	ScopePaymentsRefund       = "payments:refund"
+	ScopePaymentMethodsRead   = "payment_methods:read"
+	ScopePaymentMethodsCreate = "payment_methods:create"
+	ScopeStorageTokenize      = "storage:tokenize"
+	ScopeStorageDetokenize    = "storage:detokenize"
+	ScopeAll                  = "*"
 )
 
 // HasScope checks if the token has a specific scope

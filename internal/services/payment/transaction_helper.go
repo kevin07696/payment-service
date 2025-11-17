@@ -62,9 +62,9 @@ func (s *paymentService) CreatePendingTransaction(ctx context.Context, params Cr
 				String: tranNbr,
 				Valid:  true,
 			},
-			AuthGuid: toNullableText(nil), // Will be set after EPX response
-			AuthResp: "",                   // Empty initially, updated after EPX
-			AuthCode: toNullableText(nil),
+			AuthGuid:     toNullableText(nil), // Will be set after EPX response
+			AuthResp:     "",                  // Empty initially, updated after EPX
+			AuthCode:     toNullableText(nil),
 			AuthCardType: toNullableText(nil),
 			Metadata:     metadataJSON,
 		}
@@ -101,7 +101,7 @@ func (s *paymentService) UpdateTransactionWithEPXResponse(ctx context.Context, t
 
 	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
 		_, err := q.UpdateTransactionFromEPXResponse(ctx, sqlc.UpdateTransactionFromEPXResponseParams{
-			CustomerID:   toNullableText(customerID),
+			CustomerID: toNullableText(customerID),
 			TranNbr: pgtype.Text{
 				String: tranNbr,
 				Valid:  true,

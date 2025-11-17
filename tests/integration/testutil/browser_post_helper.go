@@ -109,9 +109,9 @@ func GetRealBRICFromEPX(t *testing.T, client *Client, cfg *Config, amount string
 		"REDIRECT_URL": {returnURL},
 
 		// Pass-through data (EPX echoes back in callback)
-		"USER_DATA_1": {returnURL},                  // Return URL
+		"USER_DATA_1": {returnURL},                 // Return URL
 		"USER_DATA_2": {"test-customer-real-bric"}, // Customer ID
-		"USER_DATA_3": {merchantID},                 // Merchant ID
+		"USER_DATA_3": {merchantID},                // Merchant ID
 
 		// Additional fields
 		"INDUSTRY_TYPE": {"E"}, // E-commerce

@@ -40,7 +40,7 @@ func TestIntegration_BrowserPost_SaleRefund_Workflow(t *testing.T) {
 	// Step 2: REFUND using group_id (uses real BRIC)
 	refundReq := map[string]interface{}{
 		"group_id": bricResult.GroupID, // Use group_id for refund
-		"amount":   "25.00",             // Partial refund
+		"amount":   "25.00",            // Partial refund
 		"reason":   "Customer request - automated test",
 	}
 
@@ -123,7 +123,7 @@ func TestIntegration_BrowserPost_AuthCaptureRefund_Workflow(t *testing.T) {
 	// Step 4: REFUND using group_id (uses real BRIC)
 	refundReq := map[string]interface{}{
 		"group_id": bricResult.GroupID, // Use group_id for refund
-		"amount":   "25.00",             // Partial refund
+		"amount":   "25.00",            // Partial refund
 		"reason":   "Customer request",
 	}
 

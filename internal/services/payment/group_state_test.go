@@ -119,7 +119,7 @@ func TestComputeGroupState_MultiplePartialCaptures(t *testing.T) {
 
 	assert.Equal(t, "100.00", state.ActiveAuthAmount.StringFixed(2))
 	assert.Equal(t, "70.00", state.CapturedAmount.StringFixed(2)) // 30 + 40
-	assert.Equal(t, "bric_capture2", state.CaptureBRIC)     // Most recent CAPTURE's BRIC
+	assert.Equal(t, "bric_capture2", state.CaptureBRIC)           // Most recent CAPTURE's BRIC
 }
 
 // TestComputeGroupState_ReAuth tests re-authorization (new AUTH resets state)
@@ -380,11 +380,11 @@ func TestCanRefund_NoCapturedAmount(t *testing.T) {
 // TestGetBRICForOperation tests BRIC selection for different operation types
 func TestGetBRICForOperation(t *testing.T) {
 	tests := []struct {
-		name          string
-		state         *GroupState
-		operation     domain.TransactionType
-		expectedBRIC  string
-		description   string
+		name         string
+		state        *GroupState
+		operation    domain.TransactionType
+		expectedBRIC string
+		description  string
 	}{
 		{
 			name: "CAPTURE uses AUTH BRIC",

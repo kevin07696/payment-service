@@ -365,9 +365,9 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 			String: epxTranNbr,
 			Valid:  true,
 		},
-		AuthGuid: pgtype.Text{}, // Will be set in callback
-		AuthResp: "",            // Empty initially (callback will update)
-		AuthCode: pgtype.Text{},
+		AuthGuid:     pgtype.Text{}, // Will be set in callback
+		AuthResp:     "",            // Empty initially (callback will update)
+		AuthCode:     pgtype.Text{},
 		AuthCardType: pgtype.Text{},
 		Metadata:     []byte("{}"),
 		GroupID:      nil, // DB auto-generates group_id
@@ -612,7 +612,7 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 		zap.String("transaction_id", tx.ID.String()),
 		zap.String("group_id", tx.GroupID.String()),
 		zap.String("merchant_id", merchantID.String()),
-		zap.String("status", tx.Status.String),         // Generated from auth_resp
+		zap.String("status", tx.Status.String), // Generated from auth_resp
 		zap.String("auth_resp", response.AuthResp),
 		zap.String("auth_guid", response.AuthGUID),
 	)

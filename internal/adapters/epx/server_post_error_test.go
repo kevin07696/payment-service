@@ -248,9 +248,9 @@ func TestIsRetryable(t *testing.T) {
 	adapter := newTestAdapter(t)
 
 	tests := []struct {
-		name          string
-		err           error
-		shouldRetry   bool
+		name        string
+		err         error
+		shouldRetry bool
 	}{
 		{
 			name:        "nil error should not retry",

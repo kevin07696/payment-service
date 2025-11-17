@@ -668,9 +668,9 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		TransactionType:  adapterports.TransactionTypeCapture,
 		Amount:           finalCaptureAmount.StringFixed(2),
 		PaymentType:      adapterports.PaymentMethodTypeCreditCard,
-		OriginalAuthGUID: authBRIC,     // Reference to AUTH transaction
-		TranNbr:          epxTranNbr,   // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:        "",            // No BATCH_ID for capture
+		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
+		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "",         // No BATCH_ID for capture
 		CustomerID:       stringOrEmpty(domainTxs[0].CustomerID),
 	}
 
@@ -929,8 +929,8 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		TransactionType:  adapterports.TransactionTypeVoid,
 		Amount:           voidAmount.StringFixed(2),
 		PaymentType:      adapterports.PaymentMethodType(domainTxs[0].PaymentMethodType),
-		OriginalAuthGUID: authBRIC,    // Reference to AUTH transaction
-		TranNbr:          epxTranNbr,  // EPX numeric TRAN_NBR (max 10 digits)
+		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
+		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:        "",
 		CustomerID:       stringOrEmpty(domainTxs[0].CustomerID),
 	}
@@ -1196,8 +1196,8 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		TransactionType:  adapterports.TransactionTypeRefund,
 		Amount:           finalRefundAmount.StringFixed(2),
 		PaymentType:      adapterports.PaymentMethodType(domainTxs[0].PaymentMethodType),
-		OriginalAuthGUID: authBRIC,    // Reference to CAPTURE (or AUTH if SALE)
-		TranNbr:          epxTranNbr,  // EPX numeric TRAN_NBR (max 10 digits)
+		OriginalAuthGUID: authBRIC,   // Reference to CAPTURE (or AUTH if SALE)
+		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:        "",
 		CustomerID:       stringOrEmpty(domainTxs[0].CustomerID),
 	}

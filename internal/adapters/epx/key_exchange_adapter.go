@@ -241,8 +241,8 @@ func (a *keyExchangeAdapter) buildFormData(req *ports.KeyExchangeRequest) url.Va
 
 // keyExchangeResponse represents the XML structure of EPX Key Exchange response
 type keyExchangeResponse struct {
-	XMLName xml.Name             `xml:"RESPONSE"`
-	Fields  keyExchangeFields    `xml:"FIELDS"`
+	XMLName xml.Name          `xml:"RESPONSE"`
+	Fields  keyExchangeFields `xml:"FIELDS"`
 }
 
 type keyExchangeFields struct {

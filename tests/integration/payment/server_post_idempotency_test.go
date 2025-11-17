@@ -34,9 +34,9 @@ func TestIntegration_ServerPost_Refund_IdempotencySameUUID(t *testing.T) {
 	t.Log("Step 2: Performing first Refund with idempotency key...")
 	refundID := uuid.New()
 	refundReq := map[string]interface{}{
-		"group_id": bricResult.GroupID, // Refund uses group_id
-		"amount":         "25.00",
-		"reason":         "Customer request",
+		"group_id":        bricResult.GroupID, // Refund uses group_id
+		"amount":          "25.00",
+		"reason":          "Customer request",
 		"idempotency_key": refundID.String(),
 	}
 
@@ -102,8 +102,8 @@ func TestIntegration_ServerPost_Void_IdempotencySameUUID(t *testing.T) {
 	t.Log("Step 2: Performing first Void with idempotency key...")
 	voidID := uuid.New()
 	voidReq := map[string]interface{}{
-		"group_id": bricResult.GroupID, // Void uses group_id
-		"reason":         "Customer cancelled",
+		"group_id":        bricResult.GroupID, // Void uses group_id
+		"reason":          "Customer cancelled",
 		"idempotency_key": voidID.String(),
 	}
 
@@ -166,8 +166,8 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 	t.Log("Step 2: Performing first Capture with idempotency key...")
 	captureID := uuid.New()
 	captureReq := map[string]interface{}{
-		"transaction_id": bricResult.TransactionID,
-		"amount":         "30.00",
+		"transaction_id":  bricResult.TransactionID,
+		"amount":          "30.00",
 		"idempotency_key": captureID.String(),
 	}
 
@@ -250,9 +250,9 @@ func TestIntegration_ServerPost_Refund_IdempotencyConcurrent(t *testing.T) {
 	t.Log("Step 2: Creating first Refund to establish the transaction...")
 	refundID := uuid.New()
 	refundReq := map[string]interface{}{
-		"group_id": bricResult.GroupID, // Refund uses group_id
-		"amount":         "50.00",
-		"reason":         "Concurrent test",
+		"group_id":        bricResult.GroupID, // Refund uses group_id
+		"amount":          "50.00",
+		"reason":          "Concurrent test",
 		"idempotency_key": refundID.String(),
 	}
 
@@ -353,9 +353,9 @@ func TestIntegration_ServerPost_Refund_DifferentUUIDs(t *testing.T) {
 	t.Log("Step 2: Performing first Refund with UUID 1...")
 	refundID1 := uuid.New()
 	refund1Req := map[string]interface{}{
-		"group_id": bricResult.GroupID, // Refund uses group_id
-		"amount":         "25.00",
-		"reason":         "First refund",
+		"group_id":        bricResult.GroupID, // Refund uses group_id
+		"amount":          "25.00",
+		"reason":          "First refund",
 		"idempotency_key": refundID1.String(),
 	}
 
@@ -387,9 +387,9 @@ func TestIntegration_ServerPost_Refund_DifferentUUIDs(t *testing.T) {
 	t.Log("Step 3: Performing second Refund with UUID 2...")
 	refundID2 := uuid.New()
 	refund2Req := map[string]interface{}{
-		"group_id": bricResult.GroupID, // Refund uses group_id
-		"amount":         "30.00",
-		"reason":         "Second refund",
+		"group_id":        bricResult.GroupID, // Refund uses group_id
+		"amount":          "30.00",
+		"reason":          "Second refund",
 		"idempotency_key": refundID2.String(),
 	}
 

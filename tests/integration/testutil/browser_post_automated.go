@@ -17,13 +17,13 @@ import (
 
 // CardDetails represents payment card information for Browser Post testing
 type CardDetails struct {
-	Number     string // Card number (e.g., "4111111111111111" for approval, "4000000000000002" for declines)
-	CVV        string // Card verification value (e.g., "123")
-	ExpDate    string // Expiration date in MMYY format (e.g., "2512")
-	Zip        string // Billing zip code (e.g., "12345")
-	FirstName  string // Cardholder first name (optional)
-	LastName   string // Cardholder last name (optional)
-	Address    string // Billing address (optional)
+	Number    string // Card number (e.g., "4111111111111111" for approval, "4000000000000002" for declines)
+	CVV       string // Card verification value (e.g., "123")
+	ExpDate   string // Expiration date in MMYY format (e.g., "2512")
+	Zip       string // Billing zip code (e.g., "12345")
+	FirstName string // Cardholder first name (optional)
+	LastName  string // Cardholder last name (optional)
+	Address   string // Billing address (optional)
 }
 
 // DefaultApprovalCard returns the standard EPX test card that always approves

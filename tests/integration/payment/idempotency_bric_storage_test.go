@@ -355,9 +355,9 @@ func TestBRICStorage_Refund_ConcurrentSameUUID(t *testing.T) {
 	// Launch 3 concurrent requests with SAME transaction_id (simulating network retries)
 	// With UUID idempotency, only ONE transaction should be created
 	type refundResult struct {
-		statusCode     int
-		transactionID  string
-		err            error
+		statusCode    int
+		transactionID string
+		err           error
 	}
 
 	results := make(chan refundResult, 3)

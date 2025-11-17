@@ -44,10 +44,10 @@ func NewDisputeSyncHandler(
 
 // SyncDisputesRequest represents the request body for dispute sync
 type SyncDisputesRequest struct {
-	MerchantID  *string `json:"merchant_id"`  // Optional: sync for specific agent, otherwise sync all
-	FromDate *string `json:"from_date"` // Optional: ISO date string
-	ToDate   *string `json:"to_date"`   // Optional: ISO date string
-	DaysBack *int    `json:"days_back"` // Optional: sync last N days, defaults to 7
+	MerchantID *string `json:"merchant_id"` // Optional: sync for specific agent, otherwise sync all
+	FromDate   *string `json:"from_date"`   // Optional: ISO date string
+	ToDate     *string `json:"to_date"`     // Optional: ISO date string
+	DaysBack   *int    `json:"days_back"`   // Optional: sync last N days, defaults to 7
 }
 
 // SyncDisputesResponse represents the response from dispute sync

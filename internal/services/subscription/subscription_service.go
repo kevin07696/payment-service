@@ -637,7 +637,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 			PaymentMethodType: pm.PaymentType,
 			PaymentMethodID:   toNullableUUID(&pmIDStr),
 			SubscriptionID:    pgtype.UUID{Bytes: sub.ID, Valid: true}, // Link to subscription
-			AuthGuid:          toNullableText(&epxResp.AuthGUID), // Store BRIC token
+			AuthGuid:          toNullableText(&epxResp.AuthGUID),       // Store BRIC token
 			AuthResp:          epxResp.AuthResp,
 			AuthCode:          toNullableText(&epxResp.AuthCode),
 			AuthCardType:      toNullableText(&epxResp.AuthCardType),

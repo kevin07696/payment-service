@@ -46,7 +46,7 @@ func (h *Handler) SavePaymentMethod(ctx context.Context, req *paymentmethodv1.Sa
 
 	// Convert to service request
 	serviceReq := &ports.SavePaymentMethodRequest{
-		MerchantID:      req.MerchantId,
+		MerchantID:   req.MerchantId,
 		CustomerID:   req.CustomerId,
 		PaymentToken: req.PaymentToken,
 		PaymentType:  paymentMethodTypeFromProto(req.PaymentType),
@@ -250,7 +250,7 @@ func (h *Handler) VerifyACHAccount(ctx context.Context, req *paymentmethodv1.Ver
 
 	serviceReq := &ports.VerifyACHAccountRequest{
 		PaymentMethodID: req.PaymentMethodId,
-		MerchantID:         req.MerchantId,
+		MerchantID:      req.MerchantId,
 		CustomerID:      req.CustomerId,
 	}
 
@@ -286,7 +286,7 @@ func (h *Handler) ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *pa
 
 	// Convert to service request
 	serviceReq := &ports.ConvertFinancialBRICRequest{
-		MerchantID:       req.MerchantId,
+		MerchantID:    req.MerchantId,
 		CustomerID:    req.CustomerId,
 		FinancialBRIC: req.FinancialBric,
 		PaymentType:   paymentMethodTypeFromProto(req.PaymentType),

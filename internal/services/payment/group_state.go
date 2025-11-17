@@ -73,7 +73,7 @@ func ComputeGroupState(transactions []*domain.Transaction) *GroupState {
 			// CAPTURE consumes part/all of AUTH
 			state.CapturedAmount = state.CapturedAmount.Add(tx.Amount)
 			state.CaptureBRIC = tx.AuthGUID // EPX returns new BRIC for CAPTURE
-			state.CurrentBRIC = tx.AuthGUID  // Use CAPTURE's BRIC for follow-up ops
+			state.CurrentBRIC = tx.AuthGUID // Use CAPTURE's BRIC for follow-up ops
 
 		case domain.TransactionTypeVoid:
 			// VOID cancels AUTH or reverses CAPTURE
