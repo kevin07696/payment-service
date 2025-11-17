@@ -1,835 +1,296 @@
 # Payment Microservice
 
-A production-ready payment microservice built with **Go** and **gRPC**, integrating with **North Payment Gateway (EPX)** using clean **Hexagonal Architecture (Ports & Adapters)** pattern.
+A production-ready payment microservice built with **Go** and **gRPC**, integrating with **North Payment Gateway (EPX)** using clean **Hexagonal Architecture**.
+
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+> **📚 Full Documentation**: [Visit the Wiki](../../wiki) for complete guides, API reference, and integration tutorials.
+
+---
 
 ## 🎯 Features
 
-- ✅ **Credit Card Payments**: One-time, auth/capture flows (Server Post & Browser Post)
-- ✅ **Saved Payment Methods**: Storage BRIC conversion for card-on-file and recurring payments
-- 🚧 **Direct BRIC Storage Tokenization**: Integration tests pending EPX sandbox enablement
-- ✅ **Recurring Billing**: Subscription management with automatic cron billing
+- ✅ **Credit Card Payments**: One-time, auth/capture, recurring (EPX Browser Post & Server Post)
 - ✅ **ACH Payments**: Bank transfers (checking/savings accounts)
-- ✅ **Chargeback Management**: Automated polling from North API, local storage, webhook notifications
-- ✅ **Webhook System**: Outbound webhooks with HMAC signatures, automatic retries
-- 🚧 **Invoice Payments**: (planned)
-- ✅ **PCI-Compliant**: Browser Post tokenization with BRIC tokens (frontend-to-backend)
-- ✅ **Account Verification**: $0.00 verification with card networks for saved cards
-- ✅ **Response Code Handling**: 40+ mapped codes with user-friendly messages
-- ✅ **HMAC Authentication**: Secure API communication & webhook signatures
-- ✅ **Database Migrations**: SQL-based schema management
-- ✅ **Observability**: Prometheus metrics, health checks, structured logging
-- ✅ **Comprehensive Testing**: Unit and integration test suites for EPX payment gateway
+- ✅ **PCI-Compliant**: Browser Post tokenization (card data never touches backend)
+- ✅ **Saved Payment Methods**: BRIC Storage for card-on-file and subscriptions
+- ✅ **Recurring Billing**: Automated subscription management with cron billing
+- ✅ **Idempotent**: Safe retries with duplicate prevention (database PRIMARY KEY)
+- ✅ **Webhook System**: Outbound notifications with HMAC signatures and retries
+- ✅ **Production-Ready**: Docker, CI/CD, monitoring, health checks
+
+## 🚀 Quick Start (5 Minutes)
+
+Get the service running locally with Docker:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/kevin07696/payment-service.git
+cd payment-service
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your EPX credentials (see wiki for how to get them)
+
+# 3. Start services (PostgreSQL + Payment Server)
+docker-compose up -d
+
+# 4. Verify it's running
+curl http://localhost:8081/cron/health
+# Response: {"status":"healthy","database":"connected"}
+```
+
+**Services Running:**
+- gRPC API: `localhost:8080`
+- HTTP endpoints: `http://localhost:8081`
+- PostgreSQL: `localhost:5432`
+- Metrics: `http://localhost:9090/metrics`
+
+**Next Steps:**
+- **[Get EPX Credentials](../../wiki/EPX-Credentials)** - How to obtain API keys
+- **[Complete Setup Guide](../../wiki/Quick-Start)** - Detailed configuration
+- **[Your First Payment](../../wiki/Quick-Start#step-5-make-your-first-payment-browser-post)** - Test Browser Post flow
 
 ## 🏗️ Architecture
 
+Clean hexagonal architecture with dependency injection:
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     gRPC API Layer ✅                           │
-│       Payment Handler ✅ | Subscription Handler ✅             │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                  Business Logic Layer ✅                        │
-│       Payment Service ✅ | Subscription Service ✅             │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                     Domain Layer (Core) ✅                      │
-│  ┌──────────────────────────────────────────────────────┐      │
-│  │  Ports (Interfaces)                                  │      │
-│  │  - PaymentService, SubscriptionService, Repos        │      │
-│  │  - Logger, HTTPClient, CreditCardGateway, etc.      │      │
-│  └──────────────────────────────────────────────────────┘      │
-│  ┌──────────────────────────────────────────────────────┐      │
-│  │  Models                                              │      │
-│  │  - Transaction, Subscription, PaymentMethod          │      │
-│  └──────────────────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                   Infrastructure Layer ✅                       │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐   │
-│  │  EPX Adapters  │  │   PostgreSQL   │  │     Logging    │   │
-│  │ - Server Post ✅│  │ - Repos ✅     │  │ - Zap Logger ✅│   │
-│  │ - Browser Post✅│  │ - SQLC ✅      │  │                │   │
-│  │ - BRIC Store ✅│  │ - Pooling ✅   │  │                │   │
-│  │ - Key Exch. ✅ │  │ - Migrations✅ │  │                │   │
-│  └────────────────┘  └────────────────┘  └────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│       gRPC/REST API Layer           │
+│  Payment | Subscription | Webhooks  │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│      Business Logic Layer           │
+│  Payment Service | Domain Models    │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│    Infrastructure Layer             │
+│  EPX Gateway | PostgreSQL | Secrets │
+└─────────────────────────────────────┘
 ```
 
-**Legend:** ✅ Complete | 🚧 In Progress | Planned
+**Key Benefits:**
+- ✅ **Testable**: Mock all external dependencies
+- ✅ **Flexible**: Swap implementations without code changes
+- ✅ **Maintainable**: Clear boundaries and responsibilities
 
-## 🚀 Quick Start
+**[Learn More](../../wiki/DEVELOP#architecture)** about the architecture and design patterns.
+
+## 📚 Documentation
+
+Comprehensive documentation is available in the **[GitHub Wiki](../../wiki)**:
+
+### Getting Started
+- **[Quick Start (5 min)](../../wiki/Quick-Start)** - Get running with Docker
+- **[EPX Credentials Guide](../../wiki/EPX-Credentials)** - How to get API keys from EPX
+- **[Complete Setup Guide](../../wiki/DEVELOP)** - Local development & production config
+
+### Integration Guides
+- **[Browser Post Flow](../../wiki/DATAFLOW#browser-post-flow)** - PCI-compliant frontend tokenization
+- **[Server Post Flow](../../wiki/DATAFLOW#server-post-flow)** - Backend API integration
+- **[ACH Payments](../../wiki/DATAFLOW#ach-dataflow)** - Bank account processing
+- **[Recurring Billing](../../wiki/DATAFLOW#subscription-billing-cron-job)** - Subscription management
+- **[Saved Payment Methods](../../wiki/DATAFLOW#saved-payment-methods-bric-storage)** - Card-on-file with BRIC Storage
+
+### API & Reference
+- **[API Specification](../../wiki/API-Specs)** - Complete gRPC & REST API reference
+- **[EPX API Reference](../../wiki/EPX-API-REFERENCE)** - EPX gateway documentation
+- **[Database Schema](../../wiki/DATABASE)** - Tables, relationships, migrations
+- **[Error Codes](../../wiki/API-Specs#error-codes)** - Response code meanings
+
+### Testing & Deployment
+- **[Integration Test Strategy](../../wiki/INTEGRATION-TEST-STRATEGY)** - Test philosophy and coverage
+- **[Running Tests](../../wiki/INTEGRATION-TEST-STRATEGY#running-integration-tests)** - How to run test suites
+- **[Google Cloud Run Setup](../../wiki/GCP-PRODUCTION-SETUP)** - Production deployment
+- **[CI/CD Pipeline](../../wiki/CICD)** - Automated deployments
+
+### Operations
+- **[FAQ](../../wiki/FAQ)** - Common questions (Browser Post callbacks, EPX setup, etc.)
+- **[Troubleshooting](../../wiki/Troubleshooting)** - Common issues & solutions
+
+## 🧪 Testing
+
+### Run All Tests
+
+```bash
+# Unit tests
+go test ./... -cover
+
+# Integration tests (requires Docker)
+docker-compose up -d
+EPX_MAC_STAGING="$(cat secrets/epx/staging/mac_secret)" \
+SERVICE_URL="http://localhost:8081" \
+go test -tags=integration -v ./tests/integration/payment/ -timeout 15m
+```
+
+### Phase 1 Critical Business Logic Tests
+
+5 critical tests covering highest-risk scenarios (p90-p99.9 likelihood × impact):
+
+```bash
+go test -tags=integration -v ./tests/integration/payment/ \
+  -run "TestBrowserPostIdempotency|TestRefundAmountValidation|TestCaptureStateValidation|TestConcurrentOperationHandling|TestEPXDeclineCodeHandling" \
+  -timeout 15m
+```
+
+**What's Tested:**
+- ✅ Browser Post idempotency (database PRIMARY KEY prevents duplicates)
+- ✅ Refund amount validation (prevents over-refunding)
+- ✅ Capture state validation (cannot capture SALE transactions)
+- ✅ Concurrent operation handling (race condition prevention)
+- ✅ EPX decline code handling (insufficient funds, expired card, etc.)
+
+**[Testing Documentation](../../wiki/INTEGRATION-TEST-STRATEGY)** - Complete test strategy and coverage.
+
+## 🔐 Security & PCI Compliance
+
+### PCI-Reduced Scope
+
+When using **Browser Post**, your backend never touches raw card data:
+
+✅ **What We Store**: BRIC tokens, transaction metadata
+❌ **What We DON'T Store**: Card numbers, CVV codes
+
+**Result**: SAQ A or SAQ A-EP compliance (simplified PCI requirements)
+
+### Best Practices
+
+- Use **Browser Post** for all direct customer payments
+- Store `MAC_SECRET` in secret management service (AWS Secrets Manager, GCP Secret Manager)
+- Never log card data
+- Use HTTPS/TLS for all connections
+- Rotate credentials every 3-6 months
+
+**[Security Documentation](../../wiki/FAQ#security--pci-compliance)** - Complete security guide.
+
+## 📊 Key Concepts
+
+### What is EPX?
+
+**EPX** (formerly Element Payment Services, now part of North) is the payment gateway that processes credit card and ACH transactions.
+
+- **Get Credentials**: [EPX Credentials Guide](../../wiki/EPX-Credentials)
+- **EPX Docs**: [developer.north.com](https://developer.north.com)
+
+### What is a BRIC Token?
+
+**BRIC** (Bank Routing Information Code) is EPX's tokenization system:
+
+- **Financial BRIC**: Single-use token from transactions (used for refunds/voids)
+- **Storage BRIC**: Multi-use token for saved payment methods (never expires)
+
+**Benefit**: No raw card data stored (PCI-reduced scope)
+
+### Browser Post vs Server Post
+
+| Method | Use Case | PCI Scope | Card Data Flow |
+|--------|----------|-----------|----------------|
+| **Browser Post** | Direct customer payments | Reduced | User Browser → EPX → Callback |
+| **Server Post** | Recurring/backend processing | Higher | Your Backend ↔ EPX API |
+
+**Recommendation**: Use Browser Post for all direct customer payments (checkout pages).
+
+**[Learn More](../../wiki/FAQ#browser-post--callbacks)** about Browser Post callbacks and how they work.
+
+## 🛠️ Development
 
 ### Prerequisites
 
 - Go 1.24+
 - PostgreSQL 15+
-- protoc (Protocol Buffers compiler)
+- Docker (recommended)
+- EPX merchant account ([Get Credentials](../../wiki/EPX-Credentials))
 
-### Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/kevin07696/payment-service.git
-cd payment-service
-
-# Install dependencies
-go mod download
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your database and North gateway credentials
-
-# Run tests
-go test ./... -cover
-
-# Build server
-go build -o bin/payment-server ./cmd/server
-
-# Run server
-./bin/payment-server
-```
-
-The server will start on `0.0.0.0:8080` for gRPC and `0.0.0.0:8081` for HTTP/cron endpoints.
-
-### Docker Setup (Recommended)
-
-The easiest way to run the entire stack (PostgreSQL + migrations + payment server):
-
-```bash
-# Copy environment variables template
-cp .env.example .env
-
-# Edit .env with your EPX and North credentials (if needed)
-# nano .env
-
-# Start PostgreSQL and payment server
-make docker-up
-
-# View logs
-make docker-logs
-
-# Stop services
-make docker-down
-```
-
-Or using docker-compose directly:
-
-```bash
-# Copy environment file
-cp .env.example .env
-
-# Start all services (postgres + migrations + payment-server)
-docker-compose up -d
-
-# View logs
-docker-compose logs -f payment-server
-
-# Stop services
-docker-compose down
-
-# Clean up volumes
-docker-compose down -v
-```
-
-Services will be available at:
-
-- **gRPC API**: `localhost:8080`
-  - Payment, Subscription, PaymentMethod, Agent, Chargeback services
-- **HTTP Endpoints**: `http://localhost:8081`
-  - **Browser Post Callback**:
-    - `POST /api/v1/payments/browser-post/callback` - EPX redirect callback (transaction results)
-  - **Cron Jobs**:
-    - `POST /cron/process-billing` - Process recurring billing
-    - `POST /cron/sync-disputes` - Sync chargebacks from North API
-    - `GET /cron/health` - Health check
-    - `GET /cron/stats` - Billing statistics
-- **PostgreSQL**: `localhost:5432`
-
-### Using the Makefile
+### Using Makefile
 
 ```bash
 make help              # Show all available commands
 make build             # Build binary locally
-make test              # Run tests
-make test-cover        # Run tests with coverage report
-make docker-build      # Build Docker image
+make test              # Run unit tests
+make test-integration  # Run integration tests
 make docker-up         # Start all services
 make docker-down       # Stop all services
-make proto             # Generate protobuf code
-make sqlc              # Generate SQLC code
 ```
 
-## 📦 Project Structure
+### Environment Configuration
 
-Clean layered architecture (Handlers → Services → Adapters):
-
-```
-payment-service/
-├── cmd/
-│   └── server/              # gRPC/HTTP server entry point
-├── internal/
-│   ├── handlers/            # 🌐 Presentation Layer (gRPC/HTTP)
-│   │   ├── payment/         # Payment API handlers
-│   │   ├── subscription/    # Subscription API handlers
-│   │   ├── payment_method/  # Payment method handlers
-│   │   ├── agent/           # Multi-tenant agent handlers
-│   │   ├── chargeback/      # Chargeback/dispute handlers
-│   │   ├── cron/            # Cron job HTTP endpoints
-│   │   └── webhook/         # Webhook delivery handlers
-│   ├── services/            # 💼 Business Logic Layer
-│   │   ├── payment/         # Payment processing
-│   │   ├── subscription/    # Recurring billing
-│   │   ├── payment_method/  # Payment method management
-│   │   ├── agent/           # Multi-tenant agent service
-│   │   ├── webhook/         # Webhook delivery service
-│   │   └── ports/           # Service interfaces
-│   ├── adapters/            # 🔌 Infrastructure Layer
-│   │   ├── epx/             # EPX Gateway (Browser Post, Server Post)
-│   │   ├── north/           # North Merchant Reporting (disputes)
-│   │   ├── database/        # Database adapter
-│   │   ├── secrets/         # Secret management (AWS/Vault/Local)
-│   │   └── ports/           # Adapter interfaces
-│   ├── domain/              # 📦 Domain Models (Core Entities)
-│   │   ├── agent.go         # Multi-tenant agent
-│   │   ├── chargeback.go    # Dispute/chargeback
-│   │   ├── payment_method.go
-│   │   ├── subscription.go
-│   │   ├── transaction.go
-│   │   └── errors.go
-│   ├── db/
-│   │   ├── migrations/      # SQL migration files (Goose)
-│   │   ├── queries/         # SQL queries for SQLC
-│   │   └── sqlc/            # Generated SQLC code
-│   └── config/              # Configuration management
-├── proto/               # Protocol Buffer Definitions
-│   ├── payment/v1/
-│   ├── subscription/v1/
-│   ├── payment_method/v1/
-│   ├── agent/v1/
-│   └── chargeback/v1/
-├── pkg/
-│   ├── errors/              # Custom error types
-│   ├── security/            # Logger, crypto utilities
-│   └── observability/       # Metrics, tracing
-├── test/
-│   └── integration/         # Integration tests
-│       └── testdb/          # Test database utilities
-├── .env.example             # Environment variables template
-├── docker-compose.yml       # Local development stack
-├── docker-compose.test.yml  # Test database
-├── Dockerfile               # Production image
-├── Makefile                 # Build & dev commands
-├── CHANGELOG.md             # Version history
-├── DOCUMENTATION.md         # Complete documentation
-└── README.md
-```
-
-## 🔧 Usage Example
-
-### Using EPX Payment Adapters
-
-```go
-import (
-    "github.com/kevin07696/payment-service/internal/adapters/epx"
-    "github.com/kevin07696/payment-service/internal/adapters/ports"
-    "github.com/kevin07696/payment-service/pkg/security"
-)
-
-// Setup logger and HTTP client
-logger, _ := security.NewZapLoggerProduction()
-httpClient := &http.Client{Timeout: 30 * time.Second}
-
-// Create EPX Browser Post adapter for hosted payment pages
-browserAdapter := epx.NewBrowserPostAdapter(
-    "https://api.epxuap.com",
-    httpClient,
-    logger,
-)
-
-// Or create EPX Server Post adapter for direct API integration
-serverAdapter := epx.NewServerPostAdapter(
-    "https://api.epxuap.com",
-    httpClient,
-    logger,
-)
-
-// Use the adapter (example with Server Post)
-req := &ports.ServerPostRequest{
-    Amount:   decimal.NewFromFloat(100.00),
-    Currency: "USD",
-    Token:    "bric-token-from-browser-post",
-    Capture:  true,
-}
-
-result, err := adapter.Authorize(context.Background(), req)
-if err != nil {
-    // Handle error - check if retriable
-    if paymentErr, ok := err.(*pkgerrors.PaymentError); ok {
-        if paymentErr.IsRetriable {
-            // Retry logic
-        }
-    }
-}
-
-fmt.Printf("Transaction ID: %s\n", result.TransactionID)
-fmt.Printf("Status: %s\n", result.Status)
-```
-
-### Complete Browser Post Flow Example
-
-**Browser Post** is the recommended PCI-compliant approach where card data goes directly from the user's browser to EPX (never touching your backend). Here's the complete flow:
-
-**1. Backend: Generate TAC Token**
-
-```go
-// Your backend generates a TAC token via Key Exchange API
-tacResponse, err := keyExchangeAdapter.GenerateTAC(ctx, &ports.KeyExchangeRequest{
-    Amount:      "99.99",
-    TranNbr:     "TXN-12345",     // Your unique transaction ID
-    TranGroup:   "SALE",
-    RedirectURL: "http://localhost:8081/api/v1/payments/browser-post/callback",
-})
-// Returns: TAC token valid for 4 hours
-```
-
-**2. Backend: Build Form Data**
-
-```go
-// Construct form data for frontend
-formData, err := browserPostAdapter.BuildFormData(
-    tacResponse.TAC,
-    "99.99",
-    "TXN-12345",
-    "SALE",
-    "http://localhost:8081/api/v1/payments/browser-post/callback",
-)
-// Returns: PostURL, TAC, and other form fields
-```
-
-**3. Frontend: Render Payment Form**
-
-```html
-<!-- User's browser submits card data directly to EPX -->
-<form method="POST" action="{{.PostURL}}">
-    <input type="hidden" name="TAC" value="{{.TAC}}" />
-    <input type="hidden" name="TRAN_NBR" value="TXN-12345" />
-    <input type="hidden" name="AMOUNT" value="99.99" />
-    <input type="hidden" name="TRAN_GROUP" value="SALE" />
-    <input type="hidden" name="REDIRECT_URL" value="http://localhost:8081/api/v1/payments/browser-post/callback" />
-
-    <!-- Optional: Enable payment method saving -->
-    <input type="hidden" name="USER_DATA_1" value="save_payment_method=true" />
-    <input type="hidden" name="USER_DATA_2" value="{{.CustomerID}}" />
-
-    <input type="text" name="CARD_NBR" placeholder="Card Number" required />
-    <input type="text" name="EXP_MONTH" placeholder="MM" required />
-    <input type="text" name="EXP_YEAR" placeholder="YYYY" required />
-    <input type="text" name="CVV" placeholder="CVV" required />
-
-    <!-- Optional: For Account Verification (if saving payment method) -->
-    <input type="text" name="FIRST_NAME" placeholder="First Name" />
-    <input type="text" name="LAST_NAME" placeholder="Last Name" />
-    <input type="text" name="ADDRESS" placeholder="Billing Address" />
-    <input type="text" name="CITY" placeholder="City" />
-    <input type="text" name="STATE" placeholder="State" />
-    <input type="text" name="ZIP_CODE" placeholder="ZIP" />
-
-    <label>
-        <input type="checkbox" id="savePaymentMethod" /> Save for future use
-    </label>
-
-    <button type="submit">Pay $99.99</button>
-</form>
-```
-
-**4. EPX: Process Payment**
-
-- User's browser POSTs to EPX (card data never touches your server)
-- EPX validates card, processes payment
-- EPX redirects browser back to your REDIRECT_URL with results
-
-**5. Backend: Callback Handler Receives Results**
-
-```go
-// Automatically handled by BrowserPostCallbackHandler
-// File: internal/handlers/payment/browser_post_callback_handler.go
-
-POST /api/v1/payments/browser-post/callback
-
-// Received fields:
-// - AUTH_GUID: Transaction token (Financial BRIC) for refunds/voids
-// - AUTH_RESP: "00" = approved
-// - AUTH_CODE: Bank authorization code
-// - AUTH_CARD_TYPE, AUTH_AVS, AUTH_CVV2: Verification
-// - TRAN_NBR, AMOUNT: Echo back your values
-// - USER_DATA_1, USER_DATA_2: Custom data (save flag, customer_id)
-
-// Handler Flow:
-// 1. Parses response
-// 2. Validates fields
-// 3. Checks for duplicates (idempotency)
-// 4. Stores transaction in database with Financial BRIC (AUTH_GUID)
-// 5. If USER_DATA_1 contains "save_payment_method=true":
-//    a. Converts Financial BRIC to Storage BRIC via EPX
-//    b. For credit cards: EPX performs $0.00 Account Verification
-//    c. Saves Storage BRIC to customer_payment_methods table
-//    d. Storage BRIC never expires (use for recurring payments)
-// 6. Renders HTML receipt page to user
-```
-
-**6. User: Sees Receipt Page**
-
-- Success: Shows masked card, auth code, transaction ID
-- Failure: Shows error message with retry option
-
-**Key Benefits:**
-
-- ✅ PCI-compliant (card data never hits your server)
-- ✅ No PCI certification needed
-- ✅ Simple integration
-- ✅ AUTH_GUID stored for future refunds/voids
-- ✅ Automatic duplicate detection
-
-## 🧪 Testing
-
-### Unit Tests
+Required environment variables (`.env` file):
 
 ```bash
-# Run all tests (unit + integration)
-make test
+# Database
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/payments?sslmode=disable
 
-# Run unit tests only (skip integration)
-make test-unit
+# EPX Credentials (from EPX merchant account)
+EPX_CUST_NBR=9001
+EPX_MERCH_NBR=900300
+EPX_DBA_NBR=2
+EPX_TERMINAL_NBR=77
+EPX_MAC_SECRET=your-mac-secret-here
 
-# Run tests with coverage
-make test-cover
+# EPX URLs (Sandbox)
+EPX_API_URL=https://api.epxuap.com
+EPX_BROWSER_POST_URL=https://services.epxuap.com/browserpost/
 
-# Run specific adapter tests
-go test -v ./internal/adapters/north
+# Server Configuration
+SERVICE_URL=http://localhost:8081
 ```
 
-### Integration Tests
+**[Complete Setup Guide](../../wiki/EPX-Credentials#configuring-the-payment-service)** - Detailed environment configuration.
 
-Integration tests verify the full stack with a real PostgreSQL database.
+## 🚀 Deployment
+
+### Docker
 
 ```bash
-# Start test database
-make test-db-up
+# Build image
+docker build -t payment-service:latest .
 
-# Run integration tests
-make test-integration
-
-# Run integration tests with coverage
-make test-integration-cover
-
-# Stop test database
-make test-db-down
+# Run with docker-compose
+docker-compose up -d
 ```
 
-**What's tested:**
+### Google Cloud Run
 
-- Repository layer with real PostgreSQL
-- Payment Service with database transactions
-- Subscription Service with billing logic
-- Idempotency key handling
-- Transaction lifecycle (authorize, capture, void, refund)
-- Subscription lifecycle (create, update, cancel, billing)
-
-See [tests/integration/README.md](tests/integration/README.md) for detailed documentation.
-
-### Test Coverage
-
-- **EPX Adapter Unit Tests**: 13.5% (focused on business logic, not HTTP/API calls)
-- **EPX Adapter Integration Tests**: 9 comprehensive tests covering all 7 transaction types
-- **Chargeback Handler Tests**: 72.6%
-
-**EPX Integration Tests:**
-
-- ✅ Sale (CCE1) - Authorization + Capture
-- ✅ Authorization Only (CCE2)
-- ✅ Complete Auth → Capture flow
-- ✅ Complete Sale → Refund flow
-- ✅ Complete Sale → Void flow
-- ✅ BRIC Storage (CCE8) tokenization
-- ✅ Complete recurring payment flow
-- ✅ Error handling (invalid cards, declines)
-- ✅ Performance validation (response times)
-
-See [TESTING.md](TESTING.md) for complete testing guide.
-
-## 🏛️ Architecture Benefits
-
-### Dependency Injection with Interfaces
-
-All dependencies are injected through interfaces, enabling:
-
-✅ **Easy Testing**: Mock all external dependencies
-✅ **Flexibility**: Swap implementations without code changes
-✅ **Maintainability**: Clear boundaries and responsibilities
-✅ **Team Velocity**: Parallel development on interfaces
-
-### Example: Swapping Loggers
-
-```go
-// Development: verbose logging
-devLogger, _ := security.NewZapLoggerDevelopment()
-adapter := epx.NewServerPostAdapter(url, httpClient, devLogger)
-
-// Production: structured JSON logging
-prodLogger, _ := security.NewZapLoggerProduction()
-adapter := epx.NewServerPostAdapter(url, httpClient, prodLogger)
-
-// Testing: mock logger
-mockLogger := mocks.NewMockLogger()
-adapter := epx.NewServerPostAdapter(url, httpClient, mockLogger)
-
-// Custom: your own implementation
-customLogger := MyLogger{}
-adapter := epx.NewServerPostAdapter(url, httpClient, customLogger)
-```
-
-See [docs/ARCHITECTURE_BENEFITS.md](docs/ARCHITECTURE_BENEFITS.md) for detailed benefits and examples.
-
-## 📊 Response Codes
-
-The system handles 40+ response codes with user-friendly messages:
-
-| Code | Display | Category | Retriable | User Message |
-|------|---------|----------|-----------|--------------|
-| 00 | APPROVAL | Approved | No | Payment successful |
-| 51 | INSUFF FUNDS | Insufficient Funds | Yes | Insufficient funds. Please use a different payment method. |
-| 54 | EXP CARD | Expired Card | Yes | Your card has expired. |
-| 82 | CVV ERROR | Invalid Card | Yes | Incorrect CVV. Please check the security code. |
-| 59 | SUSPECTED FRAUD | Fraud | No | Transaction declined for security reasons. |
-| 96 | SYSTEM ERROR | System Error | Yes | System error. Please try again. |
-
-## 🔐 Security
-
-- **PCI-Reduced Scope**: Backend only handles BRIC tokens, never raw card data
-- **HMAC-SHA256 Authentication**: All North API calls are signed
-- **TLS 1.3**: Encrypted communication
-- **Tokenization**: Cards tokenized via Browser Post (frontend)
-
-## 📊 Observability
-
-### Prometheus Metrics
-
-The service exposes Prometheus metrics on port 9090:
+One-click deployment to Google Cloud Run:
 
 ```bash
-curl http://localhost:9090/metrics
+gcloud run deploy payment-service \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated
 ```
 
-**Available Metrics:**
-
-- `grpc_requests_total{method, status}` - Total gRPC requests
-- `grpc_request_duration_seconds{method}` - Request duration histogram
-- `grpc_requests_in_flight` - Current concurrent requests
+**[Production Deployment Guide](../../wiki/GCP-PRODUCTION-SETUP)** - Complete Google Cloud Run setup.
 
 ### Health Checks
 
-**Liveness Probe:**
-
 ```bash
+# Liveness probe
 curl http://localhost:9090/health
-```
 
-Returns JSON with database connectivity status:
-
-```json
-{
-  "status": "healthy",
-  "timestamp": "2025-10-20T12:00:00Z",
-  "checks": {
-    "database": "healthy"
-  }
-}
-```
-
-**Readiness Probe:**
-
-```bash
+# Readiness probe
 curl http://localhost:9090/ready
+
+# Prometheus metrics
+curl http://localhost:9090/metrics
 ```
 
-### Database Migrations
-
-We use [Goose](https://github.com/pressly/goose) for database migrations.
-
-**Using Makefile (recommended):**
-
-```bash
-# Run all pending migrations
-make migrate-up
-
-# Check migration status
-make migrate-status
-
-# Rollback last migration
-make migrate-down
-
-# Create new migration
-make migrate-create NAME=add_users_table
-```
-
-**Using goose CLI directly:**
-
-```bash
-# Install goose
-go install github.com/pressly/goose/v3/cmd/goose@latest
-
-# Run migrations
-goose -dir internal/db/migrations postgres "host=localhost port=5432 user=postgres password=postgres dbname=payment_service sslmode=disable" up
-
-# Check status
-goose -dir internal/db/migrations postgres "host=localhost port=5432 user=postgres password=postgres dbname=payment_service sslmode=disable" status
-
-# Create new migration
-goose -dir internal/db/migrations create add_users_table sql
-```
-
-**Docker:** Migrations run automatically when using `docker-compose up`
-
-## 📝 API Endpoints Implemented
-
-### Server Post API ✅
-
-- `Authorize()` - Authorize payment with token
-- `Capture()` - Capture authorized payment
-- `Sale()` - One-step authorize and capture
-- `Void()` - Void transaction
-- `Refund()` - Refund payment
-
-### Subscription Service ✅
-
-- `CreateSubscription()` - Create new recurring subscription
-- `UpdateSubscription()` - Update subscription details
-- `CancelSubscription()` - Cancel subscription
-- `PauseSubscription()` - Pause subscription billing
-- `ResumeSubscription()` - Resume paused subscription
-- `GetSubscription()` - Get subscription details
-- `ListSubscriptions()` - List customer subscriptions
-
-### Payment Method Service ✅
-
-- `SavePaymentMethod()` - Save payment method with existing token
-- `ConvertFinancialBRICToStorageBRIC()` - Convert Financial BRIC to Storage BRIC
-  - Credit cards: Triggers $0.00 Account Verification with card networks
-  - ACH: Validates routing number
-  - Returns Storage BRIC (never expires) for recurring payments
-- `GetPaymentMethod()` - Get payment method details
-- `ListPaymentMethods()` - List customer payment methods
-- `UpdatePaymentMethodStatus()` - Activate/deactivate payment method
-- `DeletePaymentMethod()` - Soft delete payment method (90-day retention)
-- `SetDefaultPaymentMethod()` - Mark payment method as default
-- `VerifyACHAccount()` - Send pre-note for ACH verification
-
-### ACH Payments (via Server Post) ✅
-
-- ACH debit transactions (checking/savings)
-- ACH credit transactions (refunds)
-- Bank account verification
-- Pre-note verification for new accounts
-
-### Browser Post API ✅
-
-- `BuildFormData()` - Generate payment form data with TAC token
-- `ParseRedirectResponse()` - Process payment callback from EPX
-- `ValidateResponseMAC()` - Validate response signature
-- Frontend tokenization for PCI compliance
-
-**REDIRECT_URL Configuration:**
-When configuring your EPX Browser Post credentials, provide this URL where EPX will redirect after processing:
-
-- **Local Development**: `http://localhost:8081/api/v1/payments/browser-post/callback`
-- **Production**: `https://yourdomain.com/api/v1/payments/browser-post/callback`
-
-The callback endpoint:
-
-1. Receives POST redirect from EPX with transaction results
-2. Parses and validates the response
-3. Stores transaction in database (including AUTH_GUID for refunds)
-4. Displays HTML receipt page to user
-5. Handles duplicate callbacks (PRG pattern)
-
-## 🛠️ Development
-
-### Quality Assurance
-
-```bash
-# Run linters
-go vet ./...
-
-# Check for common issues
-staticcheck ./...
-
-# Format code
-go fmt ./...
-
-# Build verification
-go build ./...
-```
-
-### Adding a New Adapter
-
-1. Define the port interface in `internal/adapters/ports/` (for adapters) or `internal/services/ports/` (for services)
-2. Create implementation in `internal/adapters/{vendor}/`
-3. Inject dependencies through constructor
-4. Write unit tests with mocks
-5. Achieve >80% test coverage
-
-Example:
-
-```go
-// 1. Define port in internal/adapters/ports/
-package ports
-
-type MyGateway interface {
-    Process(ctx context.Context, req *Request) (*Result, error)
-}
-
-// 2. Create adapter in internal/adapters/myvendor/
-package myvendor
-
-import "github.com/kevin07696/payment-service/internal/adapters/ports"
-
-type MyAdapter struct {
-    httpClient ports.HTTPClient
-    logger     ports.Logger
-}
-
-func NewMyAdapter(httpClient ports.HTTPClient, logger ports.Logger) ports.MyGateway {
-    return &MyAdapter{httpClient: httpClient, logger: logger}
-}
-
-// 3. Implement interface
-func (a *MyAdapter) Process(ctx context.Context, req *Request) (*Result, error) {
-    // Implementation
-}
-
-// 4. Write tests
-func TestMyAdapter_Process(t *testing.T) {
-    mockHTTP := mocks.NewMockHTTPClient(...)
-    mockLogger := mocks.NewMockLogger()
-    adapter := NewMyAdapter(mockHTTP, mockLogger)
-    // Test cases
-}
-```
-
-**[CHANGELOG.md](CHANGELOG.md)** - Version history and changes
-
-## 🗺️ Roadmap
-
-### Phase 1: Foundation ✅
-
-- [x] Project structure
-- [x] Domain models
-- [x] Port interfaces
-- [x] HMAC authentication
-- [x] Response code mapping
-- [x] Custom Pay adapter
-- [x] Testing infrastructure
-
-### Phase 2: Business Logic ✅
-
-- [x] Payment service
-- [x] Subscription service
-- [x] Idempotency middleware
-
-### Phase 3: Data Layer ✅
-
-- [x] PostgreSQL repositories
-- [x] Database migrations with Goose
-- [x] Audit logging schema
-
-### Phase 4: API Layer ✅
-
-- [x] gRPC proto definitions
-- [x] gRPC service implementation
-- [x] gRPC server with interceptors
-
-### Phase 5: Observability ✅
-
-- [x] Prometheus metrics
-- [x] Health checks
-- [ ] OpenTelemetry tracing (optional)
-
-### Phase 6: Deployment ✅
-
-- [x] Docker containerization
-- [x] Docker Compose orchestration
-- [x] Automated migrations on startup
-- [ ] Kubernetes manifests (optional)
-- [ ] CI/CD pipeline (optional)
-
-### Phase 7: Payment Adapters ✅
-
-- [x] EPX Server Post adapter (card & ACH payments)
-- [x] EPX Browser Post adapter (PCI-compliant tokenization)
-- [x] EPX BRIC Storage adapter (Storage BRIC conversion)
-- [x] EPX Key Exchange adapter (credential management)
-- [x] North Merchant Reporting adapter (read-only disputes)
-- [x] Webhook delivery system with retries
-- [x] Payment Method Service (saved payment methods)
-- [x] Storage BRIC conversion with Account Verification
-- [x] Auto-save payment methods in Browser Post callback
-
-### Phase 8: Testing & Integration 🚧
-
-- [x] Integration tests with PostgreSQL
-- [x] gRPC integration tests (4/4 passing)
-- [x] REST API gateway operational
-- [x] Integration test infrastructure with BRIC Storage tokenization
-- [🚧] BRIC Storage tokenization tests (pending EPX sandbox enablement)
-- [ ] End-to-end transaction tests with North sandbox
-- [ ] Load testing
-
-**⚠️ BRIC Storage Tokenization - Next Steps:**
-
-Integration tests are ready but require EPX to enable BRIC Storage in sandbox:
-
-1. **Contact EPX Support** to enable CCE8/CKC8 transaction types in sandbox merchant account
-2. **Remove skip statements** from tests once EPX is configured:
-   - `tests/integration/payment_method/payment_method_test.go` (6 tests)
-   - `tests/integration/payment/transaction_test.go` (7 tests)
-   - `tests/integration/subscription/subscription_test.go` (9 tests)
-3. **Run full integration test suite**: `go test ./tests/integration/... -tags=integration`
-
-**Current Status:**
-- ✅ BRIC Storage tokenization helper implemented (CCE8 for cards, CKC8 for ACH)
-- ✅ All tests refactored to use PCI-compliant flow
-- ✅ Tests properly skip with clear "Coming Soon" message
-- ⏭️ Waiting on EPX sandbox configuration
-
-## 📚 Documentation
-
-Comprehensive guides for setup, integration, and maintenance:
-
-**API Documentation:**
-
-- **[API Specification](docs/API_SPECIFICATION.md)** - Complete REST & gRPC API reference
-- **[EPX API Reference](docs/EPX_API_REFERENCE.md)** - Complete EPX payment gateway API
-
-**Integration Guides:**
-
-- **[Testing Guide](docs/TESTING.md)** - Run tests, write tests, CI/CD integration
-- **[Branching & Deployment](docs/BRANCHING.md)** - Git workflow, staging, production deployment
-- **[Secrets Setup](docs/SECRETS.md)** - GitHub secrets, architecture, runtime access
-- **[Database Design](docs/DATABASE_DESIGN.md)** - Complete schema, relationships, lifecycle
-- **[GCP Production Setup](docs/GCP_PRODUCTION_SETUP.md)** - Deploy to Google Cloud Run
-
-**Dataflow Documentation:**
-
-- [Browser Post Dataflow](docs/BROWSER_POST_DATAFLOW.md) - PCI-compliant credit card payments
-- [Browser Post Frontend Guide](docs/BROWSER_POST_FRONTEND_GUIDE.md) - Frontend integration
-- [Server Post Dataflow](docs/SERVER_POST_DATAFLOW.md) - Server-side payment flow
-- [ACH Server Post Dataflow](docs/ACH_SERVER_POST_DATAFLOW.md) - Bank transfer payments
-
-**Research & Historical:**
-- [3DS Provider Research](docs/3DS_PROVIDER_RESEARCH.md)
+## 📖 Common Tasks
+
+**I want to...**
+
+- → **[Run the service locally](../../wiki/Quick-Start)** (5 min Docker setup)
+- → **[Get EPX credentials](../../wiki/EPX-Credentials)** (sandbox account)
+- → **[Make my first payment](../../wiki/Quick-Start#step-5-make-your-first-payment-browser-post)** (Browser Post test)
+- → **[Integrate Browser Post](../../wiki/DATAFLOW#browser-post-flow)** (PCI-compliant frontend)
+- → **[Set up recurring billing](../../wiki/DATAFLOW#subscription-billing-cron-job)** (subscriptions)
+- → **[Run integration tests](../../wiki/INTEGRATION-TEST-STRATEGY#running-integration-tests)** (test suite)
+- → **[Deploy to production](../../wiki/GCP-PRODUCTION-SETUP)** (Google Cloud Run)
+- → **[Debug callback issues](../../wiki/FAQ#how-do-i-debug-callback-issues)** (troubleshooting)
 
 ## 🤝 Contributing
 
@@ -837,18 +298,29 @@ Comprehensive guides for setup, integration, and maintenance:
 2. Use dependency injection for all external dependencies
 3. Write tests with >80% coverage
 4. Document public APIs
-5. Update CHANGELOG.md
+5. Update [CHANGELOG.md](CHANGELOG.md)
+
+**[Development Guide](../../wiki/DEVELOP)** - Complete development workflow.
 
 ## 📄 License
 
-[License Type] - See LICENSE file for details
+[MIT License](LICENSE) - See LICENSE file for details.
 
-## 📞 Contact
+## 📞 Support
 
-Kevin Lam - [@kevin07696](https://github.com/kevin07696)
+- **[FAQ](../../wiki/FAQ)** - Common questions answered
+- **[Troubleshooting Guide](../../wiki/Troubleshooting)** - Known issues & solutions
+- **[GitHub Issues](https://github.com/kevin07696/payment-service/issues)** - Report bugs or ask questions
 
-Project Link: [https://github.com/kevin07696/payment-service](https://github.com/kevin07696/payment-service)
+## 🔗 Links
+
+- **[Full Documentation (Wiki)](../../wiki)** - Complete guides and API reference
+- **[EPX API Documentation](https://developer.north.com)** - Official EPX/North developer docs
+- **[Changelog](CHANGELOG.md)** - Version history
+- **[GitHub Repository](https://github.com/kevin07696/payment-service)** - Source code
 
 ---
 
 **Built with ❤️ using Go, Clean Architecture, and TDD**
+
+**[Get Started Now](../../wiki/Quick-Start)** | **[Get EPX Credentials](../../wiki/EPX-Credentials)** | **[View Wiki](../../wiki)**
