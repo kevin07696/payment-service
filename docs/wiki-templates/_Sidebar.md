@@ -10,6 +10,7 @@
 
 **📖 Getting Started**
 - [Complete Setup Guide](DEVELOP)
+- [Integration Guide](INTEGRATION-GUIDE)
 - [Your First Payment](Quick-Start#step-5-make-your-first-payment-browser-post)
 - [Authentication](AUTH)
 

@@ -7,6 +7,7 @@ Welcome! This is your complete guide to integrating, developing, and deploying t
 | Guide | Time | What You'll Learn |
 |-------|------|-------------------|
 | **[Quick Start](Quick-Start)** | 5 min | Get the service running locally with Docker |
+| **[Integration Guide](INTEGRATION-GUIDE)** | 30 min | Step-by-step merchant registration and payment integration |
 | **[EPX Credentials Guide](EPX-Credentials)** | 15 min | Obtain EPX API keys for sandbox and production |
 | **[FAQ - Browser Post](FAQ#browser-post--callbacks)** | 10 min | How Browser Post callbacks work |
 
@@ -18,6 +19,7 @@ Welcome! This is your complete guide to integrating, developing, and deploying t
 
 **Setup & Configuration**
 - **[Quick Start (5 Minutes)](Quick-Start)** - Get running with Docker
+- **[Integration Guide (30 Minutes)](INTEGRATION-GUIDE)** - Complete merchant registration and integration
 - **[Complete Setup Guide](DEVELOP)** - Detailed local development setup
 - **[EPX Credentials](EPX-Credentials)** - How to get API keys from EPX
 

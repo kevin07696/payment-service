@@ -16,6 +16,7 @@ on:
       - 'docs/EPX_API_REFERENCE.md'
       - 'docs/GCP_PRODUCTION_SETUP.md'
       - 'docs/INTEGRATION_TEST_STRATEGY.md'
+      - 'docs/INTEGRATION_GUIDE.md'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
@@ -58,6 +59,7 @@ jobs:
           cp docs/EPX_API_REFERENCE.md wiki/EPX-API-REFERENCE.md
           cp docs/GCP_PRODUCTION_SETUP.md wiki/GCP-PRODUCTION-SETUP.md
           cp docs/INTEGRATION_TEST_STRATEGY.md wiki/INTEGRATION-TEST-STRATEGY.md
+          cp docs/INTEGRATION_GUIDE.md wiki/INTEGRATION-GUIDE.md
 
           echo "✅ All documentation files copied"
 
@@ -95,6 +97,7 @@ jobs:
           echo "- Quick Start" >> $GITHUB_STEP_SUMMARY
           echo "- EPX Credentials Guide" >> $GITHUB_STEP_SUMMARY
           echo "- FAQ" >> $GITHUB_STEP_SUMMARY
+          echo "- Integration Guide (NEW)" >> $GITHUB_STEP_SUMMARY
           echo "- DATAFLOW" >> $GITHUB_STEP_SUMMARY
           echo "- DEVELOP" >> $GITHUB_STEP_SUMMARY
           echo "- API-Specs" >> $GITHUB_STEP_SUMMARY
