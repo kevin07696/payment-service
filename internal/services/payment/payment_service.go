@@ -561,7 +561,11 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 
 		canCapture, reason := state.CanCapture(captureAmount)
 		if !canCapture {
-			return fmt.Errorf("capture not allowed: %s", reason)
+			s.logger.Warn("Capture validation failed",
+				zap.String("capture_transaction_id", txID.String()),
+				zap.String("reason", reason),
+			)
+			return domain.ErrTransactionCannotBeCaptured
 		}
 
 		s.logger.Info("Capture validation passed",
@@ -1088,7 +1092,11 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		// Validate refund is allowed
 		canRefund, reason := state.CanRefund(finalRefundAmount)
 		if !canRefund {
-			return fmt.Errorf("refund not allowed: %s", reason)
+			s.logger.Warn("Refund validation failed",
+				zap.String("group_id", req.GroupID),
+				zap.String("reason", reason),
+			)
+			return domain.ErrTransactionCannotBeRefunded
 		}
 
 		s.logger.Info("Refund validation passed",
