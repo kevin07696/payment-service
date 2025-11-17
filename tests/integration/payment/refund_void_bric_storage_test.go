@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMultipleRefunds_SameGroup tests multiple refunds on same transaction
+// TestBRICStorage_Refund_MultipleSameGroup tests multiple refunds on same transaction using BRIC Storage
 // This test covers both full and partial refund scenarios
-func TestMultipleRefunds_SameGroup(t *testing.T) {
+func TestBRICStorage_Refund_MultipleSameGroup(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
 
 	cfg, client := testutil.Setup(t)
@@ -104,8 +104,8 @@ func TestMultipleRefunds_SameGroup(t *testing.T) {
 	assert.GreaterOrEqual(t, len(transactions), 3, "Should have at least 3 transactions (1 sale + 2 refunds)")
 }
 
-// TestVoid_UsingGroupID tests void using group_id
-func TestVoid_UsingGroupID(t *testing.T) {
+// TestBRICStorage_Void_UsingGroupID tests void using group_id with BRIC Storage
+func TestBRICStorage_Void_UsingGroupID(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
 
 	cfg, client := testutil.Setup(t)
@@ -165,8 +165,8 @@ func TestVoid_UsingGroupID(t *testing.T) {
 	t.Logf("Void completed - Transaction voided in group: %s", groupID)
 }
 
-// TestRefundValidation tests refund validation errors
-func TestRefundValidation(t *testing.T) {
+// TestBRICStorage_Refund_Validation tests refund validation errors with BRIC Storage
+func TestBRICStorage_Refund_Validation(t *testing.T) {
 	_, client := testutil.Setup(t)
 
 	testCases := []struct {
@@ -203,8 +203,8 @@ func TestRefundValidation(t *testing.T) {
 	}
 }
 
-// TestVoidValidation tests void validation errors
-func TestVoidValidation(t *testing.T) {
+// TestBRICStorage_Void_Validation tests void validation errors with BRIC Storage
+func TestBRICStorage_Void_Validation(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
 
 	cfg, client := testutil.Setup(t)
@@ -254,8 +254,8 @@ func TestVoidValidation(t *testing.T) {
 	t.Logf("Void after capture: status %d", voidResp.StatusCode)
 }
 
-// TestCleanAPIAbstraction tests that EPX implementation details are not exposed
-func TestCleanAPIAbstraction(t *testing.T) {
+// TestBRICStorage_API_CleanAbstraction tests that EPX implementation details are not exposed with BRIC Storage
+func TestBRICStorage_API_CleanAbstraction(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
 
 	cfg, client := testutil.Setup(t)

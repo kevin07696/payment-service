@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,6 +130,14 @@ func (m *MockQuerier) SetPaymentMethodAsDefault(ctx context.Context, params sqlc
 }
 
 // Transaction stubs
+func (m *MockQuerier) GetTransactionByTranNbr(ctx context.Context, tranNbr pgtype.Text) (sqlc.Transaction, error) {
+	args := m.Called(ctx, tranNbr)
+	return args.Get(0).(sqlc.Transaction), args.Error(1)
+}
+func (m *MockQuerier) UpdateTransactionFromEPXResponse(ctx context.Context, params sqlc.UpdateTransactionFromEPXResponseParams) (sqlc.Transaction, error) {
+	args := m.Called(ctx, params)
+	return args.Get(0).(sqlc.Transaction), args.Error(1)
+}
 func (m *MockQuerier) GetTransactionsByGroupID(ctx context.Context, groupID uuid.UUID) ([]sqlc.Transaction, error) {
 	return nil, nil
 }
@@ -383,6 +393,26 @@ func TestGetPaymentForm_Success(t *testing.T) {
 	}
 	mockQuerier.On("GetMerchantByID", mock.Anything, merchantID).Return(merchant, nil)
 
+	// Mock transaction lookup (for idempotency check) - should not exist yet
+	mockQuerier.On("GetTransactionByID", mock.Anything, txID).Return(sqlc.Transaction{}, fmt.Errorf("transaction not found"))
+
+	// Mock transaction creation (pending transaction pattern)
+	createdTx := sqlc.Transaction{
+		ID:                txID,
+		GroupID:           uuid.New(),
+		MerchantID:        merchantID,
+		Amount:            pgtype.Numeric{Int: nil, Exp: 0, Valid: true}, // Amount representation
+		Currency:          "USD",
+		Type:              "sale",
+		PaymentMethodType: "credit_card",
+		TranNbr:           pgtype.Text{String: "2466125485", Valid: true},
+		AuthResp:          "", // Pending (empty string)
+		Status:            pgtype.Text{String: "pending", Valid: true},
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+	}
+	mockQuerier.On("CreateTransaction", mock.Anything, mock.AnythingOfType("sqlc.CreateTransactionParams")).Return(createdTx, nil)
+
 	// Mock secret manager
 	secret := &ports.Secret{
 		Value:     "test-mac-secret",
@@ -554,6 +584,26 @@ func TestGetPaymentForm_DefaultTransactionType(t *testing.T) {
 	}
 	mockQuerier.On("GetMerchantByID", mock.Anything, merchantID).Return(merchant, nil)
 
+	// Mock transaction lookup (for idempotency check) - should not exist yet
+	mockQuerier.On("GetTransactionByID", mock.Anything, txID).Return(sqlc.Transaction{}, fmt.Errorf("transaction not found"))
+
+	// Mock transaction creation (pending transaction pattern)
+	createdTx := sqlc.Transaction{
+		ID:                txID,
+		GroupID:           uuid.New(),
+		MerchantID:        merchantID,
+		Amount:            pgtype.Numeric{Int: nil, Exp: 0, Valid: true},
+		Currency:          "USD",
+		Type:              "sale",
+		PaymentMethodType: "credit_card",
+		TranNbr:           pgtype.Text{String: txID.String(), Valid: true},
+		AuthResp:          "", // Pending (empty string)
+		Status:            pgtype.Text{String: "pending", Valid: true},
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+	}
+	mockQuerier.On("CreateTransaction", mock.Anything, mock.AnythingOfType("sqlc.CreateTransactionParams")).Return(createdTx, nil)
+
 	secret := &ports.Secret{Value: "test-mac-secret", Version: "v1", CreatedAt: time.Now().Format(time.RFC3339)}
 	mockSecretMgr.On("GetSecret", mock.Anything, "/secrets/test-merchant/mac").Return(secret, nil)
 
@@ -614,6 +664,8 @@ func TestHandleCallback_Success(t *testing.T) {
 	formParams["AMOUNT"] = []string{"99.99"}
 
 	// Mock Browser Post adapter parsing
+	merchantID := uuid.New()
+
 	epxResponse := &ports.BrowserPostResponse{
 		TranNbr:      txID.String(),
 		AuthResp:     "00",
@@ -622,33 +674,46 @@ func TestHandleCallback_Success(t *testing.T) {
 		AuthCardType: "Visa",
 		Amount:       "99.99",
 		IsApproved:   true,
+		RawParams: map[string]string{
+			"transaction_id": txID.String(),
+			"merchant_id":    merchantID.String(),
+		},
 	}
 	mockBrowserPost.On("ParseRedirectResponse", mock.Anything).Return(epxResponse, nil)
 
-	// Mock transaction creation
-	merchantID := uuid.New()
+	// Mock transaction update with EPX response
+	// UpdateTransactionFromEPXResponse does the lookup AND update in a single operation
 	groupID := uuid.New()
-
-	transaction := sqlc.Transaction{
+	updatedTransaction := sqlc.Transaction{
 		ID:                txID,
 		MerchantID:        merchantID,
 		GroupID:           groupID,
-		Amount:            pgtype.Numeric{},
+		Amount:            pgtype.Numeric{Int: nil, Exp: 0, Valid: true},
 		Currency:          "USD",
-		Type:              "charge",
-		AuthResp:          "00",
+		Type:              "sale",
+		AuthResp:          "00", // Updated with EPX response
+		AuthCode:          pgtype.Text{String: "123456", Valid: true},
+		AuthGuid:          pgtype.Text{String: "TEST-BRIC-TOKEN-123", Valid: true},
 		PaymentMethodType: "credit_card",
+		TranNbr:           pgtype.Text{String: txID.String(), Valid: true},
+		Status:            pgtype.Text{String: "completed", Valid: true},
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
 	}
-	mockQuerier.On("CreateTransaction", mock.Anything, mock.Anything).Return(transaction, nil)
+	mockQuerier.On("UpdateTransactionFromEPXResponse", mock.Anything, mock.AnythingOfType("sqlc.UpdateTransactionFromEPXResponseParams")).Return(updatedTransaction, nil)
 
-	// Create test request with query parameters (EPX uses self-posting form = POST)
-	reqURL := "/api/v1/payments/browser-post/callback?transaction_id=" + txID.String() +
-		"&merchant_id=" + merchantID.String() + "&transaction_type=SALE" +
-		"&TRAN_NBR=" + txID.String() +
-		"&AUTH_RESP=00&AUTH_CODE=123456&AUTH_GUID=TEST-BRIC-TOKEN-123&AUTH_CARD_TYPE=Visa&AMOUNT=99.99"
-	req := httptest.NewRequest(http.MethodPost, reqURL, nil)
+	// Create test request with form data in body (EPX uses self-posting form = POST with form data)
+	formData := url.Values{}
+	formData.Set("TRAN_NBR", txID.String())
+	formData.Set("AUTH_RESP", "00")
+	formData.Set("AUTH_CODE", "123456")
+	formData.Set("AUTH_GUID", "TEST-BRIC-TOKEN-123")
+	formData.Set("AUTH_CARD_TYPE", "Visa")
+	formData.Set("AMOUNT", "99.99")
+
+	reqURL := "/api/v1/payments/browser-post/callback"
+	req := httptest.NewRequest(http.MethodPost, reqURL, strings.NewReader(formData.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 
 	// Execute

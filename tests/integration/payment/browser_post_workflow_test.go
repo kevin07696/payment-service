@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBrowserPost_AuthCapture_Workflow tests the full SALE → REFUND workflow with real BRIC
+// TestIntegration_BrowserPost_SaleRefund_Workflow tests the full SALE → REFUND workflow with real EPX
 // Uses headless Chrome automation to get real BRIC from EPX (fully automated!)
 // Requires Chrome/Chromium installed on the system
 // Requires ngrok or CALLBACK_BASE_URL for EPX to reach callback endpoint
 // Note: EPX test merchant doesn't support AUTH-only ("A"), so we use SALE ("U") instead
-func TestBrowserPost_AuthCapture_Workflow(t *testing.T) {
+func TestIntegration_BrowserPost_SaleRefund_Workflow(t *testing.T) {
 	cfg, client := testutil.Setup(t)
 	time.Sleep(2 * time.Second)
 
@@ -72,11 +72,11 @@ func TestBrowserPost_AuthCapture_Workflow(t *testing.T) {
 	t.Log("========================================================================")
 }
 
-// TestBrowserPost_AuthCaptureRefund_Workflow tests the full AUTH → CAPTURE → REFUND workflow with real BRIC
+// TestIntegration_BrowserPost_AuthCaptureRefund_Workflow tests the full AUTH → CAPTURE → REFUND workflow with real EPX
 // Verifies all three transactions share the same group_id and EPX accepts real BRIC for all operations
 // Uses headless Chrome automation to get real BRIC from EPX (fully automated!)
 // Requires ngrok or CALLBACK_BASE_URL for EPX to reach callback endpoint
-func TestBrowserPost_AuthCaptureRefund_Workflow(t *testing.T) {
+func TestIntegration_BrowserPost_AuthCaptureRefund_Workflow(t *testing.T) {
 	cfg, client := testutil.Setup(t)
 	time.Sleep(2 * time.Second)
 
@@ -158,11 +158,11 @@ func TestBrowserPost_AuthCaptureRefund_Workflow(t *testing.T) {
 	t.Log("========================================================================")
 }
 
-// TestBrowserPost_AuthVoid_Workflow tests AUTH → VOID workflow with real BRIC
+// TestIntegration_BrowserPost_AuthVoid_Workflow tests AUTH → VOID workflow with real EPX
 // VOID cancels an authorization before capture
 // Uses headless Chrome automation to get real BRIC from EPX (fully automated!)
 // Requires ngrok or CALLBACK_BASE_URL for EPX to reach callback endpoint
-func TestBrowserPost_AuthVoid_Workflow(t *testing.T) {
+func TestIntegration_BrowserPost_AuthVoid_Workflow(t *testing.T) {
 	cfg, client := testutil.Setup(t)
 	time.Sleep(2 * time.Second)
 

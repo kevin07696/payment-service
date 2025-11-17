@@ -1,0 +1,289 @@
+package payment
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+)
+
+// ============================================================================
+// Mock Implementations
+// ============================================================================
+
+// MockServerPostAdapter mocks the EPX Server Post adapter
+type MockServerPostAdapter struct {
+	mock.Mock
+}
+
+func (m *MockServerPostAdapter) ProcessTransaction(ctx context.Context, req *adapterports.ServerPostRequest) (*adapterports.ServerPostResponse, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*adapterports.ServerPostResponse), args.Error(1)
+}
+
+func (m *MockServerPostAdapter) ProcessTransactionViaSocket(ctx context.Context, req *adapterports.ServerPostRequest) (*adapterports.ServerPostResponse, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*adapterports.ServerPostResponse), args.Error(1)
+}
+
+func (m *MockServerPostAdapter) ValidateToken(ctx context.Context, authGUID string) error {
+	args := m.Called(ctx, authGUID)
+	return args.Error(0)
+}
+
+// MockSecretManagerAdapter mocks the secret manager adapter
+type MockSecretManagerAdapter struct {
+	mock.Mock
+}
+
+func (m *MockSecretManagerAdapter) GetSecret(ctx context.Context, path string) (*adapterports.Secret, error) {
+	args := m.Called(ctx, path)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*adapterports.Secret), args.Error(1)
+}
+
+func (m *MockSecretManagerAdapter) GetSecretVersion(ctx context.Context, path string, version string) (*adapterports.Secret, error) {
+	args := m.Called(ctx, path, version)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*adapterports.Secret), args.Error(1)
+}
+
+func (m *MockSecretManagerAdapter) PutSecret(ctx context.Context, path string, value string, metadata map[string]string) (string, error) {
+	args := m.Called(ctx, path, value, metadata)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockSecretManagerAdapter) RotateSecret(ctx context.Context, path string, newValue string) (*adapterports.SecretRotationInfo, error) {
+	args := m.Called(ctx, path, newValue)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*adapterports.SecretRotationInfo), args.Error(1)
+}
+
+func (m *MockSecretManagerAdapter) DeleteSecret(ctx context.Context, path string) error {
+	args := m.Called(ctx, path)
+	return args.Error(0)
+}
+
+// NOTE: Complete mock implementation of sqlc.Querier would require ~70 methods.
+// For unit tests that require database operations, we should use integration tests
+// with a real PostgreSQL database instead of complex mocks.
+//
+// The critical business logic (idempotency, amount validation, state transitions)
+// is thoroughly tested in group_state_test.go and validation_test.go using pure
+// functions that don't require database mocking.
+
+// ============================================================================
+// Test Helpers
+// ============================================================================
+
+// ptr returns a pointer to the given string (test helper).
+func ptr(s string) *string {
+	return &s
+}
+
+// ============================================================================
+// Critical Business Logic Tests - Require Integration Tests
+// ============================================================================
+//
+// The following 5 critical business logic tests from Phase 1 of the risk-based
+// testing strategy require integration tests with a real PostgreSQL database
+// rather than unit tests with mocks. This is because:
+//
+// 1. Idempotency testing requires actual database constraints (PRIMARY KEY)
+// 2. State validation requires WAL-based state computation across multiple rows
+// 3. Concurrent request testing requires real database transaction locking
+// 4. EPX decline handling requires both database writes and EPX adapter calls
+//
+// The pure business logic (state computation, validation rules) is already
+// thoroughly tested in:
+// - group_state_test.go: WAL-based state computation logic
+// - validation_test.go: Table-driven validation rules
+//
+// These integration tests should be implemented in:
+// tests/integration/payment/payment_service_integration_test.go
+//
+// Recommended tests:
+// 1. TestSale_DuplicateIdempotencyKey_ReturnsSameTransaction (p99, catastrophic)
+// 2. TestRefund_ExceedsOriginalAmount_ReturnsValidationError (p95, catastrophic)
+// 3. TestCapture_NonAuthorizedTransaction_ReturnsValidationError (p95, high)
+// 4. TestCaptureAndVoid_ConcurrentRequests_ExactlyOneSucceeds (p99.9, high)
+// 5. TestSale_InsufficientFunds_ReturnsDeclinedStatus (p90, medium)
+
+// ============================================================================
+// Helper Function Tests
+// ============================================================================
+
+// TestSqlcToDomain_ValidTransaction tests conversion from sqlc to domain model
+func TestSqlcToDomain_ValidTransaction(t *testing.T) {
+	txID := uuid.New()
+	groupID := uuid.New()
+	merchantID := uuid.New()
+	customerID := "cust-123"
+	authGUID := "bric-abc123"
+	authResp := "00"
+	authCode := "999999"
+	amount := decimal.RequireFromString("100.50")
+
+	sqlcTx := &sqlc.Transaction{
+		ID:                txID,
+		GroupID:           groupID,
+		MerchantID:        merchantID,
+		CustomerID:        pgtype.Text{String: customerID, Valid: true},
+		Amount:            pgtype.Numeric{Int: amount.Coefficient(), Exp: amount.Exponent(), Valid: true},
+		Currency:          "USD",
+		Type:              "sale",
+		PaymentMethodType: "credit_card",
+		AuthGuid:          pgtype.Text{String: authGUID, Valid: true},
+		AuthResp:          authResp,
+		AuthCode:          pgtype.Text{String: authCode, Valid: true},
+		Status:            pgtype.Text{String: "approved", Valid: true},
+	}
+
+	domainTx := sqlcToDomain(sqlcTx)
+
+	// Assert: Conversion is accurate
+	assert.Equal(t, txID.String(), domainTx.ID)
+	assert.Equal(t, groupID.String(), domainTx.GroupID)
+	assert.Equal(t, merchantID.String(), domainTx.MerchantID)
+	require.NotNil(t, domainTx.CustomerID)
+	assert.Equal(t, customerID, *domainTx.CustomerID)
+	assert.Equal(t, "100.50", domainTx.Amount.StringFixed(2))
+	assert.Equal(t, "USD", domainTx.Currency)
+	assert.Equal(t, domain.TransactionTypeSale, domainTx.Type)
+	assert.Equal(t, authGUID, domainTx.AuthGUID)
+	require.NotNil(t, domainTx.AuthResp)
+	assert.Equal(t, authResp, *domainTx.AuthResp)
+	require.NotNil(t, domainTx.AuthCode)
+	assert.Equal(t, authCode, *domainTx.AuthCode)
+	assert.Equal(t, domain.TransactionStatusApproved, domainTx.Status)
+}
+
+// TestToNullableText_NilValue tests nullable text conversion
+func TestToNullableText_NilValue(t *testing.T) {
+	result := toNullableText(nil)
+	assert.False(t, result.Valid)
+}
+
+// TestToNullableText_ValidValue tests nullable text conversion with value
+func TestToNullableText_ValidValue(t *testing.T) {
+	str := "test-value"
+	result := toNullableText(&str)
+	assert.True(t, result.Valid)
+	assert.Equal(t, "test-value", result.String)
+}
+
+// TestToNullableUUID_NilValue tests nullable UUID conversion
+func TestToNullableUUID_NilValue(t *testing.T) {
+	result := toNullableUUID(nil)
+	assert.False(t, result.Valid)
+}
+
+// TestToNullableUUID_ValidValue tests nullable UUID conversion with value
+func TestToNullableUUID_ValidValue(t *testing.T) {
+	id := uuid.New()
+	str := id.String()
+	result := toNullableUUID(&str)
+	assert.True(t, result.Valid)
+	assert.Equal(t, id, uuid.UUID(result.Bytes))
+}
+
+// TestToNullableUUID_InvalidFormat tests nullable UUID conversion with invalid format
+func TestToNullableUUID_InvalidFormat(t *testing.T) {
+	str := "not-a-uuid"
+	result := toNullableUUID(&str)
+	assert.False(t, result.Valid)
+}
+
+// TestToNumeric_ValidDecimal tests decimal to numeric conversion
+func TestToNumeric_ValidDecimal(t *testing.T) {
+	d := decimal.RequireFromString("123.45")
+	result := toNumeric(d)
+	assert.True(t, result.Valid)
+	assert.Equal(t, d.Coefficient(), result.Int)
+	assert.Equal(t, d.Exponent(), result.Exp)
+}
+
+// TestStringOrEmpty_NilValue tests string or empty with nil
+func TestStringOrEmpty_NilValue(t *testing.T) {
+	result := stringOrEmpty(nil)
+	assert.Equal(t, "", result)
+}
+
+// TestStringOrEmpty_ValidValue tests string or empty with value
+func TestStringOrEmpty_ValidValue(t *testing.T) {
+	str := "test-value"
+	result := stringOrEmpty(&str)
+	assert.Equal(t, "test-value", result)
+}
+
+// TestStringToUUIDPtr_NilValue tests UUID pointer conversion with nil
+func TestStringToUUIDPtr_NilValue(t *testing.T) {
+	result := stringToUUIDPtr(nil)
+	assert.Nil(t, result)
+}
+
+// TestStringToUUIDPtr_EmptyValue tests UUID pointer conversion with empty string
+func TestStringToUUIDPtr_EmptyValue(t *testing.T) {
+	str := ""
+	result := stringToUUIDPtr(&str)
+	assert.Nil(t, result)
+}
+
+// TestStringToUUIDPtr_ValidValue tests UUID pointer conversion with valid UUID
+func TestStringToUUIDPtr_ValidValue(t *testing.T) {
+	id := uuid.New()
+	str := id.String()
+	result := stringToUUIDPtr(&str)
+	require.NotNil(t, result)
+	assert.Equal(t, id, *result)
+}
+
+// TestStringToUUIDPtr_InvalidFormat tests UUID pointer conversion with invalid format
+func TestStringToUUIDPtr_InvalidFormat(t *testing.T) {
+	str := "not-a-uuid"
+	result := stringToUUIDPtr(&str)
+	assert.Nil(t, result)
+}
+
+// TestIsUniqueViolation tests unique constraint error detection
+func TestIsUniqueViolation(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{"nil error", nil, false},
+		{"unique constraint error", errors.New("unique constraint violation"), true},
+		{"duplicate key error", errors.New("duplicate key value"), true},
+		{"postgres 23505 error", errors.New("ERROR: 23505"), true},
+		{"other error", errors.New("something else"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isUniqueViolation(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

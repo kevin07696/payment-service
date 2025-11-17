@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRefund_Idempotency_ClientGeneratedUUID tests refund idempotency using client-generated transaction IDs
+// TestBRICStorage_Refund_IdempotencyClientUUID tests refund idempotency using client-generated transaction IDs with BRIC Storage
 // This pattern matches Browser Post: client generates UUID upfront, database enforces uniqueness via PRIMARY KEY
-func TestRefund_Idempotency_ClientGeneratedUUID(t *testing.T) {
+func TestBRICStorage_Refund_IdempotencyClientUUID(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
@@ -121,9 +121,9 @@ func TestRefund_Idempotency_ClientGeneratedUUID(t *testing.T) {
 	t.Log("   Pattern: Client generates UUID → Database enforces uniqueness → Automatic idempotency")
 }
 
-// TestRefund_MultipleRefundsWithDifferentUUIDs tests that different refunds on same group_id are allowed
+// TestBRICStorage_Refund_MultipleDifferentUUIDs tests that different refunds on same group_id are allowed with BRIC Storage
 // This verifies that idempotency doesn't prevent legitimate multiple refunds
-func TestRefund_MultipleRefundsWithDifferentUUIDs(t *testing.T) {
+func TestBRICStorage_Refund_MultipleDifferentUUIDs(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
@@ -230,8 +230,8 @@ func TestRefund_MultipleRefundsWithDifferentUUIDs(t *testing.T) {
 	t.Log("   Total refunded: $70 out of $100 original sale")
 }
 
-// TestRefund_ExceedOriginalAmount tests that refunds cannot exceed the original transaction amount
-func TestRefund_ExceedOriginalAmount(t *testing.T) {
+// TestBRICStorage_Refund_ExceedOriginalAmount tests that refunds cannot exceed the original transaction amount with BRIC Storage
+func TestBRICStorage_Refund_ExceedOriginalAmount(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
@@ -307,9 +307,9 @@ func TestRefund_ExceedOriginalAmount(t *testing.T) {
 	}
 }
 
-// TestConcurrentRefunds_SameUUID tests handling of concurrent retry requests with same transaction_id
+// TestBRICStorage_Refund_ConcurrentSameUUID tests handling of concurrent retry requests with same transaction_id using BRIC Storage
 // With UUID-based idempotency, concurrent retries should be safe (only one transaction created)
-func TestConcurrentRefunds_SameUUID(t *testing.T) {
+func TestBRICStorage_Refund_ConcurrentSameUUID(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
@@ -435,8 +435,8 @@ func TestConcurrentRefunds_SameUUID(t *testing.T) {
 	t.Log("✅ UUID-based idempotency prevents duplicate refunds from concurrent retries")
 }
 
-// TestTransactionIDUniqueness tests that transaction IDs are truly unique and prevent duplicates
-func TestTransactionIDUniqueness(t *testing.T) {
+// TestBRICStorage_TransactionID_Uniqueness tests that transaction IDs are truly unique and prevent duplicates with BRIC Storage
+func TestBRICStorage_TransactionID_Uniqueness(t *testing.T) {
 	testutil.Setup(t)
 	time.Sleep(2 * time.Second)
 
