@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Comprehensive GitHub Wiki documentation** - Complete documentation restructure with auto-sync (2025-01-17)
+  - **Purpose**: Provide user-friendly, organized documentation for developers integrating the payment service
+  - **Wiki Pages Created**:
+    - `Home.md` - Main wiki landing page with organized navigation
+    - `Quick-Start.md` - 5-minute Docker setup guide for new users
+    - `EPX-Credentials.md` - Complete guide on obtaining EPX API keys from North
+    - `FAQ.md` - Comprehensive FAQ including detailed Browser Post callback flow explanation
+    - `_Sidebar.md` - Navigation sidebar for all wiki pages
+    - `_Footer.md` - Wiki footer with links
+  - **Key Documentation**:
+    - **Browser Post Callback Flow** - Step-by-step explanation answering "How do callbacks work?"
+    - **EPX Credential Setup** - Answers "How do I get an API key in the first place?"
+    - **Idempotency Explanation** - Database PRIMARY KEY prevents duplicate transactions
+    - **Test Card Numbers** - EPX sandbox test cards and decline code triggers
+    - **ngrok Setup** - Why and how to use ngrok for local callback testing
+  - **Auto-Sync Workflow** - `.github/workflows/sync-wiki.yml` automatically publishes docs to GitHub Wiki on push to main
+  - **README Refactored** - Reduced from 850 to 327 lines, serves as "front door" with wiki links throughout
+  - **Archive Cleanup** - Removed 29 obsolete docs from `docs/archive/` (replaced by wiki structure)
+  - **Supporting Docs**:
+    - `docs/INTEGRATION_TEST_STRATEGY.md` - Test philosophy and coverage documentation
+    - `docs/WIKI_SETUP.md` - Instructions for wiki synchronization
+    - `scripts/sync-wiki.sh` - Helper script for manual wiki sync
+  - **Files Changed**:
+    - `docs/wiki-templates/` - 6 new wiki template files
+    - `.github/workflows/sync-wiki.yml` - Auto-sync workflow
+    - `README.md` - Refactored to be concise with wiki links
+    - `docs/archive/` - 29 files removed (replaced by wiki)
+  - **Result**: ✅ Complete, organized documentation accessible via GitHub Wiki
+
 - **Phase 1 critical business logic integration tests** - Implemented and refactored 5 critical tests from risk-based testing strategy (2025-11-17)
   - **Purpose**: Verify most critical payment scenarios identified by likelihood × impact analysis
   - **Test Coverage** (5 integration tests, all table-driven where applicable):
