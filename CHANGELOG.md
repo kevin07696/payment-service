@@ -8,14 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Phase 1 critical business logic integration tests** - Implemented and fixed 5 critical tests from risk-based testing strategy (2025-11-17)
+- **Phase 1 critical business logic integration tests** - Implemented and refactored 5 critical tests from risk-based testing strategy (2025-11-17)
   - **Purpose**: Verify most critical payment scenarios identified by likelihood × impact analysis
-  - **Test Coverage** (5 integration tests):
-    1. `TestSale_DuplicateIdempotencyKey_ReturnsSameTransaction` - Verifies Browser Post idempotency via database PRIMARY KEY (p99, catastrophic) ✅ PASSING
-    2. `TestRefund_ExceedsOriginalAmount_ReturnsValidationError` - Prevents over-refunding (p95, catastrophic) ✅ PASSING
-    3. `TestCapture_NonAuthorizedTransaction_ReturnsValidationError` - Validates state transitions (p95, high) ✅ PASSING
-    4. `TestCaptureAndVoid_ConcurrentRequests_ExactlyOneSucceeds` - Tests concurrent operation handling (p99.9, high) ✅ PASSING
-    5. `TestSale_InsufficientFunds_ReturnsDeclinedStatus` - EPX decline code handling using Visa decline test card (p90, medium) ✅ PASSING
+  - **Test Coverage** (5 integration tests, all table-driven where applicable):
+    1. `TestBrowserPostIdempotency` - Verifies Browser Post idempotency via database PRIMARY KEY (p99, catastrophic) ✅ PASSING
+    2. `TestRefundAmountValidation` - Prevents over-refunding with 3 test cases (p95, catastrophic) ✅ PASSING
+    3. `TestCaptureStateValidation` - Validates state transitions with 2 test cases (p95, high) ✅ PASSING
+    4. `TestConcurrentOperationHandling` - Tests concurrent operation handling (p99.9, high) ✅ PASSING
+    5. `TestEPXDeclineCodeHandling` - EPX decline code handling with 3 test cases (p90, medium) ✅ PASSING
   - **Testing Approach**:
     - Uses REAL EPX integration via headless Chrome Browser Post automation
     - Tests actual database constraints (PRIMARY KEY prevents duplicate transactions)
@@ -39,7 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Files Changed**:
     - `tests/integration/payment/payment_service_critical_test.go` - New test file with Phase 1 critical tests
     - `internal/services/payment/payment_service.go` - Fixed validation error handling
-  - **Result**: ✅ **All 5 tests PASSING** in 84.5 seconds with real EPX integration
+  - **Refactoring** (2025-11-17):
+    - Converted Tests 2, 3, 5 to table-driven patterns for better maintainability
+    - Renamed all tests with explicit, clear names (e.g., `TestBrowserPostIdempotency`)
+    - Standardized test case naming using snake_case (e.g., `refund_exceeds_sale_amount`)
+    - Implemented structured logging with prefixes: `[SETUP]`, `[CREATED]`, `[TEST]`, `[PASS]`, `[RESULT]`, `[NOTE]`
+    - Made documentation concise (1-2 lines per test) for clean codebase
+    - Kept logging concise while maintaining debuggability
+  - **Result**: ✅ **All 5 tests PASSING** in 149 seconds with real EPX integration (8 table-driven test cases total)
 - **Browser Post automation enhancement** - Made card details parameterized for flexible testing (2025-11-17)
   - **Purpose**: Enable testing with different card types and decline scenarios
   - **Changes**:
