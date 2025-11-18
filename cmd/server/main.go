@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/grpchealth"
 	"connectrpc.com/grpcreflect"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/net/http2"
@@ -27,6 +28,7 @@ import (
 	paymentHandler "github.com/kevin07696/payment-service/internal/handlers/payment"
 	paymentmethodHandler "github.com/kevin07696/payment-service/internal/handlers/payment_method"
 	subscriptionHandler "github.com/kevin07696/payment-service/internal/handlers/subscription"
+	authMiddleware "github.com/kevin07696/payment-service/internal/middleware"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
 	merchantService "github.com/kevin07696/payment-service/internal/services/merchant"
 	paymentService "github.com/kevin07696/payment-service/internal/services/payment"
@@ -68,14 +70,37 @@ func main() {
 	// Initialize dependencies
 	deps := initDependencies(dbPool, cfg, logger)
 
+	// Create sql.DB for auth middleware (needed for standard database/sql interface)
+	sqlDB := stdlib.OpenDBFromPool(dbPool)
+	defer sqlDB.Close()
+
 	// Create ConnectRPC HTTP mux
 	mux := http.NewServeMux()
 
+	// Initialize authentication interceptor
+	var authInterceptor *authMiddleware.AuthInterceptor
+	if !cfg.DisableAuth {
+		var err error
+		authInterceptor, err = authMiddleware.NewAuthInterceptor(sqlDB, logger)
+		if err != nil {
+			logger.Fatal("Failed to initialize auth interceptor", zap.Error(err))
+		}
+		logger.Info("Authentication enabled")
+	} else {
+		logger.Warn("Authentication is DISABLED - for development only!")
+	}
+
 	// Create Connect interceptors
-	interceptors := connect.WithInterceptors(
-		middleware.RecoveryInterceptor(logger),
-		middleware.LoggingInterceptor(logger),
-	)
+	var interceptorList []connect.Interceptor
+	interceptorList = append(interceptorList, middleware.RecoveryInterceptor(logger))
+	interceptorList = append(interceptorList, middleware.LoggingInterceptor(logger))
+
+	// Add auth interceptor if enabled
+	if authInterceptor != nil {
+		interceptorList = append(interceptorList, authInterceptor)
+	}
+
+	interceptors := connect.WithInterceptors(interceptorList...)
 
 	// Register all ConnectRPC services
 	paymentPath, paymentHandler := paymentv1connect.NewPaymentServiceHandler(
@@ -140,15 +165,60 @@ func main() {
 	// Adjust these values based on expected staging traffic
 	rateLimiter := middleware.NewRateLimiter(10, 20)
 
-	// Cron endpoints
-	httpMux.HandleFunc("/cron/process-billing", deps.billingCronHandler.ProcessBilling)
-	httpMux.HandleFunc("/cron/sync-disputes", deps.disputeSyncCronHandler.SyncDisputes)
-	httpMux.HandleFunc("/cron/health", deps.billingCronHandler.HealthCheck)
-	httpMux.HandleFunc("/cron/stats", deps.billingCronHandler.Stats)
+	// Initialize EPX callback authentication
+	var epxAuth *authMiddleware.EPXCallbackAuth
+	if !cfg.DisableAuth && cfg.EPXMacSecret != "" {
+		var err error
+		epxAuth, err = authMiddleware.NewEPXCallbackAuth(sqlDB, cfg.EPXMacSecret, logger)
+		if err != nil {
+			logger.Error("Failed to initialize EPX callback auth", zap.Error(err))
+		} else {
+			logger.Info("EPX callback authentication enabled")
+		}
+	}
 
-	// Browser Post endpoints (with rate limiting)
-	httpMux.HandleFunc("/api/v1/payments/browser-post/form", rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm))
-	httpMux.HandleFunc("/api/v1/payments/browser-post/callback", rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.HandleCallback))
+	// Cron endpoints with authentication
+	cronAuthMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// Skip auth if disabled
+			if cfg.DisableAuth {
+				next(w, r)
+				return
+			}
+
+			// Check cron secret
+			secret := r.Header.Get("X-Cron-Secret")
+			if secret != cfg.CronSecret {
+				logger.Warn("Unauthorized cron request",
+					zap.String("path", r.URL.Path),
+					zap.String("remote_addr", r.RemoteAddr))
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			next(w, r)
+		}
+	}
+
+	httpMux.HandleFunc("/cron/process-billing", cronAuthMiddleware(deps.billingCronHandler.ProcessBilling))
+	httpMux.HandleFunc("/cron/sync-disputes", cronAuthMiddleware(deps.disputeSyncCronHandler.SyncDisputes))
+	httpMux.HandleFunc("/cron/health", cronAuthMiddleware(deps.billingCronHandler.HealthCheck))
+	httpMux.HandleFunc("/cron/stats", cronAuthMiddleware(deps.billingCronHandler.Stats))
+
+	// Browser Post endpoints (with rate limiting and EPX auth for callbacks)
+	httpMux.HandleFunc("/api/v1/payments/browser-post/form",
+		rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm))
+
+	// Apply EPX auth to callback endpoint
+	var callbackHandler http.HandlerFunc = deps.browserPostCallbackHandler.HandleCallback
+	if epxAuth != nil {
+		callbackHandler = epxAuth.Middleware(callbackHandler)
+	}
+	httpMux.HandleFunc("/api/v1/payments/browser-post/callback",
+		rateLimiter.HTTPHandlerFunc(callbackHandler))
+
+	// Serve Browser Post demo form (avoids CORS issues with file:// protocol)
+	httpMux.HandleFunc("/browser-post-demo", serveBrowserPostDemo)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -242,6 +312,11 @@ type Config struct {
 
 	// Cron authentication
 	CronSecret string
+
+	// Authentication
+	AuthSaltPrefix   string // Salt prefix for hashing API keys/secrets
+	EPXMacSecret     string // MAC secret for EPX callback signature verification
+	DisableAuth      bool   // Disable auth for development/testing
 }
 
 // Dependencies holds all initialized services and handlers
@@ -282,6 +357,9 @@ func loadConfig(logger *zap.Logger) *Config {
 		NorthTimeout:              getEnvInt("NORTH_TIMEOUT", 30),
 		CallbackBaseURL:           getEnv("CALLBACK_BASE_URL", "http://localhost:8081"),
 		CronSecret:                getEnv("CRON_SECRET", "change-me-in-production"),
+		AuthSaltPrefix:            getEnv("AUTH_SALT_PREFIX", "payment_service_"),
+		EPXMacSecret:              getEnv("EPX_MAC_SECRET", ""),
+		DisableAuth:               getEnvBool("DISABLE_AUTH", false),
 	}
 
 	logger.Info("Configuration loaded",
@@ -511,4 +589,306 @@ func getEnvWithFallback(primaryKey, fallbackKey, defaultValue string) string {
 func getEnvDuration(key string, defaultMinutes int) time.Duration {
 	minutes := getEnvInt(key, defaultMinutes)
 	return time.Duration(minutes) * time.Minute
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		return value == "true" || value == "1" || value == "yes"
+	}
+	return defaultValue
+}
+
+// serveBrowserPostDemo serves the Browser Post demo HTML form
+// Serving from the server avoids CORS issues with file:// protocol
+func serveBrowserPostDemo(w http.ResponseWriter, r *http.Request) {
+	html := `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPX Browser Post - Demo Form</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; margin-bottom: 10px; }
+        .subtitle { color: #666; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        .card-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover { background: #45a049; }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .test-cards {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .test-card {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            font-size: 13px;
+        }
+        .test-card button {
+            padding: 4px 10px;
+            font-size: 12px;
+            width: auto;
+            margin: 0;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EPX Browser Post Payment</h1>
+        <div class="subtitle">Using TAC Authentication (Working Method)</div>
+
+        <div class="info">
+            <strong>How This Works:</strong><br>
+            1. Get TAC from payment service<br>
+            2. Submit to EPX with TAC + card data<br>
+            3. EPX processes and calls back<br>
+            4. Transaction complete!
+        </div>
+
+        <div class="test-cards">
+            <h3>TEST CARDS</h3>
+            <div class="test-card">
+                <span>Visa (Approved): 4111111111111111</span>
+                <button type="button" onclick="fillCard('4111111111111111', '123')">Use</button>
+            </div>
+            <div class="test-card">
+                <span>Visa (Approved): 4788250000028291</span>
+                <button type="button" onclick="fillCard('4788250000028291', '123')">Use</button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="merchantSelect">Merchant</label>
+            <select id="merchantSelect">
+                <option value="550e8400-e29b-41d4-a716-446655440000">Test Merchant</option>
+                <option value="1a20fff8-2cec-48e5-af49-87e501652913">ACME Corporation</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="amount">Amount</label>
+            <input type="text" id="amount" value="10.00" placeholder="10.00">
+        </div>
+
+        <div class="form-group">
+            <label for="transactionType">Transaction Type</label>
+            <select id="transactionType">
+                <option value="SALE">SALE (Auth + Capture)</option>
+                <option value="AUTH">AUTH (Hold funds only)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="cardNumber">Card Number</label>
+            <input type="text" id="cardNumber" placeholder="4111111111111111" maxlength="16">
+        </div>
+
+        <div class="card-row">
+            <div class="form-group">
+                <label for="expDate">Exp Date (MMYY)</label>
+                <input type="text" id="expDate" placeholder="1225" maxlength="4">
+            </div>
+            <div class="form-group">
+                <label for="cvv">CVV</label>
+                <input type="text" id="cvv" placeholder="123" maxlength="4">
+            </div>
+        </div>
+
+        <button id="submitBtn" onclick="processPayment()">Process Payment</button>
+
+        <div id="status"></div>
+
+        <!-- Hidden form that will be auto-submitted to EPX -->
+        <form id="epxForm" method="POST" style="display:none;" target="epxWindow">
+            <input type="hidden" name="TAC" id="tac">
+            <input type="hidden" name="CUST_NBR" id="custNbr">
+            <input type="hidden" name="MERCH_NBR" id="merchNbr">
+            <input type="hidden" name="DBA_NBR" id="dbaNbr">
+            <input type="hidden" name="TERMINAL_NBR" id="terminalNbr">
+            <input type="hidden" name="TRAN_NBR" id="tranNbr">
+            <input type="hidden" name="TRAN_GROUP" id="tranGroup">
+            <input type="hidden" name="AMOUNT" id="amountHidden">
+            <input type="hidden" name="CARD_NBR" id="cardNbrHidden">
+            <input type="hidden" name="EXP_DATE" id="expDateHidden">
+            <input type="hidden" name="CVV" id="cvvHidden">
+            <input type="hidden" name="REDIRECT_URL" id="redirectUrl">
+            <input type="hidden" name="USER_DATA_1" id="userData1">
+            <input type="hidden" name="USER_DATA_2" value="browser-post-demo">
+            <input type="hidden" name="USER_DATA_3" id="userData3">
+            <input type="hidden" name="INDUSTRY_TYPE" value="E">
+        </form>
+    </div>
+
+    <script>
+        const SERVICE_URL = window.location.origin;
+
+        function fillCard(number, cvv) {
+            document.getElementById('cardNumber').value = number;
+            document.getElementById('cvv').value = cvv;
+            const nextYear = new Date().getFullYear() + 1;
+            document.getElementById('expDate').value = '12' + nextYear.toString().substr(-2);
+        }
+
+        async function processPayment() {
+            const btn = document.getElementById('submitBtn');
+            const status = document.getElementById('status');
+
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+            status.innerHTML = '<div class="info">Step 1: Getting TAC from payment service...</div>';
+
+            try {
+                // Get form values
+                const merchantId = document.getElementById('merchantSelect').value;
+                const amount = document.getElementById('amount').value;
+                const transactionType = document.getElementById('transactionType').value;
+                const cardNumber = document.getElementById('cardNumber').value;
+                const expDate = document.getElementById('expDate').value;
+                const cvv = document.getElementById('cvv').value;
+
+                // Generate transaction ID
+                const transactionId = generateUUID();
+                const returnUrl = SERVICE_URL + '/api/v1/payments/browser-post/callback';
+
+                // Step 1: Get TAC from payment service
+                const formUrl = SERVICE_URL + '/api/v1/payments/browser-post/form?' +
+                    'transaction_id=' + transactionId + '&' +
+                    'merchant_id=' + merchantId + '&' +
+                    'amount=' + amount + '&' +
+                    'transaction_type=' + transactionType + '&' +
+                    'return_url=' + encodeURIComponent(returnUrl);
+
+                const response = await fetch(formUrl);
+                if (!response.ok) {
+                    throw new Error('Failed to get TAC: ' + response.status);
+                }
+
+                const formConfig = await response.json();
+
+                status.innerHTML += '<div class="success">✅ Got TAC from payment service</div>';
+                status.innerHTML += '<div class="info">Step 2: Submitting to EPX...</div>';
+
+                // Step 2: Fill hidden form with EPX data
+                const form = document.getElementById('epxForm');
+                form.action = formConfig.postURL;
+
+                document.getElementById('tac').value = formConfig.tac;
+                document.getElementById('custNbr').value = formConfig.custNbr;
+                document.getElementById('merchNbr').value = formConfig.merchNbr;
+                document.getElementById('dbaNbr').value = formConfig.dbaName;
+                document.getElementById('terminalNbr').value = formConfig.terminalNbr;
+                document.getElementById('tranNbr').value = formConfig.epxTranNbr;
+                document.getElementById('tranGroup').value = transactionType === 'AUTH' ? 'A' : 'U';
+                document.getElementById('amountHidden').value = amount;
+                document.getElementById('cardNbrHidden').value = cardNumber;
+                document.getElementById('expDateHidden').value = expDate;
+                document.getElementById('cvvHidden').value = cvv;
+                document.getElementById('redirectUrl').value = returnUrl;
+                document.getElementById('userData1').value = returnUrl;
+                document.getElementById('userData3').value = merchantId;
+
+                // Step 3: Submit to EPX in popup window
+                const epxWindow = window.open('', 'epxWindow', 'width=800,height=600');
+                form.submit();
+
+                status.innerHTML += '<div class="success">✅ Form submitted to EPX - check popup window!</div>';
+                status.innerHTML += '<div class="info">EPX will process the payment and redirect back to the payment service.</div>';
+
+            } catch (error) {
+                status.innerHTML = '<div class="error">❌ Error: ' + error.message + '</div>';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Process Payment';
+            }
+        }
+
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // Set defaults on load
+        window.onload = function() {
+            fillCard('4111111111111111', '123');
+        };
+    </script>
+</body>
+</html>`
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(html))
 }

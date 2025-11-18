@@ -119,9 +119,9 @@ func TestConnect_ErrorHandling(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Try to get a non-existent transaction
+	// Try to get a non-existent transaction (use valid UUID format)
 	req := connect.NewRequest(&paymentv1.GetTransactionRequest{
-		TransactionId: "non-existent-id-12345",
+		TransactionId: "00000000-0000-0000-0000-000000000000",
 	})
 
 	_, err := client.GetTransaction(ctx, req)

@@ -377,9 +377,17 @@ func (a *serverPostAdapter) buildFormData(req *ports.ServerPostRequest) url.Valu
 	data.Set("AMOUNT", req.Amount)
 	data.Set("TRAN_NBR", req.TranNbr)
 
-	if req.TranGroup != "" {
-		data.Set("BATCH_ID", req.TranGroup) // TranGroup is used as BATCH_ID
-	}
+	// BATCH_ID: EPX requires date format YYYYMMDD or simple number (max 8 chars)
+	// Using today's date in YYYYMMDD format
+	now := time.Now()
+	batchID := now.Format("20060102") // Format as YYYYMMDD
+	data.Set("BATCH_ID", batchID)
+
+	// LOCAL_DATE and LOCAL_TIME: Required by EPX
+	localDate := now.Format("010206") // MMDDYY format
+	localTime := now.Format("150405") // HHMMSS format
+	data.Set("LOCAL_DATE", localDate)
+	data.Set("LOCAL_TIME", localTime)
 
 	// Payment token (BRIC)
 	if req.AuthGUID != "" {

@@ -251,10 +251,7 @@ func (h *ConnectHandler) GetTransaction(
 
 	tx, err := h.service.GetTransaction(ctx, msg.TransactionId)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("transaction not found"))
-		}
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to get transaction"))
+		return nil, handleServiceErrorConnect(err)
 	}
 
 	return connect.NewResponse(transactionToProto(tx)), nil
@@ -292,7 +289,7 @@ func (h *ConnectHandler) ListTransactions(
 
 	txs, totalCount, err := h.service.ListTransactions(ctx, filters)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list transactions"))
+		return nil, handleServiceErrorConnect(err)
 	}
 
 	protoTxs := make([]*paymentv1.Transaction, len(txs))

@@ -10,9 +10,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/auth"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/kevin07696/payment-service/internal/middleware"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
 	"github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/util"
@@ -46,66 +46,66 @@ func NewPaymentService(
 	}
 }
 
-// resolveMerchantID resolves the merchant_id from token context and request
+// resolveMerchantID resolves the merchant_id from auth context and request
 func (s *paymentService) resolveMerchantID(ctx context.Context, requestedMerchantID string) (string, error) {
-	// Get token claims from context
-	token, err := middleware.GetTokenFromContext(ctx)
-	if err != nil {
-		return "", fmt.Errorf("unauthorized: %w", err)
+	// Get auth info from context
+	authInfo := auth.GetAuthInfo(ctx)
+
+	// If no auth (development/testing mode)
+	if authInfo.Type == auth.AuthTypeNone {
+		if requestedMerchantID == "" {
+			return "", fmt.Errorf("merchant_id is required when auth is disabled")
+		}
+		return requestedMerchantID, nil
 	}
 
-	// Validate scope
-	if err := s.merchantResolver.ValidateScope(token, domain.ScopePaymentsCreate); err != nil {
-		return "", err
+	// If merchant ID is in context (API key auth or JWT with merchant_id)
+	if authInfo.MerchantID != "" {
+		// If a specific merchant was requested, verify it matches
+		if requestedMerchantID != "" && requestedMerchantID != authInfo.MerchantID {
+			return "", fmt.Errorf("merchant_id mismatch: requested %s but authenticated as %s",
+				requestedMerchantID, authInfo.MerchantID)
+		}
+		return authInfo.MerchantID, nil
 	}
 
-	// Resolve merchant_id
-	merchantID, err := s.merchantResolver.Resolve(token, requestedMerchantID)
-	if err != nil {
-		return "", err
+	// For service auth, use the requested merchant ID if provided
+	if authInfo.Type == auth.AuthTypeJWT && requestedMerchantID != "" {
+		return requestedMerchantID, nil
 	}
 
-	return merchantID, nil
+	return "", fmt.Errorf("unable to determine merchant_id")
 }
 
-// validateTransactionAccess validates that the token has access to a transaction
+// validateTransactionAccess validates that the auth context has access to a transaction
 func (s *paymentService) validateTransactionAccess(ctx context.Context, tx *domain.Transaction, requiredScope string) error {
-	// Get token claims from context
-	token, err := middleware.GetTokenFromContext(ctx)
-	if err != nil {
-		// Allow access when no token present (e.g., integration tests, internal calls)
-		// In production, an auth interceptor would reject requests without tokens before reaching here
-		s.logger.Debug("No authentication token in context - allowing access (test mode or internal call)")
+	// Get auth info from context
+	authInfo := auth.GetAuthInfo(ctx)
+
+	// If no auth (development/testing mode), allow access
+	if authInfo.Type == auth.AuthTypeNone {
+		s.logger.Debug("No authentication in context - allowing access (test mode or internal call)")
 		return nil
 	}
 
-	// Validate scope
-	if err := s.merchantResolver.ValidateScope(token, requiredScope); err != nil {
-		return err
-	}
-
-	// Admin can access any transaction
-	if token.TokenType == domain.TokenTypeAdmin {
-		return nil
-	}
-
-	// Merchant tokens must have access to the transaction's merchant
-	if token.TokenType == domain.TokenTypeMerchant {
-		if !token.HasMerchantAccess(tx.MerchantID) {
-			return fmt.Errorf("no access to merchant %s", tx.MerchantID)
+	// Check if the authenticated entity has access to this transaction's merchant
+	if authInfo.MerchantID != "" {
+		// For direct merchant authentication (API key)
+		if authInfo.MerchantID != tx.MerchantID {
+			return fmt.Errorf("no access to transaction for merchant %s", tx.MerchantID)
 		}
-		return nil
+	} else if authInfo.Type == auth.AuthTypeJWT && authInfo.ServiceID != "" {
+		// For service authentication, we trust that the service verified merchant access
+		// The auth interceptor already validated service-to-merchant access
+		s.logger.Debug("Service authenticated access",
+			zap.String("service_id", authInfo.ServiceID),
+			zap.String("transaction_merchant", tx.MerchantID))
+	} else {
+		return fmt.Errorf("insufficient permissions to access transaction")
 	}
 
-	// Customer tokens can only access their own transactions
-	if token.TokenType == domain.TokenTypeCustomer {
-		if tx.CustomerID == nil || *tx.CustomerID != *token.CustomerID {
-			return fmt.Errorf("no access to this transaction")
-		}
-		return nil
-	}
-
-	return fmt.Errorf("invalid token type for transaction access")
+	// Access granted
+	return nil
 }
 
 // Sale combines authorize and capture in one operation

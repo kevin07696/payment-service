@@ -118,6 +118,14 @@ migrate-create: ## Create new migration (usage: make migrate-create NAME=add_use
 	@goose -dir internal/db/migrations create $(NAME) sql
 	@echo "✓ Migration created: internal/db/migrations/$(NAME).sql"
 
+seed: ## Seed database with initial admin account and test data
+	@echo "Seeding database..."
+	@go run cmd/seed/main.go
+	@echo "✓ Database seeded successfully"
+
+admin: ## Run admin CLI tool for managing services and merchants
+	@go run cmd/admin/main.go $(ARGS)
+
 lint: ## Run linters
 	@echo "Running linters..."
 	@go vet ./...

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPX Sandbox Tokenization</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        .card-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 10px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .test-cards {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .test-cards h3 {
+            margin-top: 0;
+            color: #666;
+            font-size: 14px;
+        }
+        .test-card {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            font-size: 13px;
+        }
+        .test-card button {
+            padding: 4px 10px;
+            font-size: 12px;
+            width: auto;
+            margin: 0;
+        }
+        .response {
+            margin-top: 30px;
+            padding: 15px;
+            background: #f0f8ff;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .hidden {
+            display: none;
+        }
+        .merchant-info {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>EPX Sandbox Tokenization</h1>
+        <div class="subtitle">Generate BRIC tokens for testing payments</div>
+
+        <div class="merchant-info">
+            <strong>Merchant Configuration:</strong><br>
+            Customer: 9001 | Merchant: 900300 | DBA: 2 | Terminal: 77<br>
+            Environment: UAT (Sandbox)
+        </div>
+
+        <div class="test-cards">
+            <h3>TEST CARDS (Click to fill)</h3>
+            <div class="test-card">
+                <span>Visa (Approved): 4788250000028291</span>
+                <button type="button" onclick="fillTestCard('4788250000028291')">Use</button>
+            </div>
+            <div class="test-card">
+                <span>Visa (Declined): 4000300011112220</span>
+                <button type="button" onclick="fillTestCard('4000300011112220')">Use</button>
+            </div>
+            <div class="test-card">
+                <span>MasterCard: 5454545454545454</span>
+                <button type="button" onclick="fillTestCard('5454545454545454')">Use</button>
+            </div>
+            <div class="test-card">
+                <span>Amex: 371449635398431</span>
+                <button type="button" onclick="fillTestCard('371449635398431')">Use</button>
+            </div>
+        </div>
+
+        <form id="tokenizeForm" action="https://services.epxuap.com/browserpost/" method="POST">
+            <!-- Transaction Type -->
+            <input type="hidden" name="TransType" value="CKC">
+            <input type="hidden" name="ResponseType" value="HTML">
+
+            <!-- Merchant Credentials -->
+            <input type="hidden" name="CUST_NBR" value="9001">
+            <input type="hidden" name="MERCH_NBR" value="900300">
+            <input type="hidden" name="DBA_NBR" value="2">
+            <input type="hidden" name="TERMINAL_NBR" value="77">
+
+            <!-- MAC will be calculated and inserted here -->
+            <input type="hidden" name="MAC" id="mac" value="">
+
+            <div class="form-group">
+                <label for="CardNo">Card Number</label>
+                <input type="text" id="CardNo" name="CardNo" placeholder="4788250000028291" required>
+            </div>
+
+            <div class="card-row">
+                <div class="form-group">
+                    <label for="NameOnCard">Name on Card</label>
+                    <input type="text" id="NameOnCard" name="NameOnCard" value="Test Customer" required>
+                </div>
+                <div class="form-group">
+                    <label for="ExpMonth">Exp Month</label>
+                    <input type="text" id="ExpMonth" name="ExpMonth" placeholder="12" maxlength="2" required>
+                </div>
+                <div class="form-group">
+                    <label for="ExpYear">Exp Year</label>
+                    <input type="text" id="ExpYear" name="ExpYear" placeholder="25" maxlength="2" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="CVV2">CVV</label>
+                <input type="text" id="CVV2" name="CVV2" placeholder="123" maxlength="4" required>
+            </div>
+
+            <div class="form-group">
+                <label for="Street">Street Address</label>
+                <input type="text" id="Street" name="Street" value="123 Main St" required>
+            </div>
+
+            <div class="form-group">
+                <label for="Zip">Zip Code</label>
+                <input type="text" id="Zip" name="Zip" value="12345" required>
+            </div>
+
+            <div class="form-group">
+                <label for="Amount">Amount (for tokenization, use 0.00)</label>
+                <input type="text" id="Amount" name="Amount" value="0.00" required>
+            </div>
+
+            <button type="submit">Generate Token (BRIC)</button>
+        </form>
+
+        <div id="response" class="response hidden">
+            <strong>Response will appear here after submission...</strong>
+        </div>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 13px;">
+            <strong>Instructions:</strong>
+            <ol>
+                <li>Click "Use" on a test card or enter your own</li>
+                <li>Click "Generate Token (BRIC)"</li>
+                <li>EPX will return a BRIC token in the response</li>
+                <li>Copy the BRIC and use it in your payment requests</li>
+            </ol>
+            <p><strong>Note:</strong> This form submits directly to EPX sandbox. The response will show the BRIC token or an error message.</p>
+        </div>
+    </div>
+
+    <script>
+        // EPX MAC Key for sandbox
+        const EPX_MAC_KEY = '2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y';
+
+        // Fill test card data
+        function fillTestCard(cardNumber) {
+            document.getElementById('CardNo').value = cardNumber;
+            document.getElementById('ExpMonth').value = '12';
+            document.getElementById('ExpYear').value = new Date().getFullYear().toString().substr(-2) + 1;
+            document.getElementById('CVV2').value = cardNumber.startsWith('3') ? '1234' : '123';
+        }
+
+        // Calculate MAC before form submission
+        document.getElementById('tokenizeForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            // Get form values
+            const formData = new FormData(this);
+            const amount = formData.get('Amount') || '0.00';
+            const cardNo = formData.get('CardNo');
+            const expMonth = formData.get('ExpMonth');
+            const expYear = formData.get('ExpYear');
+            const cvv2 = formData.get('CVV2');
+
+            // MAC calculation for CKC transaction
+            const macString = amount + cardNo + expMonth + expYear + cvv2 +
+                             '9001' + '900300' + '2' + '77';
+
+            // Calculate HMAC-SHA256
+            const mac = CryptoJS.HmacSHA256(macString, EPX_MAC_KEY).toString();
+
+            // Set MAC value
+            document.getElementById('mac').value = mac;
+
+            console.log('MAC String:', macString);
+            console.log('Calculated MAC:', mac);
+
+            // Submit form to EPX in new window
+            const newWindow = window.open('', 'EPX_Response', 'width=800,height=600');
+            this.target = 'EPX_Response';
+            this.submit();
+
+            // Show response area
+            document.getElementById('response').classList.remove('hidden');
+            document.getElementById('response').innerHTML =
+                '<strong>Form submitted to EPX!</strong>\n\n' +
+                'Check the popup window for the response.\n' +
+                'Look for a BRIC or AUTH_GUID in the response.\n\n' +
+                'If you see an error page, check:\n' +
+                '- MAC calculation is correct\n' +
+                '- Merchant credentials are valid\n' +
+                '- Card data is properly formatted';
+        });
+
+        // Set default expiration date
+        window.onload = function() {
+            const now = new Date();
+            document.getElementById('ExpMonth').value = '12';
+            document.getElementById('ExpYear').value = (now.getFullYear() + 1).toString().substr(-2);
+        };
+    </script>
+</body>
+</html>
