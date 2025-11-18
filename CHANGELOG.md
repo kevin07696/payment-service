@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Cloud-init Docker installation failure** (2025-01-17)
+  - **Problem**: Cloud-init completing with error status, Docker not installed on Oracle Cloud compute instance
+  - **Root Cause**:
+    1. Ubuntu's `docker.io` package from default repos can be unreliable
+    2. cloud-init errors were silently ignored (`|| true` in verification)
+    3. No verification that Docker was actually working, only that command exists
+    4. No retry logic if Docker service takes time to start
+  - **Solution**:
+    - Install Docker from official Docker repository instead of `docker.io` package
+    - Install `docker-compose-plugin` instead of standalone `docker-compose`
+    - Add verification loop with retry logic (30 attempts, 2s intervals)
+    - Verify Docker is actually working with `docker version` (not just command exists)
+    - Remove `|| true` from cloud-init status check to fail fast on errors
+    - Add comprehensive debugging output (cloud-init logs) if verification fails
+    - Update deployment to use `docker run` instead of docker-compose
+  - **Impact**:
+    - Cloud-init now reliably installs Docker from official repository
+    - Failures are caught early with detailed error logs
+    - Infrastructure must be recreated to apply new cloud-init configuration
+  - **Files Changed**:
+    - `deployment-workflows/terraform/oracle-staging/cloud-init.yaml` - Official Docker repo + verification
+    - `deployment-workflows/.github/workflows/deploy-oracle-staging.yml` - Improved error handling
+    - `.github/workflows/ci-cd.yml` - Updated to use deployment-workflows@0ad8732
+  - **Migration Required**: Existing infrastructure created with old cloud-init must be destroyed and recreated
+
 - **Staging deployment failure - docker-compose image pull error** (2025-01-17)
   - **Problem**: Application deployment failing with "pull access denied" error - health check never passed
   - **Root Cause**:
