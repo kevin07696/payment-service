@@ -8,6 +8,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Docker verification failures blocking deployments** (2025-11-18)
+  - **Problem**: After cloud-init successfully completed, Docker verification checks were failing with two errors:
+    1. `docker version` command failing despite Docker being installed and running
+    2. `docker-compose: command not found` despite Docker Compose being installed
+  - **Root Cause**:
+    1. Cloud-init adds ubuntu user to docker group, but SSH session doesn't get new group membership until re-login
+    2. Cloud-init installs Docker Compose **plugin** (`docker compose`), but workflow was checking for standalone `docker-compose` command
+  - **Solution**:
+    - Use `sudo docker version` in verification steps (SSH user doesn't have group membership yet)
+    - Use `sg docker -c "docker compose version"` to run in docker group context
+    - Check for `docker compose` (plugin) instead of `docker-compose` (standalone)
+  - **Impact**:
+    - Deployments now progress past Docker verification stage
+    - Both verification points (after cloud-init and before deployment) fixed
+  - **Files Changed**:
+    - `deployment-workflows/.github/workflows/deploy-oracle-staging.yml` - Docker verification fixes (commit af907b7)
+  - **Related Deployments**: Fixes observed in runs #19451977427 through #19454064652
+
+### Added
+- **Comprehensive deployment review process** (2025-11-18)
+  - Created systematic review checklists to prevent deployment failures
+  - **DEPLOYMENT_REVIEW_CHECKLIST.md**: Full 10-section review covering:
+    - Cloud-init configuration (shell compatibility, exit codes, timing, installations)
+    - GitHub Actions workflows (SSH permissions, timeouts, error handling, secrets)
+    - Local testing procedures (syntax validation, Terraform validation)
+    - Deployment workflow testing (staged verification points)
+    - Common failure patterns (with fixes and prevention strategies)
+    - Pre-push checklist
+    - Monitoring during deployment
+    - Post-deployment verification
+    - Rollback procedures
+    - Continuous improvement process
+  - **QUICK_REVIEW_GUIDE.md**: Quick reference with time-boxed reviews:
+    - 3-minute minimum review (shell syntax, exit codes, Docker commands, permissions, validation)
+    - 10-minute recommended review (adds pattern checks, credentials, dependency order, staging tests)
+    - 30-minute major changes review (full checklist + manual testing)
+    - Pre-push validation script (automated checks before every deployment)
+    - Critical issues lookup table
+    - Emergency rollback procedures
+  - **Impact**: Provides structured methodology to catch issues before they reach CI/CD
+  - **Files Added**:
+    - `deployment-workflows/DEPLOYMENT_REVIEW_CHECKLIST.md`
+    - `deployment-workflows/QUICK_REVIEW_GUIDE.md`
+  - **Commit**: deployment-workflows@af907b7
 - **Cloud-init Docker installation failure** (2025-01-17)
   - **Problem**: Cloud-init completing with error status, Docker not installed on Oracle Cloud compute instance
   - **Root Cause**:
