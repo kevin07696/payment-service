@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Oracle database migration failures - wallet path mismatch** (2025-01-17)
+  - **Problem**: Database migrations failing with "ORA-28759: failure to open file" error
+  - **Root Cause**: Oracle Autonomous Database wallet's `sqlnet.ora` contains hardcoded `WALLET_LOCATION` path that doesn't match extraction location on compute instance
+  - **Solution**: Update `sqlnet.ora` after wallet extraction to use correct path (`/home/ubuntu/oracle-wallet`)
+  - **Impact**: Database migrations now succeed, allowing full CI/CD pipeline to complete
+  - **Files Changed**:
+    - `deployment-workflows/.github/workflows/deploy-oracle-staging.yml` - Added wallet path fix step
+    - `.github/workflows/ci-cd.yml` - Updated to use fixed deployment workflow (commit 55a060a)
+
 - **CI/CD build failure - missing secret manager initialization** (2025-01-17)
   - **Problem**: GitHub Actions workflow failing with "undefined: initSecretManager" error
   - **Root Cause**: `cmd/server/secret_manager.go` file was created locally but:
