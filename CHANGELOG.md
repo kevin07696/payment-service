@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Staging deployment failure - docker-compose image pull error** (2025-01-17)
+  - **Problem**: Application deployment failing with "pull access denied" error - health check never passed
+  - **Root Cause**:
+    1. Deployment workflow successfully pulls pre-built Docker image from Oracle Container Image Registry (OCIR)
+    2. `docker-compose.yml` configured with `build: .` for local development
+    3. When `docker-compose up` runs, it attempts to build/pull image instead of using pre-pulled OCIR image
+    4. Registry URL mismatch causes authentication error and container fails to start
+  - **Solution**:
+    - Replace `docker-compose` deployment with direct `docker run` command
+    - Use pre-authenticated and pre-pulled OCIR image
+    - Inject all required environment variables (DB connection, EPX credentials, etc.)
+    - Add robust health check with retry logic and container log output on failure
+  - **Impact**: Application now deploys successfully to Oracle Cloud staging environment
+  - **Files Changed**:
+    - `deployment-workflows/.github/workflows/deploy-oracle-staging.yml` - Added EPX secrets, replaced docker-compose with docker run (commit 95eb02e)
+    - `.github/workflows/ci-cd.yml` - Updated to use fixed deployment workflow (commit 95eb02e)
+
 - **Oracle database migration failures - wallet path mismatch** (2025-01-17)
   - **Problem**: Database migrations failing with "ORA-28759: failure to open file" error
   - **Root Cause**: Oracle Autonomous Database wallet's `sqlnet.ora` contains hardcoded `WALLET_LOCATION` path that doesn't match extraction location on compute instance
