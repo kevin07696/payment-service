@@ -3,20 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"connectrpc.com/connect"
+	"connectrpc.com/grpchealth"
+	"connectrpc.com/grpcreflect"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/reflection"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	"github.com/kevin07696/payment-service/internal/adapters/epx"
@@ -35,11 +35,11 @@ import (
 	webhookService "github.com/kevin07696/payment-service/internal/services/webhook"
 	"github.com/kevin07696/payment-service/pkg/middleware"
 	"github.com/kevin07696/payment-service/pkg/security"
-	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
-	merchantv1 "github.com/kevin07696/payment-service/proto/merchant/v1"
-	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
-	paymentmethodv1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
-	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
+	"github.com/kevin07696/payment-service/proto/chargeback/v1/chargebackv1connect"
+	"github.com/kevin07696/payment-service/proto/merchant/v1/merchantv1connect"
+	"github.com/kevin07696/payment-service/proto/payment/v1/paymentv1connect"
+	"github.com/kevin07696/payment-service/proto/payment_method/v1/paymentmethodv1connect"
+	"github.com/kevin07696/payment-service/proto/subscription/v1/subscriptionv1connect"
 )
 
 func main() {
@@ -68,52 +68,77 @@ func main() {
 	// Initialize dependencies
 	deps := initDependencies(dbPool, cfg, logger)
 
-	// Initialize gRPC server with interceptors
-	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(
-			loggingInterceptor(logger),
-			recoveryInterceptor(logger),
-		),
+	// Create ConnectRPC HTTP mux
+	mux := http.NewServeMux()
+
+	// Create Connect interceptors
+	interceptors := connect.WithInterceptors(
+		middleware.RecoveryInterceptor(logger),
+		middleware.LoggingInterceptor(logger),
 	)
 
-	// Register all gRPC services
-	paymentv1.RegisterPaymentServiceServer(grpcServer, deps.paymentHandler)
-	subscriptionv1.RegisterSubscriptionServiceServer(grpcServer, deps.subscriptionHandler)
-	paymentmethodv1.RegisterPaymentMethodServiceServer(grpcServer, deps.paymentMethodHandler)
-	chargebackv1.RegisterChargebackServiceServer(grpcServer, deps.chargebackHandler)
-	merchantv1.RegisterMerchantServiceServer(grpcServer, deps.merchantHandler)
+	// Register all ConnectRPC services
+	paymentPath, paymentHandler := paymentv1connect.NewPaymentServiceHandler(
+		deps.paymentHandler,
+		interceptors,
+	)
+	mux.Handle(paymentPath, paymentHandler)
 
-	// Register reflection service (for tools like grpcurl)
-	reflection.Register(grpcServer)
+	subscriptionPath, subscriptionHandler := subscriptionv1connect.NewSubscriptionServiceHandler(
+		deps.subscriptionHandler,
+		interceptors,
+	)
+	mux.Handle(subscriptionPath, subscriptionHandler)
 
-	// Setup gRPC-Gateway (REST API proxy to gRPC)
-	ctx := context.Background()
-	gwMux := runtime.NewServeMux()
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-	grpcEndpoint := fmt.Sprintf("localhost:%d", cfg.Port)
+	paymentMethodPath, paymentMethodHandler := paymentmethodv1connect.NewPaymentMethodServiceHandler(
+		deps.paymentMethodHandler,
+		interceptors,
+	)
+	mux.Handle(paymentMethodPath, paymentMethodHandler)
 
-	// Register all gateway handlers
-	if err := paymentv1.RegisterPaymentServiceHandlerFromEndpoint(ctx, gwMux, grpcEndpoint, opts); err != nil {
-		logger.Fatal("Failed to register payment gateway", zap.Error(err))
-	}
-	if err := paymentmethodv1.RegisterPaymentMethodServiceHandlerFromEndpoint(ctx, gwMux, grpcEndpoint, opts); err != nil {
-		logger.Fatal("Failed to register payment method gateway", zap.Error(err))
-	}
-	if err := subscriptionv1.RegisterSubscriptionServiceHandlerFromEndpoint(ctx, gwMux, grpcEndpoint, opts); err != nil {
-		logger.Fatal("Failed to register subscription gateway", zap.Error(err))
-	}
+	chargebackPath, chargebackHandler := chargebackv1connect.NewChargebackServiceHandler(
+		deps.chargebackHandler,
+		interceptors,
+	)
+	mux.Handle(chargebackPath, chargebackHandler)
 
-	logger.Info("gRPC-Gateway registered", zap.String("rest_api", "/api/v1/*"))
+	merchantPath, merchantHandler := merchantv1connect.NewMerchantServiceHandler(
+		deps.merchantHandler,
+		interceptors,
+	)
+	mux.Handle(merchantPath, merchantHandler)
 
-	// Setup HTTP server for cron endpoints and Browser Post callback
+	// Add health check
+	checker := grpchealth.NewStaticChecker(
+		paymentv1connect.PaymentServiceName,
+		subscriptionv1connect.SubscriptionServiceName,
+		paymentmethodv1connect.PaymentMethodServiceName,
+		chargebackv1connect.ChargebackServiceName,
+		merchantv1connect.MerchantServiceName,
+	)
+	mux.Handle(grpchealth.NewHandler(checker))
+
+	// Add reflection
+	reflector := grpcreflect.NewStaticReflector(
+		paymentv1connect.PaymentServiceName,
+		subscriptionv1connect.SubscriptionServiceName,
+		paymentmethodv1connect.PaymentMethodServiceName,
+		chargebackv1connect.ChargebackServiceName,
+		merchantv1connect.MerchantServiceName,
+	)
+	mux.Handle(grpcreflect.NewHandlerV1(reflector))
+	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
+
+	logger.Info("ConnectRPC services registered",
+		zap.String("protocols", "gRPC, Connect, gRPC-Web, HTTP/JSON"),
+	)
+
+	// Setup separate HTTP server for cron endpoints and Browser Post callback
 	httpMux := http.NewServeMux()
 
 	// Create rate limiter (10 requests per second per IP, burst of 20)
 	// Adjust these values based on expected staging traffic
 	rateLimiter := middleware.NewRateLimiter(10, 20)
-
-	// Mount gRPC-Gateway (REST API)
-	httpMux.Handle("/api/", gwMux)
 
 	// Cron endpoints
 	httpMux.HandleFunc("/cron/process-billing", deps.billingCronHandler.ProcessBilling)
@@ -130,24 +155,26 @@ func main() {
 		Handler: rateLimiter.Middleware(httpMux), // Apply rate limiting to all HTTP endpoints
 	}
 
-	// Start gRPC server
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
-	if err != nil {
-		logger.Fatal("Failed to listen", zap.Error(err))
+	// Create ConnectRPC server with H2C support (HTTP/2 without TLS)
+	// This allows the server to accept gRPC, Connect, gRPC-Web, and HTTP/JSON requests
+	connectServer := &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           h2c.NewHandler(mux, &http2.Server{}),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	// Start gRPC server in goroutine
+	// Start ConnectRPC server in goroutine
 	go func() {
-		logger.Info("gRPC server listening",
-			zap.String("address", listener.Addr().String()),
+		logger.Info("ConnectRPC server listening",
 			zap.Int("port", cfg.Port),
+			zap.String("protocols", "gRPC, Connect, gRPC-Web, HTTP/JSON"),
 		)
-		if err := grpcServer.Serve(listener); err != nil {
-			logger.Fatal("Failed to serve", zap.Error(err))
+		if err := connectServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Failed to serve ConnectRPC", zap.Error(err))
 		}
 	}()
 
-	// Start HTTP server for cron in goroutine
+	// Start HTTP server for cron and browser post in goroutine
 	go func() {
 		logger.Info("HTTP cron server listening",
 			zap.Int("port", cfg.HTTPPort),
@@ -165,11 +192,15 @@ func main() {
 	logger.Info("Shutting down servers...")
 
 	// Graceful shutdown
-	grpcServer.GracefulStop()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Shutdown ConnectRPC server
+	if err := connectServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error("ConnectRPC server shutdown error", zap.Error(err))
+	}
 
 	// Shutdown HTTP server
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP server shutdown error", zap.Error(err))
 	}
@@ -215,11 +246,11 @@ type Config struct {
 
 // Dependencies holds all initialized services and handlers
 type Dependencies struct {
-	paymentHandler             paymentv1.PaymentServiceServer
-	subscriptionHandler        subscriptionv1.SubscriptionServiceServer
-	paymentMethodHandler       paymentmethodv1.PaymentMethodServiceServer
-	chargebackHandler          chargebackv1.ChargebackServiceServer
-	merchantHandler            merchantv1.MerchantServiceServer
+	paymentHandler             *paymentHandler.ConnectHandler
+	subscriptionHandler        *subscriptionHandler.ConnectHandler
+	paymentMethodHandler       *paymentmethodHandler.ConnectHandler
+	chargebackHandler          *chargebackHandler.ConnectHandler
+	merchantHandler            *merchantHandler.ConnectHandler
 	billingCronHandler         *cronHandler.BillingHandler
 	disputeSyncCronHandler     *cronHandler.DisputeSyncHandler
 	browserPostCallbackHandler *paymentHandler.BrowserPostCallbackHandler
@@ -412,12 +443,12 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	// Initialize webhook delivery service
 	webhookSvc := webhookService.NewWebhookDeliveryService(dbAdapter, nil, logger)
 
-	// Initialize handlers
-	paymentHdlr := paymentHandler.NewHandler(paymentSvc, logger)
-	subscriptionHdlr := subscriptionHandler.NewHandler(subscriptionSvc, logger)
-	paymentMethodHdlr := paymentmethodHandler.NewHandler(paymentMethodSvc, logger)
-	chargebackHdlr := chargebackHandler.NewHandler(dbAdapter, logger)
-	merchantHdlr := merchantHandler.NewHandler(merchantSvc, logger)
+	// Initialize ConnectRPC handlers
+	paymentHdlr := paymentHandler.NewConnectHandler(paymentSvc, logger)
+	subscriptionHdlr := subscriptionHandler.NewConnectHandler(subscriptionSvc, logger)
+	paymentMethodHdlr := paymentmethodHandler.NewConnectHandler(paymentMethodSvc, logger)
+	chargebackHdlr := chargebackHandler.NewConnectHandler(dbAdapter, logger)
+	merchantHdlr := merchantHandler.NewConnectHandler(merchantSvc, logger)
 
 	// Initialize cron handlers (for HTTP endpoints)
 	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, logger, cfg.CronSecret)
@@ -444,60 +475,6 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 		billingCronHandler:         billingCronHdlr,
 		disputeSyncCronHandler:     disputeSyncCronHdlr,
 		browserPostCallbackHandler: browserPostCallbackHdlr,
-	}
-}
-
-// Interceptors
-
-func loggingInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context,
-		req interface{},
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
-	) (interface{}, error) {
-		start := time.Now()
-
-		// Call the handler
-		resp, err := handler(ctx, req)
-
-		// Log the request
-		if err != nil {
-			logger.Error("gRPC request failed",
-				zap.String("method", info.FullMethod),
-				zap.Duration("duration", time.Since(start)),
-				zap.Error(err),
-			)
-		} else {
-			logger.Info("gRPC request",
-				zap.String("method", info.FullMethod),
-				zap.Duration("duration", time.Since(start)),
-			)
-		}
-
-		return resp, err
-	}
-}
-
-func recoveryInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context,
-		req interface{},
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
-	) (resp interface{}, err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Error("Panic recovered in gRPC handler",
-					zap.String("method", info.FullMethod),
-					zap.Any("panic", r),
-					zap.Stack("stack"),
-				)
-				err = fmt.Errorf("internal server error")
-			}
-		}()
-
-		return handler(ctx, req)
 	}
 }
 

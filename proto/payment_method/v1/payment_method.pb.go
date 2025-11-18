@@ -7,7 +7,6 @@
 package paymentmethodv1
 
 import (
-	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -1261,7 +1260,7 @@ var File_proto_payment_method_v1_payment_method_proto protoreflect.FileDescripto
 
 const file_proto_payment_method_v1_payment_method_proto_rawDesc = "" +
 	"\n" +
-	",proto/payment_method/v1/payment_method.proto\x12\x11payment_method.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"\xc4\x04\n" +
+	",proto/payment_method/v1/payment_method.proto\x12\x11payment_method.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc4\x04\n" +
 	"\x18SavePaymentMethodRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
@@ -1436,17 +1435,16 @@ const file_proto_payment_method_v1_payment_method_proto_rawDesc = "" +
 	"\x11PaymentMethodType\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_CREDIT_CARD\x10\x01\x12\x1b\n" +
-	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\xe5\n" +
-	"\n" +
-	"\x14PaymentMethodService\x12\x8e\x01\n" +
-	"\x11SavePaymentMethod\x12+.payment_method.v1.SavePaymentMethodRequest\x1a(.payment_method.v1.PaymentMethodResponse\"\"\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/api/v1/payment-methods\x12\x95\x01\n" +
-	"\x10GetPaymentMethod\x12*.payment_method.v1.GetPaymentMethodRequest\x1a .payment_method.v1.PaymentMethod\"3\x82\xd3\xe4\x93\x02-\x12+/api/v1/payment-methods/{payment_method_id}\x12\x92\x01\n" +
-	"\x12ListPaymentMethods\x12,.payment_method.v1.ListPaymentMethodsRequest\x1a-.payment_method.v1.ListPaymentMethodsResponse\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/payment-methods\x12\xb9\x01\n" +
-	"\x19UpdatePaymentMethodStatus\x123.payment_method.v1.UpdatePaymentMethodStatusRequest\x1a(.payment_method.v1.PaymentMethodResponse\"=\x82\xd3\xe4\x93\x027:\x01*22/api/v1/payment-methods/{payment_method_id}/status\x12\xa9\x01\n" +
-	"\x13DeletePaymentMethod\x12-.payment_method.v1.DeletePaymentMethodRequest\x1a..payment_method.v1.DeletePaymentMethodResponse\"3\x82\xd3\xe4\x93\x02-*+/api/v1/payment-methods/{payment_method_id}\x12\xba\x01\n" +
-	"\x17SetDefaultPaymentMethod\x121.payment_method.v1.SetDefaultPaymentMethodRequest\x1a(.payment_method.v1.PaymentMethodResponse\"B\x82\xd3\xe4\x93\x02<:\x01*\"7/api/v1/payment-methods/{payment_method_id}/set-default\x12\xae\x01\n" +
-	"\x10VerifyACHAccount\x12*.payment_method.v1.VerifyACHAccountRequest\x1a+.payment_method.v1.VerifyACHAccountResponse\"A\x82\xd3\xe4\x93\x02;:\x01*\"6/api/v1/payment-methods/{payment_method_id}/verify-ach\x12\xb8\x01\n" +
-	"!ConvertFinancialBRICToStorageBRIC\x12..payment_method.v1.ConvertFinancialBRICRequest\x1a(.payment_method.v1.PaymentMethodResponse\"9\x82\xd3\xe4\x93\x023:\x01*\"./api/v1/payment-methods/convert-financial-bricBOZMgithub.com/kevin07696/payment-service/proto/payment_method/v1;paymentmethodv1b\x06proto3"
+	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\xbd\a\n" +
+	"\x14PaymentMethodService\x12l\n" +
+	"\x11SavePaymentMethod\x12+.payment_method.v1.SavePaymentMethodRequest\x1a(.payment_method.v1.PaymentMethodResponse\"\x00\x12b\n" +
+	"\x10GetPaymentMethod\x12*.payment_method.v1.GetPaymentMethodRequest\x1a .payment_method.v1.PaymentMethod\"\x00\x12s\n" +
+	"\x12ListPaymentMethods\x12,.payment_method.v1.ListPaymentMethodsRequest\x1a-.payment_method.v1.ListPaymentMethodsResponse\"\x00\x12|\n" +
+	"\x19UpdatePaymentMethodStatus\x123.payment_method.v1.UpdatePaymentMethodStatusRequest\x1a(.payment_method.v1.PaymentMethodResponse\"\x00\x12v\n" +
+	"\x13DeletePaymentMethod\x12-.payment_method.v1.DeletePaymentMethodRequest\x1a..payment_method.v1.DeletePaymentMethodResponse\"\x00\x12x\n" +
+	"\x17SetDefaultPaymentMethod\x121.payment_method.v1.SetDefaultPaymentMethodRequest\x1a(.payment_method.v1.PaymentMethodResponse\"\x00\x12m\n" +
+	"\x10VerifyACHAccount\x12*.payment_method.v1.VerifyACHAccountRequest\x1a+.payment_method.v1.VerifyACHAccountResponse\"\x00\x12\x7f\n" +
+	"!ConvertFinancialBRICToStorageBRIC\x12..payment_method.v1.ConvertFinancialBRICRequest\x1a(.payment_method.v1.PaymentMethodResponse\"\x00BOZMgithub.com/kevin07696/payment-service/proto/payment_method/v1;paymentmethodv1b\x06proto3"
 
 var (
 	file_proto_payment_method_v1_payment_method_proto_rawDescOnce sync.Once

@@ -5,63 +5,29 @@ package payment.v1;
 option go_package = "github.com/kevin07696/payment-service/proto/payment/v1;paymentv1";
 
 import "google/protobuf/timestamp.proto";
-import "google/api/annotations.proto";
 
 // PaymentService handles all payment operations
 service PaymentService {
   // Authorize holds funds on a payment method without capturing
-  rpc Authorize(AuthorizeRequest) returns (PaymentResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/payments/authorize"
-      body: "*"
-    };
-  }
+  rpc Authorize(AuthorizeRequest) returns (PaymentResponse);
 
   // Capture completes a previously authorized payment
-  rpc Capture(CaptureRequest) returns (PaymentResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/payments/capture"
-      body: "*"
-    };
-  }
+  rpc Capture(CaptureRequest) returns (PaymentResponse);
 
   // Sale combines authorize and capture in one operation
-  rpc Sale(SaleRequest) returns (PaymentResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/payments/sale"
-      body: "*"
-    };
-  }
+  rpc Sale(SaleRequest) returns (PaymentResponse);
 
   // Void cancels an authorized or captured payment
-  rpc Void(VoidRequest) returns (PaymentResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/payments/void"
-      body: "*"
-    };
-  }
+  rpc Void(VoidRequest) returns (PaymentResponse);
 
   // Refund returns funds to the customer
-  rpc Refund(RefundRequest) returns (PaymentResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/payments/refund"
-      body: "*"
-    };
-  }
+  rpc Refund(RefundRequest) returns (PaymentResponse);
 
   // GetTransaction retrieves transaction details
-  rpc GetTransaction(GetTransactionRequest) returns (Transaction) {
-    option (google.api.http) = {
-      get: "/api/v1/payments/{transaction_id}"
-    };
-  }
+  rpc GetTransaction(GetTransactionRequest) returns (Transaction);
 
   // ListTransactions lists transactions for a merchant or customer
-  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse) {
-    option (google.api.http) = {
-      get: "/api/v1/payments"
-    };
-  }
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
 }
 
 // AuthorizeRequest authorizes a payment without capturing

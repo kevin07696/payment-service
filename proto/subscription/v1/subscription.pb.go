@@ -7,7 +7,6 @@
 package subscriptionv1
 
 import (
-	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -1185,7 +1184,7 @@ var File_proto_subscription_v1_subscription_proto protoreflect.FileDescriptor
 
 const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\n" +
-	"(proto/subscription/v1/subscription.proto\x12\x0fsubscription.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"\xc0\x04\n" +
+	"(proto/subscription/v1/subscription.proto\x12\x0fsubscription.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc0\x04\n" +
 	"\x19CreateSubscriptionRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
@@ -1314,16 +1313,16 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\x1aSUBSCRIPTION_STATUS_ACTIVE\x10\x01\x12\x1e\n" +
 	"\x1aSUBSCRIPTION_STATUS_PAUSED\x10\x02\x12!\n" +
 	"\x1dSUBSCRIPTION_STATUS_CANCELLED\x10\x03\x12 \n" +
-	"\x1cSUBSCRIPTION_STATUS_PAST_DUE\x10\x042\xfb\t\n" +
-	"\x13SubscriptionService\x12\x89\x01\n" +
-	"\x12CreateSubscription\x12*.subscription.v1.CreateSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\" \x82\xd3\xe4\x93\x02\x1a:\x01*\"\x15/api/v1/subscriptions\x12\x9b\x01\n" +
-	"\x12UpdateSubscription\x12*.subscription.v1.UpdateSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"2\x82\xd3\xe4\x93\x02,:\x01*2'/api/v1/subscriptions/{subscription_id}\x12\xa2\x01\n" +
-	"\x12CancelSubscription\x12*.subscription.v1.CancelSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"9\x82\xd3\xe4\x93\x023:\x01*\"./api/v1/subscriptions/{subscription_id}/cancel\x12\x9f\x01\n" +
-	"\x11PauseSubscription\x12).subscription.v1.PauseSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"8\x82\xd3\xe4\x93\x022:\x01*\"-/api/v1/subscriptions/{subscription_id}/pause\x12\xa2\x01\n" +
-	"\x12ResumeSubscription\x12*.subscription.v1.ResumeSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"9\x82\xd3\xe4\x93\x023:\x01*\"./api/v1/subscriptions/{subscription_id}/resume\x12\x8a\x01\n" +
-	"\x0fGetSubscription\x12'.subscription.v1.GetSubscriptionRequest\x1a\x1d.subscription.v1.Subscription\"/\x82\xd3\xe4\x93\x02)\x12'/api/v1/subscriptions/{subscription_id}\x12\xa1\x01\n" +
-	"\x19ListCustomerSubscriptions\x121.subscription.v1.ListCustomerSubscriptionsRequest\x1a2.subscription.v1.ListCustomerSubscriptionsResponse\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/subscriptions\x12\x9c\x01\n" +
-	"\x11ProcessDueBilling\x12).subscription.v1.ProcessDueBillingRequest\x1a*.subscription.v1.ProcessDueBillingResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/api/v1/subscriptions/process-billingBLZJgithub.com/kevin07696/payment-service/proto/subscription/v1;subscriptionv1b\x06proto3"
+	"\x1cSUBSCRIPTION_STATUS_PAST_DUE\x10\x042\xfc\x06\n" +
+	"\x13SubscriptionService\x12i\n" +
+	"\x12CreateSubscription\x12*.subscription.v1.CreateSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12i\n" +
+	"\x12UpdateSubscription\x12*.subscription.v1.UpdateSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12i\n" +
+	"\x12CancelSubscription\x12*.subscription.v1.CancelSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12g\n" +
+	"\x11PauseSubscription\x12).subscription.v1.PauseSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12i\n" +
+	"\x12ResumeSubscription\x12*.subscription.v1.ResumeSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12[\n" +
+	"\x0fGetSubscription\x12'.subscription.v1.GetSubscriptionRequest\x1a\x1d.subscription.v1.Subscription\"\x00\x12\x84\x01\n" +
+	"\x19ListCustomerSubscriptions\x121.subscription.v1.ListCustomerSubscriptionsRequest\x1a2.subscription.v1.ListCustomerSubscriptionsResponse\"\x00\x12l\n" +
+	"\x11ProcessDueBilling\x12).subscription.v1.ProcessDueBillingRequest\x1a*.subscription.v1.ProcessDueBillingResponse\"\x00BLZJgithub.com/kevin07696/payment-service/proto/subscription/v1;subscriptionv1b\x06proto3"
 
 var (
 	file_proto_subscription_v1_subscription_proto_rawDescOnce sync.Once

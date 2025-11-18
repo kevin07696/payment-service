@@ -5,7 +5,6 @@ package subscription.v1;
 option go_package = "github.com/kevin07696/payment-service/proto/subscription/v1;subscriptionv1";
 
 import "google/protobuf/timestamp.proto";
-import "google/api/annotations.proto";
 
 // IntervalUnit defines the time unit for billing intervals
 // Matches database constraint: ('day', 'week', 'month', 'year')
@@ -31,64 +30,34 @@ enum SubscriptionStatus {
 service SubscriptionService {
   // CreateSubscription creates a new recurring billing subscription
   rpc CreateSubscription(CreateSubscriptionRequest) returns (SubscriptionResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/subscriptions"
-      body: "*"
-    };
   }
 
   // UpdateSubscription updates subscription properties
   rpc UpdateSubscription(UpdateSubscriptionRequest) returns (SubscriptionResponse) {
-    option (google.api.http) = {
-      patch: "/api/v1/subscriptions/{subscription_id}"
-      body: "*"
-    };
   }
 
   // CancelSubscription cancels an active subscription
   rpc CancelSubscription(CancelSubscriptionRequest) returns (SubscriptionResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/subscriptions/{subscription_id}/cancel"
-      body: "*"
-    };
   }
 
   // PauseSubscription pauses an active subscription
   rpc PauseSubscription(PauseSubscriptionRequest) returns (SubscriptionResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/subscriptions/{subscription_id}/pause"
-      body: "*"
-    };
   }
 
   // ResumeSubscription resumes a paused subscription
   rpc ResumeSubscription(ResumeSubscriptionRequest) returns (SubscriptionResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/subscriptions/{subscription_id}/resume"
-      body: "*"
-    };
   }
 
   // GetSubscription retrieves subscription details
   rpc GetSubscription(GetSubscriptionRequest) returns (Subscription) {
-    option (google.api.http) = {
-      get: "/api/v1/subscriptions/{subscription_id}"
-    };
   }
 
   // ListCustomerSubscriptions lists all subscriptions for a customer
   rpc ListCustomerSubscriptions(ListCustomerSubscriptionsRequest) returns (ListCustomerSubscriptionsResponse) {
-    option (google.api.http) = {
-      get: "/api/v1/subscriptions"
-    };
   }
 
   // ProcessDueBilling processes subscriptions due for billing (internal/admin use)
   rpc ProcessDueBilling(ProcessDueBillingRequest) returns (ProcessDueBillingResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/subscriptions/process-billing"
-      body: "*"
-    };
   }
 }
 

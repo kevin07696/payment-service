@@ -7,7 +7,6 @@
 package paymentv1
 
 import (
-	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -1176,7 +1175,7 @@ var File_proto_payment_v1_payment_proto protoreflect.FileDescriptor
 const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"\x1eproto/payment/v1/payment.proto\x12\n" +
-	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"\x9d\x03\n" +
+	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9d\x03\n" +
 	"\x10AuthorizeRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
@@ -1289,15 +1288,15 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x11PaymentMethodType\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_CREDIT_CARD\x10\x01\x12\x1b\n" +
-	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\x80\x06\n" +
-	"\x0ePaymentService\x12m\n" +
-	"\tAuthorize\x12\x1c.payment.v1.AuthorizeRequest\x1a\x1b.payment.v1.PaymentResponse\"%\x82\xd3\xe4\x93\x02\x1f:\x01*\"\x1a/api/v1/payments/authorize\x12g\n" +
-	"\aCapture\x12\x1a.payment.v1.CaptureRequest\x1a\x1b.payment.v1.PaymentResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x01*\"\x18/api/v1/payments/capture\x12^\n" +
-	"\x04Sale\x12\x17.payment.v1.SaleRequest\x1a\x1b.payment.v1.PaymentResponse\" \x82\xd3\xe4\x93\x02\x1a:\x01*\"\x15/api/v1/payments/sale\x12^\n" +
-	"\x04Void\x12\x17.payment.v1.VoidRequest\x1a\x1b.payment.v1.PaymentResponse\" \x82\xd3\xe4\x93\x02\x1a:\x01*\"\x15/api/v1/payments/void\x12d\n" +
-	"\x06Refund\x12\x19.payment.v1.RefundRequest\x1a\x1b.payment.v1.PaymentResponse\"\"\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/api/v1/payments/refund\x12w\n" +
-	"\x0eGetTransaction\x12!.payment.v1.GetTransactionRequest\x1a\x17.payment.v1.Transaction\")\x82\xd3\xe4\x93\x02#\x12!/api/v1/payments/{transaction_id}\x12w\n" +
-	"\x10ListTransactions\x12#.payment.v1.ListTransactionsRequest\x1a$.payment.v1.ListTransactionsResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/paymentsBBZ@github.com/kevin07696/payment-service/proto/payment/v1;paymentv1b\x06proto3"
+	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\x87\x04\n" +
+	"\x0ePaymentService\x12F\n" +
+	"\tAuthorize\x12\x1c.payment.v1.AuthorizeRequest\x1a\x1b.payment.v1.PaymentResponse\x12B\n" +
+	"\aCapture\x12\x1a.payment.v1.CaptureRequest\x1a\x1b.payment.v1.PaymentResponse\x12<\n" +
+	"\x04Sale\x12\x17.payment.v1.SaleRequest\x1a\x1b.payment.v1.PaymentResponse\x12<\n" +
+	"\x04Void\x12\x17.payment.v1.VoidRequest\x1a\x1b.payment.v1.PaymentResponse\x12@\n" +
+	"\x06Refund\x12\x19.payment.v1.RefundRequest\x1a\x1b.payment.v1.PaymentResponse\x12L\n" +
+	"\x0eGetTransaction\x12!.payment.v1.GetTransactionRequest\x1a\x17.payment.v1.Transaction\x12]\n" +
+	"\x10ListTransactions\x12#.payment.v1.ListTransactionsRequest\x1a$.payment.v1.ListTransactionsResponseBBZ@github.com/kevin07696/payment-service/proto/payment/v1;paymentv1b\x06proto3"
 
 var (
 	file_proto_payment_v1_payment_proto_rawDescOnce sync.Once
