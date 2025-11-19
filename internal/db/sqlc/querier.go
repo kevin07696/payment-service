@@ -45,6 +45,7 @@ type Querier interface {
 	DeactivateAdmin(ctx context.Context, id uuid.UUID) error
 	DeactivateMerchant(ctx context.Context, id uuid.UUID) error
 	DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error
+	DeactivatePaymentMethodWithReason(ctx context.Context, arg DeactivatePaymentMethodWithReasonParams) error
 	DeactivateService(ctx context.Context, id uuid.UUID) error
 	DeleteAdminSession(ctx context.Context, id uuid.UUID) error
 	DeleteExpiredAdminSessions(ctx context.Context) error
@@ -62,6 +63,12 @@ type Querier interface {
 	GetMerchantByID(ctx context.Context, id uuid.UUID) (Merchant, error)
 	GetMerchantBySlug(ctx context.Context, slug string) (Merchant, error)
 	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (CustomerPaymentMethod, error)
+	// Get payment method by pre-note transaction ID (for return code processing)
+	GetPaymentMethodByPreNoteTransaction(ctx context.Context, prenoteTransactionID pgtype.UUID) (CustomerPaymentMethod, error)
+	// ACH Verification Management Queries
+	// Get ACH payment methods pending verification older than specified cutoff date
+	// Used by cron job to mark accounts as verified after 3 days with no returns
+	GetPendingACHVerifications(ctx context.Context, arg GetPendingACHVerificationsParams) ([]CustomerPaymentMethod, error)
 	GetServiceByID(ctx context.Context, id uuid.UUID) (Service, error)
 	GetServiceByServiceID(ctx context.Context, serviceID string) (Service, error)
 	GetServiceMerchantAccess(ctx context.Context, arg GetServiceMerchantAccessParams) (ServiceMerchant, error)
@@ -78,6 +85,8 @@ type Querier interface {
 	GetWebhookDeliveryHistory(ctx context.Context, arg GetWebhookDeliveryHistoryParams) ([]WebhookDelivery, error)
 	GetWebhookSubscription(ctx context.Context, id uuid.UUID) (WebhookSubscription, error)
 	GrantServiceAccess(ctx context.Context, arg GrantServiceAccessParams) (ServiceMerchant, error)
+	// Increment ACH return count and optionally deactivate if threshold reached
+	IncrementReturnCount(ctx context.Context, arg IncrementReturnCountParams) error
 	IncrementSubscriptionFailureCount(ctx context.Context, arg IncrementSubscriptionFailureCountParams) (Subscription, error)
 	IncrementSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
 	ListActiveMerchants(ctx context.Context) ([]Merchant, error)
@@ -105,6 +114,8 @@ type Querier interface {
 	MarkPaymentMethodAsDefault(ctx context.Context, id uuid.UUID) error
 	MarkPaymentMethodUsed(ctx context.Context, id uuid.UUID) error
 	MarkPaymentMethodVerified(ctx context.Context, id uuid.UUID) error
+	// Mark ACH verification as failed and deactivate payment method
+	MarkVerificationFailed(ctx context.Context, arg MarkVerificationFailedParams) error
 	MerchantExists(ctx context.Context, id uuid.UUID) (bool, error)
 	MerchantExistsBySlug(ctx context.Context, slug string) (bool, error)
 	ResetSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
@@ -129,6 +140,8 @@ type Querier interface {
 	// Updates transaction with EPX response data (for Browser Post callback)
 	// Only updates EPX response fields, leaves core transaction data unchanged
 	UpdateTransactionFromEPXResponse(ctx context.Context, arg UpdateTransactionFromEPXResponseParams) (Transaction, error)
+	// Update verification status and related fields
+	UpdateVerificationStatus(ctx context.Context, arg UpdateVerificationStatusParams) error
 	UpdateWebhookDeliveryStatus(ctx context.Context, arg UpdateWebhookDeliveryStatusParams) (WebhookDelivery, error)
 	UpdateWebhookSubscription(ctx context.Context, arg UpdateWebhookSubscriptionParams) (WebhookSubscription, error)
 }

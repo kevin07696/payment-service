@@ -47,6 +47,16 @@ service PaymentMethodService {
   // Use case: Customer completes payment and wants to save their payment method
   rpc ConvertFinancialBRICToStorageBRIC(ConvertFinancialBRICRequest) returns (PaymentMethodResponse) {
   }
+
+  // StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
+  // Use case: Customer adds bank account for recurring payments
+  rpc StoreACHAccount(StoreACHAccountRequest) returns (PaymentMethodResponse) {
+  }
+
+  // UpdatePaymentMethod updates metadata only (billing info, nickname)
+  // Does NOT support changing account/routing numbers - create new payment method instead
+  rpc UpdatePaymentMethod(UpdatePaymentMethodRequest) returns (PaymentMethodResponse) {
+  }
 }
 
 // SavePaymentMethodRequest saves a new payment method
@@ -162,6 +172,70 @@ message ConvertFinancialBRICRequest {
   optional string city = 17;
   optional string state = 18;
   optional string zip_code = 19;
+}
+
+// AccountType for ACH accounts
+enum AccountType {
+  ACCOUNT_TYPE_UNSPECIFIED = 0;
+  ACCOUNT_TYPE_CHECKING = 1;
+  ACCOUNT_TYPE_SAVINGS = 2;
+}
+
+// StdEntryClass for ACH transactions
+enum StdEntryClass {
+  STD_ENTRY_CLASS_UNSPECIFIED = 0;
+  STD_ENTRY_CLASS_PPD = 1; // Prearranged Payment and Deposit (personal)
+  STD_ENTRY_CLASS_CCD = 2; // Corporate Credit or Debit
+  STD_ENTRY_CLASS_WEB = 3; // Internet-initiated entry
+  STD_ENTRY_CLASS_TEL = 4; // Telephone-initiated entry
+}
+
+// StoreACHAccountRequest creates ACH Storage BRIC
+message StoreACHAccountRequest {
+  string merchant_id = 1;
+  string customer_id = 2;
+
+  // Raw ACH account details (backend receives from customer)
+  string account_number = 3;
+  string routing_number = 4;
+  string account_holder_name = 5;
+  AccountType account_type = 6; // CHECKING or SAVINGS
+  StdEntryClass std_entry_class = 7; // PPD, CCD, WEB, TEL
+
+  // Billing information (optional but recommended)
+  optional string first_name = 8;
+  optional string last_name = 9;
+  optional string address = 10;
+  optional string city = 11;
+  optional string state = 12;
+  optional string zip_code = 13;
+
+  // Display metadata (optional)
+  optional string bank_name = 14; // "Chase", "Bank of America"
+  optional string nickname = 15; // "Primary checking", "Business account"
+
+  bool is_default = 16;
+  string idempotency_key = 17;
+}
+
+// UpdatePaymentMethodRequest updates metadata only
+// Does NOT support changing account/routing numbers, card numbers, etc.
+// For account changes, delete old payment method and create new one
+message UpdatePaymentMethodRequest {
+  string payment_method_id = 1;
+  string merchant_id = 2;
+  string customer_id = 3;
+
+  // Metadata updates (all optional)
+  optional string billing_name = 4;
+  optional string billing_address = 5;
+  optional string billing_city = 6;
+  optional string billing_state = 7;
+  optional string billing_zip = 8;
+  optional string nickname = 9;
+  optional bool is_default = 10;
+
+  string idempotency_key = 11;
 }
 
 // PaymentMethodResponse is returned from payment method operations

@@ -121,7 +121,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 
 	s.logger.Info("Processing sale transaction",
 		zap.String("merchant_id", resolvedMerchantID),
-		zap.String("amount", req.Amount),
+		zap.Int64("amount_cents", req.AmountCents),
 	)
 
 	// Parse transaction ID from idempotency key (required)
@@ -189,7 +189,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		DBAnbr:          merchant.DbaNbr,
 		TerminalNbr:     merchant.TerminalNbr,
 		TransactionType: adapterports.TransactionTypeSale,
-		Amount:          req.Amount,
+		Amount:          centsToDecimalString(req.AmountCents),
 		PaymentType:     adapterports.PaymentMethodTypeCreditCard,
 		AuthGUID:        authGUID,
 		TranNbr:         epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
@@ -206,12 +206,8 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 	// Save transaction to database using WithTx for transaction safety
 	var transaction *domain.Transaction
 	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
-		// Parse amount and convert to cents
-		amount, err := decimal.NewFromString(req.Amount)
-		if err != nil {
-			return fmt.Errorf("invalid amount: %w", err)
-		}
-		amountCents := amount.Mul(decimal.NewFromInt(100)).IntPart()
+		// Amount is already in cents - use directly
+		amountCents := req.AmountCents
 
 		// Parse customer ID to UUID if provided
 		var customerIDUUID pgtype.UUID
@@ -302,7 +298,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 
 	s.logger.Info("Processing authorization",
 		zap.String("merchant_id", resolvedMerchantID),
-		zap.String("amount", req.Amount),
+		zap.Int64("amount_cents", req.AmountCents),
 	)
 
 	// Parse transaction ID from idempotency key (required)
@@ -377,7 +373,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		DBAnbr:          merchant.DbaNbr,
 		TerminalNbr:     merchant.TerminalNbr,
 		TransactionType: adapterports.TransactionTypeAuthOnly,
-		Amount:          req.Amount,
+		Amount:          centsToDecimalString(req.AmountCents),
 		PaymentType:     adapterports.PaymentMethodTypeCreditCard,
 		AuthGUID:        authGUID,
 		TranNbr:         epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
@@ -394,12 +390,8 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 	// Save transaction to database
 	var transaction *domain.Transaction
 	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
-		// Parse amount and convert to cents
-		amount, err := decimal.NewFromString(req.Amount)
-		if err != nil {
-			return fmt.Errorf("invalid amount: %w", err)
-		}
-		amountCents := amount.Mul(decimal.NewFromInt(100)).IntPart()
+		// Amount is already in cents - use directly
+		amountCents := req.AmountCents
 
 		// Parse customer ID to UUID if provided
 		var customerIDUUID pgtype.UUID
@@ -507,13 +499,8 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	}
 
 	// Validate amount if provided
-	var captureAmount decimal.Decimal
-	if req.Amount != nil {
-		captureAmount, err = decimal.NewFromString(*req.Amount)
-		if err != nil {
-			return nil, fmt.Errorf("invalid amount format: %w", err)
-		}
-		if captureAmount.LessThanOrEqual(decimal.Zero) {
+	if req.AmountCents != nil {
+		if *req.AmountCents <= 0 {
 			return nil, fmt.Errorf("amount must be greater than zero")
 		}
 	}
@@ -553,7 +540,6 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	s.logger.Info("Processing capture",
 		zap.String("capture_transaction_id", txID.String()),
 		zap.String("original_transaction_id", req.TransactionID),
-		zap.String("amount", stringOrEmpty(req.Amount)),
 	)
 
 	var transaction *domain.Transaction
@@ -586,11 +572,8 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 
 		// Validate capture is allowed
 		captureAmountCents := state.ActiveAuthAmount
-		if req.Amount != nil {
-			captureAmountCents, err = stringAmountToCents(*req.Amount)
-			if err != nil {
-				return fmt.Errorf("invalid amount format: %w", err)
-			}
+		if req.AmountCents != nil {
+			captureAmountCents = *req.AmountCents
 		}
 
 		canCapture, reason := state.CanCapture(captureAmountCents)
@@ -654,12 +637,8 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 
 	// Determine capture amount (use full auth amount if not specified)
 	finalCaptureAmountCents := state.ActiveAuthAmount
-	if req.Amount != nil {
-		var err error
-		finalCaptureAmountCents, err = stringAmountToCents(*req.Amount)
-		if err != nil {
-			return nil, fmt.Errorf("invalid amount format: %w", err)
-		}
+	if req.AmountCents != nil {
+		finalCaptureAmountCents = *req.AmountCents
 	}
 
 	// Get BRIC for CAPTURE operation (uses AUTH's BRIC)
@@ -1054,11 +1033,8 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 
 	// Validate amount if provided
 	var refundAmountCents int64
-	if req.Amount != nil {
-		refundAmountCents, err = stringAmountToCents(*req.Amount)
-		if err != nil {
-			return nil, fmt.Errorf("invalid amount format: %w", err)
-		}
+	if req.AmountCents != nil {
+		refundAmountCents = *req.AmountCents
 		if refundAmountCents <= 0 {
 			return nil, fmt.Errorf("amount must be greater than zero")
 		}
@@ -1122,7 +1098,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 
 		// Determine refund amount (use full captured amount if not specified)
 		finalRefundAmountCents = state.CapturedAmount
-		if req.Amount != nil {
+		if req.AmountCents != nil {
 			finalRefundAmountCents = refundAmountCents // Use pre-validated amount
 		}
 
@@ -1563,18 +1539,6 @@ func stringToUUIDPtr(s *string) *uuid.UUID {
 		return nil
 	}
 	return &id
-}
-
-// stringAmountToCents converts a string amount in dollars to cents (int64)
-// Example: "10.50" -> 1050
-func stringAmountToCents(amount string) (int64, error) {
-	d, err := decimal.NewFromString(amount)
-	if err != nil {
-		return 0, fmt.Errorf("invalid amount format: %w", err)
-	}
-	// Multiply by 100 to convert dollars to cents
-	cents := d.Mul(decimal.NewFromInt(100)).IntPart()
-	return cents, nil
 }
 
 // centsToDecimalString converts cents (int64) to a decimal string for EPX API

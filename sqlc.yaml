@@ -4,6 +4,8 @@ sql:
     queries: "internal/db/queries/"
     schema: "internal/db/migrations/"
     strict_order_by: false
+    rules:
+      - sqlc/db-prepare
     gen:
       go:
         package: "sqlc"
@@ -15,6 +17,10 @@ sql:
         emit_exact_table_names: false
         emit_empty_slices: true
         json_tags_case_style: "snake"
+        rename:
+          audit_logs_2025_01: "_AuditLog202501"
+          audit_logs_2025_02: "_AuditLog202502"
+          audit_logs_2025_03: "_AuditLog202503"
         overrides:
           - db_type: "jsonb"
             go_type: "encoding/json.RawMessage"

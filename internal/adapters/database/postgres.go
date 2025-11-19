@@ -101,7 +101,7 @@ func (a *PostgreSQLAdapter) Close() {
 // WithTx executes a function within a database transaction
 // If the function returns an error, the transaction is rolled back
 // Otherwise, the transaction is committed
-func (a *PostgreSQLAdapter) WithTx(ctx context.Context, fn func(*sqlc.Queries) error) error {
+func (a *PostgreSQLAdapter) WithTx(ctx context.Context, fn func(sqlc.Querier) error) error {
 	// Begin transaction
 	tx, err := a.pool.Begin(ctx)
 	if err != nil {

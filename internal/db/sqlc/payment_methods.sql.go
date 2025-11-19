@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -29,31 +30,35 @@ INSERT INTO customer_payment_methods (
     bric, last_four,
     card_brand, card_exp_month, card_exp_year,
     bank_name, account_type,
-    is_default, is_active, is_verified
+    is_default, is_active, is_verified,
+    verification_status, prenote_transaction_id
 ) VALUES (
     $1, $2, $3, $4,
     $5, $6,
     $7, $8, $9,
     $10, $11,
-    $12, $13, $14
-) RETURNING id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at
+    $12, $13, $14,
+    $15, $16
+) RETURNING id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at, verification_status, prenote_transaction_id, verified_at, verification_failure_reason, return_count, deactivation_reason, deactivated_at
 `
 
 type CreatePaymentMethodParams struct {
-	ID           uuid.UUID   `json:"id"`
-	MerchantID   uuid.UUID   `json:"merchant_id"`
-	CustomerID   uuid.UUID   `json:"customer_id"`
-	PaymentType  string      `json:"payment_type"`
-	Bric         string      `json:"bric"`
-	LastFour     string      `json:"last_four"`
-	CardBrand    pgtype.Text `json:"card_brand"`
-	CardExpMonth pgtype.Int4 `json:"card_exp_month"`
-	CardExpYear  pgtype.Int4 `json:"card_exp_year"`
-	BankName     pgtype.Text `json:"bank_name"`
-	AccountType  pgtype.Text `json:"account_type"`
-	IsDefault    pgtype.Bool `json:"is_default"`
-	IsActive     pgtype.Bool `json:"is_active"`
-	IsVerified   pgtype.Bool `json:"is_verified"`
+	ID                   uuid.UUID   `json:"id"`
+	MerchantID           uuid.UUID   `json:"merchant_id"`
+	CustomerID           uuid.UUID   `json:"customer_id"`
+	PaymentType          string      `json:"payment_type"`
+	Bric                 string      `json:"bric"`
+	LastFour             string      `json:"last_four"`
+	CardBrand            pgtype.Text `json:"card_brand"`
+	CardExpMonth         pgtype.Int4 `json:"card_exp_month"`
+	CardExpYear          pgtype.Int4 `json:"card_exp_year"`
+	BankName             pgtype.Text `json:"bank_name"`
+	AccountType          pgtype.Text `json:"account_type"`
+	IsDefault            pgtype.Bool `json:"is_default"`
+	IsActive             pgtype.Bool `json:"is_active"`
+	IsVerified           pgtype.Bool `json:"is_verified"`
+	VerificationStatus   pgtype.Text `json:"verification_status"`
+	PrenoteTransactionID pgtype.UUID `json:"prenote_transaction_id"`
 }
 
 func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMethodParams) (CustomerPaymentMethod, error) {
@@ -72,6 +77,8 @@ func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMeth
 		arg.IsDefault,
 		arg.IsActive,
 		arg.IsVerified,
+		arg.VerificationStatus,
+		arg.PrenoteTransactionID,
 	)
 	var i CustomerPaymentMethod
 	err := row.Scan(
@@ -93,6 +100,13 @@ func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMeth
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsedAt,
+		&i.VerificationStatus,
+		&i.PrenoteTransactionID,
+		&i.VerifiedAt,
+		&i.VerificationFailureReason,
+		&i.ReturnCount,
+		&i.DeactivationReason,
+		&i.DeactivatedAt,
 	)
 	return i, err
 }
@@ -108,6 +122,25 @@ func (q *Queries) DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) err
 	return err
 }
 
+const deactivatePaymentMethodWithReason = `-- name: DeactivatePaymentMethodWithReason :exec
+UPDATE customer_payment_methods
+SET is_active = false,
+    deactivation_reason = $1,
+    deactivated_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2 AND deleted_at IS NULL
+`
+
+type DeactivatePaymentMethodWithReasonParams struct {
+	DeactivationReason pgtype.Text `json:"deactivation_reason"`
+	ID                 uuid.UUID   `json:"id"`
+}
+
+func (q *Queries) DeactivatePaymentMethodWithReason(ctx context.Context, arg DeactivatePaymentMethodWithReasonParams) error {
+	_, err := q.db.Exec(ctx, deactivatePaymentMethodWithReason, arg.DeactivationReason, arg.ID)
+	return err
+}
+
 const deletePaymentMethod = `-- name: DeletePaymentMethod :exec
 UPDATE customer_payment_methods
 SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -120,7 +153,7 @@ func (q *Queries) DeletePaymentMethod(ctx context.Context, id uuid.UUID) error {
 }
 
 const getDefaultPaymentMethod = `-- name: GetDefaultPaymentMethod :one
-SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at, verification_status, prenote_transaction_id, verified_at, verification_failure_reason, return_count, deactivation_reason, deactivated_at FROM customer_payment_methods
 WHERE merchant_id = $1 AND customer_id = $2 AND is_default = true AND is_active = true AND deleted_at IS NULL
 LIMIT 1
 `
@@ -152,12 +185,19 @@ func (q *Queries) GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPay
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsedAt,
+		&i.VerificationStatus,
+		&i.PrenoteTransactionID,
+		&i.VerifiedAt,
+		&i.VerificationFailureReason,
+		&i.ReturnCount,
+		&i.DeactivationReason,
+		&i.DeactivatedAt,
 	)
 	return i, err
 }
 
 const getPaymentMethodByID = `-- name: GetPaymentMethodByID :one
-SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at, verification_status, prenote_transaction_id, verified_at, verification_failure_reason, return_count, deactivation_reason, deactivated_at FROM customer_payment_methods
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -183,12 +223,155 @@ func (q *Queries) GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (Custo
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsedAt,
+		&i.VerificationStatus,
+		&i.PrenoteTransactionID,
+		&i.VerifiedAt,
+		&i.VerificationFailureReason,
+		&i.ReturnCount,
+		&i.DeactivationReason,
+		&i.DeactivatedAt,
 	)
 	return i, err
 }
 
+const getPaymentMethodByPreNoteTransaction = `-- name: GetPaymentMethodByPreNoteTransaction :one
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at, verification_status, prenote_transaction_id, verified_at, verification_failure_reason, return_count, deactivation_reason, deactivated_at FROM customer_payment_methods
+WHERE prenote_transaction_id = $1
+  AND deleted_at IS NULL
+LIMIT 1
+`
+
+// Get payment method by pre-note transaction ID (for return code processing)
+func (q *Queries) GetPaymentMethodByPreNoteTransaction(ctx context.Context, prenoteTransactionID pgtype.UUID) (CustomerPaymentMethod, error) {
+	row := q.db.QueryRow(ctx, getPaymentMethodByPreNoteTransaction, prenoteTransactionID)
+	var i CustomerPaymentMethod
+	err := row.Scan(
+		&i.ID,
+		&i.MerchantID,
+		&i.CustomerID,
+		&i.Bric,
+		&i.PaymentType,
+		&i.LastFour,
+		&i.CardBrand,
+		&i.CardExpMonth,
+		&i.CardExpYear,
+		&i.BankName,
+		&i.AccountType,
+		&i.IsDefault,
+		&i.IsActive,
+		&i.IsVerified,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastUsedAt,
+		&i.VerificationStatus,
+		&i.PrenoteTransactionID,
+		&i.VerifiedAt,
+		&i.VerificationFailureReason,
+		&i.ReturnCount,
+		&i.DeactivationReason,
+		&i.DeactivatedAt,
+	)
+	return i, err
+}
+
+const getPendingACHVerifications = `-- name: GetPendingACHVerifications :many
+
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at, verification_status, prenote_transaction_id, verified_at, verification_failure_reason, return_count, deactivation_reason, deactivated_at FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'pending'
+  AND created_at < $1
+  AND deleted_at IS NULL
+ORDER BY created_at ASC
+LIMIT $2
+`
+
+type GetPendingACHVerificationsParams struct {
+	CutoffDate time.Time `json:"cutoff_date"`
+	LimitCount int32     `json:"limit_count"`
+}
+
+// ACH Verification Management Queries
+// Get ACH payment methods pending verification older than specified cutoff date
+// Used by cron job to mark accounts as verified after 3 days with no returns
+func (q *Queries) GetPendingACHVerifications(ctx context.Context, arg GetPendingACHVerificationsParams) ([]CustomerPaymentMethod, error) {
+	rows, err := q.db.Query(ctx, getPendingACHVerifications, arg.CutoffDate, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CustomerPaymentMethod{}
+	for rows.Next() {
+		var i CustomerPaymentMethod
+		if err := rows.Scan(
+			&i.ID,
+			&i.MerchantID,
+			&i.CustomerID,
+			&i.Bric,
+			&i.PaymentType,
+			&i.LastFour,
+			&i.CardBrand,
+			&i.CardExpMonth,
+			&i.CardExpYear,
+			&i.BankName,
+			&i.AccountType,
+			&i.IsDefault,
+			&i.IsActive,
+			&i.IsVerified,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastUsedAt,
+			&i.VerificationStatus,
+			&i.PrenoteTransactionID,
+			&i.VerifiedAt,
+			&i.VerificationFailureReason,
+			&i.ReturnCount,
+			&i.DeactivationReason,
+			&i.DeactivatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const incrementReturnCount = `-- name: IncrementReturnCount :exec
+UPDATE customer_payment_methods
+SET return_count = return_count + 1,
+    is_active = CASE
+        WHEN return_count + 1 >= $1 THEN false
+        ELSE is_active
+    END,
+    deactivation_reason = CASE
+        WHEN return_count + 1 >= $1 THEN 'excessive_returns'
+        ELSE deactivation_reason
+    END,
+    deactivated_at = CASE
+        WHEN return_count + 1 >= $1 THEN CURRENT_TIMESTAMP
+        ELSE deactivated_at
+    END,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2 AND deleted_at IS NULL
+`
+
+type IncrementReturnCountParams struct {
+	DeactivationThreshold int32     `json:"deactivation_threshold"`
+	ID                    uuid.UUID `json:"id"`
+}
+
+// Increment ACH return count and optionally deactivate if threshold reached
+func (q *Queries) IncrementReturnCount(ctx context.Context, arg IncrementReturnCountParams) error {
+	_, err := q.db.Exec(ctx, incrementReturnCount, arg.DeactivationThreshold, arg.ID)
+	return err
+}
+
 const listPaymentMethods = `-- name: ListPaymentMethods :many
-SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at, verification_status, prenote_transaction_id, verified_at, verification_failure_reason, return_count, deactivation_reason, deactivated_at FROM customer_payment_methods
 WHERE
     deleted_at IS NULL AND
     ($1::uuid IS NULL OR merchant_id = $1) AND
@@ -241,6 +424,13 @@ func (q *Queries) ListPaymentMethods(ctx context.Context, arg ListPaymentMethods
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastUsedAt,
+			&i.VerificationStatus,
+			&i.PrenoteTransactionID,
+			&i.VerifiedAt,
+			&i.VerificationFailureReason,
+			&i.ReturnCount,
+			&i.DeactivationReason,
+			&i.DeactivatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -253,7 +443,7 @@ func (q *Queries) ListPaymentMethods(ctx context.Context, arg ListPaymentMethods
 }
 
 const listPaymentMethodsByCustomer = `-- name: ListPaymentMethodsByCustomer :many
-SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at, verification_status, prenote_transaction_id, verified_at, verification_failure_reason, return_count, deactivation_reason, deactivated_at FROM customer_payment_methods
 WHERE merchant_id = $1 AND customer_id = $2 AND deleted_at IS NULL
 ORDER BY is_default DESC, created_at DESC
 `
@@ -291,6 +481,13 @@ func (q *Queries) ListPaymentMethodsByCustomer(ctx context.Context, arg ListPaym
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastUsedAt,
+			&i.VerificationStatus,
+			&i.PrenoteTransactionID,
+			&i.VerifiedAt,
+			&i.VerificationFailureReason,
+			&i.ReturnCount,
+			&i.DeactivationReason,
+			&i.DeactivatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -327,12 +524,38 @@ func (q *Queries) MarkPaymentMethodUsed(ctx context.Context, id uuid.UUID) error
 
 const markPaymentMethodVerified = `-- name: MarkPaymentMethodVerified :exec
 UPDATE customer_payment_methods
-SET is_verified = true, updated_at = CURRENT_TIMESTAMP
+SET is_verified = true,
+    verification_status = 'verified',
+    verified_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) MarkPaymentMethodVerified(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, markPaymentMethodVerified, id)
+	return err
+}
+
+const markVerificationFailed = `-- name: MarkVerificationFailed :exec
+UPDATE customer_payment_methods
+SET verification_status = 'failed',
+    is_verified = false,
+    is_active = false,
+    verification_failure_reason = $1,
+    deactivation_reason = 'verification_failed',
+    deactivated_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2 AND deleted_at IS NULL
+`
+
+type MarkVerificationFailedParams struct {
+	FailureReason pgtype.Text `json:"failure_reason"`
+	ID            uuid.UUID   `json:"id"`
+}
+
+// Mark ACH verification as failed and deactivate payment method
+func (q *Queries) MarkVerificationFailed(ctx context.Context, arg MarkVerificationFailedParams) error {
+	_, err := q.db.Exec(ctx, markVerificationFailed, arg.FailureReason, arg.ID)
 	return err
 }
 
@@ -350,5 +573,33 @@ type SetPaymentMethodAsDefaultParams struct {
 // First unset all defaults for this customer
 func (q *Queries) SetPaymentMethodAsDefault(ctx context.Context, arg SetPaymentMethodAsDefaultParams) error {
 	_, err := q.db.Exec(ctx, setPaymentMethodAsDefault, arg.MerchantID, arg.CustomerID)
+	return err
+}
+
+const updateVerificationStatus = `-- name: UpdateVerificationStatus :exec
+UPDATE customer_payment_methods
+SET verification_status = $1,
+    is_verified = CASE
+        WHEN $1::varchar = 'verified' THEN true
+        ELSE false
+    END,
+    verified_at = CASE
+        WHEN $1::varchar = 'verified' THEN CURRENT_TIMESTAMP
+        ELSE verified_at
+    END,
+    verification_failure_reason = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $3 AND deleted_at IS NULL
+`
+
+type UpdateVerificationStatusParams struct {
+	VerificationStatus        pgtype.Text `json:"verification_status"`
+	VerificationFailureReason pgtype.Text `json:"verification_failure_reason"`
+	ID                        uuid.UUID   `json:"id"`
+}
+
+// Update verification status and related fields
+func (q *Queries) UpdateVerificationStatus(ctx context.Context, arg UpdateVerificationStatusParams) error {
+	_, err := q.db.Exec(ctx, updateVerificationStatus, arg.VerificationStatus, arg.VerificationFailureReason, arg.ID)
 	return err
 }

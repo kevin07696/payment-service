@@ -35,7 +35,7 @@ func NewHandler(service ports.PaymentService, logger *zap.Logger) *Handler {
 func (h *Handler) Authorize(ctx context.Context, req *paymentv1.AuthorizeRequest) (*paymentv1.PaymentResponse, error) {
 	h.logger.Info("Authorize request received",
 		zap.String("merchant_id", req.MerchantId),
-		zap.String("amount", req.Amount),
+		zap.Int64("amount_cents", req.AmountCents),
 	)
 
 	// Validate request
@@ -45,10 +45,10 @@ func (h *Handler) Authorize(ctx context.Context, req *paymentv1.AuthorizeRequest
 
 	// Convert to service request
 	serviceReq := &ports.AuthorizeRequest{
-		MerchantID: req.MerchantId,
-		Amount:     req.Amount,
-		Currency:   req.Currency,
-		Metadata:   convertMetadata(req.Metadata),
+		MerchantID:  req.MerchantId,
+		AmountCents: req.AmountCents,
+		Currency:    req.Currency,
+		Metadata:    convertMetadata(req.Metadata),
 	}
 
 	if req.CustomerId != "" {
@@ -93,8 +93,8 @@ func (h *Handler) Capture(ctx context.Context, req *paymentv1.CaptureRequest) (*
 		TransactionID: req.TransactionId,
 	}
 
-	if req.Amount != "" {
-		serviceReq.Amount = &req.Amount
+	if req.AmountCents > 0 {
+		serviceReq.AmountCents = &req.AmountCents
 	}
 
 	if req.IdempotencyKey != "" {
@@ -119,7 +119,7 @@ func (h *Handler) Capture(ctx context.Context, req *paymentv1.CaptureRequest) (*
 func (h *Handler) Sale(ctx context.Context, req *paymentv1.SaleRequest) (*paymentv1.PaymentResponse, error) {
 	h.logger.Info("Sale request received",
 		zap.String("merchant_id", req.MerchantId),
-		zap.String("amount", req.Amount),
+		zap.Int64("amount_cents", req.AmountCents),
 	)
 
 	// Validate request
@@ -128,10 +128,10 @@ func (h *Handler) Sale(ctx context.Context, req *paymentv1.SaleRequest) (*paymen
 	}
 
 	serviceReq := &ports.SaleRequest{
-		MerchantID: req.MerchantId,
-		Amount:     req.Amount,
-		Currency:   req.Currency,
-		Metadata:   convertMetadata(req.Metadata),
+		MerchantID:  req.MerchantId,
+		AmountCents: req.AmountCents,
+		Currency:    req.Currency,
+		Metadata:    convertMetadata(req.Metadata),
 	}
 
 	if req.CustomerId != "" {
@@ -201,8 +201,8 @@ func (h *Handler) Refund(ctx context.Context, req *paymentv1.RefundRequest) (*pa
 		Reason:              req.Reason,
 	}
 
-	if req.Amount != "" {
-		serviceReq.Amount = &req.Amount
+	if req.AmountCents > 0 {
+		serviceReq.AmountCents = &req.AmountCents
 	}
 
 	if req.IdempotencyKey != "" {
@@ -281,8 +281,8 @@ func validateAuthorizeRequest(req *paymentv1.AuthorizeRequest) error {
 	if req.MerchantId == "" {
 		return fmt.Errorf("merchant_id is required")
 	}
-	if req.Amount == "" {
-		return fmt.Errorf("amount is required")
+	if req.AmountCents <= 0 {
+		return fmt.Errorf("amount_cents must be greater than 0")
 	}
 	if req.Currency == "" {
 		return fmt.Errorf("currency is required")
@@ -297,8 +297,8 @@ func validateSaleRequest(req *paymentv1.SaleRequest) error {
 	if req.MerchantId == "" {
 		return fmt.Errorf("merchant_id is required")
 	}
-	if req.Amount == "" {
-		return fmt.Errorf("amount is required")
+	if req.AmountCents <= 0 {
+		return fmt.Errorf("amount_cents must be greater than 0")
 	}
 	if req.Currency == "" {
 		return fmt.Errorf("currency is required")

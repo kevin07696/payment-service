@@ -21,10 +21,19 @@ const (
 	TransactionTypeBRICStorageCC  TransactionType = "CCE8" // BRIC Storage - Credit Card (Ecommerce)
 	TransactionTypeBRICStorageACH TransactionType = "CKC8" // BRIC Storage - ACH Checking Account
 
-	// ACH Transactions
-	TransactionTypeACHDebit  TransactionType = "CKC1" // ACH Checking Debit
-	TransactionTypeACHCredit TransactionType = "CKC4" // ACH Checking Credit
-	TransactionTypePreNote   TransactionType = "CKP"  // ACH pre-note verification
+	// ACH Checking Account Transactions
+	TransactionTypeACHDebit       TransactionType = "CKC2" // ACH Checking Account Debit/Sale
+	TransactionTypeACHCredit      TransactionType = "CKC3" // ACH Checking Account Credit/Refund
+	TransactionTypeACHPreNoteDebit  TransactionType = "CKC0" // ACH Checking Pre-Note Debit (account verification)
+	TransactionTypeACHPreNoteCredit TransactionType = "CKC1" // ACH Checking Pre-Note Credit (account verification)
+	TransactionTypeACHVoid        TransactionType = "CKCX" // ACH Checking Void
+
+	// ACH Savings Account Transactions
+	TransactionTypeACHSavingsDebit       TransactionType = "CKS2" // ACH Savings Account Debit/Sale
+	TransactionTypeACHSavingsCredit      TransactionType = "CKS3" // ACH Savings Account Credit/Refund
+	TransactionTypeACHSavingsPreNoteDebit  TransactionType = "CKS0" // ACH Savings Pre-Note Debit
+	TransactionTypeACHSavingsPreNoteCredit TransactionType = "CKS1" // ACH Savings Pre-Note Credit
+	TransactionTypeACHSavingsVoid        TransactionType = "CKSX" // ACH Savings Void
 )
 
 // PaymentMethodType represents the payment method
@@ -83,7 +92,7 @@ type ServerPostRequest struct {
 	State     *string
 	ZipCode   *string
 
-	// Card Entry Method ("E" = ecommerce, "Z" = BRIC/token)
+	// Card Entry Method ("E" = ecommerce, "Z" = BRIC/token, "X" = ACH)
 	CardEntryMethod *string
 
 	// Industry Type ("E" = ecommerce)
@@ -93,6 +102,14 @@ type ServerPostRequest struct {
 	// Values: "RB" = Recurring Billing, "IP" = Installment Payment, "CA" = Completion Advice, etc.
 	// Required for recurring payments with Storage BRIC
 	ACIExt *string
+
+	// ACH-specific fields
+	// Standard Entry Class Code (required for ACH transactions)
+	// Values: "PPD" = Personal/Prearranged, "CCD" = Corporate, "WEB" = Internet-initiated, "TEL" = Telephone-initiated
+	StdEntryClass *string
+
+	// Receiver Name (for ACH transactions - name on bank account)
+	ReceiverName *string
 
 	// Optional metadata
 	CustomerID string            // Our internal customer ID

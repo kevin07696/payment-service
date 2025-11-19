@@ -138,9 +138,6 @@ func (m *MockQuerier) UpdateTransactionFromEPXResponse(ctx context.Context, para
 	args := m.Called(ctx, params)
 	return args.Get(0).(sqlc.Transaction), args.Error(1)
 }
-func (m *MockQuerier) GetTransactionsByGroupID(ctx context.Context, groupID uuid.UUID) ([]sqlc.Transaction, error) {
-	return nil, nil
-}
 func (m *MockQuerier) ListTransactions(ctx context.Context, params sqlc.ListTransactionsParams) ([]sqlc.Transaction, error) {
 	return nil, nil
 }
@@ -263,6 +260,169 @@ func (m *MockQuerier) ListPendingWebhookDeliveries(ctx context.Context, limitVal
 }
 func (m *MockQuerier) UpdateWebhookDeliveryStatus(ctx context.Context, params sqlc.UpdateWebhookDeliveryStatusParams) (sqlc.WebhookDelivery, error) {
 	return sqlc.WebhookDelivery{}, nil
+}
+
+func (m *MockQuerier) ActivateAdmin(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+
+func (m *MockQuerier) ActivateService(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+
+func (m *MockQuerier) DeactivateAdmin(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+
+func (m *MockQuerier) DeactivateService(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+
+// Admin methods
+func (m *MockQuerier) CreateAdmin(ctx context.Context, arg sqlc.CreateAdminParams) (sqlc.Admin, error) {
+	return sqlc.Admin{}, nil
+}
+
+func (m *MockQuerier) GetAdminByID(ctx context.Context, id uuid.UUID) (sqlc.Admin, error) {
+	return sqlc.Admin{}, nil
+}
+
+func (m *MockQuerier) GetAdminByEmail(ctx context.Context, email string) (sqlc.Admin, error) {
+	return sqlc.Admin{}, nil
+}
+
+func (m *MockQuerier) ListAdmins(ctx context.Context, arg sqlc.ListAdminsParams) ([]sqlc.Admin, error) {
+	return nil, nil
+}
+
+func (m *MockQuerier) UpdateAdminPassword(ctx context.Context, arg sqlc.UpdateAdminPasswordParams) error {
+	return nil
+}
+
+func (m *MockQuerier) UpdateAdminRole(ctx context.Context, arg sqlc.UpdateAdminRoleParams) error {
+	return nil
+}
+
+// Admin session methods
+func (m *MockQuerier) CreateAdminSession(ctx context.Context, arg sqlc.CreateAdminSessionParams) (sqlc.AdminSession, error) {
+	return sqlc.AdminSession{}, nil
+}
+
+func (m *MockQuerier) GetAdminSession(ctx context.Context, id uuid.UUID) (sqlc.AdminSession, error) {
+	return sqlc.AdminSession{}, nil
+}
+
+func (m *MockQuerier) DeleteAdminSession(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+
+func (m *MockQuerier) DeleteExpiredAdminSessions(ctx context.Context) error {
+	return nil
+}
+
+// Audit log methods
+func (m *MockQuerier) CreateAuditLog(ctx context.Context, arg sqlc.CreateAuditLogParams) error {
+	return nil
+}
+
+func (m *MockQuerier) ListAuditLogs(ctx context.Context, arg sqlc.ListAuditLogsParams) ([]sqlc.AuditLog, error) {
+	return nil, nil
+}
+
+func (m *MockQuerier) CountAuditLogs(ctx context.Context, arg sqlc.CountAuditLogsParams) (int64, error) {
+	return 0, nil
+}
+
+func (m *MockQuerier) GetAuditLogsByActor(ctx context.Context, arg sqlc.GetAuditLogsByActorParams) ([]sqlc.AuditLog, error) {
+	return nil, nil
+}
+
+func (m *MockQuerier) GetAuditLogsByEntity(ctx context.Context, arg sqlc.GetAuditLogsByEntityParams) ([]sqlc.AuditLog, error) {
+	return nil, nil
+}
+
+// Service methods
+func (m *MockQuerier) CreateService(ctx context.Context, arg sqlc.CreateServiceParams) (sqlc.Service, error) {
+	return sqlc.Service{}, nil
+}
+
+func (m *MockQuerier) GetServiceByID(ctx context.Context, id uuid.UUID) (sqlc.Service, error) {
+	return sqlc.Service{}, nil
+}
+
+func (m *MockQuerier) GetServiceByServiceID(ctx context.Context, serviceID string) (sqlc.Service, error) {
+	return sqlc.Service{}, nil
+}
+
+func (m *MockQuerier) ListServices(ctx context.Context, arg sqlc.ListServicesParams) ([]sqlc.Service, error) {
+	return nil, nil
+}
+
+func (m *MockQuerier) UpdateService(ctx context.Context, arg sqlc.UpdateServiceParams) (sqlc.Service, error) {
+	return sqlc.Service{}, nil
+}
+
+func (m *MockQuerier) RotateServiceKey(ctx context.Context, arg sqlc.RotateServiceKeyParams) (sqlc.Service, error) {
+	return sqlc.Service{}, nil
+}
+
+// Service-Merchant access methods
+func (m *MockQuerier) GrantServiceAccess(ctx context.Context, arg sqlc.GrantServiceAccessParams) (sqlc.ServiceMerchant, error) {
+	return sqlc.ServiceMerchant{}, nil
+}
+
+func (m *MockQuerier) RevokeServiceAccess(ctx context.Context, arg sqlc.RevokeServiceAccessParams) error {
+	return nil
+}
+
+func (m *MockQuerier) GetServiceMerchantAccess(ctx context.Context, arg sqlc.GetServiceMerchantAccessParams) (sqlc.ServiceMerchant, error) {
+	return sqlc.ServiceMerchant{}, nil
+}
+
+func (m *MockQuerier) ListServiceMerchants(ctx context.Context, serviceID uuid.UUID) ([]sqlc.ListServiceMerchantsRow, error) {
+	return nil, nil
+}
+
+func (m *MockQuerier) ListMerchantServices(ctx context.Context, merchantID uuid.UUID) ([]sqlc.ListMerchantServicesRow, error) {
+	return nil, nil
+}
+
+func (m *MockQuerier) UpdateServiceScopes(ctx context.Context, arg sqlc.UpdateServiceScopesParams) (sqlc.ServiceMerchant, error) {
+	return sqlc.ServiceMerchant{}, nil
+}
+
+func (m *MockQuerier) CheckServiceHasScope(ctx context.Context, arg sqlc.CheckServiceHasScopeParams) (bool, error) {
+	return false, nil
+}
+
+// Transaction tree method
+func (m *MockQuerier) GetTransactionTree(ctx context.Context, parentTransactionID uuid.UUID) ([]sqlc.GetTransactionTreeRow, error) {
+	return nil, nil
+}
+
+// ACH Verification Management Methods
+func (m *MockQuerier) DeactivatePaymentMethodWithReason(ctx context.Context, arg sqlc.DeactivatePaymentMethodWithReasonParams) error {
+	return nil
+}
+
+func (m *MockQuerier) GetPendingACHVerifications(ctx context.Context, arg sqlc.GetPendingACHVerificationsParams) ([]sqlc.CustomerPaymentMethod, error) {
+	return nil, nil
+}
+
+func (m *MockQuerier) UpdateVerificationStatus(ctx context.Context, arg sqlc.UpdateVerificationStatusParams) error {
+	return nil
+}
+
+func (m *MockQuerier) IncrementReturnCount(ctx context.Context, arg sqlc.IncrementReturnCountParams) error {
+	return nil
+}
+
+func (m *MockQuerier) GetPaymentMethodByPreNoteTransaction(ctx context.Context, prenoteTransactionID pgtype.UUID) (sqlc.CustomerPaymentMethod, error) {
+	return sqlc.CustomerPaymentMethod{}, nil
+}
+
+func (m *MockQuerier) MarkVerificationFailed(ctx context.Context, arg sqlc.MarkVerificationFailedParams) error {
+	return nil
 }
 
 // MockBrowserPostAdapter mocks the Browser Post adapter
@@ -399,14 +559,14 @@ func TestGetPaymentForm_Success(t *testing.T) {
 	// Mock transaction creation (pending transaction pattern)
 	createdTx := sqlc.Transaction{
 		ID:                txID,
-		GroupID:           uuid.New(),
+		ParentTransactionID: pgtype.UUID{Bytes: uuid.New(), Valid: true},
 		MerchantID:        merchantID,
-		Amount:            pgtype.Numeric{Int: nil, Exp: 0, Valid: true}, // Amount representation
+		AmountCents: 10050, // $100.50
 		Currency:          "USD",
 		Type:              "sale",
 		PaymentMethodType: "credit_card",
 		TranNbr:           pgtype.Text{String: "2466125485", Valid: true},
-		AuthResp:          "", // Pending (empty string)
+		AuthResp: pgtype.Text{}, // Pending (empty/invalid)
 		Status:            pgtype.Text{String: "pending", Valid: true},
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
@@ -590,14 +750,14 @@ func TestGetPaymentForm_DefaultTransactionType(t *testing.T) {
 	// Mock transaction creation (pending transaction pattern)
 	createdTx := sqlc.Transaction{
 		ID:                txID,
-		GroupID:           uuid.New(),
+		ParentTransactionID: pgtype.UUID{Bytes: uuid.New(), Valid: true},
 		MerchantID:        merchantID,
-		Amount:            pgtype.Numeric{Int: nil, Exp: 0, Valid: true},
+		AmountCents: 10050, // $100.50
 		Currency:          "USD",
 		Type:              "sale",
 		PaymentMethodType: "credit_card",
 		TranNbr:           pgtype.Text{String: txID.String(), Valid: true},
-		AuthResp:          "", // Pending (empty string)
+		AuthResp: pgtype.Text{}, // Pending (empty/invalid)
 		Status:            pgtype.Text{String: "pending", Valid: true},
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
@@ -685,13 +845,13 @@ func TestHandleCallback_Success(t *testing.T) {
 	// UpdateTransactionFromEPXResponse does the lookup AND update in a single operation
 	groupID := uuid.New()
 	updatedTransaction := sqlc.Transaction{
-		ID:                txID,
-		MerchantID:        merchantID,
-		GroupID:           groupID,
-		Amount:            pgtype.Numeric{Int: nil, Exp: 0, Valid: true},
-		Currency:          "USD",
-		Type:              "sale",
-		AuthResp:          "00", // Updated with EPX response
+		ID:                  txID,
+		MerchantID:          merchantID,
+		ParentTransactionID: pgtype.UUID{Bytes: groupID, Valid: true},
+		AmountCents:         10050, // $100.50
+		Currency:            "USD",
+		Type:                "sale",
+		AuthResp:            pgtype.Text{String: "00", Valid: true}, // Updated with EPX response
 		AuthCode:          pgtype.Text{String: "123456", Valid: true},
 		AuthGuid:          pgtype.Text{String: "TEST-BRIC-TOKEN-123", Valid: true},
 		PaymentMethodType: "credit_card",

@@ -3,21 +3,20 @@
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY,  -- Client-provided UUID via idempotency_key (REQUIRED for all operations)
 
-    -- Transaction grouping: groups related transactions (auth -> capture -> refund)
-    -- This is NOT a foreign key - just a UUID for logical grouping
-    -- Auto-generates if not provided, allowing first transaction to establish the group
-    group_id UUID NOT NULL DEFAULT gen_random_uuid(),
+    -- Transaction parent relationship: tracks transaction chains (AUTH -> CAPTURE -> REFUND)
+    -- CAPTURE references AUTH, REFUND references SALE/CAPTURE, VOID references AUTH/SALE
+    parent_transaction_id UUID REFERENCES transactions(id) ON DELETE RESTRICT,
 
     -- Multi-tenant: which merchant owns this transaction
     merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE RESTRICT,
 
     -- Customer identification (NULL for guest transactions)
-    customer_id VARCHAR(100),
+    customer_id UUID,
 
-    -- Transaction details
-    amount NUMERIC(19, 4) NOT NULL,
+    -- Transaction details (amount in cents to avoid floating point issues)
+    amount_cents BIGINT NOT NULL,
     currency VARCHAR(3) NOT NULL DEFAULT 'USD',
-    type VARCHAR(20) NOT NULL,    -- auth, sale, capture, refund, void, pre_note
+    type VARCHAR(20) NOT NULL,    -- SALE, AUTH, CAPTURE, REFUND, VOID, STORAGE, DEBIT
 
     -- Payment method
     payment_method_type VARCHAR(20) NOT NULL,  -- credit_card, ach
@@ -38,20 +37,24 @@ CREATE TABLE IF NOT EXISTS transactions (
     -- This allows querying by BRIC and supports EPX reconciliation
     auth_guid TEXT,
 
-    auth_resp VARCHAR(10) NOT NULL,      -- EPX approval code ("00" = approved, "05" = declined, "12" = invalid) - source of truth for status
+    auth_resp VARCHAR(10),               -- EPX approval code ("00" = approved, "05" = declined, "12" = invalid) - source of truth for status. NULL = pending/failed
     auth_code VARCHAR(50),               -- Bank authorization code (e.g., "123456") - required for chargeback defense, NULL if declined
     auth_card_type VARCHAR(20),          -- Card brand ("V" = Visa, "M" = Mastercard, "A" = Amex, "D" = Discover) - used for fees/reporting, NULL for ACH
 
-    -- Status: Transaction outcome (approved/declined) generated from auth_resp
+    -- Status: Transaction outcome auto-generated from auth_resp
     -- EPX: "00" = approved, anything else = declined
-    -- Note: This represents gateway approval status, NOT transaction lifecycle state
-    -- Use 'type' column for transaction lifecycle (auth, capture, sale, refund, void)
+    -- pending = not sent to EPX yet, failed = system error before reaching EPX
     status VARCHAR(20) GENERATED ALWAYS AS (
         CASE
+            WHEN auth_resp IS NULL AND processed_at IS NULL THEN 'pending'
+            WHEN auth_resp IS NULL AND processed_at IS NOT NULL THEN 'failed'
             WHEN auth_resp = '00' THEN 'approved'
             ELSE 'declined'
         END
     ) STORED,
+
+    -- Timestamp when EPX responded (callback received)
+    processed_at TIMESTAMPTZ,
 
     -- Metadata (auth_resp_text, auth_avs, auth_cvv2, card_last_4, card_holder_name, description, EPX raw response, integration-specific data)
     -- auth_resp_text: Human-readable response message ("APPROVED", "INSUFFICIENT FUNDS") - display only
@@ -64,12 +67,20 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT transactions_amount_positive CHECK (amount >= 0),
-    CONSTRAINT transactions_type_valid CHECK (type IN ('auth', 'sale', 'capture', 'refund', 'void', 'pre_note'))
+    CONSTRAINT transactions_amount_cents_non_negative CHECK (amount_cents >= 0),
+    CONSTRAINT transactions_type_valid CHECK (type IN ('SALE', 'AUTH', 'CAPTURE', 'REFUND', 'VOID', 'STORAGE', 'DEBIT')),
+    -- Simple CHECK constraint as defense-in-depth (detailed validation in application layer)
+    -- SALE, AUTH, STORAGE, DEBIT = standalone (no parent)
+    -- CAPTURE, REFUND, VOID = must have parent
+    CONSTRAINT transactions_parent_relationship CHECK (
+        (type IN ('SALE', 'AUTH', 'STORAGE', 'DEBIT') AND parent_transaction_id IS NULL)
+        OR
+        (type IN ('CAPTURE', 'REFUND', 'VOID') AND parent_transaction_id IS NOT NULL)
+    )
 );
 
 -- Indexes for performance
-CREATE INDEX idx_transactions_group_id ON transactions(group_id);
+CREATE INDEX idx_transactions_parent_id ON transactions(parent_transaction_id) WHERE parent_transaction_id IS NOT NULL;
 CREATE INDEX idx_transactions_merchant_id ON transactions(merchant_id);
 CREATE INDEX idx_transactions_merchant_customer ON transactions(merchant_id, customer_id) WHERE customer_id IS NOT NULL;
 CREATE INDEX idx_transactions_customer_id ON transactions(customer_id) WHERE customer_id IS NOT NULL;
@@ -82,7 +93,10 @@ CREATE INDEX idx_transactions_status ON transactions(status);
 CREATE INDEX idx_transactions_deleted_at ON transactions(deleted_at) WHERE deleted_at IS NOT NULL;
 
 -- Comments explaining key design decisions
-COMMENT ON COLUMN transactions.group_id IS 'Logical grouping UUID for related transactions (auth -> capture -> refund). NOT a foreign key - just an index for grouping. Auto-generates if not provided.';
+COMMENT ON COLUMN transactions.parent_transaction_id IS 'Foreign key to parent transaction. CAPTURE→AUTH, REFUND→SALE/CAPTURE, VOID→AUTH/SALE. NULL for standalone transactions (SALE, AUTH, STORAGE, DEBIT). Detailed validation in application layer.';
+COMMENT ON COLUMN transactions.amount_cents IS 'Amount in cents (e.g., $10.50 = 1050). Using BIGINT avoids floating point precision issues.';
+COMMENT ON COLUMN transactions.status IS 'Auto-generated from auth_resp: pending (not sent), failed (error), approved (00), declined (non-00).';
+COMMENT ON COLUMN transactions.processed_at IS 'Timestamp when EPX responded (callback received). NULL if pending or failed before reaching EPX.';
 COMMENT ON COLUMN transactions.tran_nbr IS 'EPX TRAN_NBR: Deterministic 10-digit numeric ID derived from transaction UUID via FNV-1a hash. Used for all EPX API calls.';
 COMMENT ON COLUMN transactions.auth_guid IS 'EPX AUTH_GUID (BRIC) for this specific transaction. Each transaction can have its own BRIC. CAPTURE uses AUTH BRIC as input but gets new BRIC. REFUND uses CAPTURE BRIC.';
 
@@ -90,8 +104,8 @@ COMMENT ON COLUMN transactions.auth_guid IS 'EPX AUTH_GUID (BRIC) for this speci
 CREATE TABLE IF NOT EXISTS subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE RESTRICT,
-    customer_id VARCHAR(100) NOT NULL,
-    amount NUMERIC(19, 4) NOT NULL,
+    customer_id UUID NOT NULL,
+    amount_cents BIGINT NOT NULL,
     currency VARCHAR(3) NOT NULL DEFAULT 'USD',
 
     -- Billing interval (e.g., 1 month, 2 weeks, 3 months)
@@ -115,7 +129,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     cancelled_at TIMESTAMPTZ,
 
-    CONSTRAINT subscriptions_amount_positive CHECK (amount > 0),
+    CONSTRAINT subscriptions_amount_cents_positive CHECK (amount_cents > 0),
     CONSTRAINT subscriptions_retry_count_non_negative CHECK (failure_retry_count >= 0),
     CONSTRAINT subscriptions_interval_value_positive CHECK (interval_value > 0),
     CONSTRAINT subscriptions_interval_unit_valid CHECK (interval_unit IN ('day', 'week', 'month', 'year')),
@@ -134,29 +148,6 @@ CREATE INDEX idx_subscriptions_deleted_at ON subscriptions(deleted_at) WHERE del
 ALTER TABLE transactions ADD CONSTRAINT transactions_subscription_id_fkey
     FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE SET NULL;
 
--- Create audit_logs table for PCI compliance
-CREATE TABLE IF NOT EXISTS audit_logs (
-    id BIGSERIAL PRIMARY KEY,
-    event_type VARCHAR(50) NOT NULL,
-    entity_type VARCHAR(50) NOT NULL,
-    entity_id VARCHAR(255) NOT NULL,
-    merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE RESTRICT,
-    user_id VARCHAR(100),
-    action VARCHAR(50) NOT NULL,
-    before_state JSONB,
-    after_state JSONB,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    ip_address INET,
-    user_agent TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Indexes for audit logs
-CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
-CREATE INDEX idx_audit_logs_merchant_id ON audit_logs(merchant_id);
-CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
-CREATE INDEX idx_audit_logs_event_type ON audit_logs(event_type);
-
 -- Apply update trigger to tables (function defined in 002_customer_payment_methods.sql)
 CREATE TRIGGER update_transactions_updated_at BEFORE UPDATE ON transactions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -169,7 +160,6 @@ CREATE TRIGGER update_subscriptions_updated_at BEFORE UPDATE ON subscriptions
 -- +goose StatementBegin
 DROP TRIGGER IF EXISTS update_subscriptions_updated_at ON subscriptions;
 DROP TRIGGER IF EXISTS update_transactions_updated_at ON transactions;
-DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS subscriptions;
 DROP TABLE IF EXISTS transactions;
 -- +goose StatementEnd

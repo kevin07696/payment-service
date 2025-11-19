@@ -340,11 +340,19 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 		ports.TransactionTypeVoid:          true,
 		ports.TransactionTypeReversal:      true,
 		ports.TransactionTypeBRICStorageCC: true,
-		// ACH
-		ports.TransactionTypeACHDebit:       true,
-		ports.TransactionTypeACHCredit:      true,
-		ports.TransactionTypePreNote:        true,
-		ports.TransactionTypeBRICStorageACH: true,
+		// ACH Checking
+		ports.TransactionTypeACHDebit:          true,
+		ports.TransactionTypeACHCredit:         true,
+		ports.TransactionTypeACHPreNoteDebit:   true,
+		ports.TransactionTypeACHPreNoteCredit:  true,
+		ports.TransactionTypeACHVoid:           true,
+		ports.TransactionTypeBRICStorageACH:    true,
+		// ACH Savings
+		ports.TransactionTypeACHSavingsDebit:          true,
+		ports.TransactionTypeACHSavingsCredit:         true,
+		ports.TransactionTypeACHSavingsPreNoteDebit:   true,
+		ports.TransactionTypeACHSavingsPreNoteCredit:  true,
+		ports.TransactionTypeACHSavingsVoid:           true,
 	}
 	if !validTypes[req.TransactionType] {
 		return fmt.Errorf("invalid transaction type: %s", req.TransactionType)
@@ -353,9 +361,45 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 	// For capture/void/refund, require original AUTH_GUID
 	if req.TransactionType == ports.TransactionTypeCapture ||
 		req.TransactionType == ports.TransactionTypeVoid ||
-		req.TransactionType == ports.TransactionTypeRefund {
+		req.TransactionType == ports.TransactionTypeRefund ||
+		req.TransactionType == ports.TransactionTypeACHVoid ||
+		req.TransactionType == ports.TransactionTypeACHSavingsVoid ||
+		req.TransactionType == ports.TransactionTypeACHCredit ||
+		req.TransactionType == ports.TransactionTypeACHSavingsCredit {
 		if req.OriginalAuthGUID == "" {
 			return fmt.Errorf("original_auth_guid is required for %s transactions", req.TransactionType)
+		}
+	}
+
+	// For ACH transactions, validate required fields
+	isACH := req.PaymentType == ports.PaymentMethodTypeACH ||
+		req.TransactionType == ports.TransactionTypeACHDebit ||
+		req.TransactionType == ports.TransactionTypeACHCredit ||
+		req.TransactionType == ports.TransactionTypeACHPreNoteDebit ||
+		req.TransactionType == ports.TransactionTypeACHPreNoteCredit ||
+		req.TransactionType == ports.TransactionTypeACHVoid ||
+		req.TransactionType == ports.TransactionTypeACHSavingsDebit ||
+		req.TransactionType == ports.TransactionTypeACHSavingsCredit ||
+		req.TransactionType == ports.TransactionTypeACHSavingsPreNoteDebit ||
+		req.TransactionType == ports.TransactionTypeACHSavingsPreNoteCredit ||
+		req.TransactionType == ports.TransactionTypeACHSavingsVoid ||
+		req.TransactionType == ports.TransactionTypeBRICStorageACH
+
+	if isACH {
+		// For new ACH transactions (not using existing BRIC), require account details
+		if req.AuthGUID == "" && req.OriginalAuthGUID == "" {
+			if req.AccountNumber == nil || *req.AccountNumber == "" {
+				return fmt.Errorf("account_number is required for ACH transactions")
+			}
+			if req.RoutingNumber == nil || *req.RoutingNumber == "" {
+				return fmt.Errorf("routing_number is required for ACH transactions")
+			}
+			if req.FirstName == nil || *req.FirstName == "" {
+				return fmt.Errorf("first_name is required for ACH transactions")
+			}
+			if req.LastName == nil || *req.LastName == "" {
+				return fmt.Errorf("last_name is required for ACH transactions")
+			}
 		}
 	}
 
@@ -453,6 +497,15 @@ func (a *serverPostAdapter) buildFormData(req *ports.ServerPostRequest) url.Valu
 
 	if req.ZipCode != nil && *req.ZipCode != "" {
 		data.Set("ZIP_CODE", *req.ZipCode)
+	}
+
+	// ACH-specific fields
+	if req.StdEntryClass != nil && *req.StdEntryClass != "" {
+		data.Set("STD_ENTRY_CLASS", *req.StdEntryClass)
+	}
+
+	if req.ReceiverName != nil && *req.ReceiverName != "" {
+		data.Set("RECV_NAME", *req.ReceiverName)
 	}
 
 	return data

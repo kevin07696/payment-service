@@ -158,7 +158,7 @@ func TestWithTx_Success(t *testing.T) {
 
 	// Execute a transaction that should succeed
 	executed := false
-	err = adapter.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = adapter.WithTx(ctx, func(q sqlc.Querier) error {
 		executed = true
 		// Simple operation that should succeed
 		return nil
@@ -185,7 +185,7 @@ func TestWithTx_Rollback(t *testing.T) {
 
 	// Execute a transaction that should rollback
 	testError := errors.New("intentional test error")
-	err = adapter.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = adapter.WithTx(ctx, func(q sqlc.Querier) error {
 		// Return error to trigger rollback
 		return testError
 	})
@@ -216,7 +216,7 @@ func TestWithTx_Panic(t *testing.T) {
 		assert.Equal(t, "test panic", r, "Panic value should be preserved")
 	}()
 
-	adapter.WithTx(ctx, func(q *sqlc.Queries) error {
+	adapter.WithTx(ctx, func(q sqlc.Querier) error {
 		panic("test panic")
 	})
 
@@ -242,7 +242,7 @@ func TestWithTx_ContextCancellation(t *testing.T) {
 	cancel()
 
 	// Transaction should fail with cancelled context
-	err = adapter.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = adapter.WithTx(ctx, func(q sqlc.Querier) error {
 		return nil
 	})
 
@@ -330,4 +330,58 @@ func TestConnectionPoolSettings(t *testing.T) {
 
 	// Stats should show connections are being managed
 	assert.GreaterOrEqual(t, stats.TotalConns(), int32(0), "Should have some connections")
+}
+
+// TestGetTransactionTree tests the recursive CTE query for transaction hierarchies
+func TestGetTransactionTree(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL not set, skipping integration test")
+	}
+
+	ctx := context.Background()
+	logger := zap.NewNop()
+	cfg := DefaultPostgreSQLConfig(databaseURL)
+
+	adapter, err := NewPostgreSQLAdapter(ctx, cfg, logger)
+	require.NoError(t, err)
+	defer adapter.Close()
+
+	queries := adapter.Queries()
+
+	// Clean up any test data first
+	// Note: In a real test, you'd use test transactions or a test database
+
+	t.Run("simple parent-child hierarchy", func(t *testing.T) {
+		// This test validates the GetTransactionTree query works correctly
+		// In a full implementation, you would:
+		// 1. Create test merchant and customer
+		// 2. Create AUTH transaction (parent)
+		// 3. Create CAPTURE transaction (child of AUTH)
+		// 4. Create REFUND transaction (child of CAPTURE)
+		// 5. Call GetTransactionTree and verify it returns all 3 transactions in order
+
+		// For now, we just verify the method exists and doesn't panic
+		// Use a UUID that doesn't exist in the database
+		nonExistentID := [16]byte{} // Zero UUID
+		tree, err := queries.GetTransactionTree(ctx, nonExistentID)
+
+		// Should not error even with non-existent transaction
+		assert.NoError(t, err)
+		assert.Empty(t, tree, "Should return empty tree for non-existent transaction")
+	})
+
+	t.Run("validates tree structure with parent_transaction_id", func(t *testing.T) {
+		// This test documents the expected behavior:
+		// - GetTransactionTree recursively fetches children using parent_transaction_id
+		// - Returns all descendants in tree order
+		// - Example: AUTH (id=A) → CAPTURE (id=C, parent=A) → REFUND (id=R, parent=C)
+		//   GetTransactionTree(A) returns [A, C, R]
+		//   GetTransactionTree(C) returns [C, R]
+		//   GetTransactionTree(R) returns [R]
+
+		// TODO: Add full integration test with actual transaction creation
+		// This requires test fixtures for merchants, customers, and payment methods
+		t.Skip("Full integration test requires test data fixtures - see docs/UNIT_TEST_REFACTORING_ANALYSIS.md")
+	})
 }

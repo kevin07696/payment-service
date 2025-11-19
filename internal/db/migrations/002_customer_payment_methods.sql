@@ -5,11 +5,11 @@ CREATE TABLE IF NOT EXISTS customer_payment_methods (
 
     -- Multi-tenant: which merchant + which customer
     merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE RESTRICT,
-    customer_id VARCHAR(255) NOT NULL,
+    customer_id UUID NOT NULL,
 
-    -- ✅ Token from EPX (AUTH_GUID/BRIC)
+    -- ✅ BRIC token from EPX (AUTH_GUID from STORAGE transaction)
     -- Example: "0V703LH1HDL006J74W1"
-    payment_token TEXT NOT NULL,
+    bric TEXT NOT NULL,
 
     -- Payment method type
     payment_type VARCHAR(20) NOT NULL,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS customer_payment_methods (
     CONSTRAINT check_payment_type CHECK (payment_type IN ('credit_card', 'ach')),
     CONSTRAINT check_card_exp_month CHECK (card_exp_month IS NULL OR (card_exp_month >= 1 AND card_exp_month <= 12)),
     CONSTRAINT check_account_type CHECK (account_type IS NULL OR account_type IN ('checking', 'savings')),
-    CONSTRAINT unique_payment_token UNIQUE (merchant_id, customer_id, payment_token)
+    CONSTRAINT unique_bric UNIQUE (merchant_id, customer_id, bric)
 );
 
 -- Indexes for performance

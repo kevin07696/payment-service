@@ -138,11 +138,11 @@ func (SubscriptionStatus) EnumDescriptor() ([]byte, []int) {
 
 // CreateSubscriptionRequest creates a new subscription
 type CreateSubscriptionRequest struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	MerchantId string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
-	CustomerId string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
-	Amount     string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"` // Decimal as string
-	Currency   string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	MerchantId  string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
+	CustomerId  string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	AmountCents int64                  `protobuf:"varint,3,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (smallest currency unit)
+	Currency    string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
 	// Billing interval (e.g., 1 month, 2 weeks, 3 months)
 	IntervalValue   int32                  `protobuf:"varint,5,opt,name=interval_value,json=intervalValue,proto3" json:"interval_value,omitempty"`                                // 1, 2, 3, etc.
 	IntervalUnit    IntervalUnit           `protobuf:"varint,6,opt,name=interval_unit,json=intervalUnit,proto3,enum=subscription.v1.IntervalUnit" json:"interval_unit,omitempty"` // day, week, month, year
@@ -199,11 +199,11 @@ func (x *CreateSubscriptionRequest) GetCustomerId() string {
 	return ""
 }
 
-func (x *CreateSubscriptionRequest) GetAmount() string {
+func (x *CreateSubscriptionRequest) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *CreateSubscriptionRequest) GetCurrency() string {
@@ -266,7 +266,7 @@ func (x *CreateSubscriptionRequest) GetIdempotencyKey() string {
 type UpdateSubscriptionRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SubscriptionId  string                 `protobuf:"bytes,1,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"`
-	Amount          *string                `protobuf:"bytes,2,opt,name=amount,proto3,oneof" json:"amount,omitempty"`                                                                    // Optional: update amount
+	AmountCents     *int64                 `protobuf:"varint,2,opt,name=amount_cents,json=amountCents,proto3,oneof" json:"amount_cents,omitempty"`                                      // Optional: update amount in cents
 	IntervalValue   *int32                 `protobuf:"varint,3,opt,name=interval_value,json=intervalValue,proto3,oneof" json:"interval_value,omitempty"`                                // Optional: update interval value
 	IntervalUnit    *IntervalUnit          `protobuf:"varint,4,opt,name=interval_unit,json=intervalUnit,proto3,enum=subscription.v1.IntervalUnit,oneof" json:"interval_unit,omitempty"` // Optional: update interval unit
 	PaymentMethodId *string                `protobuf:"bytes,5,opt,name=payment_method_id,json=paymentMethodId,proto3,oneof" json:"payment_method_id,omitempty"`                         // Optional: update payment method
@@ -312,11 +312,11 @@ func (x *UpdateSubscriptionRequest) GetSubscriptionId() string {
 	return ""
 }
 
-func (x *UpdateSubscriptionRequest) GetAmount() string {
-	if x != nil && x.Amount != nil {
-		return *x.Amount
+func (x *UpdateSubscriptionRequest) GetAmountCents() int64 {
+	if x != nil && x.AmountCents != nil {
+		return *x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *UpdateSubscriptionRequest) GetIntervalValue() int32 {
@@ -862,7 +862,7 @@ type SubscriptionResponse struct {
 	SubscriptionId string                 `protobuf:"bytes,1,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"`
 	MerchantId     string                 `protobuf:"bytes,2,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId     string                 `protobuf:"bytes,3,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
-	Amount         string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	AmountCents    int64                  `protobuf:"varint,4,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (smallest currency unit)
 	Currency       string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`
 	// Billing interval
 	IntervalValue         int32                  `protobuf:"varint,6,opt,name=interval_value,json=intervalValue,proto3" json:"interval_value,omitempty"`
@@ -929,11 +929,11 @@ func (x *SubscriptionResponse) GetCustomerId() string {
 	return ""
 }
 
-func (x *SubscriptionResponse) GetAmount() string {
+func (x *SubscriptionResponse) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *SubscriptionResponse) GetCurrency() string {
@@ -1008,12 +1008,12 @@ func (x *SubscriptionResponse) GetCancelledAt() *timestamppb.Timestamp {
 
 // Subscription represents a complete subscription record
 type Subscription struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	MerchantId string                 `protobuf:"bytes,2,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
-	CustomerId string                 `protobuf:"bytes,3,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
-	Amount     string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
-	Currency   string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	MerchantId  string                 `protobuf:"bytes,2,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
+	CustomerId  string                 `protobuf:"bytes,3,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	AmountCents int64                  `protobuf:"varint,4,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (smallest currency unit)
+	Currency    string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`
 	// Billing interval
 	IntervalValue         int32                  `protobuf:"varint,6,opt,name=interval_value,json=intervalValue,proto3" json:"interval_value,omitempty"`
 	IntervalUnit          IntervalUnit           `protobuf:"varint,7,opt,name=interval_unit,json=intervalUnit,proto3,enum=subscription.v1.IntervalUnit" json:"interval_unit,omitempty"`
@@ -1082,11 +1082,11 @@ func (x *Subscription) GetCustomerId() string {
 	return ""
 }
 
-func (x *Subscription) GetAmount() string {
+func (x *Subscription) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *Subscription) GetCurrency() string {
@@ -1184,13 +1184,13 @@ var File_proto_subscription_v1_subscription_proto protoreflect.FileDescriptor
 
 const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\n" +
-	"(proto/subscription/v1/subscription.proto\x12\x0fsubscription.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc0\x04\n" +
+	"(proto/subscription/v1/subscription.proto\x12\x0fsubscription.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcb\x04\n" +
 	"\x19CreateSubscriptionRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12\x16\n" +
-	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1a\n" +
+	"customerId\x12!\n" +
+	"\famount_cents\x18\x03 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12%\n" +
 	"\x0einterval_value\x18\x05 \x01(\x05R\rintervalValue\x12B\n" +
 	"\rinterval_unit\x18\x06 \x01(\x0e2\x1d.subscription.v1.IntervalUnitR\fintervalUnit\x12*\n" +
@@ -1204,15 +1204,15 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\x0fidempotency_key\x18\v \x01(\tR\x0eidempotencyKey\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf6\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x87\x03\n" +
 	"\x19UpdateSubscriptionRequest\x12'\n" +
-	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x1b\n" +
-	"\x06amount\x18\x02 \x01(\tH\x00R\x06amount\x88\x01\x01\x12*\n" +
+	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12&\n" +
+	"\famount_cents\x18\x02 \x01(\x03H\x00R\vamountCents\x88\x01\x01\x12*\n" +
 	"\x0einterval_value\x18\x03 \x01(\x05H\x01R\rintervalValue\x88\x01\x01\x12G\n" +
 	"\rinterval_unit\x18\x04 \x01(\x0e2\x1d.subscription.v1.IntervalUnitH\x02R\fintervalUnit\x88\x01\x01\x12/\n" +
 	"\x11payment_method_id\x18\x05 \x01(\tH\x03R\x0fpaymentMethodId\x88\x01\x01\x12'\n" +
-	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKeyB\t\n" +
-	"\a_amountB\x11\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKeyB\x0f\n" +
+	"\r_amount_centsB\x11\n" +
 	"\x0f_interval_valueB\x10\n" +
 	"\x0e_interval_unitB\x14\n" +
 	"\x12_payment_method_id\"\xb6\x01\n" +
@@ -1252,14 +1252,14 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x1c\n" +
-	"\tretriable\x18\x04 \x01(\bR\tretriable\"\xd4\x05\n" +
+	"\tretriable\x18\x04 \x01(\bR\tretriable\"\xdf\x05\n" +
 	"\x14SubscriptionResponse\x12'\n" +
 	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x1f\n" +
 	"\vmerchant_id\x18\x02 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x03 \x01(\tR\n" +
-	"customerId\x12\x16\n" +
-	"\x06amount\x18\x04 \x01(\tR\x06amount\x12\x1a\n" +
+	"customerId\x12!\n" +
+	"\famount_cents\x18\x04 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x05 \x01(\tR\bcurrency\x12%\n" +
 	"\x0einterval_value\x18\x06 \x01(\x05R\rintervalValue\x12B\n" +
 	"\rinterval_unit\x18\a \x01(\x0e2\x1d.subscription.v1.IntervalUnitR\fintervalUnit\x12;\n" +
@@ -1273,14 +1273,14 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12B\n" +
 	"\fcancelled_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampH\x00R\vcancelledAt\x88\x01\x01B\x0f\n" +
-	"\r_cancelled_at\"\x8a\a\n" +
+	"\r_cancelled_at\"\x95\a\n" +
 	"\fSubscription\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vmerchant_id\x18\x02 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x03 \x01(\tR\n" +
-	"customerId\x12\x16\n" +
-	"\x06amount\x18\x04 \x01(\tR\x06amount\x12\x1a\n" +
+	"customerId\x12!\n" +
+	"\famount_cents\x18\x04 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x05 \x01(\tR\bcurrency\x12%\n" +
 	"\x0einterval_value\x18\x06 \x01(\x05R\rintervalValue\x12B\n" +
 	"\rinterval_unit\x18\a \x01(\x0e2\x1d.subscription.v1.IntervalUnitR\fintervalUnit\x12;\n" +

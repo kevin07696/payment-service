@@ -36,7 +36,7 @@ func (h *ConnectHandler) Authorize(
 
 	h.logger.Info("Authorize request received",
 		zap.String("merchant_id", msg.MerchantId),
-		zap.String("amount", msg.Amount),
+		zap.Int64("amount_cents", msg.AmountCents),
 	)
 
 	// Validate request
@@ -46,10 +46,10 @@ func (h *ConnectHandler) Authorize(
 
 	// Convert to service request
 	serviceReq := &ports.AuthorizeRequest{
-		MerchantID: msg.MerchantId,
-		Amount:     msg.Amount,
-		Currency:   msg.Currency,
-		Metadata:   convertMetadata(msg.Metadata),
+		MerchantID:  msg.MerchantId,
+		AmountCents: msg.AmountCents,
+		Currency:    msg.Currency,
+		Metadata:    convertMetadata(msg.Metadata),
 	}
 
 	if msg.CustomerId != "" {
@@ -99,8 +99,8 @@ func (h *ConnectHandler) Capture(
 		TransactionID: msg.TransactionId,
 	}
 
-	if msg.Amount != "" {
-		serviceReq.Amount = &msg.Amount
+	if msg.AmountCents > 0 {
+		serviceReq.AmountCents = &msg.AmountCents
 	}
 
 	if msg.IdempotencyKey != "" {
@@ -130,7 +130,7 @@ func (h *ConnectHandler) Sale(
 
 	h.logger.Info("Sale request received",
 		zap.String("merchant_id", msg.MerchantId),
-		zap.String("amount", msg.Amount),
+		zap.Int64("amount_cents", msg.AmountCents),
 	)
 
 	// Validate request
@@ -139,10 +139,10 @@ func (h *ConnectHandler) Sale(
 	}
 
 	serviceReq := &ports.SaleRequest{
-		MerchantID: msg.MerchantId,
-		Amount:     msg.Amount,
-		Currency:   msg.Currency,
-		Metadata:   convertMetadata(msg.Metadata),
+		MerchantID:  msg.MerchantId,
+		AmountCents: msg.AmountCents,
+		Currency:    msg.Currency,
+		Metadata:    convertMetadata(msg.Metadata),
 	}
 
 	if msg.CustomerId != "" {
@@ -222,8 +222,8 @@ func (h *ConnectHandler) Refund(
 		Reason:              msg.Reason,
 	}
 
-	if msg.Amount != "" {
-		serviceReq.Amount = &msg.Amount
+	if msg.AmountCents > 0 {
+		serviceReq.AmountCents = &msg.AmountCents
 	}
 
 	if msg.IdempotencyKey != "" {

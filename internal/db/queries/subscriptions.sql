@@ -1,12 +1,12 @@
 -- name: CreateSubscription :one
 INSERT INTO subscriptions (
-    id, merchant_id, customer_id, amount, currency,
+    id, merchant_id, customer_id, amount_cents, currency,
     interval_value, interval_unit, status,
     payment_method_id, next_billing_date,
     failure_retry_count, max_retries,
     gateway_subscription_id, metadata
 ) VALUES (
-    sqlc.arg(id), sqlc.arg(merchant_id), sqlc.arg(customer_id), sqlc.arg(amount), sqlc.arg(currency),
+    sqlc.arg(id), sqlc.arg(merchant_id), sqlc.arg(customer_id), sqlc.arg(amount_cents), sqlc.arg(currency),
     sqlc.arg(interval_value), sqlc.arg(interval_unit), sqlc.arg(status),
     sqlc.arg(payment_method_id), sqlc.arg(next_billing_date),
     sqlc.arg(failure_retry_count), sqlc.arg(max_retries),
@@ -25,8 +25,8 @@ ORDER BY created_at DESC;
 -- name: ListSubscriptions :many
 SELECT * FROM subscriptions
 WHERE
-    (sqlc.narg(merchant_id)::varchar IS NULL OR merchant_id = sqlc.narg(merchant_id)) AND
-    (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
+    (sqlc.narg(merchant_id)::uuid IS NULL OR merchant_id = sqlc.narg(merchant_id)) AND
+    (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status))
 ORDER BY created_at DESC
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
@@ -34,8 +34,8 @@ LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 -- name: CountSubscriptions :one
 SELECT COUNT(*) FROM subscriptions
 WHERE
-    (sqlc.narg(merchant_id)::varchar IS NULL OR merchant_id = sqlc.narg(merchant_id)) AND
-    (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
+    (sqlc.narg(merchant_id)::uuid IS NULL OR merchant_id = sqlc.narg(merchant_id)) AND
+    (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status));
 
 -- name: ListDueSubscriptions :many
@@ -47,7 +47,7 @@ LIMIT sqlc.arg(limit_val);
 -- name: UpdateSubscription :one
 UPDATE subscriptions
 SET
-    amount = sqlc.arg(amount),
+    amount_cents = sqlc.arg(amount_cents),
     interval_value = sqlc.arg(interval_value),
     interval_unit = sqlc.arg(interval_unit),
     payment_method_id = sqlc.arg(payment_method_id),

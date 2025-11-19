@@ -11,7 +11,7 @@ import (
 type CreateSubscriptionRequest struct {
 	MerchantID      string
 	CustomerID      string
-	Amount          string
+	AmountCents     int64 // Amount in cents (smallest currency unit)
 	Currency        string
 	IntervalValue   int
 	IntervalUnit    domain.IntervalUnit
@@ -25,7 +25,7 @@ type CreateSubscriptionRequest struct {
 // UpdateSubscriptionRequest contains parameters for updating a subscription
 type UpdateSubscriptionRequest struct {
 	SubscriptionID  string
-	Amount          *string
+	AmountCents     *int64 // Optional: update amount in cents
 	IntervalValue   *int
 	IntervalUnit    *domain.IntervalUnit
 	PaymentMethodID *string

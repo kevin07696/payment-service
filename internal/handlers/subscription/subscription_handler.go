@@ -36,7 +36,7 @@ func (h *Handler) CreateSubscription(ctx context.Context, req *subscriptionv1.Cr
 	h.logger.Info("CreateSubscription request received",
 		zap.String("merchant_id", req.MerchantId),
 		zap.String("customer_id", req.CustomerId),
-		zap.String("amount", req.Amount),
+		zap.Int64("amount_cents", req.AmountCents),
 	)
 
 	// Validate request
@@ -48,7 +48,7 @@ func (h *Handler) CreateSubscription(ctx context.Context, req *subscriptionv1.Cr
 	serviceReq := &ports.CreateSubscriptionRequest{
 		MerchantID:      req.MerchantId,
 		CustomerID:      req.CustomerId,
-		Amount:          req.Amount,
+		AmountCents:     req.AmountCents,
 		Currency:        req.Currency,
 		IntervalValue:   int(req.IntervalValue),
 		IntervalUnit:    intervalUnitFromProto(req.IntervalUnit),
@@ -90,8 +90,8 @@ func (h *Handler) UpdateSubscription(ctx context.Context, req *subscriptionv1.Up
 		SubscriptionID: req.SubscriptionId,
 	}
 
-	if req.Amount != nil {
-		serviceReq.Amount = req.Amount
+	if req.AmountCents != nil {
+		serviceReq.AmountCents = req.AmountCents
 	}
 
 	if req.IntervalValue != nil {
@@ -279,8 +279,8 @@ func validateCreateSubscriptionRequest(req *subscriptionv1.CreateSubscriptionReq
 	if req.CustomerId == "" {
 		return fmt.Errorf("customer_id is required")
 	}
-	if req.Amount == "" {
-		return fmt.Errorf("amount is required")
+	if req.AmountCents <= 0 {
+		return fmt.Errorf("amount_cents must be greater than 0")
 	}
 	if req.Currency == "" {
 		return fmt.Errorf("currency is required")
@@ -315,7 +315,7 @@ func subscriptionToResponse(sub *domain.Subscription) *subscriptionv1.Subscripti
 		SubscriptionId:  sub.ID,
 		MerchantId:      sub.MerchantID,
 		CustomerId:      sub.CustomerID,
-		Amount:          sub.Amount.String(),
+		AmountCents:     sub.AmountCents,
 		Currency:        string(sub.Currency),
 		IntervalValue:   int32(sub.IntervalValue),
 		IntervalUnit:    intervalUnitToProto(sub.IntervalUnit),
@@ -342,7 +342,7 @@ func subscriptionToProto(sub *domain.Subscription) *subscriptionv1.Subscription 
 		Id:                sub.ID,
 		MerchantId:        sub.MerchantID,
 		CustomerId:        sub.CustomerID,
-		Amount:            sub.Amount.String(),
+		AmountCents:       sub.AmountCents,
 		Currency:          string(sub.Currency),
 		IntervalValue:     int32(sub.IntervalValue),
 		IntervalUnit:      intervalUnitToProto(sub.IntervalUnit),

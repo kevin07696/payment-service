@@ -522,5 +522,40 @@ func (m *MockQuerier) UpdateWebhookSubscription(ctx context.Context, arg sqlc.Up
 	return args.Get(0).(sqlc.WebhookSubscription), args.Error(1)
 }
 
+// ACH Verification Management Methods
+
+func (m *MockQuerier) DeactivatePaymentMethodWithReason(ctx context.Context, arg sqlc.DeactivatePaymentMethodWithReasonParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) GetPendingACHVerifications(ctx context.Context, arg sqlc.GetPendingACHVerificationsParams) ([]sqlc.CustomerPaymentMethod, error) {
+	args := m.Called(ctx, arg)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sqlc.CustomerPaymentMethod), args.Error(1)
+}
+
+func (m *MockQuerier) UpdateVerificationStatus(ctx context.Context, arg sqlc.UpdateVerificationStatusParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) IncrementReturnCount(ctx context.Context, arg sqlc.IncrementReturnCountParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) GetPaymentMethodByPreNoteTransaction(ctx context.Context, prenoteTransactionID pgtype.UUID) (sqlc.CustomerPaymentMethod, error) {
+	args := m.Called(ctx, prenoteTransactionID)
+	return args.Get(0).(sqlc.CustomerPaymentMethod), args.Error(1)
+}
+
+func (m *MockQuerier) MarkVerificationFailed(ctx context.Context, arg sqlc.MarkVerificationFailedParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
 // Ensure MockQuerier implements sqlc.Querier
 var _ sqlc.Querier = (*MockQuerier)(nil)

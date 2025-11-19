@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -338,15 +339,7 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 	// Create pending transaction record
 	// This establishes the transaction UUID and TRAN_NBR for idempotency
 	// Status will be empty initially (updated after EPX response in callback)
-	var amountNumeric pgtype.Numeric
-	if err := amountNumeric.Scan(amountStr); err != nil {
-		h.logger.Error("Failed to convert amount to numeric",
-			zap.String("amount", amountStr),
-			zap.Error(err),
-		)
-		http.Error(w, "invalid amount format", http.StatusBadRequest)
-		return
-	}
+	amountCents := int64(amountFloat * 100)
 
 	// Determine transaction type for pending transaction
 	internalTxType := mapRequestTypeToTransactionType(transactionType)
@@ -355,8 +348,8 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 	_, err = h.dbAdapter.Queries().CreateTransaction(r.Context(), sqlc.CreateTransactionParams{
 		ID:                transactionID,
 		MerchantID:        merchantID,
-		CustomerID:        pgtype.Text{}, // Unknown until callback (from USER_DATA_2)
-		Amount:            amountNumeric,
+		CustomerID:          pgtype.UUID{}, // Unknown until callback (from USER_DATA_2)
+		AmountCents:         amountCents,
 		Currency:          "USD",
 		Type:              internalTxType,
 		PaymentMethodType: "credit_card", // Browser Post is credit card
@@ -366,11 +359,12 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 			Valid:  true,
 		},
 		AuthGuid:     pgtype.Text{}, // Will be set in callback
-		AuthResp:     "",            // Empty initially (callback will update)
+		AuthResp:     pgtype.Text{}, // Empty initially (callback will update)
 		AuthCode:     pgtype.Text{},
 		AuthCardType: pgtype.Text{},
-		Metadata:     []byte("{}"),
-		GroupID:      nil, // DB auto-generates group_id
+		Metadata:            []byte("{}"),
+		ParentTransactionID: pgtype.UUID{}, // NULL for first transaction
+		ProcessedAt:         pgtype.Timestamptz{},
 	})
 
 	if err != nil {
@@ -531,9 +525,9 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 		transactionType = "SALE" // Default to SALE if not specified
 	}
 
-	// Parse amount
-	var amountNumeric pgtype.Numeric
-	if err := amountNumeric.Scan(response.Amount); err != nil {
+	// Validate amount format (amount already stored in pending transaction)
+	_, err = strconv.ParseFloat(response.Amount, 64)
+	if err != nil {
 		h.logger.Error("Failed to parse amount",
 			zap.String("amount", response.Amount),
 			zap.Error(err),
@@ -573,10 +567,15 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 	// Transaction was created as pending in GetPaymentForm, now update with EPX results
 	// Uses tran_nbr from EPX response to find the transaction record
 	tx, err := h.dbAdapter.Queries().UpdateTransactionFromEPXResponse(r.Context(), sqlc.UpdateTransactionFromEPXResponseParams{
-		CustomerID: pgtype.Text{
-			String: customerID,
-			Valid:  customerID != "",
-		},
+		CustomerID: func() pgtype.UUID {
+			if customerID != "" {
+				cid, parseErr := uuid.Parse(customerID)
+				if parseErr == nil {
+					return pgtype.UUID{Bytes: cid, Valid: true}
+				}
+			}
+			return pgtype.UUID{}
+		}(),
 		TranNbr: pgtype.Text{
 			String: response.TranNbr,
 			Valid:  response.TranNbr != "",
@@ -585,7 +584,7 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 			String: response.AuthGUID,
 			Valid:  response.AuthGUID != "",
 		},
-		AuthResp: response.AuthResp, // Required - updates status GENERATED column
+		AuthResp: pgtype.Text{String: response.AuthResp, Valid: true}, // Required - updates status GENERATED column
 		AuthCode: pgtype.Text{
 			String: response.AuthCode,
 			Valid:  response.AuthCode != "",
@@ -610,7 +609,7 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 
 	h.logger.Info("Successfully processed transaction from Browser Post callback",
 		zap.String("transaction_id", tx.ID.String()),
-		zap.String("group_id", tx.GroupID.String()),
+		zap.String("parent_transaction_id", tx.ParentTransactionID.String()),
 		zap.String("merchant_id", merchantID.String()),
 		zap.String("status", tx.Status.String), // Generated from auth_resp
 		zap.String("auth_resp", response.AuthResp),
@@ -634,10 +633,18 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 
 	if returnURL != "" {
 		// Redirect to calling service (POS/e-commerce/etc.) with transaction data
-		h.redirectToService(w, returnURL, tx.ID.String(), tx.GroupID.String(), tx.Status.String, response)
+		parentIDStr := ""
+		if tx.ParentTransactionID.Valid {
+			parentIDStr = uuid.UUID(tx.ParentTransactionID.Bytes).String()
+		}
+		h.redirectToService(w, returnURL, tx.ID.String(), parentIDStr, tx.Status.String, response)
 	} else {
 		// Fallback: render simple receipt if no return_url provided
-		h.renderReceiptPage(w, response, tx.ID.String(), tx.GroupID.String())
+		parentIDStr := ""
+		if tx.ParentTransactionID.Valid {
+			parentIDStr = uuid.UUID(tx.ParentTransactionID.Bytes).String()
+		}
+		h.renderReceiptPage(w, response, tx.ID.String(), parentIDStr)
 	}
 }
 

@@ -37,7 +37,7 @@ func (h *ConnectHandler) CreateSubscription(
 	h.logger.Info("CreateSubscription request received",
 		zap.String("merchant_id", msg.MerchantId),
 		zap.String("customer_id", msg.CustomerId),
-		zap.String("amount", msg.Amount),
+		zap.Int64("amount_cents", msg.AmountCents),
 	)
 
 	// Validate request
@@ -49,7 +49,7 @@ func (h *ConnectHandler) CreateSubscription(
 	serviceReq := &ports.CreateSubscriptionRequest{
 		MerchantID:      msg.MerchantId,
 		CustomerID:      msg.CustomerId,
-		Amount:          msg.Amount,
+		AmountCents:     msg.AmountCents,
 		Currency:        msg.Currency,
 		IntervalValue:   int(msg.IntervalValue),
 		IntervalUnit:    intervalUnitFromProto(msg.IntervalUnit),
@@ -96,8 +96,8 @@ func (h *ConnectHandler) UpdateSubscription(
 		SubscriptionID: msg.SubscriptionId,
 	}
 
-	if msg.Amount != nil {
-		serviceReq.Amount = msg.Amount
+	if msg.AmountCents != nil {
+		serviceReq.AmountCents = msg.AmountCents
 	}
 
 	if msg.IntervalValue != nil {

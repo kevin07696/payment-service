@@ -95,6 +95,20 @@ type CustomerPaymentMethod struct {
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
 	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
+	// ACH verification status: pending (pre-note sent, awaiting clearance), verified (pre-note cleared after 3 days), failed (return code received)
+	VerificationStatus pgtype.Text `json:"verification_status"`
+	// Links to the pre-note (CKC0) transaction used for ACH verification
+	PrenoteTransactionID pgtype.UUID `json:"prenote_transaction_id"`
+	// Timestamp when ACH verification completed (3 days after pre-note with no returns)
+	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
+	// Reason for verification failure (e.g., "R03: No Account/Unable to Locate")
+	VerificationFailureReason pgtype.Text `json:"verification_failure_reason"`
+	// Number of ACH returns received. Auto-deactivate after 2+ returns
+	ReturnCount int32 `json:"return_count"`
+	// Reason for deactivation (e.g., "excessive_returns", "manual_deactivation")
+	DeactivationReason pgtype.Text `json:"deactivation_reason"`
+	// Timestamp when payment method was deactivated
+	DeactivatedAt pgtype.Timestamptz `json:"deactivated_at"`
 }
 
 type EpxIpWhitelist struct {

@@ -189,11 +189,11 @@ func (PaymentMethodType) EnumDescriptor() ([]byte, []int) {
 
 // AuthorizeRequest authorizes a payment without capturing
 type AuthorizeRequest struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	MerchantId string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"` // Multi-tenant: which agent/merchant
-	CustomerId string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"` // Customer ID (nullable for guest transactions)
-	Amount     string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`                           // Decimal as string (e.g., "29.99")
-	Currency   string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`                       // ISO 4217 code (e.g., "USD")
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	MerchantId  string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`     // Multi-tenant: which agent/merchant
+	CustomerId  string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`     // Customer ID (nullable for guest transactions)
+	AmountCents int64                  `protobuf:"varint,3,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (e.g., 2999 = $29.99)
+	Currency    string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`                           // ISO 4217 code (e.g., "USD")
 	// Payment method - exactly one required
 	//
 	// Types that are valid to be assigned to PaymentMethod:
@@ -251,11 +251,11 @@ func (x *AuthorizeRequest) GetCustomerId() string {
 	return ""
 }
 
-func (x *AuthorizeRequest) GetAmount() string {
+func (x *AuthorizeRequest) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *AuthorizeRequest) GetCurrency() string {
@@ -324,7 +324,7 @@ func (*AuthorizeRequest_PaymentToken) isAuthorizeRequest_PaymentMethod() {}
 type CaptureRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	TransactionId  string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // Original authorization transaction ID
-	Amount         string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`                                    // Optional: partial capture amount
+	AmountCents    int64                  `protobuf:"varint,2,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"`      // Optional: partial capture amount in cents
 	IdempotencyKey string                 `protobuf:"bytes,3,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -367,11 +367,11 @@ func (x *CaptureRequest) GetTransactionId() string {
 	return ""
 }
 
-func (x *CaptureRequest) GetAmount() string {
+func (x *CaptureRequest) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *CaptureRequest) GetIdempotencyKey() string {
@@ -383,11 +383,11 @@ func (x *CaptureRequest) GetIdempotencyKey() string {
 
 // SaleRequest combines authorize and capture
 type SaleRequest struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	MerchantId string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
-	CustomerId string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"` // Nullable for guest transactions
-	Amount     string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`                           // Decimal as string
-	Currency   string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	MerchantId  string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
+	CustomerId  string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`     // Nullable for guest transactions
+	AmountCents int64                  `protobuf:"varint,3,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (e.g., 2999 = $29.99)
+	Currency    string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
 	// Payment method - exactly one required
 	//
 	// Types that are valid to be assigned to PaymentMethod:
@@ -445,11 +445,11 @@ func (x *SaleRequest) GetCustomerId() string {
 	return ""
 }
 
-func (x *SaleRequest) GetAmount() string {
+func (x *SaleRequest) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *SaleRequest) GetCurrency() string {
@@ -570,8 +570,8 @@ func (x *VoidRequest) GetIdempotencyKey() string {
 // RefundRequest refunds a captured payment
 type RefundRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	GroupId        string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"` // Transaction group to refund
-	Amount         string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`                  // Optional: partial refund amount
+	GroupId        string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`              // Transaction group to refund
+	AmountCents    int64                  `protobuf:"varint,2,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Optional: partial refund amount in cents
 	Reason         string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
 	IdempotencyKey string                 `protobuf:"bytes,4,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -615,11 +615,11 @@ func (x *RefundRequest) GetGroupId() string {
 	return ""
 }
 
-func (x *RefundRequest) GetAmount() string {
+func (x *RefundRequest) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *RefundRequest) GetReason() string {
@@ -642,7 +642,7 @@ type ACHDebitRequest struct {
 	MerchantId      string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId      string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`                  // Optional: for guest/one-time transactions
 	PaymentMethodId string                 `protobuf:"bytes,3,opt,name=payment_method_id,json=paymentMethodId,proto3" json:"payment_method_id,omitempty"` // ACH Storage BRIC (required)
-	Amount          string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`                                            // Decimal as string (e.g., "29.99")
+	AmountCents     int64                  `protobuf:"varint,4,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"`              // Amount in cents (e.g., 2999 = $29.99)
 	Currency        string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`                                        // ISO 4217 code (e.g., "USD")
 	IdempotencyKey  string                 `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	Metadata        map[string]string      `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -701,11 +701,11 @@ func (x *ACHDebitRequest) GetPaymentMethodId() string {
 	return ""
 }
 
-func (x *ACHDebitRequest) GetAmount() string {
+func (x *ACHDebitRequest) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *ACHDebitRequest) GetCurrency() string {
@@ -735,7 +735,7 @@ type ACHCreditRequest struct {
 	MerchantId      string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId      string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`                  // Optional
 	PaymentMethodId string                 `protobuf:"bytes,3,opt,name=payment_method_id,json=paymentMethodId,proto3" json:"payment_method_id,omitempty"` // ACH Storage BRIC (required)
-	Amount          string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`                                            // Decimal as string
+	AmountCents     int64                  `protobuf:"varint,4,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"`              // Amount in cents (e.g., 2999 = $29.99)
 	Currency        string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`                                        // ISO 4217 code
 	Reason          string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`                                            // Reason for credit (e.g., "refund", "payout")
 	IdempotencyKey  string                 `protobuf:"bytes,7,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
@@ -795,11 +795,11 @@ func (x *ACHCreditRequest) GetPaymentMethodId() string {
 	return ""
 }
 
-func (x *ACHCreditRequest) GetAmount() string {
+func (x *ACHCreditRequest) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *ACHCreditRequest) GetCurrency() string {
@@ -1422,13 +1422,13 @@ var File_proto_payment_v1_payment_proto protoreflect.FileDescriptor
 const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"\x1eproto/payment/v1/payment.proto\x12\n" +
-	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9d\x03\n" +
+	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa8\x03\n" +
 	"\x10AuthorizeRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12\x16\n" +
-	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1a\n" +
+	"customerId\x12!\n" +
+	"\famount_cents\x18\x03 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12,\n" +
 	"\x11payment_method_id\x18\x05 \x01(\tH\x00R\x0fpaymentMethodId\x12%\n" +
 	"\rpayment_token\x18\x06 \x01(\tH\x00R\fpaymentToken\x12'\n" +
@@ -1437,17 +1437,17 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +
-	"\x0epayment_method\"x\n" +
+	"\x0epayment_method\"\x83\x01\n" +
 	"\x0eCaptureRequest\x12%\n" +
-	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x16\n" +
-	"\x06amount\x18\x02 \x01(\tR\x06amount\x12'\n" +
-	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"\x93\x03\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12!\n" +
+	"\famount_cents\x18\x02 \x01(\x03R\vamountCents\x12'\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"\x9e\x03\n" +
 	"\vSaleRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12\x16\n" +
-	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1a\n" +
+	"customerId\x12!\n" +
+	"\famount_cents\x18\x03 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12,\n" +
 	"\x11payment_method_id\x18\x05 \x01(\tH\x00R\x0fpaymentMethodId\x12%\n" +
 	"\rpayment_token\x18\x06 \x01(\tH\x00R\fpaymentToken\x12'\n" +
@@ -1459,32 +1459,32 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x0epayment_method\"Q\n" +
 	"\vVoidRequest\x12\x19\n" +
 	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12'\n" +
-	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\x83\x01\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\x8e\x01\n" +
 	"\rRefundRequest\x12\x19\n" +
-	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12\x16\n" +
-	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x16\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12!\n" +
+	"\famount_cents\x18\x02 \x01(\x03R\vamountCents\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12'\n" +
-	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\"\xe0\x02\n" +
+	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\"\xeb\x02\n" +
 	"\x0fACHDebitRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12*\n" +
-	"\x11payment_method_id\x18\x03 \x01(\tR\x0fpaymentMethodId\x12\x16\n" +
-	"\x06amount\x18\x04 \x01(\tR\x06amount\x12\x1a\n" +
+	"\x11payment_method_id\x18\x03 \x01(\tR\x0fpaymentMethodId\x12!\n" +
+	"\famount_cents\x18\x04 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x05 \x01(\tR\bcurrency\x12'\n" +
 	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\x12E\n" +
 	"\bmetadata\x18\a \x03(\v2).payment.v1.ACHDebitRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfa\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x85\x03\n" +
 	"\x10ACHCreditRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12*\n" +
-	"\x11payment_method_id\x18\x03 \x01(\tR\x0fpaymentMethodId\x12\x16\n" +
-	"\x06amount\x18\x04 \x01(\tR\x06amount\x12\x1a\n" +
+	"\x11payment_method_id\x18\x03 \x01(\tR\x0fpaymentMethodId\x12!\n" +
+	"\famount_cents\x18\x04 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x05 \x01(\tR\bcurrency\x12\x16\n" +
 	"\x06reason\x18\x06 \x01(\tR\x06reason\x12'\n" +
 	"\x0fidempotency_key\x18\a \x01(\tR\x0eidempotencyKey\x12F\n" +

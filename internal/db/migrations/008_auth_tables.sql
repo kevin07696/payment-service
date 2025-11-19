@@ -1,6 +1,10 @@
 -- +goose Up
 -- Migration: 008_auth_tables.sql
--- Description: Authentication and authorization tables for JWT and API key auth
+-- Description: Clean separation - Services (auth) vs Merchants (business entities)
+-- Architecture:
+--   - services: ALL apps/clients (internal + external merchant apps) with JWT auth
+--   - merchants: Pure business entity data + EPX gateway credentials
+--   - service_merchants: Links services to merchants (many-to-many)
 -- Author: Authentication System
 -- Date: 2025-11-18
 
@@ -15,27 +19,28 @@ CREATE TABLE IF NOT EXISTS admins (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Update merchants table to add auth fields (if not exists)
+-- Update merchants table to add business fields
 ALTER TABLE merchants ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending_activation';
 ALTER TABLE merchants ADD COLUMN IF NOT EXISTS tier VARCHAR(50) DEFAULT 'standard';
-ALTER TABLE merchants ADD COLUMN IF NOT EXISTS requests_per_second INTEGER DEFAULT 100;
-ALTER TABLE merchants ADD COLUMN IF NOT EXISTS burst_limit INTEGER DEFAULT 200;
 ALTER TABLE merchants ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES admins(id);
 ALTER TABLE merchants ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES admins(id);
 ALTER TABLE merchants ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
 
--- Registered services (POS, WordPress, etc.)
-CREATE TABLE IF NOT EXISTS registered_services (
+-- Services table: ALL apps/clients (internal microservices + merchant apps)
+-- Examples:
+--   - Internal: billing-service, subscription-service (merchant_id = NULL in service_merchants)
+--   - External: "ACME Web App", "ACME Mobile App" (linked via service_merchants)
+CREATE TABLE IF NOT EXISTS services (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    service_id VARCHAR(100) UNIQUE NOT NULL,
-    service_name VARCHAR(255) NOT NULL,
-    public_key TEXT NOT NULL,
+    service_id VARCHAR(100) UNIQUE NOT NULL,  -- e.g., "acme-web-app", "billing-service"
+    service_name VARCHAR(255) NOT NULL,       -- e.g., "ACME Corp Web Application"
+    public_key TEXT NOT NULL,                 -- RSA public key for JWT verification
     public_key_fingerprint VARCHAR(64) NOT NULL,
-    environment VARCHAR(50) NOT NULL, -- staging, production
+    environment VARCHAR(50) NOT NULL,         -- staging, production
 
-    -- Rate limit configuration
-    requests_per_second INTEGER DEFAULT 1000,
-    burst_limit INTEGER DEFAULT 2000,
+    -- Rate limit configuration (per service, not per merchant)
+    requests_per_second INTEGER DEFAULT 100,
+    burst_limit INTEGER DEFAULT 200,
 
     is_active BOOLEAN DEFAULT true,
     created_by UUID REFERENCES admins(id),
@@ -43,18 +48,19 @@ CREATE TABLE IF NOT EXISTS registered_services (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Service-to-merchant access control
+-- Service-to-merchant access control (many-to-many)
+-- Links services to merchants with scoped permissions
 CREATE TABLE IF NOT EXISTS service_merchants (
-    service_id UUID REFERENCES registered_services(id) ON DELETE CASCADE,
+    service_id UUID REFERENCES services(id) ON DELETE CASCADE,
     merchant_id UUID REFERENCES merchants(id) ON DELETE CASCADE,
-    scopes TEXT[], -- ['payment:create', 'payment:read', etc.]
+    scopes TEXT[], -- ['payment:create', 'payment:read', 'subscription:manage', etc.]
     granted_by UUID REFERENCES admins(id),
     granted_at TIMESTAMP DEFAULT NOW(),
     expires_at TIMESTAMP,
     PRIMARY KEY (service_id, merchant_id)
 );
 
--- Indexes for performance
+-- Indexes for service_merchants
 CREATE INDEX IF NOT EXISTS idx_service_merchants_service
     ON service_merchants(service_id);
 
@@ -65,33 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_service_merchants_expires
     ON service_merchants(expires_at)
     WHERE expires_at IS NOT NULL;
 
--- Merchant self-managed credentials
-CREATE TABLE IF NOT EXISTS merchant_credentials (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    merchant_id UUID REFERENCES merchants(id) ON DELETE CASCADE,
-
-    -- Hashed credentials
-    api_key_prefix VARCHAR(20) NOT NULL, -- First 10 chars for identification
-    api_key_hash VARCHAR(255) NOT NULL,
-    api_secret_hash VARCHAR(255) NOT NULL,
-
-    description VARCHAR(255),
-    environment VARCHAR(50) DEFAULT 'production', -- production, staging, test
-    last_used_at TIMESTAMP,
-    expires_at TIMESTAMP,
-    is_active BOOLEAN DEFAULT true,
-
-    created_at TIMESTAMP DEFAULT NOW(),
-    created_by VARCHAR(100), -- 'initial_setup', 'merchant_portal', 'api_rotation'
-    rotated_from UUID REFERENCES merchant_credentials(id)
-);
-
--- Unique index on active credentials
-CREATE UNIQUE INDEX IF NOT EXISTS idx_merchant_credentials_active
-    ON merchant_credentials(api_key_hash)
-    WHERE is_active = true;
-
--- Merchant activation tokens (one-time use)
+-- Merchant activation tokens (one-time use for onboarding)
 CREATE TABLE IF NOT EXISTS merchant_activation_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     merchant_id UUID REFERENCES merchants(id) ON DELETE CASCADE,
@@ -102,11 +82,11 @@ CREATE TABLE IF NOT EXISTS merchant_activation_tokens (
 );
 
 -- Comprehensive audit log (partitioned by month)
-CREATE TABLE IF NOT EXISTS audit_log (
+CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID DEFAULT gen_random_uuid(),
     -- Actor
-    actor_type VARCHAR(50), -- 'admin', 'merchant', 'service', 'system'
-    actor_id VARCHAR(255),
+    actor_type VARCHAR(50), -- 'admin', 'service', 'system'
+    actor_id VARCHAR(255),  -- service_id or admin_id
     actor_name VARCHAR(255),
 
     -- Action
@@ -131,27 +111,27 @@ CREATE TABLE IF NOT EXISTS audit_log (
 ) PARTITION BY RANGE (performed_at);
 
 -- Create monthly partitions for audit log (next 3 months)
-CREATE TABLE IF NOT EXISTS audit_log_2025_01 PARTITION OF audit_log
+CREATE TABLE IF NOT EXISTS audit_logs_2025_01 PARTITION OF audit_logs
     FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
-CREATE TABLE IF NOT EXISTS audit_log_2025_02 PARTITION OF audit_log
+CREATE TABLE IF NOT EXISTS audit_logs_2025_02 PARTITION OF audit_logs
     FOR VALUES FROM ('2025-02-01') TO ('2025-03-01');
-CREATE TABLE IF NOT EXISTS audit_log_2025_03 PARTITION OF audit_log
+CREATE TABLE IF NOT EXISTS audit_logs_2025_03 PARTITION OF audit_logs
     FOR VALUES FROM ('2025-03-01') TO ('2025-04-01');
 
 -- Add primary key to each partition
-ALTER TABLE audit_log_2025_01 ADD PRIMARY KEY (id);
-ALTER TABLE audit_log_2025_02 ADD PRIMARY KEY (id);
-ALTER TABLE audit_log_2025_03 ADD PRIMARY KEY (id);
+ALTER TABLE audit_logs_2025_01 ADD PRIMARY KEY (id);
+ALTER TABLE audit_logs_2025_02 ADD PRIMARY KEY (id);
+ALTER TABLE audit_logs_2025_03 ADD PRIMARY KEY (id);
 
--- Rate limit tracking
+-- Rate limit tracking (per service)
 CREATE TABLE IF NOT EXISTS rate_limit_buckets (
-    bucket_key VARCHAR(255) PRIMARY KEY,
+    bucket_key VARCHAR(255) PRIMARY KEY,  -- Format: "service_id:merchant_id" or "service_id"
     tokens INTEGER NOT NULL,
     last_refill TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- EPX IP whitelist
+-- EPX IP whitelist (for callback security)
 CREATE TABLE IF NOT EXISTS epx_ip_whitelist (
     id SERIAL PRIMARY KEY,
     ip_address INET NOT NULL UNIQUE,
@@ -193,62 +173,26 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 );
 
 -- Indexes for audit log queries
-CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log (actor_type, actor_id, performed_at DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log (action, performed_at DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log (entity_type, entity_id, performed_at DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_log_ip ON audit_log (ip_address, performed_at DESC) WHERE ip_address IS NOT NULL;
-
--- Function to clean up expired data
--- Note: This function is commented out due to goose limitations with dollar-quoted strings
--- Create it manually after migration if needed
--- CREATE OR REPLACE FUNCTION cleanup_expired_auth_data()
--- RETURNS void
--- LANGUAGE plpgsql
--- AS $function$
--- BEGIN
---     -- Delete expired JWT blacklist entries
---     DELETE FROM jwt_blacklist WHERE expires_at < NOW() - INTERVAL '1 day';
---
---     -- Delete expired activation tokens
---     DELETE FROM merchant_activation_tokens
---     WHERE expires_at < NOW() - INTERVAL '7 days';
---
---     -- Delete old rate limit buckets
---     DELETE FROM rate_limit_buckets
---     WHERE last_refill < NOW() - INTERVAL '1 hour';
---
---     -- Delete expired admin sessions
---     DELETE FROM admin_sessions WHERE expires_at < NOW();
--- END;
--- $function$;
-
--- Create a scheduled job to clean up expired data (requires pg_cron extension)
--- Run this separately if pg_cron is available:
--- SELECT cron.schedule('cleanup-auth-data', '0 3 * * *', 'SELECT cleanup_expired_auth_data()');
-
--- Grant permissions (adjust as needed for your database user)
--- GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO payment_service_user;
--- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO payment_service_user;
+CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs (actor_type, actor_id, performed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action, performed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_type, entity_id, performed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_ip ON audit_logs (ip_address, performed_at DESC) WHERE ip_address IS NOT NULL;
 
 -- +goose Down
--- Drop all auth-related tables and functions
--- DROP FUNCTION IF EXISTS cleanup_expired_auth_data();
+-- Drop all auth-related tables
 DROP TABLE IF EXISTS admin_sessions;
 DROP TABLE IF EXISTS jwt_blacklist;
 DROP TABLE IF EXISTS epx_ip_whitelist;
 DROP TABLE IF EXISTS rate_limit_buckets;
-DROP TABLE IF EXISTS audit_log_2025_03;
-DROP TABLE IF EXISTS audit_log_2025_02;
-DROP TABLE IF EXISTS audit_log_2025_01;
-DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS audit_logs_2025_03;
+DROP TABLE IF EXISTS audit_logs_2025_02;
+DROP TABLE IF EXISTS audit_logs_2025_01;
+DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS merchant_activation_tokens;
-DROP TABLE IF EXISTS merchant_credentials;
 DROP TABLE IF EXISTS service_merchants;
-DROP TABLE IF EXISTS registered_services;
+DROP TABLE IF EXISTS services;
 ALTER TABLE merchants DROP COLUMN IF EXISTS status;
 ALTER TABLE merchants DROP COLUMN IF EXISTS tier;
-ALTER TABLE merchants DROP COLUMN IF EXISTS requests_per_second;
-ALTER TABLE merchants DROP COLUMN IF EXISTS burst_limit;
 ALTER TABLE merchants DROP COLUMN IF EXISTS created_by;
 ALTER TABLE merchants DROP COLUMN IF EXISTS approved_by;
 ALTER TABLE merchants DROP COLUMN IF EXISTS approved_at;

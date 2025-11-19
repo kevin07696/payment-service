@@ -19,7 +19,8 @@ import (
 
 // subscriptionService implements the SubscriptionService port
 type subscriptionService struct {
-	db            *database.PostgreSQLAdapter
+	queries       sqlc.Querier
+	txManager     database.TransactionManager
 	serverPost    adapterports.ServerPostAdapter
 	secretManager adapterports.SecretManagerAdapter
 	logger        *zap.Logger
@@ -27,13 +28,15 @@ type subscriptionService struct {
 
 // NewSubscriptionService creates a new subscription service
 func NewSubscriptionService(
-	db *database.PostgreSQLAdapter,
+	queries sqlc.Querier,
+	txManager database.TransactionManager,
 	serverPost adapterports.ServerPostAdapter,
 	secretManager adapterports.SecretManagerAdapter,
 	logger *zap.Logger,
 ) ports.SubscriptionService {
 	return &subscriptionService{
-		db:            db,
+		queries:       queries,
+		txManager:     txManager,
 		serverPost:    serverPost,
 		secretManager: secretManager,
 		logger:        logger,
@@ -45,7 +48,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 	s.logger.Info("Creating subscription",
 		zap.String("agent_id", req.MerchantID),
 		zap.String("customer_id", req.CustomerID),
-		zap.String("amount", req.Amount),
+		zap.Int64("amount_cents", req.AmountCents),
 	)
 
 	// Check idempotency
@@ -66,12 +69,18 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 	}
 
 	// Verify payment method exists and belongs to customer
-	pm, err := s.db.Queries().GetPaymentMethodByID(ctx, pmID)
+	pm, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	if pm.MerchantID.String() != req.MerchantID || pm.CustomerID != req.CustomerID {
+	// Parse customer ID to UUID for comparison
+	reqCustomerID, err := uuid.Parse(req.CustomerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid customer_id format: %w", err)
+	}
+
+	if pm.MerchantID.String() != req.MerchantID || pm.CustomerID != reqCustomerID {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -79,13 +88,8 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		return nil, fmt.Errorf("payment method is not active")
 	}
 
-	// Parse amount
-	amount, err := decimal.NewFromString(req.Amount)
-	if err != nil {
-		return nil, fmt.Errorf("invalid amount format: %w", err)
-	}
-
-	if amount.LessThanOrEqual(decimal.Zero) {
+	// Validate amount
+	if req.AmountCents <= 0 {
 		return nil, fmt.Errorf("amount must be greater than zero")
 	}
 
@@ -98,9 +102,15 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
+	// Parse customer ID
+	customerID, err := uuid.Parse(req.CustomerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid customer_id format: %w", err)
+	}
+
 	// Create subscription in database
 	var subscription *domain.Subscription
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		// Marshal metadata
 		metadataJSON, err := json.Marshal(req.Metadata)
 		if err != nil {
@@ -111,8 +121,8 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		params := sqlc.CreateSubscriptionParams{
 			ID:                    uuid.New(),
 			MerchantID:            merchantID,
-			CustomerID:            req.CustomerID,
-			Amount:                toNumeric(amount),
+			CustomerID:            customerID,
+			AmountCents:           req.AmountCents,
 			Currency:              req.Currency,
 			IntervalValue:         int32(req.IntervalValue),
 			IntervalUnit:          string(req.IntervalUnit),
@@ -169,7 +179,7 @@ func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports
 	}
 
 	// Get existing subscription
-	existing, err := s.db.Queries().GetSubscriptionByID(ctx, subID)
+	existing, err := s.queries.GetSubscriptionByID(ctx, subID)
 	if err != nil {
 		return nil, fmt.Errorf("subscription not found: %w", err)
 	}
@@ -181,24 +191,20 @@ func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports
 	}
 
 	var subscription *domain.Subscription
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		// Build update params
 		params := sqlc.UpdateSubscriptionParams{
 			ID: subID,
 		}
 
 		// Update amount if provided
-		if req.Amount != nil {
-			amount, err := decimal.NewFromString(*req.Amount)
-			if err != nil {
-				return fmt.Errorf("invalid amount format: %w", err)
-			}
-			if amount.LessThanOrEqual(decimal.Zero) {
+		if req.AmountCents != nil {
+			if *req.AmountCents <= 0 {
 				return fmt.Errorf("amount must be greater than zero")
 			}
-			params.Amount = toNumeric(amount)
+			params.AmountCents = *req.AmountCents
 		} else {
-			params.Amount = existing.Amount
+			params.AmountCents = existing.AmountCents
 		}
 
 		// Update interval if provided
@@ -227,7 +233,7 @@ func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports
 				return fmt.Errorf("payment method not found: %w", err)
 			}
 
-			if pm.MerchantID != existing.MerchantID || pm.CustomerID != existing.CustomerID {
+			if pm.MerchantID.String() != existing.MerchantID.String() || pm.CustomerID != existing.CustomerID {
 				return fmt.Errorf("payment method does not belong to customer")
 			}
 
@@ -282,7 +288,7 @@ func (s *subscriptionService) CancelSubscription(ctx context.Context, req *ports
 	}
 
 	var subscription *domain.Subscription
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		// Get existing subscription
 		existing, err := q.GetSubscriptionByID(ctx, subID)
 		if err != nil {
@@ -348,7 +354,7 @@ func (s *subscriptionService) PauseSubscription(ctx context.Context, subscriptio
 	}
 
 	var subscription *domain.Subscription
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		// Get existing subscription
 		existing, err := q.GetSubscriptionByID(ctx, subID)
 		if err != nil {
@@ -398,7 +404,7 @@ func (s *subscriptionService) ResumeSubscription(ctx context.Context, subscripti
 	}
 
 	var subscription *domain.Subscription
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		// Get existing subscription
 		existing, err := q.GetSubscriptionByID(ctx, subID)
 		if err != nil {
@@ -442,7 +448,7 @@ func (s *subscriptionService) GetSubscription(ctx context.Context, subscriptionI
 		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
 	}
 
-	dbSub, err := s.db.Queries().GetSubscriptionByID(ctx, subID)
+	dbSub, err := s.queries.GetSubscriptionByID(ctx, subID)
 	if err != nil {
 		s.logger.Debug("Subscription not found",
 			zap.String("subscription_id", subscriptionID),
@@ -464,10 +470,10 @@ func (s *subscriptionService) ListCustomerSubscriptions(ctx context.Context, mer
 
 	params := sqlc.ListSubscriptionsByCustomerParams{
 		MerchantID: merchantUUID,
-		CustomerID: customerID,
+		CustomerID: uuid.MustParse(customerID),
 	}
 
-	dbSubs, err := s.db.Queries().ListSubscriptionsByCustomer(ctx, params)
+	dbSubs, err := s.queries.ListSubscriptionsByCustomer(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list subscriptions: %w", err)
 	}
@@ -493,7 +499,7 @@ func (s *subscriptionService) ProcessDueBilling(ctx context.Context, asOfDate ti
 		LimitVal:        int32(batchSize),
 	}
 
-	dueSubs, err := s.db.Queries().ListSubscriptionsDueForBilling(ctx, params)
+	dueSubs, err := s.queries.ListSubscriptionsDueForBilling(ctx, params)
 	if err != nil {
 		s.logger.Error("Failed to list due subscriptions", zap.Error(err))
 		return 0, 0, 0, []error{err}
@@ -538,7 +544,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 	txID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(idempotencyKey))
 
 	// Check if we already processed this billing cycle
-	existingTx, err := s.db.Queries().GetTransactionByID(ctx, txID)
+	existingTx, err := s.queries.GetTransactionByID(ctx, txID)
 	if err == nil && existingTx.ID == txID {
 		// Already charged successfully, just update subscription
 		s.logger.Info("Billing already processed for this cycle, skipping",
@@ -554,7 +560,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		return fmt.Errorf("invalid merchant_id: %w", err)
 	}
 
-	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
+	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
 		return fmt.Errorf("failed to get merchant: %w", err)
 	}
@@ -564,7 +570,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 	}
 
 	// Get payment method
-	pm, err := s.db.Queries().GetPaymentMethodByID(ctx, sub.PaymentMethodID)
+	pm, err := s.queries.GetPaymentMethodByID(ctx, sub.PaymentMethodID)
 	if err != nil {
 		return fmt.Errorf("failed to get payment method: %w", err)
 	}
@@ -579,8 +585,8 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		return fmt.Errorf("failed to get MAC secret: %w", err)
 	}
 
-	// Prepare EPX request
-	amount := decimal.NewFromBigInt(sub.Amount.Int, sub.Amount.Exp)
+	// Prepare EPX request - convert cents back to decimal string
+	amount := decimal.NewFromInt(sub.AmountCents).Div(decimal.NewFromInt(100))
 	epxReq := &adapterports.ServerPostRequest{
 		CustNbr:         merchant.CustNbr,
 		MerchNbr:        merchant.MerchNbr,
@@ -589,10 +595,10 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		TransactionType: adapterports.TransactionTypeSale,
 		Amount:          amount.String(),
 		PaymentType:     adapterports.PaymentMethodType(pm.PaymentType),
-		AuthGUID:        pm.PaymentToken,
+		AuthGUID:        pm.Bric,
 		TranNbr:         uuid.New().String(),
 		TranGroup:       uuid.New().String(),
-		CustomerID:      sub.CustomerID,
+		CustomerID:      sub.CustomerID.String(),
 	}
 
 	// Process transaction through EPX
@@ -608,7 +614,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 	}
 
 	// Save transaction and update subscription
-	return s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	return s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		// Create transaction record with deterministic ID
 		// Note: Status is auto-generated by database based on auth_resp
 		// auth_guid (BRIC) is stored directly in the transaction
@@ -628,21 +634,23 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		}
 
 		txParams := sqlc.CreateTransactionParams{
-			ID:                txID, // Use deterministic ID for idempotency
-			MerchantID:        sub.MerchantID,
-			CustomerID:        toNullableText(&sub.CustomerID),
-			Amount:            sub.Amount,
-			Currency:          sub.Currency,
-			Type:              string(domain.TransactionTypeSale),
-			PaymentMethodType: pm.PaymentType,
-			PaymentMethodID:   toNullableUUID(&pmIDStr),
-			SubscriptionID:    pgtype.UUID{Bytes: sub.ID, Valid: true}, // Link to subscription
-			AuthGuid:          toNullableText(&epxResp.AuthGUID),       // Store BRIC token
-			AuthResp:          epxResp.AuthResp,
-			AuthCode:          toNullableText(&epxResp.AuthCode),
-			AuthCardType:      toNullableText(&epxResp.AuthCardType),
-			Metadata:          metadataJSON,
-			GroupID:           nil, // DB auto-generates group_id for first transaction
+			ID:                  txID, // Use deterministic ID for idempotency
+			MerchantID:          sub.MerchantID,
+			CustomerID:          pgtype.UUID{Bytes: sub.CustomerID, Valid: true},
+			AmountCents:         sub.AmountCents,
+			Currency:            sub.Currency,
+			Type:                string(domain.TransactionTypeSale),
+			PaymentMethodType:   pm.PaymentType,
+			PaymentMethodID:     toNullableUUID(&pmIDStr),
+			SubscriptionID:      pgtype.UUID{Bytes: sub.ID, Valid: true}, // Link to subscription
+			TranNbr:             pgtype.Text{},                            // EPX will populate
+			AuthGuid:            toNullableText(&epxResp.AuthGUID),        // Store BRIC token
+			AuthResp:            pgtype.Text{String: epxResp.AuthResp, Valid: true},
+			AuthCode:            toNullableText(&epxResp.AuthCode),
+			AuthCardType:        toNullableText(&epxResp.AuthCardType),
+			Metadata:            metadataJSON,
+			ParentTransactionID: pgtype.UUID{}, // NULL for first transaction
+			ProcessedAt:         pgtype.Timestamptz{},
 		}
 
 		_, err = q.CreateTransaction(ctx, txParams)
@@ -676,7 +684,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 
 // updateNextBillingDate updates the subscription's next billing date
 func (s *subscriptionService) updateNextBillingDate(ctx context.Context, sub *sqlc.Subscription) error {
-	return s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	return s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		// Calculate next billing date
 		nextBillingDate := calculateNextBillingDate(
 			sub.NextBillingDate.Time,
@@ -703,7 +711,7 @@ func (s *subscriptionService) updateNextBillingDate(ctx context.Context, sub *sq
 
 // handleBillingFailure handles a failed billing attempt
 func (s *subscriptionService) handleBillingFailure(ctx context.Context, sub *sqlc.Subscription, billingErr error) error {
-	return s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	return s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		newRetryCount := sub.FailureRetryCount + 1
 		var newStatus string
 
@@ -769,8 +777,8 @@ func sqlcSubscriptionToDomain(dbSub *sqlc.Subscription) *domain.Subscription {
 	sub := &domain.Subscription{
 		ID:                dbSub.ID.String(),
 		MerchantID:        dbSub.MerchantID.String(),
-		CustomerID:        dbSub.CustomerID,
-		Amount:            decimal.NewFromBigInt(dbSub.Amount.Int, dbSub.Amount.Exp),
+		CustomerID:        dbSub.CustomerID.String(),
+		AmountCents:       dbSub.AmountCents,
 		Currency:          dbSub.Currency,
 		IntervalValue:     int(dbSub.IntervalValue),
 		IntervalUnit:      domain.IntervalUnit(dbSub.IntervalUnit),
@@ -819,10 +827,3 @@ func toNullableUUID(s *string) pgtype.UUID {
 	return pgtype.UUID{Bytes: id, Valid: true}
 }
 
-func toNumeric(d decimal.Decimal) pgtype.Numeric {
-	return pgtype.Numeric{
-		Int:   d.Coefficient(),
-		Exp:   d.Exponent(),
-		Valid: true,
-	}
-}

@@ -489,6 +489,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 
 	// Initialize services
 	paymentSvc := paymentService.NewPaymentService(
+		dbAdapter.Queries(),
 		dbAdapter,
 		serverPost,
 		secretManager,
@@ -497,6 +498,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	)
 
 	subscriptionSvc := subscriptionService.NewSubscriptionService(
+		dbAdapter.Queries(),
 		dbAdapter,
 		serverPost,
 		secretManager,
@@ -504,6 +506,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	)
 
 	paymentMethodSvc := paymentmethodService.NewPaymentMethodService(
+		dbAdapter.Queries(),
 		dbAdapter,
 		browserPost,
 		serverPost,
@@ -513,6 +516,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	)
 
 	merchantSvc := merchantService.NewMerchantService(
+		dbAdapter.Queries(),
 		dbAdapter,
 		secretManager,
 		logger,

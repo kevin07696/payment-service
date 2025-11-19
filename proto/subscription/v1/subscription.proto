@@ -65,7 +65,7 @@ service SubscriptionService {
 message CreateSubscriptionRequest {
   string merchant_id = 1;
   string customer_id = 2;
-  string amount = 3; // Decimal as string
+  int64 amount_cents = 3; // Amount in cents (smallest currency unit)
   string currency = 4;
 
   // Billing interval (e.g., 1 month, 2 weeks, 3 months)
@@ -82,7 +82,7 @@ message CreateSubscriptionRequest {
 // UpdateSubscriptionRequest updates subscription properties
 message UpdateSubscriptionRequest {
   string subscription_id = 1;
-  optional string amount = 2; // Optional: update amount
+  optional int64 amount_cents = 2; // Optional: update amount in cents
   optional int32 interval_value = 3; // Optional: update interval value
   optional IntervalUnit interval_unit = 4; // Optional: update interval unit
   optional string payment_method_id = 5; // Optional: update payment method
@@ -152,7 +152,7 @@ message SubscriptionResponse {
   string subscription_id = 1;
   string merchant_id = 2;
   string customer_id = 3;
-  string amount = 4;
+  int64 amount_cents = 4; // Amount in cents (smallest currency unit)
   string currency = 5;
 
   // Billing interval
@@ -173,7 +173,7 @@ message Subscription {
   string id = 1;
   string merchant_id = 2;
   string customer_id = 3;
-  string amount = 4;
+  int64 amount_cents = 4; // Amount in cents (smallest currency unit)
   string currency = 5;
 
   // Billing interval

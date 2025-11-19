@@ -44,7 +44,7 @@ service PaymentService {
 message AuthorizeRequest {
   string merchant_id = 1; // Multi-tenant: which agent/merchant
   string customer_id = 2; // Customer ID (nullable for guest transactions)
-  string amount = 3; // Decimal as string (e.g., "29.99")
+  int64 amount_cents = 3; // Amount in cents (e.g., 2999 = $29.99)
   string currency = 4; // ISO 4217 code (e.g., "USD")
 
   // Payment method - exactly one required
@@ -60,7 +60,7 @@ message AuthorizeRequest {
 // CaptureRequest captures a previously authorized payment
 message CaptureRequest {
   string transaction_id = 1; // Original authorization transaction ID
-  string amount = 2; // Optional: partial capture amount
+  int64 amount_cents = 2; // Optional: partial capture amount in cents
   string idempotency_key = 3;
 }
 
@@ -68,7 +68,7 @@ message CaptureRequest {
 message SaleRequest {
   string merchant_id = 1;
   string customer_id = 2; // Nullable for guest transactions
-  string amount = 3; // Decimal as string
+  int64 amount_cents = 3; // Amount in cents (e.g., 2999 = $29.99)
   string currency = 4;
 
   // Payment method - exactly one required
@@ -90,7 +90,7 @@ message VoidRequest {
 // RefundRequest refunds a captured payment
 message RefundRequest {
   string group_id = 1; // Transaction group to refund
-  string amount = 2; // Optional: partial refund amount
+  int64 amount_cents = 2; // Optional: partial refund amount in cents
   string reason = 3;
   string idempotency_key = 4;
 }
@@ -100,7 +100,7 @@ message ACHDebitRequest {
   string merchant_id = 1;
   string customer_id = 2; // Optional: for guest/one-time transactions
   string payment_method_id = 3; // ACH Storage BRIC (required)
-  string amount = 4; // Decimal as string (e.g., "29.99")
+  int64 amount_cents = 4; // Amount in cents (e.g., 2999 = $29.99)
   string currency = 5; // ISO 4217 code (e.g., "USD")
   string idempotency_key = 6;
   map<string, string> metadata = 7;
@@ -111,7 +111,7 @@ message ACHCreditRequest {
   string merchant_id = 1;
   string customer_id = 2; // Optional
   string payment_method_id = 3; // ACH Storage BRIC (required)
-  string amount = 4; // Decimal as string
+  int64 amount_cents = 4; // Amount in cents (e.g., 2999 = $29.99)
   string currency = 5; // ISO 4217 code
   string reason = 6; // Reason for credit (e.g., "refund", "payout")
   string idempotency_key = 7;

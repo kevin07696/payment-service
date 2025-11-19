@@ -10,7 +10,7 @@ import (
 type AuthorizeRequest struct {
 	MerchantID      string
 	CustomerID      *string // Nullable for guest transactions
-	Amount          string
+	AmountCents     int64   // Amount in cents
 	Currency        string
 	PaymentMethodID *string // Saved payment method
 	PaymentToken    *string // One-time token from EPX
@@ -21,7 +21,7 @@ type AuthorizeRequest struct {
 // CaptureRequest contains parameters for capturing authorized funds
 type CaptureRequest struct {
 	TransactionID  string
-	Amount         *string // Optional: partial capture
+	AmountCents    *int64 // Optional: partial capture in cents
 	IdempotencyKey *string
 }
 
@@ -29,7 +29,7 @@ type CaptureRequest struct {
 type SaleRequest struct {
 	MerchantID      string
 	CustomerID      *string
-	Amount          string
+	AmountCents     int64 // Amount in cents
 	Currency        string
 	PaymentMethodID *string
 	PaymentToken    *string
@@ -39,28 +39,29 @@ type SaleRequest struct {
 
 // VoidRequest contains parameters for voiding a transaction
 type VoidRequest struct {
-	GroupID        string // Transaction group to void
-	IdempotencyKey *string
+	ParentTransactionID string // Parent transaction ID to void (AUTH or SALE transaction)
+	IdempotencyKey      *string
 }
 
 // RefundRequest contains parameters for refunding a transaction
 type RefundRequest struct {
-	GroupID        string  // Transaction group to refund
-	Amount         *string // Optional: partial refund
-	Reason         string
-	IdempotencyKey *string
+	ParentTransactionID string // Parent transaction ID to refund (AUTH or SALE transaction)
+	AmountCents         *int64 // Optional: partial refund in cents
+	Reason              string
+	IdempotencyKey      *string
 }
 
 // ListTransactionsFilters contains filter parameters for listing transactions
 type ListTransactionsFilters struct {
-	MerchantID      *string
-	CustomerID      *string
-	GroupID         *string
-	Status          *string
-	Type            *string
-	PaymentMethodID *string
-	Limit           int
-	Offset          int
+	MerchantID          *string
+	CustomerID          *string
+	SubscriptionID      *string // Filter by subscription ID
+	ParentTransactionID *string // Filter by parent transaction ID
+	Status              *string
+	Type                *string
+	PaymentMethodID     *string
+	Limit               int
+	Offset              int
 }
 
 // PaymentService defines the port for payment operations

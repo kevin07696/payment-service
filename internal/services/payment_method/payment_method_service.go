@@ -17,7 +17,8 @@ import (
 
 // paymentMethodService implements the PaymentMethodService port
 type paymentMethodService struct {
-	db            *database.PostgreSQLAdapter
+	queries       sqlc.Querier
+	txManager     database.TransactionManager
 	browserPost   adapterports.BrowserPostAdapter
 	serverPost    adapterports.ServerPostAdapter
 	bricStorage   adapterports.BRICStorageAdapter
@@ -27,7 +28,8 @@ type paymentMethodService struct {
 
 // NewPaymentMethodService creates a new payment method service
 func NewPaymentMethodService(
-	db *database.PostgreSQLAdapter,
+	queries sqlc.Querier,
+	txManager database.TransactionManager,
 	browserPost adapterports.BrowserPostAdapter,
 	serverPost adapterports.ServerPostAdapter,
 	bricStorage adapterports.BRICStorageAdapter,
@@ -35,7 +37,8 @@ func NewPaymentMethodService(
 	logger *zap.Logger,
 ) ports.PaymentMethodService {
 	return &paymentMethodService{
-		db:            db,
+		queries:       queries,
+		txManager:     txManager,
 		browserPost:   browserPost,
 		serverPost:    serverPost,
 		bricStorage:   bricStorage,
@@ -90,13 +93,19 @@ func (s *paymentMethodService) SavePaymentMethod(ctx context.Context, req *ports
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
+	// Parse customer ID to UUID (before transaction)
+	customerID, err := uuid.Parse(req.CustomerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid customer_id format: %w", err)
+	}
+
 	var paymentMethod *domain.PaymentMethod
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		// If this is set as default, unset all other defaults first
 		if req.IsDefault {
 			err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
 				MerchantID: merchantID,
-				CustomerID: req.CustomerID,
+				CustomerID: customerID,
 			})
 			if err != nil {
 				s.logger.Warn("Failed to unset existing defaults", zap.Error(err))
@@ -107,9 +116,9 @@ func (s *paymentMethodService) SavePaymentMethod(ctx context.Context, req *ports
 		params := sqlc.CreatePaymentMethodParams{
 			ID:           uuid.New(),
 			MerchantID:   merchantID,
-			CustomerID:   req.CustomerID,
+			CustomerID:   customerID,
 			PaymentType:  string(req.PaymentType),
-			PaymentToken: req.PaymentToken,
+			Bric:         req.PaymentToken,
 			LastFour:     req.LastFour,
 			CardBrand:    toNullableText(req.CardBrand),
 			CardExpMonth: toNullableInt32(req.CardExpMonth),
@@ -192,7 +201,7 @@ func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Con
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
-	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
+	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get merchant: %w", err)
 	}
@@ -253,12 +262,18 @@ func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Con
 
 	// Save Storage BRIC to payment_methods table
 	var paymentMethod *domain.PaymentMethod
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
+		// Parse customer ID to UUID
+		customerID, err := uuid.Parse(req.CustomerID)
+		if err != nil {
+			return fmt.Errorf("invalid customer_id format: %w", err)
+		}
+
 		// If this is set as default, unset all other defaults first
 		if req.IsDefault {
 			err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
 				MerchantID: merchantID,
-				CustomerID: req.CustomerID,
+				CustomerID: customerID,
 			})
 			if err != nil {
 				s.logger.Warn("Failed to unset existing defaults", zap.Error(err))
@@ -269,9 +284,9 @@ func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Con
 		params := sqlc.CreatePaymentMethodParams{
 			ID:           uuid.New(),
 			MerchantID:   merchantID,
-			CustomerID:   req.CustomerID,
+			CustomerID:   customerID,
 			PaymentType:  string(req.PaymentType),
-			PaymentToken: bricResp.StorageBRIC, // Storage BRIC (never expires)
+			Bric:         bricResp.StorageBRIC, // Storage BRIC (never expires)
 			LastFour:     req.LastFour,
 			CardBrand:    toNullableText(req.CardBrand),
 			CardExpMonth: toNullableInt32(req.CardExpMonth),
@@ -320,7 +335,7 @@ func (s *paymentMethodService) GetPaymentMethod(ctx context.Context, paymentMeth
 		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
 	}
 
-	dbPM, err := s.db.Queries().GetPaymentMethodByID(ctx, pmID)
+	dbPM, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		s.logger.Debug("Payment method not found",
 			zap.String("payment_method_id", paymentMethodID),
@@ -340,12 +355,18 @@ func (s *paymentMethodService) ListPaymentMethods(ctx context.Context, merchantI
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
-	params := sqlc.ListPaymentMethodsByCustomerParams{
-		MerchantID: mid,
-		CustomerID: customerID,
+	// Parse customer ID
+	cid, err := uuid.Parse(customerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid customer_id format: %w", err)
 	}
 
-	dbPMs, err := s.db.Queries().ListPaymentMethodsByCustomer(ctx, params)
+	params := sqlc.ListPaymentMethodsByCustomerParams{
+		MerchantID: mid,
+		CustomerID: cid,
+	}
+
+	dbPMs, err := s.queries.ListPaymentMethodsByCustomer(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list payment methods: %w", err)
 	}
@@ -382,21 +403,27 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
+	// Parse customer ID
+	cid, err := uuid.Parse(customerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid customer_id format: %w", err)
+	}
+
 	// Verify payment method exists and belongs to customer
-	pm, err := s.db.Queries().GetPaymentMethodByID(ctx, pmID)
+	pm, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	if pm.MerchantID != mid || pm.CustomerID != customerID {
+	if pm.MerchantID != mid || pm.CustomerID != cid {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
 	// Update status
 	if isActive {
-		err = s.db.Queries().ActivatePaymentMethod(ctx, pmID)
+		err = s.queries.ActivatePaymentMethod(ctx, pmID)
 	} else {
-		err = s.db.Queries().DeactivatePaymentMethod(ctx, pmID)
+		err = s.queries.DeactivatePaymentMethod(ctx, pmID)
 	}
 
 	if err != nil {
@@ -404,7 +431,7 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 	}
 
 	// Fetch updated payment method
-	updated, err := s.db.Queries().GetPaymentMethodByID(ctx, pmID)
+	updated, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch updated payment method: %w", err)
 	}
@@ -429,7 +456,7 @@ func (s *paymentMethodService) DeletePaymentMethod(ctx context.Context, paymentM
 	}
 
 	// Soft delete (sets deleted_at timestamp)
-	err = s.db.Queries().DeletePaymentMethod(ctx, pmID)
+	err = s.queries.DeletePaymentMethod(ctx, pmID)
 	if err != nil {
 		return fmt.Errorf("failed to delete payment method: %w", err)
 	}
@@ -459,13 +486,19 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
+	// Parse customer ID
+	cid, err := uuid.Parse(customerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid customer_id format: %w", err)
+	}
+
 	// Verify payment method exists and belongs to customer
-	pm, err := s.db.Queries().GetPaymentMethodByID(ctx, pmID)
+	pm, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	if pm.MerchantID != mid || pm.CustomerID != customerID {
+	if pm.MerchantID != mid || pm.CustomerID != cid {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -474,11 +507,11 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 	}
 
 	var paymentMethod *domain.PaymentMethod
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		// Unset all defaults for this customer
 		err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
 			MerchantID: mid,
-			CustomerID: customerID,
+			CustomerID: cid,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to unset existing defaults: %w", err)
@@ -523,7 +556,7 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 	}
 
 	// Get payment method
-	pm, err := s.db.Queries().GetPaymentMethodByID(ctx, pmID)
+	pm, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		return fmt.Errorf("payment method not found: %w", err)
 	}
@@ -534,8 +567,14 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 		return fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
+	// Parse customer ID
+	cid, err := uuid.Parse(req.CustomerID)
+	if err != nil {
+		return fmt.Errorf("invalid customer_id format: %w", err)
+	}
+
 	// Verify ownership
-	if pm.MerchantID != merchantID || pm.CustomerID != req.CustomerID {
+	if pm.MerchantID != merchantID || pm.CustomerID != cid {
 		return fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -553,7 +592,7 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 	}
 
 	// Get merchant credentials
-	merchant, err := s.db.Queries().GetMerchantByID(ctx, merchantID)
+	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
 		return fmt.Errorf("failed to get merchant: %w", err)
 	}
@@ -574,10 +613,10 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 		MerchNbr:        merchant.MerchNbr,
 		DBAnbr:          merchant.DbaNbr,
 		TerminalNbr:     merchant.TerminalNbr,
-		TransactionType: adapterports.TransactionTypePreNote,
+		TransactionType: adapterports.TransactionTypeACHPreNoteDebit,
 		Amount:          "0.00", // Pre-note is $0
 		PaymentType:     adapterports.PaymentMethodTypeACH,
-		AuthGUID:        pm.PaymentToken,
+		AuthGUID:        pm.Bric,
 		TranNbr:         uuid.New().String(),
 		TranGroup:       uuid.New().String(),
 		CustomerID:      req.CustomerID,
@@ -594,7 +633,7 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 	}
 
 	// Mark as verified
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		err := q.MarkPaymentMethodVerified(ctx, pmID)
 		if err != nil {
 			return fmt.Errorf("failed to mark as verified: %w", err)
@@ -627,9 +666,9 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 	pm := &domain.PaymentMethod{
 		ID:           dbPM.ID.String(),
 		MerchantID:   dbPM.MerchantID.String(),
-		CustomerID:   dbPM.CustomerID,
+		CustomerID:   dbPM.CustomerID.String(),
 		PaymentType:  domain.PaymentMethodType(dbPM.PaymentType),
-		PaymentToken: dbPM.PaymentToken,
+		PaymentToken: dbPM.Bric,
 		LastFour:     dbPM.LastFour,
 		IsDefault:    dbPM.IsDefault.Bool,
 		IsActive:     dbPM.IsActive.Bool,

@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+package admin.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/kevin07696/payment-service/proto/admin/v1;adminv1";
+
+// AdminService provides administrative operations for managing services, merchants, and system configuration.
+service AdminService {
+  // CreateService creates a new service with auto-generated RSA keypair.
+  // The private key is returned ONCE and must be saved securely.
+  rpc CreateService(CreateServiceRequest) returns (CreateServiceResponse);
+
+  // RotateServiceKey generates a new RSA keypair for an existing service.
+  // The new private key is returned ONCE and must be saved securely.
+  rpc RotateServiceKey(RotateServiceKeyRequest) returns (RotateServiceKeyResponse);
+
+  // GetService retrieves service details by ID.
+  rpc GetService(GetServiceRequest) returns (GetServiceResponse);
+
+  // ListServices lists all services with optional filtering.
+  rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+
+  // DeactivateService deactivates a service (prevents authentication).
+  rpc DeactivateService(DeactivateServiceRequest) returns (DeactivateServiceResponse);
+
+  // ActivateService reactivates a deactivated service.
+  rpc ActivateService(ActivateServiceRequest) returns (ActivateServiceResponse);
+}
+
+// CreateServiceRequest creates a new service with auto-generated RSA keypair.
+message CreateServiceRequest {
+  // Unique identifier for the service (e.g., "acme-web-app").
+  string service_id = 1;
+
+  // Human-readable name for the service (e.g., "ACME Web Application").
+  string service_name = 2;
+
+  // Environment: "staging" or "production".
+  string environment = 3;
+
+  // Rate limit: requests per second (default: 100).
+  int32 requests_per_second = 4;
+
+  // Burst limit: maximum burst size (default: 200).
+  int32 burst_limit = 5;
+}
+
+// CreateServiceResponse returns the created service and private key.
+message CreateServiceResponse {
+  // The created service details.
+  Service service = 1;
+
+  // The RSA private key (PEM format).
+  // ⚠️  SHOWN ONLY ONCE - MUST BE SAVED SECURELY!
+  string private_key = 2;
+
+  // Warning message about saving the private key.
+  string message = 3;
+}
+
+// RotateServiceKeyRequest rotates the RSA keypair for a service.
+message RotateServiceKeyRequest {
+  // Service ID to rotate keys for.
+  string service_id = 1;
+
+  // Reason for rotation (audit trail).
+  string reason = 2;
+}
+
+// RotateServiceKeyResponse returns the updated service and new private key.
+message RotateServiceKeyResponse {
+  // The updated service with new public key fingerprint.
+  Service service = 1;
+
+  // The new RSA private key (PEM format).
+  // ⚠️  SHOWN ONLY ONCE - MUST BE SAVED SECURELY!
+  string private_key = 2;
+
+  // Warning message about updating service configuration.
+  string message = 3;
+}
+
+// GetServiceRequest retrieves a service by ID.
+message GetServiceRequest {
+  // Service ID to retrieve.
+  string service_id = 1;
+}
+
+// GetServiceResponse returns the service details.
+message GetServiceResponse {
+  // The requested service.
+  Service service = 1;
+}
+
+// ListServicesRequest lists services with optional filtering.
+message ListServicesRequest {
+  // Filter by environment (optional).
+  optional string environment = 1;
+
+  // Filter by active status (optional).
+  optional bool is_active = 2;
+
+  // Pagination: limit (default: 50, max: 100).
+  int32 limit = 3;
+
+  // Pagination: offset.
+  int32 offset = 4;
+}
+
+// ListServicesResponse returns a list of services.
+message ListServicesResponse {
+  // List of services.
+  repeated Service services = 1;
+
+  // Total count (for pagination).
+  int64 total = 2;
+}
+
+// DeactivateServiceRequest deactivates a service.
+message DeactivateServiceRequest {
+  // Service ID to deactivate.
+  string service_id = 1;
+
+  // Reason for deactivation (audit trail).
+  string reason = 2;
+}
+
+// DeactivateServiceResponse confirms deactivation.
+message DeactivateServiceResponse {
+  // The deactivated service.
+  Service service = 1;
+}
+
+// ActivateServiceRequest reactivates a service.
+message ActivateServiceRequest {
+  // Service ID to activate.
+  string service_id = 1;
+}
+
+// ActivateServiceResponse confirms activation.
+message ActivateServiceResponse {
+  // The activated service.
+  Service service = 1;
+}
+
+// Service represents a registered application/client.
+message Service {
+  // Internal UUID.
+  string id = 1;
+
+  // Unique service identifier (e.g., "acme-web-app").
+  string service_id = 2;
+
+  // Human-readable service name.
+  string service_name = 3;
+
+  // SHA-256 fingerprint of the public key (not the full key).
+  string public_key_fingerprint = 4;
+
+  // Environment: "staging" or "production".
+  string environment = 5;
+
+  // Rate limit: requests per second.
+  int32 requests_per_second = 6;
+
+  // Burst limit: maximum burst size.
+  int32 burst_limit = 7;
+
+  // Whether the service is active.
+  bool is_active = 8;
+
+  // When the service was created.
+  google.protobuf.Timestamp created_at = 9;
+
+  // When the service was last updated.
+  google.protobuf.Timestamp updated_at = 10;
+}

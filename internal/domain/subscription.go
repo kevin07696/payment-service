@@ -3,8 +3,6 @@ package domain
 import (
 	"strconv"
 	"time"
-
-	"github.com/shopspring/decimal"
 )
 
 // SubscriptionStatus represents the subscription state
@@ -39,8 +37,8 @@ type Subscription struct {
 	CustomerID string `json:"customer_id"`
 
 	// Billing details
-	Amount   decimal.Decimal `json:"amount"`
-	Currency string          `json:"currency"` // ISO 4217 code
+	AmountCents int64  `json:"amount_cents"` // Amount in smallest currency unit (cents)
+	Currency    string `json:"currency"`     // ISO 4217 code
 
 	// Billing interval (e.g., 1 month, 2 weeks, 3 months)
 	IntervalValue int          `json:"interval_value"` // 1, 2, 3, etc.

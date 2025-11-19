@@ -106,7 +106,8 @@ func TestBuildFormData(t *testing.T) {
 				assert.Equal(t, "CCE1", formData["TRAN_TYPE"][0])
 				assert.Equal(t, "10.00", formData["AMOUNT"][0])
 				assert.Equal(t, "12345", formData["TRAN_NBR"][0])
-				assert.Equal(t, "12345", formData["BATCH_ID"][0])
+				// BATCH_ID is auto-generated as today's date in YYYYMMDD format
+				assert.Regexp(t, `^\d{8}$`, formData["BATCH_ID"][0], "BATCH_ID should be 8 digits (YYYYMMDD)")
 				assert.Equal(t, "4111111111111111", formData["ACCOUNT_NBR"][0])
 				assert.Equal(t, "1225", formData["EXP_DATE"][0])
 				assert.Equal(t, "123", formData["CVV2"][0])
@@ -303,7 +304,7 @@ func TestTransactionTypeMapping(t *testing.T) {
 		{ports.TransactionTypeRefund, "CCE9"},
 		{ports.TransactionTypeVoid, "CCEX"},
 		{ports.TransactionTypeBRICStorageCC, "CCE8"},
-		{ports.TransactionTypeACHDebit, "CKC1"},
+		{ports.TransactionTypeACHDebit, "CKC2"}, // ACH Checking Account Debit
 	}
 
 	for _, tt := range tests {
