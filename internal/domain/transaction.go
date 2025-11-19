@@ -2,8 +2,6 @@ package domain
 
 import (
 	"time"
-
-	"github.com/shopspring/decimal"
 )
 
 // TransactionStatus represents the outcome of a transaction (approved/declined by gateway)
@@ -38,8 +36,8 @@ const (
 // Transaction represents a payment transaction
 type Transaction struct {
 	// Identity
-	ID      string `json:"id"`       // UUID
-	GroupID string `json:"group_id"` // Links related transactions (auth → capture → refund)
+	ID                  string  `json:"id"`                     // UUID
+	ParentTransactionID *string `json:"parent_transaction_id"`  // Links related transactions (auth → capture → refund)
 
 	// Multi-tenant
 	MerchantID string `json:"merchant_id"` // Which merchant owns this transaction
@@ -51,8 +49,8 @@ type Transaction struct {
 	SubscriptionID *string `json:"subscription_id"` // NULL for one-time payments
 
 	// Transaction details
-	Amount            decimal.Decimal   `json:"amount"`
-	Currency          string            `json:"currency"` // ISO 4217 code (e.g., "USD")
+	AmountCents       int64             `json:"amount_cents"` // Amount in cents (e.g., 10050 = $100.50)
+	Currency          string            `json:"currency"`     // ISO 4217 code (e.g., "USD")
 	Status            TransactionStatus `json:"status"`
 	Type              TransactionType   `json:"type"`
 	PaymentMethodType PaymentMethodType `json:"payment_method_type"`

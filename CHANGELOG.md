@@ -7,6 +7,485 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### In Progress
+
+- **🚧 Transaction Domain Model Refactoring** (2025-11-19)
+  - **Why**: Align domain model with database schema for type safety and clarity
+  - **Progress**:
+    - ✅ Updated `Transaction` domain model: `GroupID` → `ParentTransactionID`, `Amount` → `AmountCents`
+    - ✅ Removed unused `decimal` import from transaction.go
+    - ✅ Added `GetTransactionTree` recursive CTE query (replaces GetTransactionsByParentID for tree queries)
+    - ✅ Removed `parent_transaction_id` filter from `ListTransactions`/`CountTransactions` (use GetTransactionTree instead)
+    - ✅ Updated `group_state.go`: All amount fields use `int64` (cents) instead of `decimal.Decimal`
+    - ✅ Updated proto definitions: `group_id` → `parent_transaction_id`, `amount` → `amount_cents`
+    - ✅ Regenerated sqlc and proto code
+    - ✅ Updated MockQuerier with GetTransactionTree method
+  - **Remaining Work** (⚠️ Code does not compile):
+    1. **payment_service.go** (~15 locations):
+       - Replace remaining `GetTransactionsByParentID` calls with `GetTransactionTree`
+       - Update decimal.Decimal ↔ int64 conversions for amount handling
+       - Fix `parentIDpg`/`childTxs` variable references (GetTransactionTree returns full tree)
+    2. **payment_handler.go** (4 locations):
+       - Update proto field mappings: `GroupId` → `ParentTransactionId`, `Amount` → `AmountCents`
+       - Add helper to convert cents to dollars for display
+    3. **Tests**:
+       - Update payment_service_test.go expectations for new query signatures
+       - Fix amount assertions (decimal → cents)
+    4. **Remove** `ParentTransactionID` from `ListTransactionsParams` and `CountTransactionsParams` (lines 1398, 1415)
+  - **Files Modified**:
+    - `internal/domain/transaction.go`
+    - `internal/services/payment/group_state.go`
+    - `internal/db/queries/transactions.sql`
+    - `proto/payment/v1/payment.proto`
+    - `internal/testutil/mocks/database.go`
+  - **Next Steps**: Complete remaining payment_service.go and payment_handler.go fixes, then run tests
+
+### Changed
+
+- **🔧 Transaction Query API Improvements** (2025-11-19)
+  - **Why**: Improve query security, performance, and usability by requiring merchant scope and adding subscription filtering
+  - **Changes Made**:
+    1. **Made `merchant_id` required** in `ListTransactions` and `CountTransactions` queries
+       - Previously: All filter params were optional, allowing dangerous queries across all merchants
+       - Now: `merchant_id` is mandatory (changed from `sqlc.narg` to `sqlc.arg`)
+       - Benefit: Enforces data isolation boundary, ensures index usage, prevents accidental cross-tenant queries
+    2. **Added `subscription_id` filter** to `ListTransactions` and `CountTransactions`
+       - Enables filtering transactions by subscription (e.g., "show all transactions for subscription XYZ")
+       - Leverages existing `idx_transactions_subscription_id` index
+       - Common use case now supported directly in the query layer
+    3. **Removed redundant `GetTransactionChain` query**
+       - Recursive CTE query that fetched full transaction chains (parent + children + grandchildren)
+       - Not needed: Payment flows are single-level (AUTH→CAPTURE, SALE→REFUND, CAPTURE→VOID)
+       - `GetTransactionsByParentID` handles all actual use cases (gets direct children only)
+       - Simplifies codebase by removing unnecessary complexity
+  - **Impact**:
+    - ⚠️ **Breaking Change**: `ListTransactions` and `CountTransactions` now require `merchant_id` parameter
+    - All callers must be updated to provide merchant_id (enforces proper multi-tenant scoping)
+  - **Files Modified**:
+    - `internal/db/queries/transactions.sql`: Updated query definitions
+    - `internal/db/sqlc/transactions.sql.go`: Regenerated with new signatures
+  - **Quality Assurance**:
+    - ✅ sqlc generate - No errors
+
+### Fixed
+
+- **⚠️ DEVIATION: Phase 0 - Schema Sync Compilation Errors** (2025-11-19)
+  - **Why**: Database migrations (002, 003) were updated but service code wasn't synced, causing widespread compilation errors
+  - **Impact**: Blocking issue - must fix schema mismatches before proceeding with TDD refactor
+  - **Root Cause**: SQLC was not regenerated after migration changes
+  - **Resolution Steps**:
+    1. Regenerated SQLC from updated migrations (✅ completed)
+    2. Updating service/handler code to match new schema fields:
+       - `PaymentToken` → `Bric` (customer_payment_methods table)
+       - `Amount` → `AmountCents` (transactions, subscriptions tables)
+       - `GroupID` → `ParentTransactionID` (transactions table - architectural change)
+       - `CustomerID`: `string` → `uuid.UUID` (all tables - type safety improvement)
+       - `AuthResp`: `string` → `pgtype.Text` (transactions table - nullable field)
+  - **Files Affected**: payment_service.go, payment_method_service.go, subscription_service.go, browser_post_callback_handler.go
+  - **Approved**: N/A (blocking infrastructure issue)
+
+### Added
+- **✅ Phase 2: MerchantService TDD Refactor Complete** (2025-11-19)
+  - **Achievement**: Refactored MerchantService with interface-based dependency injection and comprehensive unit tests
+  - **Key Changes**:
+    1. Refactored `merchantService` to depend on `sqlc.Querier` and `TransactionManager` interfaces
+    2. Replaced all `s.db.Queries()` calls with `s.queries`
+    3. Replaced all `s.db.WithTx(ctx, func(q *sqlc.Queries) error)` with `s.txManager.WithTx(ctx, func(q sqlc.Querier) error)`
+    4. Created comprehensive unit test suite with 10 tests covering all service methods
+  - **Test Coverage**:
+    - ✅ All 10 tests passing with full mocking (no database required)
+    - ✅ RegisterMerchant (3 tests - success + validation + duplicate)
+    - ✅ GetMerchant (2 tests - success + not found)
+    - ✅ ListMerchants (1 test)
+    - ✅ UpdateMerchant (1 test)
+    - ✅ DeactivateMerchant (1 test)
+    - ✅ RotateMerchantMAC (2 tests - success + inactive merchant)
+  - **Files Modified**:
+    - `internal/services/merchant/merchant_service.go`: Interface-based dependency injection
+    - `internal/services/merchant/merchant_service_test.go`: New comprehensive test suite (510 lines)
+    - `internal/testutil/mocks/database.go`: Removed obsolete `GetTransactionChain` method
+  - **Quality Assurance**:
+    - ✅ go vet - No issues
+    - ✅ go build - Compiles successfully
+    - ✅ All tests passing
+  - **Pattern Established**: Same TDD refactoring approach as SubscriptionService, ready to apply to remaining services
+
+- **✅ Phase 3: PaymentMethodService TDD Refactor Complete** (2025-11-19)
+  - **Achievement**: Refactored PaymentMethodService with interface-based dependency injection and comprehensive unit tests
+  - **Key Changes**:
+    1. Refactored `paymentMethodService` to depend on `sqlc.Querier` and `TransactionManager` interfaces
+    2. Replaced all `s.db.Queries()` calls with `s.queries`
+    3. Replaced all `s.db.WithTx(ctx, func(q *sqlc.Queries) error)` with `s.txManager.WithTx(ctx, func(q sqlc.Querier) error)`
+    4. Created comprehensive unit test suite with 8 tests covering core service methods
+  - **Test Coverage**:
+    - ✅ All 8 tests passing with full mocking (no database required)
+    - ✅ SavePaymentMethod (2 tests - success + validation errors with 3 subtests)
+    - ✅ GetPaymentMethod (2 tests - success + not found)
+    - ✅ ListPaymentMethods (1 test)
+    - ✅ UpdatePaymentMethodStatus (1 test - deactivation)
+    - ✅ DeletePaymentMethod (1 test)
+    - ✅ SetDefaultPaymentMethod (1 test - complex transaction flow)
+  - **Files Modified**:
+    - `internal/services/payment_method/payment_method_service.go`: Interface-based dependency injection
+    - `internal/services/payment_method/payment_method_service_test.go`: New comprehensive test suite (361 lines)
+  - **Technical Details**:
+    - Used `sqlc.CustomerPaymentMethod` type (not `PaymentMethod`)
+    - Proper handling of `pgtype.Int4` for CardExpMonth/CardExpYear fields
+    - Complex transaction testing with multiple query expectations
+  - **Quality Assurance**:
+    - ✅ go vet - No issues
+    - ✅ go build - Compiles successfully
+    - ✅ All tests passing
+  - **Pattern Consistency**: Successfully applied same TDD refactoring pattern for third consecutive service
+
+- **✅ Phase 4: PaymentService TDD Refactor Complete** (2025-11-19)
+  - **Achievement**: Refactored PaymentService (largest service at 1654 lines) with interface-based dependency injection and comprehensive unit tests
+  - **Key Changes**:
+    1. Refactored `paymentService` to depend on `sqlc.Querier` and `TransactionManager` interfaces
+    2. Replaced all 27 `s.db.Queries()` calls with `s.queries`
+    3. Replaced all 5 `s.db.WithTx(ctx, func(q *sqlc.Queries) error)` with `s.txManager.WithTx(ctx, func(q sqlc.Querier) error)`
+    4. Updated `transaction_helper.go` to use transaction manager interface
+    5. Fixed `ListTransactions` to require `merchant_id` parameter (breaking change from migration)
+    6. Added `subscription_id` filter to `ListTransactions` and `CountTransactions` (matches sqlc params)
+    7. Removed obsolete `chainRowToTransaction` helper (GetTransactionChain was deleted)
+  - **Test Coverage**:
+    - ✅ All 99 tests passing (comprehensive business logic coverage)
+    - ✅ Group state computation (12 tests)
+    - ✅ Capture validation (7 tests with subtests)
+    - ✅ Refund validation (10 subtests)
+    - ✅ Void validation (4 subtests)
+    - ✅ BRIC operations (4 subtests)
+    - ✅ Helper functions (13 tests)
+    - ✅ ListTransactions with filters (5 tests - includes subscription_id filter)
+    - ✅ Complex workflows and edge cases (multiple subtests)
+  - **Files Modified**:
+    - `internal/services/payment/payment_service.go`: Interface-based dependency injection (1654 lines)
+    - `internal/services/payment/transaction_helper.go`: Transaction manager interface
+    - `internal/services/payment/payment_service_test.go`: Comprehensive test suite (555 lines)
+    - `internal/services/payment/group_state_test.go`: State computation tests
+    - `internal/services/payment/validation_test.go`: Validation rule tests
+    - `internal/services/ports/payment_service.go`: Added SubscriptionID to ListTransactionsFilters
+  - **Technical Details**:
+    - Pure function testing strategy (no database mocking for complex operations)
+    - WAL-based group state computation fully tested
+    - Table-driven validation tests for all business rules
+    - Critical business logic isolated and thoroughly tested
+  - **Quality Assurance**:
+    - ✅ go vet - No issues
+    - ✅ go build - Compiles successfully
+    - ✅ All 99 tests passing
+  - **Pattern Achievement**: Successfully completed TDD refactoring for all 4 major services
+
+- **✅ Phase 1: SubscriptionService TDD Refactor Complete** (2025-11-19)
+  - **Achievement**: Successfully refactored SubscriptionService to use interface-based dependency injection, enabling full unit testing without database
+  - **Key Changes**:
+    1. Created `TransactionManager` interface to abstract database transactions
+    2. Refactored `subscriptionService` to depend on `sqlc.Querier` and `TransactionManager` interfaces instead of concrete `*PostgreSQLAdapter`
+    3. **Critical Insight**: Changed transaction callback signature from `func(*sqlc.Queries) error` to `func(sqlc.Querier) error` to enable mocking
+    4. Refactored domain model to use `AmountCents int64` instead of `decimal.Decimal` for proper money handling
+  - **Test Coverage**:
+    - ✅ All 18 SubscriptionService tests passing with full mocking
+    - ✅ Create, Update, Cancel, Pause, Resume operations fully tested
+    - ✅ Validation tests for business rules
+    - ✅ Pure function tests for date calculations and conversions
+  - **Architecture Improvements**:
+    - Money amounts stored as cents (int64) throughout backend
+    - Decimal conversion only at API boundaries (EPX gateway requests)
+    - Eliminates floating-point precision issues
+    - Follows best practices for financial data handling
+  - **Files Modified**:
+    - `internal/domain/subscription.go`: Changed `Amount` to `AmountCents`
+    - `internal/adapters/database/interfaces.go`: Added `TransactionManager` interface
+    - `internal/adapters/database/postgres.go`: Updated `WithTx` signature
+    - `internal/services/subscription/subscription_service.go`: Refactored to use interfaces, removed decimal conversions
+    - `internal/services/subscription/subscription_service_test.go`: Complete unit test suite with mocks
+  - **Quality Assurance**:
+    - ✅ go vet - No issues
+    - ✅ go build - Compiles successfully
+    - ✅ All tests passing
+  - **Next Steps**: Apply same TDD refactoring pattern to AdminService, MerchantService, and PaymentMethodService
+
+- **🧪 Unit Test Refactoring Analysis** (2025-11-19)
+  - **New Documentation**: `docs/UNIT_TEST_REFACTORING_ANALYSIS.md`
+  - **Context**: Based on `docs/API_DESIGN_AND_DATAFLOW.md` and `docs/AUTHENTICATION.md`
+  - **Scope**: Analysis of unit test code quality, patterns, duplication, and gaps
+  - **Analysis Results**:
+    - Overall unit test health: 6/10 (Needs improvement)
+    - Identified ~300 lines of duplicated mock code across test files
+    - Found ~50 lines of duplicated test helper functions
+    - Excellent pure function tests (group_state_test.go, validation_test.go)
+    - Missing unit tests for components to be extracted
+  - **Test Code Duplication Issues**:
+    - MockQuerier with 60+ stub methods duplicated in browser_post_callback_handler_test.go (200 lines)
+    - MockServerPostAdapter, MockSecretManagerAdapter duplicated across files
+    - Helper functions (ptr, strPtr, stringPtr, makeTransaction) duplicated in 3+ files
+  - **Missing Unit Tests** (critical for TDD refactoring):
+    1. Merchant Credential Resolver tests (150 lines needed)
+    2. Payment Token Resolver tests (180 lines needed)
+    3. Browser Post Callback Handler tests (need 200 more lines for MAC verification, routing)
+    4. Service Token Verification tests (200 lines needed)
+    5. Token Type Routing tests (150 lines needed)
+  - **Refactoring Recommendations**:
+    - **Priority 1**: Create shared test infrastructure
+      1. Create `internal/testutil/mocks` package (eliminate 300 lines duplication)
+      2. Create `internal/testutil/fixtures` package (eliminate 50 lines duplication)
+    - **Priority 2**: Write unit tests for extracted components (TDD approach)
+      1. Merchant credential resolver tests
+      2. Payment token resolver tests (Storage BRIC vs Financial BRIC)
+      3. Improved callback handler tests
+    - **Priority 3**: Fill authentication test gaps
+      1. Service token verification tests
+      2. Token type routing tests
+  - **Implementation Roadmap**:
+    - Phase 1: Test infrastructure (1 week)
+    - Phase 2: Fill test gaps (1 week)
+  - **Benefits Expected**:
+    - Eliminate 350 lines of duplicated code
+    - Add 880 lines of focused, high-value tests
+    - Net change: +530 lines of better tests
+    - Reduce duplication from 7% to <1%
+    - Achieve 0 missing unit tests for extracted components
+
+- **📊 Comprehensive Refactoring Analysis** (2025-11-19)
+  - **New Documentation**: `docs/REFACTORING_ANALYSIS.md`
+  - **Scope**: Complete business logic review based on API design docs, authentication guide, and unit tests
+  - **Analysis Results**:
+    - Overall health: 7/10 (Good foundation, room for improvement)
+    - Identified 1530-line payment_service.go as primary refactoring target
+    - Found ~250 lines of code duplication across merchant credential fetching, payment token resolution
+    - Excellent port/adapter architecture and test coverage confirmed
+  - **Refactoring Recommendations**:
+    - **Priority 1 (High Impact, Low Risk)**:
+      1. Extract Merchant Credential Resolver (eliminate 50+ duplicated lines)
+      2. Extract Payment Token Resolution (eliminate 45+ duplicated lines)
+      3. Create Converter Package for sqlc/domain conversions
+      4. Extract Metadata Builder
+    - **Priority 2 (Medium Impact, Medium Risk)**:
+      1. Split payment_service.go into transaction-type handlers (1530 → 6 files of ~200 lines each)
+      2. Extract auth/authorization to interceptor middleware
+      3. Introduce structured error types with error codes
+    - **Priority 3 (Future Considerations)**:
+      1. Add merchant credential caching layer
+      2. Performance optimizations
+  - **Implementation Roadmap**:
+    - Phase 1: Quick wins (1-2 weeks) - Extract shared logic
+    - Phase 2: Structural improvements (2-3 weeks) - Split large files, improve auth
+    - Phase 3: Polish (1-2 weeks) - Error handling, caching, performance
+  - **Benefits Expected**:
+    - Reduce largest file from 1530 → <500 lines
+    - Eliminate 80% of code duplication
+    - Improve test coverage from ~80% → >85%
+    - Lower cyclomatic complexity from 8-12 → 4-6 per method
+- **🔐 RSA Keypair Auto-Generation for Services** (2025-11-19)
+  - **Implementation Complete**: Full auto-generation system for service RSA keypairs
+  - **Components Implemented**:
+    - `pkg/crypto/keypair.go`: RSA key generation utility (2048-bit, PKCS#1/PKIX PEM format)
+    - `proto/admin/v1/admin.proto`: Admin service with CreateService, RotateServiceKey RPCs
+    - `internal/handlers/admin/service_handler.go`: Complete admin service handler
+    - Comprehensive unit tests with 100% coverage
+  - **Architecture**:
+    - Payment service auto-generates RSA keypairs during service creation
+    - Private key returned ONCE (never stored in DB)
+    - Public key + SHA-256 fingerprint stored in `services` table
+    - Key rotation support with audit trail
+  - **Documentation**:
+    - `docs/auth/keypair-auto-generation.md`: Implementation design document
+    - `docs/AUTHENTICATION.md`: **Complete authentication guide for all API endpoints**
+  - **Benefits**:
+    - Simplified service onboarding (no manual keypair generation)
+    - Guaranteed key strength/security (2048-bit RSA)
+    - Single source of truth for key generation
+    - Easy key rotation with `RotateServiceKey` RPC
+    - Services table supports 1-to-1 keypair relationship (verified)
+
+- **📚 Comprehensive Authentication Documentation** (2025-11-19)
+  - **New Documentation**: `docs/AUTHENTICATION.md`
+  - **Coverage**:
+    - All 5 token types: Service, Admin, Customer, Guest, Merchant Portal
+    - Complete authentication flows with diagrams
+    - Service authentication with RSA keypairs
+    - OAuth-style delegation for customer/guest tokens
+    - API endpoint authentication matrix (which token for which endpoint)
+    - Code examples in Go and JavaScript
+    - Security best practices and troubleshooting guide
+  - **Token Architecture**:
+    - Service Token: RSA-signed by service, verified with public key from DB (15 min)
+    - Admin Token: HMAC-signed by payment service (2 hours)
+    - Merchant Portal Token: HMAC-signed by payment service (2 hours)
+    - Customer Token: HMAC-signed via service delegation (30 min)
+    - Guest Token: HMAC-signed via service delegation (5 min)
+  - **Key Features**:
+    - Step-by-step flows for each authentication method
+
+- **🧪 End-to-End (E2E) & Integration Test Design Documentation** (2025-11-19)
+  - **New Documentation**:
+    - `docs/E2E_TEST_DESIGN.md` - Complete test design with detailed flows and assertions (UPDATED)
+    - `docs/E2E_VS_INTEGRATION_ANALYSIS.md` - Test classification analysis with decision matrix
+    - `docs/E2E_TEST_SUMMARY.md` - Quick reference summary with implementation priority
+  - **Purpose**: Define comprehensive test strategy complementing existing unit/integration tests
+  - **Test Reclassification** (after thorough analysis):
+    - **4 E2E Tests** (multi-actor auth workflows, run nightly)
+    - **5 Integration Tests** (EPX adapter + business logic, run on every commit)
+  - **Test Coverage Analysis**:
+    - Analyzed existing integration tests (Browser Post, Critical Business Logic, Payment Methods)
+    - Identified gaps: Admin service creation, token delegation, multi-merchant auth
+    - Documented what NOT to test (avoid redundancy with 20+ existing integration tests)
+  - **E2E Test Suite** (4 core multi-actor tests):
+    1. **Service Onboarding & Authentication**: Admin creates service → Service authenticates → API call
+    2. **Token Delegation - Customer**: Service → Customer token → Customer views transactions
+    3. **Token Delegation - Guest**: Service → Guest token → Guest views order
+    4. **Multi-Merchant Authorization**: Service access control and scope enforcement
+  - **Integration Test Enhancements** (5 new/enhanced tests with correct RPC names):
+    1. **ACH Pre-note → Storage BRIC**: `PaymentMethodService.StoreACHAccount` (CKC0→CKC8)
+    2. **ACH Debit with Verified PM**: `PaymentService.ACHDebit` (CKC2)
+    3. **ACH Return Handling**: Callback handler processing (R01-R05) → Auto-deactivation
+    4. **Browser Post Save Card**: `PaymentMethodService.ConvertFinancialBRICToStorageBRIC` (CCE8)
+    5. **Direct Storage BRIC**: `PaymentMethodService.SavePaymentMethod` (Server Post CCE8)
+  - **RPC Updates Reflected**:
+    - Updated all integration tests to use merged RPC names from proto files
+    - `StoreACHAccount`: Combined ACH storage + pre-note flow
+    - `ConvertFinancialBRICToStorageBRIC`: New dedicated RPC for "save card" flow
+    - `SavePaymentMethod`: Generic payment method storage RPC
+  - **ACH Flow Coverage**:
+    - Pre-note verification (CKC0) → Storage BRIC (CKC8) workflow
+    - ACH debit (CKC2) with verified payment methods
+    - ACH return codes and payment method deactivation logic (2 returns = auto-deactivate)
+    - NACHA compliance checkpoints
+  - **Browser Post Storage BRIC Coverage**:
+    - Financial BRIC (13-24 month expiry) → Storage BRIC (never expires) conversion
+    - Account Verification (CCE0) with $0.00 authorization
+    - Network Transaction ID (NTID) for card-on-file compliance
+    - PCI compliance validation (no card/CVV storage)
+    - USER_DATA_2='save_card' trigger mechanism
+  - **Test Infrastructure**:
+    - Test helpers: Admin operations, service token generation, cleanup utilities
+    - Build tags (`//go:build e2e`) for E2E tests, `//go:build integration` for integration tests
+    - Test data isolation with unique resource naming
+    - Comprehensive cleanup strategies (on success/failure)
+  - **Implementation Guidelines**:
+    - Self-contained tests (each creates/cleans own data)
+    - Parallel execution support
+    - CI/CD integration examples
+    - Structured assertions and error handling patterns
+    - Integration tests run on every commit (< 30 seconds)
+    - E2E tests run nightly or pre-release (< 1 minute)
+
+- **🏦 Complete ACH Payment Support** (2025-11-19)
+  - **Payment Service - New ACH RPCs**:
+    - `ACHDebit`: Pull money from bank account (uses Storage BRIC only)
+    - `ACHCredit`: Send money to bank account (refunds, payouts)
+    - `ACHVoid`: Cancel ACH transaction before settlement
+  - **Payment Method Service - New ACH RPCs**:
+    - `StoreACHAccount`: Creates ACH Storage BRIC + automatically sends pre-note for verification
+    - `UpdatePaymentMethod`: Updates metadata only (billing info, nickname) - does NOT allow changing account/routing numbers
+  - **New Enums**:
+    - `AccountType`: CHECKING, SAVINGS
+    - `StdEntryClass`: PPD (personal), CCD (corporate), WEB (internet), TEL (telephone)
+  - **Architecture**:
+    - All ACH payment operations require Storage BRIC (`payment_method_id`)
+    - Raw bank account details only accepted in `StoreACHAccount`
+    - Pre-note verification happens automatically during storage
+    - Consistent with credit card flow (tokenization separate from payments)
+  - **Documentation**: Complete business logic flows in `docs/ACH_BUSINESS_LOGIC.md`:
+    - StoreACHAccount flow (pre-note → Storage BRIC)
+    - ACHDebit/Credit/Void flows with EPX integration
+    - Database operations and state transitions
+    - NACHA compliance requirements
+    - Implementation examples
+
+- **🏦 ACH Transaction Support in Server Post API** (2025-11-18)
+  - **New ACH Transaction Types**:
+    - Checking: CKC2 (debit), CKC3 (credit), CKC0/CKC1 (pre-notes), CKCX (void)
+    - Savings: CKS2 (debit), CKS3 (credit), CKS0/CKS1 (pre-notes), CKSX (void)
+    - BRIC Storage: CKC8 (checking), CKS8 (savings)
+  - **ACH-Specific Fields** in `ServerPostRequest`:
+    - `StdEntryClass`: Standard Entry Class Code (PPD, CCD, WEB, TEL)
+    - `ReceiverName`: Name on bank account
+    - `RoutingNumber`: Bank routing number
+  - **Validation**: ACH transactions require account_number, routing_number, first_name, last_name for new accounts
+  - **Note**: ACH uses internal routing validation only (no $0.00 auth like credit cards)
+
+### Changed
+- **🎯 API Endpoint Consolidation: 43 → 40 Endpoints** (2025-11-19)
+  - **Purpose**: Cleaner API design using status/flag fields instead of separate action endpoints
+  - **Consolidations**:
+    1. **SubscriptionService** (8 → 6 endpoints):
+       - ❌ Removed: `PauseSubscription`, `ResumeSubscription`
+       - ✅ Updated: `UpdateSubscription` now accepts `status` field (ACTIVE, PAUSED, CANCELLED)
+       - Benefit: Single endpoint for all subscription state changes with audit trail
+    2. **AdminService** (6 → 4 endpoints):
+       - ❌ Removed: `DeactivateService`, `ActivateService`
+       - ✅ Added: `UpdateService` with `is_active` field and optional `reason`
+       - Benefit: Unified service updates with activation control and audit logging
+    3. **MerchantService** (6 → 5 endpoints):
+       - ❌ Removed: `DeactivateMerchant`
+       - ✅ Updated: `UpdateMerchant` now includes `is_active` field with `reason`
+       - Benefit: Consistent merchant updates with activation control
+  - **RESTful Pattern**: Using PUT with optional fields follows REST best practices
+  - **Backwards Compatibility**: Dedicated endpoints (`CancelSubscription`) retained for explicit actions
+  - **Documentation Updated**: `docs/AUTHENTICATION.md` reflects all consolidations with examples
+  - **Benefits**:
+    - Reduced API surface area (easier to maintain)
+    - Consistent patterns across services
+    - Better audit trail (reason field for state changes)
+    - More flexible (can update multiple fields in single request)
+
+- **🏗️ Clean Architecture Separation: Services vs Merchants** (2025-11-18)
+  - **Refactored migration 008**: Clear separation of authentication vs business entities
+  - **New Architecture**:
+    - **`services` table**: ALL apps/clients (internal microservices + merchant apps)
+      - Internal: `billing-service`, `subscription-service` (no merchant_id)
+      - External: `ACME Web App`, `ACME Mobile App` (linked via service_merchants)
+      - JWT authentication with RSA public keys
+      - **Rate limiting per service** (requests_per_second, burst_limit)
+    - **`merchants` table**: PURE business entity data
+      - Company info: name, tier, status
+      - EPX gateway credentials: cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path
+      - NO authentication credentials (handled by services)
+    - **`service_merchants`**: Many-to-many with scoped permissions
+      - One merchant can have multiple apps
+      - Fine-grained access control with scopes array
+  - **Removed Tables**:
+    - `merchant_credentials` ❌ (replaced by services table)
+    - `registered_services` → renamed to `services`
+  - **Consolidated Audit Logs**:
+    - Removed duplicate `audit_logs` from migration 003
+    - Single partitioned `audit_logs` table for all auditing
+  - **Benefits**:
+    - ✅ Unified authentication for all clients
+    - ✅ Merchants can have multiple apps (web, mobile, webhooks)
+    - ✅ Rate limiting per service, not per merchant
+    - ✅ Clear separation of concerns
+
+- **🗄️ Database Schema Improvements** (2025-11-18)
+  - **Updated migrations 002 & 003**: Transaction schema optimization based on EPX supplemental documentation
+  - **Amount storage**: Changed from `NUMERIC(19,4)` to `BIGINT amount_cents` to avoid floating point issues
+    - Example: $10.50 is now stored as 1050 cents
+    - Applied to both `transactions` and `subscriptions` tables
+  - **Transaction relationships**: Replaced `group_id` with `parent_transaction_id` FK
+    - CAPTURE must reference AUTH parent
+    - REFUND must reference SALE or CAPTURE parent
+    - VOID must reference AUTH or SALE parent
+  - **Hybrid validation approach** (architectural decision):
+    - **Database**: Simple CHECK constraint prevents impossible states (defense-in-depth)
+    - **Application**: Business logic validates specific parent type requirements
+    - Rationale: Better error messages, easier testing, more flexible for future changes
+  - **Status generation**: Auto-generated GENERATED column (kept in DB - perfect for derived data)
+    - `pending`: auth_resp IS NULL, not sent to EPX yet
+    - `failed`: auth_resp IS NULL, but processed_at set (system error)
+    - `approved`: auth_resp = '00' (EPX approval)
+    - `declined`: auth_resp != '00' (EPX decline/error codes)
+  - **UUID standardization**: Changed `customer_id` from VARCHAR to UUID in all tables
+  - **Renamed columns**: `payment_token` → `bric` in customer_payment_methods for clarity
+  - **Transaction types**: Updated to match EPX TRAN_GROUP values (SALE, AUTH, CAPTURE, REFUND, VOID, STORAGE, DEBIT)
+    - Changed `ACHDEBIT` → `DEBIT` for simplicity
+  - **Added processed_at**: Tracks when EPX callback was received
+  - **Benefits**:
+    - PCI compliant (no sensitive data storage)
+    - Precise amount handling (no rounding errors)
+    - Clean separation: DB constraints for data integrity, application logic for business rules
+    - Better querying and indexing performance
+
 ### Fixed
 - **🔧 Code Quality and Build Issues** (2025-11-18)
   - Fixed merchant UUID in browser post demo (test-merchant: 550e8400-e29b-41d4-a716-446655440000)

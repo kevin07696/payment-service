@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -15,18 +16,18 @@ import (
 const countTransactions = `-- name: CountTransactions :one
 SELECT COUNT(*) FROM transactions
 WHERE
-    ($1::uuid IS NULL OR merchant_id = $1) AND
-    ($2::varchar IS NULL OR customer_id = $2) AND
-    ($3::uuid IS NULL OR group_id = $3) AND
+    merchant_id = $1 AND
+    ($2::uuid IS NULL OR customer_id = $2) AND
+    ($3::uuid IS NULL OR subscription_id = $3) AND
     ($4::varchar IS NULL OR status = $4) AND
     ($5::varchar IS NULL OR type = $5) AND
     ($6::uuid IS NULL OR payment_method_id = $6)
 `
 
 type CountTransactionsParams struct {
-	MerchantID      pgtype.UUID `json:"merchant_id"`
-	CustomerID      pgtype.Text `json:"customer_id"`
-	GroupID         pgtype.UUID `json:"group_id"`
+	MerchantID      uuid.UUID   `json:"merchant_id"`
+	CustomerID      pgtype.UUID `json:"customer_id"`
+	SubscriptionID  pgtype.UUID `json:"subscription_id"`
 	Status          pgtype.Text `json:"status"`
 	Type            pgtype.Text `json:"type"`
 	PaymentMethodID pgtype.UUID `json:"payment_method_id"`
@@ -36,7 +37,7 @@ func (q *Queries) CountTransactions(ctx context.Context, arg CountTransactionsPa
 	row := q.db.QueryRow(ctx, countTransactions,
 		arg.MerchantID,
 		arg.CustomerID,
-		arg.GroupID,
+		arg.SubscriptionID,
 		arg.Status,
 		arg.Type,
 		arg.PaymentMethodID,
@@ -49,53 +50,54 @@ func (q *Queries) CountTransactions(ctx context.Context, arg CountTransactionsPa
 const createTransaction = `-- name: CreateTransaction :one
 INSERT INTO transactions (
     id, merchant_id, customer_id,
-    amount, currency, type, payment_method_type, payment_method_id, subscription_id,
+    amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id,
     tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type,
     metadata,
-    group_id
+    parent_transaction_id, processed_at
 ) VALUES (
     $1, $2, $3,
     $4, $5, $6, $7, $8, $9,
     $10, $11, $12, $13, $14,
     $15,
-    COALESCE($16, gen_random_uuid())
+    $16, $17
 )
 ON CONFLICT (id) DO NOTHING
-RETURNING id, group_id, merchant_id, customer_id, amount, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, metadata, deleted_at, created_at, updated_at
+RETURNING id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at
 `
 
 type CreateTransactionParams struct {
-	ID                uuid.UUID      `json:"id"`
-	MerchantID        uuid.UUID      `json:"merchant_id"`
-	CustomerID        pgtype.Text    `json:"customer_id"`
-	Amount            pgtype.Numeric `json:"amount"`
-	Currency          string         `json:"currency"`
-	Type              string         `json:"type"`
-	PaymentMethodType string         `json:"payment_method_type"`
-	PaymentMethodID   pgtype.UUID    `json:"payment_method_id"`
-	SubscriptionID    pgtype.UUID    `json:"subscription_id"`
-	TranNbr           pgtype.Text    `json:"tran_nbr"`
-	AuthGuid          pgtype.Text    `json:"auth_guid"`
-	AuthResp          string         `json:"auth_resp"`
-	AuthCode          pgtype.Text    `json:"auth_code"`
-	AuthCardType      pgtype.Text    `json:"auth_card_type"`
-	Metadata          []byte         `json:"metadata"`
-	GroupID           interface{}    `json:"group_id"`
+	ID                  uuid.UUID          `json:"id"`
+	MerchantID          uuid.UUID          `json:"merchant_id"`
+	CustomerID          pgtype.UUID        `json:"customer_id"`
+	AmountCents         int64              `json:"amount_cents"`
+	Currency            string             `json:"currency"`
+	Type                string             `json:"type"`
+	PaymentMethodType   string             `json:"payment_method_type"`
+	PaymentMethodID     pgtype.UUID        `json:"payment_method_id"`
+	SubscriptionID      pgtype.UUID        `json:"subscription_id"`
+	TranNbr             pgtype.Text        `json:"tran_nbr"`
+	AuthGuid            pgtype.Text        `json:"auth_guid"`
+	AuthResp            pgtype.Text        `json:"auth_resp"`
+	AuthCode            pgtype.Text        `json:"auth_code"`
+	AuthCardType        pgtype.Text        `json:"auth_card_type"`
+	Metadata            []byte             `json:"metadata"`
+	ParentTransactionID pgtype.UUID        `json:"parent_transaction_id"`
+	ProcessedAt         pgtype.Timestamptz `json:"processed_at"`
 }
 
 // Transactions are append-only/immutable event logs
 // status is GENERATED column based on auth_resp, so we don't insert it
 // Uses ON CONFLICT DO NOTHING for idempotency: EPX callback retries return existing record unchanged
-// Modifications (VOID/REFUND) create NEW transaction records with same group_id
+// Modifications (VOID/REFUND) create NEW transaction records linked via parent_transaction_id
 // auth_guid stores EPX BRIC for this transaction (each transaction can have its own BRIC)
 // tran_nbr stores EPX TRAN_NBR (deterministic 10-digit numeric ID from UUID)
-// group_id is a logical grouping UUID (NOT a foreign key) - auto-generates if not provided
+// parent_transaction_id links to parent transaction (CAPTURE→AUTH, REFUND→SALE/CAPTURE, etc.)
 func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, createTransaction,
 		arg.ID,
 		arg.MerchantID,
 		arg.CustomerID,
-		arg.Amount,
+		arg.AmountCents,
 		arg.Currency,
 		arg.Type,
 		arg.PaymentMethodType,
@@ -107,15 +109,16 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		arg.AuthCode,
 		arg.AuthCardType,
 		arg.Metadata,
-		arg.GroupID,
+		arg.ParentTransactionID,
+		arg.ProcessedAt,
 	)
 	var i Transaction
 	err := row.Scan(
 		&i.ID,
-		&i.GroupID,
+		&i.ParentTransactionID,
 		&i.MerchantID,
 		&i.CustomerID,
-		&i.Amount,
+		&i.AmountCents,
 		&i.Currency,
 		&i.Type,
 		&i.PaymentMethodType,
@@ -127,6 +130,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.AuthCode,
 		&i.AuthCardType,
 		&i.Status,
+		&i.ProcessedAt,
 		&i.Metadata,
 		&i.DeletedAt,
 		&i.CreatedAt,
@@ -136,7 +140,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 }
 
 const getTransactionByID = `-- name: GetTransactionByID :one
-SELECT id, group_id, merchant_id, customer_id, amount, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, metadata, deleted_at, created_at, updated_at FROM transactions
+SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM transactions
 WHERE id = $1
 `
 
@@ -145,10 +149,10 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 	var i Transaction
 	err := row.Scan(
 		&i.ID,
-		&i.GroupID,
+		&i.ParentTransactionID,
 		&i.MerchantID,
 		&i.CustomerID,
-		&i.Amount,
+		&i.AmountCents,
 		&i.Currency,
 		&i.Type,
 		&i.PaymentMethodType,
@@ -160,6 +164,7 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 		&i.AuthCode,
 		&i.AuthCardType,
 		&i.Status,
+		&i.ProcessedAt,
 		&i.Metadata,
 		&i.DeletedAt,
 		&i.CreatedAt,
@@ -170,22 +175,22 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 
 const getTransactionByTranNbr = `-- name: GetTransactionByTranNbr :one
 
-SELECT id, group_id, merchant_id, customer_id, amount, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, metadata, deleted_at, created_at, updated_at FROM transactions
+SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM transactions
 WHERE tran_nbr = $1
 LIMIT 1
 `
 
 // UpdateTransaction removed: transactions are immutable/append-only
-// To modify a transaction (VOID/REFUND), create a NEW transaction record with same group_id
+// To modify a transaction (VOID/REFUND), create a NEW transaction record with parent_transaction_id
 func (q *Queries) GetTransactionByTranNbr(ctx context.Context, tranNbr pgtype.Text) (Transaction, error) {
 	row := q.db.QueryRow(ctx, getTransactionByTranNbr, tranNbr)
 	var i Transaction
 	err := row.Scan(
 		&i.ID,
-		&i.GroupID,
+		&i.ParentTransactionID,
 		&i.MerchantID,
 		&i.CustomerID,
-		&i.Amount,
+		&i.AmountCents,
 		&i.Currency,
 		&i.Type,
 		&i.PaymentMethodType,
@@ -197,6 +202,7 @@ func (q *Queries) GetTransactionByTranNbr(ctx context.Context, tranNbr pgtype.Te
 		&i.AuthCode,
 		&i.AuthCardType,
 		&i.Status,
+		&i.ProcessedAt,
 		&i.Metadata,
 		&i.DeletedAt,
 		&i.CreatedAt,
@@ -205,27 +211,65 @@ func (q *Queries) GetTransactionByTranNbr(ctx context.Context, tranNbr pgtype.Te
 	return i, err
 }
 
-const getTransactionsByGroupID = `-- name: GetTransactionsByGroupID :many
-SELECT id, group_id, merchant_id, customer_id, amount, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, metadata, deleted_at, created_at, updated_at FROM transactions
-WHERE group_id = $1
+const getTransactionTree = `-- name: GetTransactionTree :many
+WITH RECURSIVE transaction_tree AS (
+    -- Base case: the requested transaction (root of the subtree)
+    SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM transactions WHERE transactions.id = $1
+
+    UNION ALL
+
+    -- Recursive case: all children of transactions already in the tree
+    SELECT t.id, t.parent_transaction_id, t.merchant_id, t.customer_id, t.amount_cents, t.currency, t.type, t.payment_method_type, t.payment_method_id, t.subscription_id, t.tran_nbr, t.auth_guid, t.auth_resp, t.auth_code, t.auth_card_type, t.status, t.processed_at, t.metadata, t.deleted_at, t.created_at, t.updated_at
+    FROM transactions t
+    INNER JOIN transaction_tree tt ON t.parent_transaction_id = tt.id
+)
+SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM transaction_tree
 ORDER BY created_at ASC
 `
 
-func (q *Queries) GetTransactionsByGroupID(ctx context.Context, groupID uuid.UUID) ([]Transaction, error) {
-	rows, err := q.db.Query(ctx, getTransactionsByGroupID, groupID)
+type GetTransactionTreeRow struct {
+	ID                  uuid.UUID          `json:"id"`
+	ParentTransactionID pgtype.UUID        `json:"parent_transaction_id"`
+	MerchantID          uuid.UUID          `json:"merchant_id"`
+	CustomerID          pgtype.UUID        `json:"customer_id"`
+	AmountCents         int64              `json:"amount_cents"`
+	Currency            string             `json:"currency"`
+	Type                string             `json:"type"`
+	PaymentMethodType   string             `json:"payment_method_type"`
+	PaymentMethodID     pgtype.UUID        `json:"payment_method_id"`
+	SubscriptionID      pgtype.UUID        `json:"subscription_id"`
+	TranNbr             pgtype.Text        `json:"tran_nbr"`
+	AuthGuid            pgtype.Text        `json:"auth_guid"`
+	AuthResp            pgtype.Text        `json:"auth_resp"`
+	AuthCode            pgtype.Text        `json:"auth_code"`
+	AuthCardType        pgtype.Text        `json:"auth_card_type"`
+	Status              pgtype.Text        `json:"status"`
+	ProcessedAt         pgtype.Timestamptz `json:"processed_at"`
+	Metadata            []byte             `json:"metadata"`
+	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt           time.Time          `json:"created_at"`
+	UpdatedAt           time.Time          `json:"updated_at"`
+}
+
+// Recursively fetches a transaction and all its descendants (children, grandchildren, etc.)
+// Use this to get the full transaction tree starting from any transaction
+// Example: GetTransactionTree(auth1) returns [auth1, void1, auth2, charge2, refund2]
+// Example: GetTransactionTree(auth2) returns [auth2, charge2, refund2]
+func (q *Queries) GetTransactionTree(ctx context.Context, parentTransactionID uuid.UUID) ([]GetTransactionTreeRow, error) {
+	rows, err := q.db.Query(ctx, getTransactionTree, parentTransactionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Transaction{}
+	items := []GetTransactionTreeRow{}
 	for rows.Next() {
-		var i Transaction
+		var i GetTransactionTreeRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.GroupID,
+			&i.ParentTransactionID,
 			&i.MerchantID,
 			&i.CustomerID,
-			&i.Amount,
+			&i.AmountCents,
 			&i.Currency,
 			&i.Type,
 			&i.PaymentMethodType,
@@ -237,6 +281,7 @@ func (q *Queries) GetTransactionsByGroupID(ctx context.Context, groupID uuid.UUI
 			&i.AuthCode,
 			&i.AuthCardType,
 			&i.Status,
+			&i.ProcessedAt,
 			&i.Metadata,
 			&i.DeletedAt,
 			&i.CreatedAt,
@@ -253,11 +298,11 @@ func (q *Queries) GetTransactionsByGroupID(ctx context.Context, groupID uuid.UUI
 }
 
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, group_id, merchant_id, customer_id, amount, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, metadata, deleted_at, created_at, updated_at FROM transactions
+SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM transactions
 WHERE
-    ($1::uuid IS NULL OR merchant_id = $1) AND
-    ($2::varchar IS NULL OR customer_id = $2) AND
-    ($3::uuid IS NULL OR group_id = $3) AND
+    merchant_id = $1 AND
+    ($2::uuid IS NULL OR customer_id = $2) AND
+    ($3::uuid IS NULL OR subscription_id = $3) AND
     ($4::varchar IS NULL OR status = $4) AND
     ($5::varchar IS NULL OR type = $5) AND
     ($6::uuid IS NULL OR payment_method_id = $6)
@@ -266,9 +311,9 @@ LIMIT $8 OFFSET $7
 `
 
 type ListTransactionsParams struct {
-	MerchantID      pgtype.UUID `json:"merchant_id"`
-	CustomerID      pgtype.Text `json:"customer_id"`
-	GroupID         pgtype.UUID `json:"group_id"`
+	MerchantID      uuid.UUID   `json:"merchant_id"`
+	CustomerID      pgtype.UUID `json:"customer_id"`
+	SubscriptionID  pgtype.UUID `json:"subscription_id"`
 	Status          pgtype.Text `json:"status"`
 	Type            pgtype.Text `json:"type"`
 	PaymentMethodID pgtype.UUID `json:"payment_method_id"`
@@ -280,7 +325,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 	rows, err := q.db.Query(ctx, listTransactions,
 		arg.MerchantID,
 		arg.CustomerID,
-		arg.GroupID,
+		arg.SubscriptionID,
 		arg.Status,
 		arg.Type,
 		arg.PaymentMethodID,
@@ -296,10 +341,10 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 		var i Transaction
 		if err := rows.Scan(
 			&i.ID,
-			&i.GroupID,
+			&i.ParentTransactionID,
 			&i.MerchantID,
 			&i.CustomerID,
-			&i.Amount,
+			&i.AmountCents,
 			&i.Currency,
 			&i.Type,
 			&i.PaymentMethodType,
@@ -311,6 +356,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.AuthCode,
 			&i.AuthCardType,
 			&i.Status,
+			&i.ProcessedAt,
 			&i.Metadata,
 			&i.DeletedAt,
 			&i.CreatedAt,
@@ -333,20 +379,22 @@ UPDATE transactions SET
     auth_resp = COALESCE($3, auth_resp),
     auth_code = COALESCE($4, auth_code),
     auth_card_type = COALESCE($5, auth_card_type),
-    metadata = COALESCE($6, metadata),
+    processed_at = COALESCE($6, processed_at),
+    metadata = COALESCE($7, metadata),
     updated_at = CURRENT_TIMESTAMP
-WHERE tran_nbr = $7
-RETURNING id, group_id, merchant_id, customer_id, amount, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, metadata, deleted_at, created_at, updated_at
+WHERE tran_nbr = $8
+RETURNING id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at
 `
 
 type UpdateTransactionFromEPXResponseParams struct {
-	CustomerID   pgtype.Text `json:"customer_id"`
-	AuthGuid     pgtype.Text `json:"auth_guid"`
-	AuthResp     string      `json:"auth_resp"`
-	AuthCode     pgtype.Text `json:"auth_code"`
-	AuthCardType pgtype.Text `json:"auth_card_type"`
-	Metadata     []byte      `json:"metadata"`
-	TranNbr      pgtype.Text `json:"tran_nbr"`
+	CustomerID   pgtype.UUID        `json:"customer_id"`
+	AuthGuid     pgtype.Text        `json:"auth_guid"`
+	AuthResp     pgtype.Text        `json:"auth_resp"`
+	AuthCode     pgtype.Text        `json:"auth_code"`
+	AuthCardType pgtype.Text        `json:"auth_card_type"`
+	ProcessedAt  pgtype.Timestamptz `json:"processed_at"`
+	Metadata     []byte             `json:"metadata"`
+	TranNbr      pgtype.Text        `json:"tran_nbr"`
 }
 
 // Updates transaction with EPX response data (for Browser Post callback)
@@ -358,16 +406,17 @@ func (q *Queries) UpdateTransactionFromEPXResponse(ctx context.Context, arg Upda
 		arg.AuthResp,
 		arg.AuthCode,
 		arg.AuthCardType,
+		arg.ProcessedAt,
 		arg.Metadata,
 		arg.TranNbr,
 	)
 	var i Transaction
 	err := row.Scan(
 		&i.ID,
-		&i.GroupID,
+		&i.ParentTransactionID,
 		&i.MerchantID,
 		&i.CustomerID,
-		&i.Amount,
+		&i.AmountCents,
 		&i.Currency,
 		&i.Type,
 		&i.PaymentMethodType,
@@ -379,6 +428,7 @@ func (q *Queries) UpdateTransactionFromEPXResponse(ctx context.Context, arg Upda
 		&i.AuthCode,
 		&i.AuthCardType,
 		&i.Status,
+		&i.ProcessedAt,
 		&i.Metadata,
 		&i.DeletedAt,
 		&i.CreatedAt,

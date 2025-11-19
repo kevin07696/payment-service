@@ -187,7 +187,7 @@ func (h *ConnectHandler) Void(
 	}
 
 	serviceReq := &ports.VoidRequest{
-		GroupID: msg.GroupId,
+		ParentTransactionID: msg.GroupId,
 	}
 
 	if msg.IdempotencyKey != "" {
@@ -218,8 +218,8 @@ func (h *ConnectHandler) Refund(
 	}
 
 	serviceReq := &ports.RefundRequest{
-		GroupID: msg.GroupId,
-		Reason:  msg.Reason,
+		ParentTransactionID: msg.GroupId,
+		Reason:              msg.Reason,
 	}
 
 	if msg.Amount != "" {
@@ -280,7 +280,7 @@ func (h *ConnectHandler) ListTransactions(
 		filters.CustomerID = &msg.CustomerId
 	}
 	if msg.GroupId != "" {
-		filters.GroupID = &msg.GroupId
+		filters.ParentTransactionID = &msg.GroupId
 	}
 	if msg.Status != paymentv1.TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED {
 		statusStr := protoStatusToDomain(msg.Status)

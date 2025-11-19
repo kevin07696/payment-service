@@ -2,7 +2,6 @@ package payment
 
 import (
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/shopspring/decimal"
 )
 
 // GroupState represents the computed state of a transaction group
@@ -10,15 +9,15 @@ import (
 type GroupState struct {
 	// Active AUTH transaction (nil if voided or captured fully)
 	ActiveAuthID     *string
-	ActiveAuthAmount decimal.Decimal
+	ActiveAuthAmount int64  // Amount in cents
 	ActiveAuthBRIC   string // auth_guid from AUTH transaction
 
 	// CAPTURE state
-	CapturedAmount decimal.Decimal
+	CapturedAmount int64  // Amount in cents
 	CaptureBRIC    string // Most recent CAPTURE's auth_guid (for REFUND)
 
 	// REFUND state
-	RefundedAmount decimal.Decimal
+	RefundedAmount int64 // Amount in cents
 
 	// VOID state
 	IsAuthVoided bool // True if AUTH was voided
@@ -35,8 +34,8 @@ type GroupState struct {
 // This implements Write-Ahead Log (WAL) style state computation
 func ComputeGroupState(transactions []*domain.Transaction) *GroupState {
 	state := &GroupState{
-		CapturedAmount: decimal.Zero,
-		RefundedAmount: decimal.Zero,
+		CapturedAmount: 0,
+		RefundedAmount: 0,
 	}
 
 	for _, tx := range transactions {
@@ -50,28 +49,28 @@ func ComputeGroupState(transactions []*domain.Transaction) *GroupState {
 			// New AUTH replaces previous AUTH
 			// This handles re-auth scenarios where customer adjusts order amount
 			state.ActiveAuthID = &tx.ID
-			state.ActiveAuthAmount = tx.Amount
+			state.ActiveAuthAmount = tx.AmountCents
 			state.ActiveAuthBRIC = tx.AuthGUID
 			state.CurrentBRIC = tx.AuthGUID
 			state.IsAuthVoided = false
 			// Reset capture/refund state (new auth starts fresh)
-			state.CapturedAmount = decimal.Zero
-			state.RefundedAmount = decimal.Zero
+			state.CapturedAmount = 0
+			state.RefundedAmount = 0
 			state.CaptureBRIC = ""
 
 		case domain.TransactionTypeSale:
 			// SALE = AUTH + CAPTURE in one step
 			// Treat as both AUTH and CAPTURE
 			state.ActiveAuthID = &tx.ID
-			state.ActiveAuthAmount = tx.Amount
+			state.ActiveAuthAmount = tx.AmountCents
 			state.ActiveAuthBRIC = tx.AuthGUID
-			state.CapturedAmount = tx.Amount // Already captured
+			state.CapturedAmount = tx.AmountCents // Already captured
 			state.CurrentBRIC = tx.AuthGUID
 			state.IsAuthVoided = false
 
 		case domain.TransactionTypeCapture:
 			// CAPTURE consumes part/all of AUTH
-			state.CapturedAmount = state.CapturedAmount.Add(tx.Amount)
+			state.CapturedAmount = state.CapturedAmount + tx.AmountCents
 			state.CaptureBRIC = tx.AuthGUID // EPX returns new BRIC for CAPTURE
 			state.CurrentBRIC = tx.AuthGUID // Use CAPTURE's BRIC for follow-up ops
 
@@ -89,14 +88,14 @@ func ComputeGroupState(transactions []*domain.Transaction) *GroupState {
 
 					case "capture":
 						// VOID of CAPTURE - reverses the capture (same-day only)
-						state.CapturedAmount = state.CapturedAmount.Sub(tx.Amount)
+						state.CapturedAmount = state.CapturedAmount - tx.AmountCents
 					}
 				}
 			}
 
 		case domain.TransactionTypeRefund:
 			// REFUND returns money to customer (post-settlement)
-			state.RefundedAmount = state.RefundedAmount.Add(tx.Amount)
+			state.RefundedAmount = state.RefundedAmount + tx.AmountCents
 		}
 	}
 
@@ -104,7 +103,7 @@ func ComputeGroupState(transactions []*domain.Transaction) *GroupState {
 }
 
 // CanCapture checks if a CAPTURE operation is allowed
-func (s *GroupState) CanCapture(captureAmount decimal.Decimal) (bool, string) {
+func (s *GroupState) CanCapture(captureAmountCents int64) (bool, string) {
 	// Check if AUTH was voided
 	if s.IsAuthVoided {
 		return false, "authorization was voided"
@@ -116,8 +115,8 @@ func (s *GroupState) CanCapture(captureAmount decimal.Decimal) (bool, string) {
 	}
 
 	// Check if capture amount exceeds remaining authorized amount
-	remaining := s.ActiveAuthAmount.Sub(s.CapturedAmount)
-	if captureAmount.GreaterThan(remaining) {
+	remaining := s.ActiveAuthAmount - s.CapturedAmount
+	if captureAmountCents > remaining {
 		return false, "capture amount exceeds remaining authorized amount"
 	}
 
@@ -139,15 +138,15 @@ func (s *GroupState) CanVoid() (bool, string) {
 }
 
 // CanRefund checks if a REFUND operation is allowed
-func (s *GroupState) CanRefund(refundAmount decimal.Decimal) (bool, string) {
+func (s *GroupState) CanRefund(refundAmountCents int64) (bool, string) {
 	// Can only refund captured amounts
-	if s.CapturedAmount.IsZero() {
+	if s.CapturedAmount == 0 {
 		return false, "no captured amount to refund"
 	}
 
 	// Check if refund exceeds captured amount (minus already refunded)
-	remaining := s.CapturedAmount.Sub(s.RefundedAmount)
-	if refundAmount.GreaterThan(remaining) {
+	remaining := s.CapturedAmount - s.RefundedAmount
+	if refundAmountCents > remaining {
 		return false, "refund amount exceeds remaining refundable amount"
 	}
 

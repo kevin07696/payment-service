@@ -23,6 +23,16 @@ service PaymentService {
   // Refund returns funds to the customer
   rpc Refund(RefundRequest) returns (PaymentResponse);
 
+  // ACH Operations - all require Storage BRIC (payment_method_id)
+  // ACHDebit pulls money from a bank account
+  rpc ACHDebit(ACHDebitRequest) returns (PaymentResponse);
+
+  // ACHCredit sends money to a bank account
+  rpc ACHCredit(ACHCreditRequest) returns (PaymentResponse);
+
+  // ACHVoid cancels an ACH transaction
+  rpc ACHVoid(ACHVoidRequest) returns (PaymentResponse);
+
   // GetTransaction retrieves transaction details
   rpc GetTransaction(GetTransactionRequest) returns (Transaction);
 
@@ -85,6 +95,35 @@ message RefundRequest {
   string idempotency_key = 4;
 }
 
+// ACHDebitRequest pulls money from a bank account
+message ACHDebitRequest {
+  string merchant_id = 1;
+  string customer_id = 2; // Optional: for guest/one-time transactions
+  string payment_method_id = 3; // ACH Storage BRIC (required)
+  string amount = 4; // Decimal as string (e.g., "29.99")
+  string currency = 5; // ISO 4217 code (e.g., "USD")
+  string idempotency_key = 6;
+  map<string, string> metadata = 7;
+}
+
+// ACHCreditRequest sends money to a bank account
+message ACHCreditRequest {
+  string merchant_id = 1;
+  string customer_id = 2; // Optional
+  string payment_method_id = 3; // ACH Storage BRIC (required)
+  string amount = 4; // Decimal as string
+  string currency = 5; // ISO 4217 code
+  string reason = 6; // Reason for credit (e.g., "refund", "payout")
+  string idempotency_key = 7;
+  map<string, string> metadata = 8;
+}
+
+// ACHVoidRequest cancels an ACH transaction
+message ACHVoidRequest {
+  string transaction_id = 1; // Original ACH transaction to void
+  string idempotency_key = 2;
+}
+
 // GetTransactionRequest retrieves a transaction
 message GetTransactionRequest {
   string transaction_id = 1;
@@ -117,10 +156,10 @@ message CardInfo {
 message PaymentResponse {
   // Identifiers
   string transaction_id = 1;
-  string group_id = 2; // Links all related transactions (store this for refunds/voids)
+  string parent_transaction_id = 2; // Links to parent transaction (store this for refunds/voids)
 
   // Receipt display
-  string amount = 3;
+  int64 amount_cents = 3; // Amount in cents (e.g., 10050 = $100.50)
   string currency = 4;
   TransactionStatus status = 5;
   TransactionType type = 6;
@@ -140,10 +179,10 @@ message PaymentResponse {
 // Clean, gateway-agnostic transaction data
 message Transaction {
   string id = 1;
-  string group_id = 2; // Links related transactions (auth → capture → refund)
+  string parent_transaction_id = 2; // Links related transactions (auth → capture → refund)
   string merchant_id = 3;
   string customer_id = 4; // Nullable for guest transactions
-  string amount = 5;
+  int64 amount_cents = 5; // Amount in cents (e.g., 10050 = $100.50)
   string currency = 6;
   TransactionStatus status = 7;
   TransactionType type = 8;

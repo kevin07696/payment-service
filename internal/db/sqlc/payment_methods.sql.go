@@ -26,7 +26,7 @@ func (q *Queries) ActivatePaymentMethod(ctx context.Context, id uuid.UUID) error
 const createPaymentMethod = `-- name: CreatePaymentMethod :one
 INSERT INTO customer_payment_methods (
     id, merchant_id, customer_id, payment_type,
-    payment_token, last_four,
+    bric, last_four,
     card_brand, card_exp_month, card_exp_year,
     bank_name, account_type,
     is_default, is_active, is_verified
@@ -36,15 +36,15 @@ INSERT INTO customer_payment_methods (
     $7, $8, $9,
     $10, $11,
     $12, $13, $14
-) RETURNING id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at
+) RETURNING id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at
 `
 
 type CreatePaymentMethodParams struct {
 	ID           uuid.UUID   `json:"id"`
 	MerchantID   uuid.UUID   `json:"merchant_id"`
-	CustomerID   string      `json:"customer_id"`
+	CustomerID   uuid.UUID   `json:"customer_id"`
 	PaymentType  string      `json:"payment_type"`
-	PaymentToken string      `json:"payment_token"`
+	Bric         string      `json:"bric"`
 	LastFour     string      `json:"last_four"`
 	CardBrand    pgtype.Text `json:"card_brand"`
 	CardExpMonth pgtype.Int4 `json:"card_exp_month"`
@@ -62,7 +62,7 @@ func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMeth
 		arg.MerchantID,
 		arg.CustomerID,
 		arg.PaymentType,
-		arg.PaymentToken,
+		arg.Bric,
 		arg.LastFour,
 		arg.CardBrand,
 		arg.CardExpMonth,
@@ -78,7 +78,7 @@ func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMeth
 		&i.ID,
 		&i.MerchantID,
 		&i.CustomerID,
-		&i.PaymentToken,
+		&i.Bric,
 		&i.PaymentType,
 		&i.LastFour,
 		&i.CardBrand,
@@ -120,14 +120,14 @@ func (q *Queries) DeletePaymentMethod(ctx context.Context, id uuid.UUID) error {
 }
 
 const getDefaultPaymentMethod = `-- name: GetDefaultPaymentMethod :one
-SELECT id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
 WHERE merchant_id = $1 AND customer_id = $2 AND is_default = true AND is_active = true AND deleted_at IS NULL
 LIMIT 1
 `
 
 type GetDefaultPaymentMethodParams struct {
 	MerchantID uuid.UUID `json:"merchant_id"`
-	CustomerID string    `json:"customer_id"`
+	CustomerID uuid.UUID `json:"customer_id"`
 }
 
 func (q *Queries) GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPaymentMethodParams) (CustomerPaymentMethod, error) {
@@ -137,7 +137,7 @@ func (q *Queries) GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPay
 		&i.ID,
 		&i.MerchantID,
 		&i.CustomerID,
-		&i.PaymentToken,
+		&i.Bric,
 		&i.PaymentType,
 		&i.LastFour,
 		&i.CardBrand,
@@ -157,7 +157,7 @@ func (q *Queries) GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPay
 }
 
 const getPaymentMethodByID = `-- name: GetPaymentMethodByID :one
-SELECT id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -168,7 +168,7 @@ func (q *Queries) GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (Custo
 		&i.ID,
 		&i.MerchantID,
 		&i.CustomerID,
-		&i.PaymentToken,
+		&i.Bric,
 		&i.PaymentType,
 		&i.LastFour,
 		&i.CardBrand,
@@ -188,11 +188,11 @@ func (q *Queries) GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (Custo
 }
 
 const listPaymentMethods = `-- name: ListPaymentMethods :many
-SELECT id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
 WHERE
     deleted_at IS NULL AND
-    ($1::varchar IS NULL OR merchant_id = $1) AND
-    ($2::varchar IS NULL OR customer_id = $2) AND
+    ($1::uuid IS NULL OR merchant_id = $1) AND
+    ($2::uuid IS NULL OR customer_id = $2) AND
     ($3::varchar IS NULL OR payment_type = $3) AND
     ($4::boolean IS NULL OR is_active = $4) AND
     ($5::boolean IS NULL OR is_default = $5)
@@ -200,8 +200,8 @@ ORDER BY is_default DESC, created_at DESC
 `
 
 type ListPaymentMethodsParams struct {
-	MerchantID  pgtype.Text `json:"merchant_id"`
-	CustomerID  pgtype.Text `json:"customer_id"`
+	MerchantID  pgtype.UUID `json:"merchant_id"`
+	CustomerID  pgtype.UUID `json:"customer_id"`
 	PaymentType pgtype.Text `json:"payment_type"`
 	IsActive    pgtype.Bool `json:"is_active"`
 	IsDefault   pgtype.Bool `json:"is_default"`
@@ -226,7 +226,7 @@ func (q *Queries) ListPaymentMethods(ctx context.Context, arg ListPaymentMethods
 			&i.ID,
 			&i.MerchantID,
 			&i.CustomerID,
-			&i.PaymentToken,
+			&i.Bric,
 			&i.PaymentType,
 			&i.LastFour,
 			&i.CardBrand,
@@ -253,14 +253,14 @@ func (q *Queries) ListPaymentMethods(ctx context.Context, arg ListPaymentMethods
 }
 
 const listPaymentMethodsByCustomer = `-- name: ListPaymentMethodsByCustomer :many
-SELECT id, merchant_id, customer_id, payment_token, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
+SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, card_exp_month, card_exp_year, bank_name, account_type, is_default, is_active, is_verified, deleted_at, created_at, updated_at, last_used_at FROM customer_payment_methods
 WHERE merchant_id = $1 AND customer_id = $2 AND deleted_at IS NULL
 ORDER BY is_default DESC, created_at DESC
 `
 
 type ListPaymentMethodsByCustomerParams struct {
 	MerchantID uuid.UUID `json:"merchant_id"`
-	CustomerID string    `json:"customer_id"`
+	CustomerID uuid.UUID `json:"customer_id"`
 }
 
 func (q *Queries) ListPaymentMethodsByCustomer(ctx context.Context, arg ListPaymentMethodsByCustomerParams) ([]CustomerPaymentMethod, error) {
@@ -276,7 +276,7 @@ func (q *Queries) ListPaymentMethodsByCustomer(ctx context.Context, arg ListPaym
 			&i.ID,
 			&i.MerchantID,
 			&i.CustomerID,
-			&i.PaymentToken,
+			&i.Bric,
 			&i.PaymentType,
 			&i.LastFour,
 			&i.CardBrand,
@@ -344,7 +344,7 @@ WHERE merchant_id = $1 AND customer_id = $2 AND deleted_at IS NULL
 
 type SetPaymentMethodAsDefaultParams struct {
 	MerchantID uuid.UUID `json:"merchant_id"`
-	CustomerID string    `json:"customer_id"`
+	CustomerID uuid.UUID `json:"customer_id"`
 }
 
 // First unset all defaults for this customer

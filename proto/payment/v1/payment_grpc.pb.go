@@ -24,6 +24,9 @@ const (
 	PaymentService_Sale_FullMethodName             = "/payment.v1.PaymentService/Sale"
 	PaymentService_Void_FullMethodName             = "/payment.v1.PaymentService/Void"
 	PaymentService_Refund_FullMethodName           = "/payment.v1.PaymentService/Refund"
+	PaymentService_ACHDebit_FullMethodName         = "/payment.v1.PaymentService/ACHDebit"
+	PaymentService_ACHCredit_FullMethodName        = "/payment.v1.PaymentService/ACHCredit"
+	PaymentService_ACHVoid_FullMethodName          = "/payment.v1.PaymentService/ACHVoid"
 	PaymentService_GetTransaction_FullMethodName   = "/payment.v1.PaymentService/GetTransaction"
 	PaymentService_ListTransactions_FullMethodName = "/payment.v1.PaymentService/ListTransactions"
 )
@@ -44,6 +47,13 @@ type PaymentServiceClient interface {
 	Void(ctx context.Context, in *VoidRequest, opts ...grpc.CallOption) (*PaymentResponse, error)
 	// Refund returns funds to the customer
 	Refund(ctx context.Context, in *RefundRequest, opts ...grpc.CallOption) (*PaymentResponse, error)
+	// ACH Operations - all require Storage BRIC (payment_method_id)
+	// ACHDebit pulls money from a bank account
+	ACHDebit(ctx context.Context, in *ACHDebitRequest, opts ...grpc.CallOption) (*PaymentResponse, error)
+	// ACHCredit sends money to a bank account
+	ACHCredit(ctx context.Context, in *ACHCreditRequest, opts ...grpc.CallOption) (*PaymentResponse, error)
+	// ACHVoid cancels an ACH transaction
+	ACHVoid(ctx context.Context, in *ACHVoidRequest, opts ...grpc.CallOption) (*PaymentResponse, error)
 	// GetTransaction retrieves transaction details
 	GetTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*Transaction, error)
 	// ListTransactions lists transactions for a merchant or customer
@@ -108,6 +118,36 @@ func (c *paymentServiceClient) Refund(ctx context.Context, in *RefundRequest, op
 	return out, nil
 }
 
+func (c *paymentServiceClient) ACHDebit(ctx context.Context, in *ACHDebitRequest, opts ...grpc.CallOption) (*PaymentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaymentResponse)
+	err := c.cc.Invoke(ctx, PaymentService_ACHDebit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *paymentServiceClient) ACHCredit(ctx context.Context, in *ACHCreditRequest, opts ...grpc.CallOption) (*PaymentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaymentResponse)
+	err := c.cc.Invoke(ctx, PaymentService_ACHCredit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *paymentServiceClient) ACHVoid(ctx context.Context, in *ACHVoidRequest, opts ...grpc.CallOption) (*PaymentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaymentResponse)
+	err := c.cc.Invoke(ctx, PaymentService_ACHVoid_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *paymentServiceClient) GetTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*Transaction, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Transaction)
@@ -144,6 +184,13 @@ type PaymentServiceServer interface {
 	Void(context.Context, *VoidRequest) (*PaymentResponse, error)
 	// Refund returns funds to the customer
 	Refund(context.Context, *RefundRequest) (*PaymentResponse, error)
+	// ACH Operations - all require Storage BRIC (payment_method_id)
+	// ACHDebit pulls money from a bank account
+	ACHDebit(context.Context, *ACHDebitRequest) (*PaymentResponse, error)
+	// ACHCredit sends money to a bank account
+	ACHCredit(context.Context, *ACHCreditRequest) (*PaymentResponse, error)
+	// ACHVoid cancels an ACH transaction
+	ACHVoid(context.Context, *ACHVoidRequest) (*PaymentResponse, error)
 	// GetTransaction retrieves transaction details
 	GetTransaction(context.Context, *GetTransactionRequest) (*Transaction, error)
 	// ListTransactions lists transactions for a merchant or customer
@@ -172,6 +219,15 @@ func (UnimplementedPaymentServiceServer) Void(context.Context, *VoidRequest) (*P
 }
 func (UnimplementedPaymentServiceServer) Refund(context.Context, *RefundRequest) (*PaymentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Refund not implemented")
+}
+func (UnimplementedPaymentServiceServer) ACHDebit(context.Context, *ACHDebitRequest) (*PaymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ACHDebit not implemented")
+}
+func (UnimplementedPaymentServiceServer) ACHCredit(context.Context, *ACHCreditRequest) (*PaymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ACHCredit not implemented")
+}
+func (UnimplementedPaymentServiceServer) ACHVoid(context.Context, *ACHVoidRequest) (*PaymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ACHVoid not implemented")
 }
 func (UnimplementedPaymentServiceServer) GetTransaction(context.Context, *GetTransactionRequest) (*Transaction, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTransaction not implemented")
@@ -290,6 +346,60 @@ func _PaymentService_Refund_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PaymentService_ACHDebit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ACHDebitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PaymentServiceServer).ACHDebit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PaymentService_ACHDebit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PaymentServiceServer).ACHDebit(ctx, req.(*ACHDebitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PaymentService_ACHCredit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ACHCreditRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PaymentServiceServer).ACHCredit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PaymentService_ACHCredit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PaymentServiceServer).ACHCredit(ctx, req.(*ACHCreditRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PaymentService_ACHVoid_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ACHVoidRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PaymentServiceServer).ACHVoid(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PaymentService_ACHVoid_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PaymentServiceServer).ACHVoid(ctx, req.(*ACHVoidRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PaymentService_GetTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetTransactionRequest)
 	if err := dec(in); err != nil {
@@ -352,6 +462,18 @@ var PaymentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Refund",
 			Handler:    _PaymentService_Refund_Handler,
+		},
+		{
+			MethodName: "ACHDebit",
+			Handler:    _PaymentService_ACHDebit_Handler,
+		},
+		{
+			MethodName: "ACHCredit",
+			Handler:    _PaymentService_ACHCredit_Handler,
+		},
+		{
+			MethodName: "ACHVoid",
+			Handler:    _PaymentService_ACHVoid_Handler,
 		},
 		{
 			MethodName: "GetTransaction",

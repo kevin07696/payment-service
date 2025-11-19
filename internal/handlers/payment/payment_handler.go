@@ -171,7 +171,7 @@ func (h *Handler) Void(ctx context.Context, req *paymentv1.VoidRequest) (*paymen
 	}
 
 	serviceReq := &ports.VoidRequest{
-		GroupID: req.GroupId,
+		ParentTransactionID: req.GroupId,
 	}
 
 	if req.IdempotencyKey != "" {
@@ -197,8 +197,8 @@ func (h *Handler) Refund(ctx context.Context, req *paymentv1.RefundRequest) (*pa
 	}
 
 	serviceReq := &ports.RefundRequest{
-		GroupID: req.GroupId,
-		Reason:  req.Reason,
+		ParentTransactionID: req.GroupId,
+		Reason:              req.Reason,
 	}
 
 	if req.Amount != "" {
@@ -252,7 +252,7 @@ func (h *Handler) ListTransactions(ctx context.Context, req *paymentv1.ListTrans
 		filters.CustomerID = &req.CustomerId
 	}
 	if req.GroupId != "" {
-		filters.GroupID = &req.GroupId
+		filters.ParentTransactionID = &req.GroupId
 	}
 	if req.Status != paymentv1.TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED {
 		statusStr := protoStatusToDomain(req.Status)

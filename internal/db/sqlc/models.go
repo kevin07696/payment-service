@@ -13,20 +13,42 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Admin struct {
+	ID           uuid.UUID        `json:"id"`
+	Email        string           `json:"email"`
+	PasswordHash string           `json:"password_hash"`
+	Role         pgtype.Text      `json:"role"`
+	IsActive     pgtype.Bool      `json:"is_active"`
+	CreatedAt    pgtype.Timestamp `json:"created_at"`
+	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
+}
+
+type AdminSession struct {
+	ID        uuid.UUID        `json:"id"`
+	AdminID   pgtype.UUID      `json:"admin_id"`
+	TokenHash string           `json:"token_hash"`
+	IpAddress *netip.Addr      `json:"ip_address"`
+	UserAgent pgtype.Text      `json:"user_agent"`
+	ExpiresAt pgtype.Timestamp `json:"expires_at"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+}
+
 type AuditLog struct {
-	ID          int64       `json:"id"`
-	EventType   string      `json:"event_type"`
-	EntityType  string      `json:"entity_type"`
-	EntityID    string      `json:"entity_id"`
-	MerchantID  uuid.UUID   `json:"merchant_id"`
-	UserID      pgtype.Text `json:"user_id"`
-	Action      string      `json:"action"`
-	BeforeState []byte      `json:"before_state"`
-	AfterState  []byte      `json:"after_state"`
-	Metadata    []byte      `json:"metadata"`
-	IpAddress   *netip.Addr `json:"ip_address"`
-	UserAgent   pgtype.Text `json:"user_agent"`
-	CreatedAt   time.Time   `json:"created_at"`
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
 }
 
 type Chargeback struct {
@@ -57,8 +79,8 @@ type Chargeback struct {
 type CustomerPaymentMethod struct {
 	ID           uuid.UUID          `json:"id"`
 	MerchantID   uuid.UUID          `json:"merchant_id"`
-	CustomerID   string             `json:"customer_id"`
-	PaymentToken string             `json:"payment_token"`
+	CustomerID   uuid.UUID          `json:"customer_id"`
+	Bric         string             `json:"bric"`
 	PaymentType  string             `json:"payment_type"`
 	LastFour     string             `json:"last_four"`
 	CardBrand    pgtype.Text        `json:"card_brand"`
@@ -75,6 +97,25 @@ type CustomerPaymentMethod struct {
 	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
 }
 
+type EpxIpWhitelist struct {
+	ID          int32            `json:"id"`
+	IpAddress   netip.Addr       `json:"ip_address"`
+	Description pgtype.Text      `json:"description"`
+	AddedBy     pgtype.UUID      `json:"added_by"`
+	AddedAt     pgtype.Timestamp `json:"added_at"`
+	IsActive    pgtype.Bool      `json:"is_active"`
+}
+
+type JwtBlacklist struct {
+	Jti           string           `json:"jti"`
+	ServiceID     pgtype.Text      `json:"service_id"`
+	MerchantID    pgtype.UUID      `json:"merchant_id"`
+	ExpiresAt     pgtype.Timestamp `json:"expires_at"`
+	BlacklistedAt pgtype.Timestamp `json:"blacklisted_at"`
+	BlacklistedBy pgtype.UUID      `json:"blacklisted_by"`
+	Reason        pgtype.Text      `json:"reason"`
+}
+
 type Merchant struct {
 	ID            uuid.UUID        `json:"id"`
 	Slug          string           `json:"slug"`
@@ -89,13 +130,58 @@ type Merchant struct {
 	CreatedAt     pgtype.Timestamp `json:"created_at"`
 	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
 	DeletedAt     pgtype.Timestamp `json:"deleted_at"`
+	Status        pgtype.Text      `json:"status"`
+	Tier          pgtype.Text      `json:"tier"`
+	CreatedBy     pgtype.UUID      `json:"created_by"`
+	ApprovedBy    pgtype.UUID      `json:"approved_by"`
+	ApprovedAt    pgtype.Timestamp `json:"approved_at"`
+}
+
+type MerchantActivationToken struct {
+	ID         uuid.UUID        `json:"id"`
+	MerchantID pgtype.UUID      `json:"merchant_id"`
+	TokenHash  string           `json:"token_hash"`
+	ExpiresAt  pgtype.Timestamp `json:"expires_at"`
+	UsedAt     pgtype.Timestamp `json:"used_at"`
+	CreatedAt  pgtype.Timestamp `json:"created_at"`
+}
+
+type RateLimitBucket struct {
+	BucketKey  string           `json:"bucket_key"`
+	Tokens     int32            `json:"tokens"`
+	LastRefill pgtype.Timestamp `json:"last_refill"`
+	CreatedAt  pgtype.Timestamp `json:"created_at"`
+}
+
+type Service struct {
+	ID                   uuid.UUID        `json:"id"`
+	ServiceID            string           `json:"service_id"`
+	ServiceName          string           `json:"service_name"`
+	PublicKey            string           `json:"public_key"`
+	PublicKeyFingerprint string           `json:"public_key_fingerprint"`
+	Environment          string           `json:"environment"`
+	RequestsPerSecond    pgtype.Int4      `json:"requests_per_second"`
+	BurstLimit           pgtype.Int4      `json:"burst_limit"`
+	IsActive             pgtype.Bool      `json:"is_active"`
+	CreatedBy            pgtype.UUID      `json:"created_by"`
+	CreatedAt            pgtype.Timestamp `json:"created_at"`
+	UpdatedAt            pgtype.Timestamp `json:"updated_at"`
+}
+
+type ServiceMerchant struct {
+	ServiceID  uuid.UUID        `json:"service_id"`
+	MerchantID uuid.UUID        `json:"merchant_id"`
+	Scopes     []string         `json:"scopes"`
+	GrantedBy  pgtype.UUID      `json:"granted_by"`
+	GrantedAt  pgtype.Timestamp `json:"granted_at"`
+	ExpiresAt  pgtype.Timestamp `json:"expires_at"`
 }
 
 type Subscription struct {
 	ID                    uuid.UUID          `json:"id"`
 	MerchantID            uuid.UUID          `json:"merchant_id"`
-	CustomerID            string             `json:"customer_id"`
-	Amount                pgtype.Numeric     `json:"amount"`
+	CustomerID            uuid.UUID          `json:"customer_id"`
+	AmountCents           int64              `json:"amount_cents"`
 	Currency              string             `json:"currency"`
 	IntervalValue         int32              `json:"interval_value"`
 	IntervalUnit          string             `json:"interval_unit"`
@@ -114,28 +200,32 @@ type Subscription struct {
 
 type Transaction struct {
 	ID uuid.UUID `json:"id"`
-	// Logical grouping UUID for related transactions (auth -> capture -> refund). NOT a foreign key - just an index for grouping. Auto-generates if not provided.
-	GroupID           uuid.UUID      `json:"group_id"`
-	MerchantID        uuid.UUID      `json:"merchant_id"`
-	CustomerID        pgtype.Text    `json:"customer_id"`
-	Amount            pgtype.Numeric `json:"amount"`
-	Currency          string         `json:"currency"`
-	Type              string         `json:"type"`
-	PaymentMethodType string         `json:"payment_method_type"`
-	PaymentMethodID   pgtype.UUID    `json:"payment_method_id"`
-	SubscriptionID    pgtype.UUID    `json:"subscription_id"`
+	// Foreign key to parent transaction. CAPTURE→AUTH, REFUND→SALE/CAPTURE, VOID→AUTH/SALE. NULL for standalone transactions (SALE, AUTH, STORAGE, DEBIT). Detailed validation in application layer.
+	ParentTransactionID pgtype.UUID `json:"parent_transaction_id"`
+	MerchantID          uuid.UUID   `json:"merchant_id"`
+	CustomerID          pgtype.UUID `json:"customer_id"`
+	// Amount in cents (e.g., $10.50 = 1050). Using BIGINT avoids floating point precision issues.
+	AmountCents       int64       `json:"amount_cents"`
+	Currency          string      `json:"currency"`
+	Type              string      `json:"type"`
+	PaymentMethodType string      `json:"payment_method_type"`
+	PaymentMethodID   pgtype.UUID `json:"payment_method_id"`
+	SubscriptionID    pgtype.UUID `json:"subscription_id"`
 	// EPX TRAN_NBR: Deterministic 10-digit numeric ID derived from transaction UUID via FNV-1a hash. Used for all EPX API calls.
 	TranNbr pgtype.Text `json:"tran_nbr"`
 	// EPX AUTH_GUID (BRIC) for this specific transaction. Each transaction can have its own BRIC. CAPTURE uses AUTH BRIC as input but gets new BRIC. REFUND uses CAPTURE BRIC.
-	AuthGuid     pgtype.Text        `json:"auth_guid"`
-	AuthResp     string             `json:"auth_resp"`
-	AuthCode     pgtype.Text        `json:"auth_code"`
-	AuthCardType pgtype.Text        `json:"auth_card_type"`
-	Status       pgtype.Text        `json:"status"`
-	Metadata     []byte             `json:"metadata"`
-	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
-	CreatedAt    time.Time          `json:"created_at"`
-	UpdatedAt    time.Time          `json:"updated_at"`
+	AuthGuid     pgtype.Text `json:"auth_guid"`
+	AuthResp     pgtype.Text `json:"auth_resp"`
+	AuthCode     pgtype.Text `json:"auth_code"`
+	AuthCardType pgtype.Text `json:"auth_card_type"`
+	// Auto-generated from auth_resp: pending (not sent), failed (error), approved (00), declined (non-00).
+	Status pgtype.Text `json:"status"`
+	// Timestamp when EPX responded (callback received). NULL if pending or failed before reaching EPX.
+	ProcessedAt pgtype.Timestamptz `json:"processed_at"`
+	Metadata    []byte             `json:"metadata"`
+	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
 }
 
 // Webhook delivery log for tracking and retries
@@ -163,4 +253,58 @@ type WebhookSubscription struct {
 	IsActive   bool      `json:"is_active"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type _AuditLog202501 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type _AuditLog202502 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type _AuditLog202503 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
 }
