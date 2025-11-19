@@ -9,38 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### In Progress
 
-- **🚧 Transaction Domain Model Refactoring** (2025-11-19)
-  - **Why**: Align domain model with database schema for type safety and clarity
-  - **Progress**:
-    - ✅ Updated `Transaction` domain model: `GroupID` → `ParentTransactionID`, `Amount` → `AmountCents`
-    - ✅ Removed unused `decimal` import from transaction.go
-    - ✅ Added `GetTransactionTree` recursive CTE query (replaces GetTransactionsByParentID for tree queries)
-    - ✅ Removed `parent_transaction_id` filter from `ListTransactions`/`CountTransactions` (use GetTransactionTree instead)
-    - ✅ Updated `group_state.go`: All amount fields use `int64` (cents) instead of `decimal.Decimal`
-    - ✅ Updated proto definitions: `group_id` → `parent_transaction_id`, `amount` → `amount_cents`
-    - ✅ Regenerated sqlc and proto code
-    - ✅ Updated MockQuerier with GetTransactionTree method
-  - **Remaining Work** (⚠️ Code does not compile):
-    1. **payment_service.go** (~15 locations):
-       - Replace remaining `GetTransactionsByParentID` calls with `GetTransactionTree`
-       - Update decimal.Decimal ↔ int64 conversions for amount handling
-       - Fix `parentIDpg`/`childTxs` variable references (GetTransactionTree returns full tree)
-    2. **payment_handler.go** (4 locations):
-       - Update proto field mappings: `GroupId` → `ParentTransactionId`, `Amount` → `AmountCents`
-       - Add helper to convert cents to dollars for display
-    3. **Tests**:
-       - Update payment_service_test.go expectations for new query signatures
-       - Fix amount assertions (decimal → cents)
-    4. **Remove** `ParentTransactionID` from `ListTransactionsParams` and `CountTransactionsParams` (lines 1398, 1415)
+- **🧪 Test Suite Updates for Transaction Refactoring** (2025-11-19)
+  - **Why**: Update tests to match new domain model (AmountCents, ParentTransactionID)
+  - **Remaining Work**:
+    - `group_state_test.go`: Update all amount assertions from decimal to int64 cents
+    - `payment_service_test.go`: Update transaction creation and amount assertions
+    - Update mock expectations to use GetTransactionTree instead of GetTransactionsByParentID
+  - **Status**: Code compiles ✅, but tests fail due to Amount → AmountCents refactoring
+
+### Changed
+
+- **✅ Transaction Domain Model Refactoring - COMPLETE** (2025-11-19)
+  - **Why**: Align domain model with database schema for type safety and precision
+  - **Changes Completed**:
+    1. **Domain Model Updates**:
+       - `Transaction.GroupID` → `Transaction.ParentTransactionID` (*string)
+       - `Transaction.Amount` (decimal.Decimal) → `Transaction.AmountCents` (int64)
+       - Removed `decimal` import from transaction.go
+    2. **Database Queries**:
+       - Added `GetTransactionTree` recursive CTE query for fetching transaction hierarchies
+       - Replaced all `GetTransactionsByParentID` calls with `GetTransactionTree` (8 locations in payment_service.go)
+       - Removed `parent_transaction_id` filter from `ListTransactions`/`CountTransactions`
+       - Updated `GetTransactionsByGroup` to use GetTransactionTree
+    3. **State Management**:
+       - Updated `GroupState`: All amount fields now use `int64` (cents) instead of `decimal.Decimal`
+       - Added amount conversion helpers: `stringAmountToCents()`, `centsToDecimalString()`, `formatCentsForLog()`
+       - Updated `CreatePendingTransactionParams.Amount` to use int64
+    4. **Protocol Buffers**:
+       - `PaymentResponse.group_id` → `parent_transaction_id`
+       - `PaymentResponse.amount` (string) → `amount_cents` (int64)
+       - `Transaction.group_id` → `parent_transaction_id`
+       - `Transaction.amount` (string) → `amount_cents` (int64)
+    5. **Handler Updates**:
+       - Updated `transactionToPaymentResponse()` to map new proto fields
+       - Updated `transactionToProto()` to map new proto fields
+  - **Impact**:
+    - ⚠️ **Breaking API Change**: Proto field names and types changed
+    - Better precision: No floating-point errors in money calculations
+    - Cleaner tree traversal: GetTransactionTree returns complete hierarchy in one query
   - **Files Modified**:
     - `internal/domain/transaction.go`
+    - `internal/services/payment/payment_service.go` (8 method updates)
     - `internal/services/payment/group_state.go`
+    - `internal/services/payment/transaction_helper.go`
+    - `internal/handlers/payment/payment_handler.go`
     - `internal/db/queries/transactions.sql`
     - `proto/payment/v1/payment.proto`
     - `internal/testutil/mocks/database.go`
-  - **Next Steps**: Complete remaining payment_service.go and payment_handler.go fixes, then run tests
-
-### Changed
+  - **Quality Assurance**:
+    - ✅ go build ./... - Compiles successfully
+    - ✅ sqlc generate - No errors
+    - ✅ protoc - No errors
+    - ⚠️ go vet ./... - Test files need updates (Amount → AmountCents)
 
 - **🔧 Transaction Query API Improvements** (2025-11-19)
   - **Why**: Improve query security, performance, and usability by requiring merchant scope and adding subscription filtering

@@ -324,17 +324,17 @@ func convertMetadata(meta map[string]string) map[string]interface{} {
 
 func transactionToPaymentResponse(tx *domain.Transaction) *paymentv1.PaymentResponse {
 	return &paymentv1.PaymentResponse{
-		TransactionId:     tx.ID,
-		GroupId:           tx.GroupID,
-		Amount:            tx.Amount.String(),
-		Currency:          string(tx.Currency),
-		Status:            transactionStatusToProto(tx.Status),
-		Type:              transactionTypeToProto(tx.Type),
-		IsApproved:        tx.IsApproved(),
-		AuthorizationCode: stringPtrToString(tx.AuthCode),
-		Message:           stringPtrToString(tx.AuthRespText),
-		Card:              extractCardInfo(tx),
-		CreatedAt:         timestamppb.New(tx.CreatedAt),
+		TransactionId:        tx.ID,
+		ParentTransactionId:  stringPtrToString(tx.ParentTransactionID),
+		AmountCents:          tx.AmountCents,
+		Currency:             string(tx.Currency),
+		Status:               transactionStatusToProto(tx.Status),
+		Type:                 transactionTypeToProto(tx.Type),
+		IsApproved:           tx.IsApproved(),
+		AuthorizationCode:    stringPtrToString(tx.AuthCode),
+		Message:              stringPtrToString(tx.AuthRespText),
+		Card:                 extractCardInfo(tx),
+		CreatedAt:            timestamppb.New(tx.CreatedAt),
 	}
 }
 
@@ -384,19 +384,19 @@ func extractLastFour(tx *domain.Transaction) string {
 
 func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 	proto := &paymentv1.Transaction{
-		Id:                tx.ID,
-		GroupId:           tx.GroupID,
-		MerchantId:        tx.MerchantID,
-		CustomerId:        stringPtrToString(tx.CustomerID),
-		Amount:            tx.Amount.String(),
-		Currency:          string(tx.Currency),
-		Status:            transactionStatusToProto(tx.Status),
-		Type:              transactionTypeToProto(tx.Type),
-		PaymentMethodType: paymentMethodTypeToProto(tx.PaymentMethodType),
-		AuthorizationCode: stringPtrToString(tx.AuthCode),
-		Message:           stringPtrToString(tx.AuthRespText),
-		Card:              extractCardInfo(tx),
-		IdempotencyKey:    stringPtrToString(tx.IdempotencyKey),
+		Id:                   tx.ID,
+		ParentTransactionId:  stringPtrToString(tx.ParentTransactionID),
+		MerchantId:           tx.MerchantID,
+		CustomerId:           stringPtrToString(tx.CustomerID),
+		AmountCents:          tx.AmountCents,
+		Currency:             string(tx.Currency),
+		Status:               transactionStatusToProto(tx.Status),
+		Type:                 transactionTypeToProto(tx.Type),
+		PaymentMethodType:    paymentMethodTypeToProto(tx.PaymentMethodType),
+		AuthorizationCode:    stringPtrToString(tx.AuthCode),
+		Message:              stringPtrToString(tx.AuthRespText),
+		Card:                 extractCardInfo(tx),
+		IdempotencyKey:       stringPtrToString(tx.IdempotencyKey),
 		CreatedAt:         timestamppb.New(tx.CreatedAt),
 		UpdatedAt:         timestamppb.New(tx.UpdatedAt),
 	}

@@ -9,22 +9,21 @@ import (
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/util"
-	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
 
 // CreatePendingTransactionParams contains parameters for creating a pending transaction
 type CreatePendingTransactionParams struct {
-	ID                uuid.UUID
-	GroupID           *uuid.UUID // Optional: will auto-generate if nil
-	MerchantID        uuid.UUID
-	CustomerID        *string
-	Amount            decimal.Decimal
-	Currency          string
-	Type              domain.TransactionType
-	PaymentMethodType domain.PaymentMethodType
-	PaymentMethodID   *uuid.UUID
-	Metadata          map[string]interface{}
+	ID                  uuid.UUID
+	ParentTransactionID *uuid.UUID // Optional: parent transaction ID for child transactions (CAPTURE, VOID, REFUND)
+	MerchantID          uuid.UUID
+	CustomerID          *string
+	Amount              int64 // Amount in cents
+	Currency            string
+	Type                domain.TransactionType
+	PaymentMethodType   domain.PaymentMethodType
+	PaymentMethodID     *uuid.UUID
+	Metadata            map[string]interface{}
 }
 
 // CreatePendingTransaction creates a pending transaction record before calling EPX
@@ -47,26 +46,27 @@ func (s *paymentService) CreatePendingTransaction(ctx context.Context, params Cr
 	// Create pending transaction in database
 	// auth_resp is set to empty string initially (will be updated after EPX response)
 	// Using empty string allows the GENERATED status column to work
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		createParams := sqlc.CreateTransactionParams{
-			ID:                txID,
-			GroupID:           params.GroupID,
-			MerchantID:        params.MerchantID,
-			CustomerID:        toNullableText(params.CustomerID),
-			Amount:            toNumeric(params.Amount),
-			Currency:          params.Currency,
-			Type:              string(params.Type),
-			PaymentMethodType: string(params.PaymentMethodType),
-			PaymentMethodID:   toNullableUUIDFromUUID(params.PaymentMethodID),
+			ID:                  txID,
+			ParentTransactionID: toNullableUUIDFromUUID(params.ParentTransactionID),
+			MerchantID:          params.MerchantID,
+			CustomerID:          toNullableUUID(params.CustomerID),
+			AmountCents:         params.Amount, // Amount is already in cents
+			Currency:            params.Currency,
+			Type:                string(params.Type),
+			PaymentMethodType:   string(params.PaymentMethodType),
+			PaymentMethodID:     toNullableUUIDFromUUID(params.PaymentMethodID),
 			TranNbr: pgtype.Text{
 				String: tranNbr,
 				Valid:  true,
 			},
 			AuthGuid:     toNullableText(nil), // Will be set after EPX response
-			AuthResp:     "",                  // Empty initially, updated after EPX
+			AuthResp:     pgtype.Text{},       // Empty initially, updated after EPX
 			AuthCode:     toNullableText(nil),
 			AuthCardType: toNullableText(nil),
 			Metadata:     metadataJSON,
+			ProcessedAt:  pgtype.Timestamptz{},
 		}
 
 		_, err := q.CreateTransaction(ctx, createParams)
@@ -99,15 +99,15 @@ func (s *paymentService) UpdateTransactionWithEPXResponse(ctx context.Context, t
 		metadataJSON = []byte("{}")
 	}
 
-	err = s.db.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		_, err := q.UpdateTransactionFromEPXResponse(ctx, sqlc.UpdateTransactionFromEPXResponseParams{
-			CustomerID: toNullableText(customerID),
+			CustomerID: toNullableUUID(customerID),
 			TranNbr: pgtype.Text{
 				String: tranNbr,
 				Valid:  true,
 			},
 			AuthGuid:     toNullableText(authGUID),
-			AuthResp:     *authResp, // Required
+			AuthResp:     pgtype.Text{String: *authResp, Valid: true}, // Required
 			AuthCode:     toNullableText(authCode),
 			AuthCardType: toNullableText(authCardType),
 			Metadata:     metadataJSON,

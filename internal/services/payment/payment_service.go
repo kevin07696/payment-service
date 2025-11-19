@@ -585,15 +585,15 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		state := ComputeGroupState(domainTxs)
 
 		// Validate capture is allowed
-		captureAmount := state.ActiveAuthAmount
+		captureAmountCents := state.ActiveAuthAmount
 		if req.Amount != nil {
-			captureAmount, err = decimal.NewFromString(*req.Amount)
+			captureAmountCents, err = stringAmountToCents(*req.Amount)
 			if err != nil {
 				return fmt.Errorf("invalid amount format: %w", err)
 			}
 		}
 
-		canCapture, reason := state.CanCapture(captureAmount)
+		canCapture, reason := state.CanCapture(captureAmountCents)
 		if !canCapture {
 			s.logger.Warn("Capture validation failed",
 				zap.String("capture_transaction_id", txID.String()),
@@ -604,8 +604,8 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 
 		s.logger.Info("Capture validation passed",
 			zap.String("auth_bric", state.ActiveAuthBRIC),
-			zap.String("capture_amount", captureAmount.String()),
-			zap.String("remaining", state.ActiveAuthAmount.Sub(state.CapturedAmount).String()),
+			zap.String("capture_amount", formatCentsForLog(captureAmountCents)),
+			zap.String("remaining", formatCentsForLog(state.ActiveAuthAmount-state.CapturedAmount)),
 		)
 
 		// Get merchant from first transaction
@@ -633,29 +633,33 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	}
 
 	// Re-fetch state outside transaction for EPX call
-	groupTxs, err := s.queries.GetTransactionTree(ctx, originalTxID)
+	groupTxsRefetch, err := s.queries.GetTransactionTree(ctx, originalTxID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
 	}
 
-	domainTxs := make([]*domain.Transaction, len(groupTxs))
-	for i, tx := range groupTxs {
+	domainTxsRefetch := make([]*domain.Transaction, len(groupTxsRefetch))
+	for i, tx := range groupTxsRefetch {
 		// Convert GetTransactionTreeRow to Transaction for sqlcToDomain
 		sqlcTx := sqlc.Transaction(tx)
-		domainTxs[i] = sqlcToDomain(&sqlcTx)
+		domainTxsRefetch[i] = sqlcToDomain(&sqlcTx)
 	}
-	state := ComputeGroupState(domainTxs)
+	state := ComputeGroupState(domainTxsRefetch)
 
-	merchantID := uuid.MustParse(domainTxs[0].MerchantID)
+	merchantID := uuid.MustParse(domainTxsRefetch[0].MerchantID)
 	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get merchant: %w", err)
 	}
 
-	// Determine capture amount (use validated amount from earlier if provided)
-	finalCaptureAmount := state.ActiveAuthAmount
+	// Determine capture amount (use full auth amount if not specified)
+	finalCaptureAmountCents := state.ActiveAuthAmount
 	if req.Amount != nil {
-		finalCaptureAmount = captureAmount // Use pre-validated amount
+		var err error
+		finalCaptureAmountCents, err = stringAmountToCents(*req.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("invalid amount format: %w", err)
+		}
 	}
 
 	// Get BRIC for CAPTURE operation (uses AUTH's BRIC)
@@ -669,12 +673,12 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 			ID:                  txID,
 			ParentTransactionID: &originalTxID, // Parent transaction ID (the AUTH)
 			MerchantID:          merchantID,
-			CustomerID:          domainTxs[0].CustomerID,
-			Amount:              finalCaptureAmount,
-			Currency:            domainTxs[0].Currency,
+			CustomerID:          domainTxsRefetch[0].CustomerID,
+			Amount:              finalCaptureAmountCents,
+			Currency:            domainTxsRefetch[0].Currency,
 			Type:                domain.TransactionTypeCapture,
-			PaymentMethodType:   domain.PaymentMethodType(domainTxs[0].PaymentMethodType),
-			PaymentMethodID:     stringToUUIDPtr(domainTxs[0].PaymentMethodID),
+			PaymentMethodType:   domain.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
+			PaymentMethodID:     stringToUUIDPtr(domainTxsRefetch[0].PaymentMethodID),
 			Metadata:            captureMetadata,
 		})
 		if err != nil {
@@ -689,7 +693,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	// Call EPX Server Post API for capture
 	s.logger.Info("Calling EPX for capture",
 		zap.String("auth_bric", authBRIC),
-		zap.String("amount", finalCaptureAmount.String()),
+		zap.String("amount", formatCentsForLog(finalCaptureAmountCents)),
 	)
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID
@@ -702,12 +706,12 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		DBAnbr:           merchant.DbaNbr,
 		TerminalNbr:      merchant.TerminalNbr,
 		TransactionType:  adapterports.TransactionTypeCapture,
-		Amount:           finalCaptureAmount.StringFixed(2),
+		Amount:           centsToDecimalString(finalCaptureAmountCents),
 		PaymentType:      adapterports.PaymentMethodTypeCreditCard,
 		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
 		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:        "",         // No BATCH_ID for capture
-		CustomerID:       stringOrEmpty(domainTxs[0].CustomerID),
+		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -725,7 +729,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	err = s.UpdateTransactionWithEPXResponse(
 		ctx,
 		epxTranNbr,
-		domainTxs[0].CustomerID,
+		domainTxsRefetch[0].CustomerID,
 		&epxResp.AuthGUID,
 		&epxResp.AuthResp,
 		&epxResp.AuthCode,
@@ -825,28 +829,13 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	)
 
 	var transaction *domain.Transaction
-	var voidAmount decimal.Decimal
+	var voidAmountCents int64
 	var originalTxType domain.TransactionType
 
 	// Use database transaction for consistency
 	// Note: We rely on idempotency (transaction.id as PK) rather than row-level locks on parent_transaction_id
 	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
-		// Get all child transactions (already fetched parent above for auth check)
-		childTxsInTx, err := q.GetTransactionsByParentID(ctx, parentIDpg)
-		if err != nil {
-			return fmt.Errorf("failed to get child transactions: %w", err)
-		}
-
-		// Combine parent + children
-		groupTxs = make([]sqlc.Transaction, 0, len(childTxsInTx)+1)
-		groupTxs = append(groupTxs, parentTx)
-		groupTxs = append(groupTxs, childTxsInTx...)
-
-		if len(groupTxs) == 0 {
-			return fmt.Errorf("no transactions found for parent %s", req.ParentTransactionID)
-		}
-
-		// Convert to domain transactions
+		// Convert to domain transactions (reuse groupTxs from earlier GetTransactionTree call)
 		domainTxs := make([]*domain.Transaction, len(groupTxs))
 		for i, tx := range groupTxs {
 			// Convert GetTransactionTreeRow to Transaction for sqlcToDomain
@@ -880,12 +869,12 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 			return fmt.Errorf("active authorization transaction not found")
 		}
 
-		voidAmount = originalAuth.Amount
+		voidAmountCents = originalAuth.AmountCents
 		originalTxType = originalAuth.Type
 
 		s.logger.Info("Void validation passed",
 			zap.String("auth_bric", state.ActiveAuthBRIC),
-			zap.String("void_amount", voidAmount.String()),
+			zap.String("void_amount", formatCentsForLog(voidAmountCents)),
 		)
 
 		// Get merchant from first transaction
@@ -913,23 +902,19 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	}
 
 	// Re-fetch state outside transaction for EPX call
-	childTxsRefetch, err := s.queries.GetTransactionsByParentID(ctx, parentIDpg)
+	groupTxsRefetch, err := s.queries.GetTransactionTree(ctx, parentTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get child transactions: %w", err)
+		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
 	}
 
-	// Combine parent + children
-	groupTxs = make([]sqlc.Transaction, 0, len(childTxsRefetch)+1)
-	groupTxs = append(groupTxs, parentTx)
-	groupTxs = append(groupTxs, childTxsRefetch...)
-
-	domainTxs := make([]*domain.Transaction, len(groupTxs))
-	for i, tx := range groupTxs {
-		domainTxs[i] = sqlcToDomain(&tx)
+	domainTxsRefetch := make([]*domain.Transaction, len(groupTxsRefetch))
+	for i, tx := range groupTxsRefetch {
+		sqlcTx := sqlc.Transaction(tx)
+		domainTxsRefetch[i] = sqlcToDomain(&sqlcTx)
 	}
-	state := ComputeGroupState(domainTxs)
+	state := ComputeGroupState(domainTxsRefetch)
 
-	merchantID := uuid.MustParse(domainTxs[0].MerchantID)
+	merchantID := uuid.MustParse(domainTxsRefetch[0].MerchantID)
 	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get merchant: %w", err)
@@ -948,12 +933,12 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 			ID:                  txID,
 			ParentTransactionID: &parentTxID,
 			MerchantID:          merchantID,
-			CustomerID:          domainTxs[0].CustomerID,
-			Amount:              voidAmount,
-			Currency:            domainTxs[0].Currency,
+			CustomerID:          domainTxsRefetch[0].CustomerID,
+			Amount:              voidAmountCents,
+			Currency:            domainTxsRefetch[0].Currency,
 			Type:                domain.TransactionTypeVoid,
-			PaymentMethodType:   domain.PaymentMethodType(domainTxs[0].PaymentMethodType),
-			PaymentMethodID:     stringToUUIDPtr(domainTxs[0].PaymentMethodID),
+			PaymentMethodType:   domain.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
+			PaymentMethodID:     stringToUUIDPtr(domainTxsRefetch[0].PaymentMethodID),
 			Metadata:            voidMetadata,
 		})
 		if err != nil {
@@ -968,7 +953,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	// Call EPX Server Post API for void
 	s.logger.Info("Calling EPX for void",
 		zap.String("auth_bric", authBRIC),
-		zap.String("amount", voidAmount.String()),
+		zap.String("amount", formatCentsForLog(voidAmountCents)),
 	)
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID
@@ -981,12 +966,12 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		DBAnbr:           merchant.DbaNbr,
 		TerminalNbr:      merchant.TerminalNbr,
 		TransactionType:  adapterports.TransactionTypeVoid,
-		Amount:           voidAmount.StringFixed(2),
-		PaymentType:      adapterports.PaymentMethodType(domainTxs[0].PaymentMethodType),
+		Amount:           centsToDecimalString(voidAmountCents),
+		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
 		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
 		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:        "",
-		CustomerID:       stringOrEmpty(domainTxs[0].CustomerID),
+		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -1005,7 +990,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	err = s.UpdateTransactionWithEPXResponse(
 		ctx,
 		epxTranNbr,
-		domainTxs[0].CustomerID,
+		domainTxsRefetch[0].CustomerID,
 		&epxResp.AuthGUID,
 		&epxResp.AuthResp,
 		&epxResp.AuthCode,
@@ -1068,13 +1053,13 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	}
 
 	// Validate amount if provided
-	var refundAmount decimal.Decimal
+	var refundAmountCents int64
 	if req.Amount != nil {
-		refundAmount, err = decimal.NewFromString(*req.Amount)
+		refundAmountCents, err = stringAmountToCents(*req.Amount)
 		if err != nil {
 			return nil, fmt.Errorf("invalid amount format: %w", err)
 		}
-		if refundAmount.LessThanOrEqual(decimal.Zero) {
+		if refundAmountCents <= 0 {
 			return nil, fmt.Errorf("amount must be greater than zero")
 		}
 	}
@@ -1119,27 +1104,12 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	)
 
 	var transaction *domain.Transaction
-	var finalRefundAmount decimal.Decimal
+	var finalRefundAmountCents int64
 
 	// Use database transaction for consistency
 	// Note: We rely on idempotency (transaction.id as PK) rather than row-level locks on parent_transaction_id
 	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
-		// Get all child transactions (already fetched parent above for auth check)
-		childTxsInTx, err := q.GetTransactionsByParentID(ctx, parentIDpg)
-		if err != nil {
-			return fmt.Errorf("failed to get child transactions: %w", err)
-		}
-
-		// Combine parent + children
-		groupTxs = make([]sqlc.Transaction, 0, len(childTxsInTx)+1)
-		groupTxs = append(groupTxs, parentTx)
-		groupTxs = append(groupTxs, childTxsInTx...)
-
-		if len(groupTxs) == 0 {
-			return fmt.Errorf("no transactions found for parent %s", req.ParentTransactionID)
-		}
-
-		// Convert to domain transactions
+		// Convert to domain transactions (reuse groupTxs from earlier GetTransactionTree call)
 		domainTxs := make([]*domain.Transaction, len(groupTxs))
 		for i, tx := range groupTxs {
 			// Convert GetTransactionTreeRow to Transaction for sqlcToDomain
@@ -1151,13 +1121,13 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		state := ComputeGroupState(domainTxs)
 
 		// Determine refund amount (use full captured amount if not specified)
-		finalRefundAmount = state.CapturedAmount
+		finalRefundAmountCents = state.CapturedAmount
 		if req.Amount != nil {
-			finalRefundAmount = refundAmount // Use pre-validated amount
+			finalRefundAmountCents = refundAmountCents // Use pre-validated amount
 		}
 
 		// Validate refund is allowed
-		canRefund, reason := state.CanRefund(finalRefundAmount)
+		canRefund, reason := state.CanRefund(finalRefundAmountCents)
 		if !canRefund {
 			s.logger.Warn("Refund validation failed",
 				zap.String("parent_transaction_id", req.ParentTransactionID),
@@ -1167,9 +1137,9 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		}
 
 		s.logger.Info("Refund validation passed",
-			zap.String("captured_amount", state.CapturedAmount.String()),
-			zap.String("refunded_amount", state.RefundedAmount.String()),
-			zap.String("refund_amount", finalRefundAmount.String()),
+			zap.String("captured_amount", formatCentsForLog(state.CapturedAmount)),
+			zap.String("refunded_amount", formatCentsForLog(state.RefundedAmount)),
+			zap.String("refund_amount", formatCentsForLog(finalRefundAmountCents)),
 		)
 
 		// Get merchant from first transaction
@@ -1197,23 +1167,19 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	}
 
 	// Re-fetch state outside transaction for EPX call
-	childTxsRefetch, err := s.queries.GetTransactionsByParentID(ctx, parentIDpg)
+	groupTxsRefetch, err := s.queries.GetTransactionTree(ctx, parentTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get child transactions: %w", err)
+		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
 	}
 
-	// Combine parent + children
-	groupTxs = make([]sqlc.Transaction, 0, len(childTxsRefetch)+1)
-	groupTxs = append(groupTxs, parentTx)
-	groupTxs = append(groupTxs, childTxsRefetch...)
-
-	domainTxs := make([]*domain.Transaction, len(groupTxs))
-	for i, tx := range groupTxs {
-		domainTxs[i] = sqlcToDomain(&tx)
+	domainTxsRefetch := make([]*domain.Transaction, len(groupTxsRefetch))
+	for i, tx := range groupTxsRefetch {
+		sqlcTx := sqlc.Transaction(tx)
+		domainTxsRefetch[i] = sqlcToDomain(&sqlcTx)
 	}
-	state := ComputeGroupState(domainTxs)
+	state := ComputeGroupState(domainTxsRefetch)
 
-	merchantID := uuid.MustParse(domainTxs[0].MerchantID)
+	merchantID := uuid.MustParse(domainTxsRefetch[0].MerchantID)
 	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get merchant: %w", err)
@@ -1233,12 +1199,12 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 			ID:                  txID,
 			ParentTransactionID: &parentTxID,
 			MerchantID:          merchantID,
-			CustomerID:          domainTxs[0].CustomerID,
-			Amount:              finalRefundAmount,
-			Currency:            domainTxs[0].Currency,
+			CustomerID:          domainTxsRefetch[0].CustomerID,
+			Amount:              finalRefundAmountCents,
+			Currency:            domainTxsRefetch[0].Currency,
 			Type:                domain.TransactionTypeRefund,
-			PaymentMethodType:   domain.PaymentMethodType(domainTxs[0].PaymentMethodType),
-			PaymentMethodID:     stringToUUIDPtr(domainTxs[0].PaymentMethodID),
+			PaymentMethodType:   domain.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
+			PaymentMethodID:     stringToUUIDPtr(domainTxsRefetch[0].PaymentMethodID),
 			Metadata:            refundMetadata,
 		})
 		if err != nil {
@@ -1253,7 +1219,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	// Call EPX Server Post API for refund
 	s.logger.Info("Calling EPX for refund",
 		zap.String("auth_bric", authBRIC),
-		zap.String("amount", finalRefundAmount.String()),
+		zap.String("amount", formatCentsForLog(finalRefundAmountCents)),
 	)
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID
@@ -1266,12 +1232,12 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		DBAnbr:           merchant.DbaNbr,
 		TerminalNbr:      merchant.TerminalNbr,
 		TransactionType:  adapterports.TransactionTypeRefund,
-		Amount:           finalRefundAmount.StringFixed(2),
-		PaymentType:      adapterports.PaymentMethodType(domainTxs[0].PaymentMethodType),
+		Amount:           centsToDecimalString(finalRefundAmountCents),
+		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
 		OriginalAuthGUID: authBRIC,   // Reference to CAPTURE (or AUTH if SALE)
 		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:        "",
-		CustomerID:       stringOrEmpty(domainTxs[0].CustomerID),
+		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -1290,7 +1256,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	err = s.UpdateTransactionWithEPXResponse(
 		ctx,
 		epxTranNbr,
-		domainTxs[0].CustomerID,
+		domainTxsRefetch[0].CustomerID,
 		&epxResp.AuthGUID,
 		&epxResp.AuthResp,
 		&epxResp.AuthCode,
@@ -1311,7 +1277,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	s.logger.Info("Refund completed",
 		zap.String("transaction_id", transaction.ID),
 		zap.String("parent_transaction_id", parentTxID.String()),
-		zap.String("amount", finalRefundAmount.String()),
+		zap.String("amount", formatCentsForLog(finalRefundAmountCents)),
 		zap.String("status", string(transaction.Status)),
 	)
 
@@ -1380,15 +1346,14 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 	}
 
 	params := sqlc.ListTransactionsParams{
-		MerchantID:          merchantID,
-		CustomerID:          toNullableUUID(filters.CustomerID),
-		SubscriptionID:      toNullableUUID(filters.SubscriptionID),
-		ParentTransactionID: toNullableUUID(filters.ParentTransactionID),
-		Status:              toNullableText(filters.Status),
-		Type:                toNullableText(filters.Type),
-		PaymentMethodID:     toNullableUUID(filters.PaymentMethodID),
-		LimitVal:            int32(limit),
-		OffsetVal:           int32(offset),
+		MerchantID:      merchantID,
+		CustomerID:      toNullableUUID(filters.CustomerID),
+		SubscriptionID:  toNullableUUID(filters.SubscriptionID),
+		Status:          toNullableText(filters.Status),
+		Type:            toNullableText(filters.Type),
+		PaymentMethodID: toNullableUUID(filters.PaymentMethodID),
+		LimitVal:        int32(limit),
+		OffsetVal:       int32(offset),
 	}
 
 	dbTxs, err := s.queries.ListTransactions(ctx, params)
@@ -1397,13 +1362,12 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 	}
 
 	countParams := sqlc.CountTransactionsParams{
-		MerchantID:          merchantID,
-		CustomerID:          toNullableUUID(filters.CustomerID),
-		SubscriptionID:      toNullableUUID(filters.SubscriptionID),
-		ParentTransactionID: toNullableUUID(filters.ParentTransactionID),
-		Status:              toNullableText(filters.Status),
-		Type:                toNullableText(filters.Type),
-		PaymentMethodID:     toNullableUUID(filters.PaymentMethodID),
+		MerchantID:      merchantID,
+		CustomerID:      toNullableUUID(filters.CustomerID),
+		SubscriptionID:  toNullableUUID(filters.SubscriptionID),
+		Status:          toNullableText(filters.Status),
+		Type:            toNullableText(filters.Type),
+		PaymentMethodID: toNullableUUID(filters.PaymentMethodID),
 	}
 
 	count, err := s.queries.CountTransactions(ctx, countParams)
@@ -1426,27 +1390,16 @@ func (s *paymentService) GetTransactionsByGroup(ctx context.Context, parentTrans
 		return nil, fmt.Errorf("invalid parent transaction ID: %w", err)
 	}
 
-	// Get parent transaction
-	parentTx, err := s.queries.GetTransactionByID(ctx, parentID)
+	// Get transaction tree (includes parent + all descendants)
+	groupTxs, err := s.queries.GetTransactionTree(ctx, parentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get parent transaction: %w", err)
+		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
 	}
 
-	// Get all child transactions
-	parentIDpg := pgtype.UUID{Bytes: parentID, Valid: true}
-	childTxs, err := s.queries.GetTransactionsByParentID(ctx, parentIDpg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get child transactions: %w", err)
-	}
-
-	// Combine parent + children
-	allTxs := make([]sqlc.Transaction, 0, len(childTxs)+1)
-	allTxs = append(allTxs, parentTx)
-	allTxs = append(allTxs, childTxs...)
-
-	transactions := make([]*domain.Transaction, len(allTxs))
-	for i := range allTxs {
-		transactions[i] = sqlcToDomain(&allTxs[i])
+	transactions := make([]*domain.Transaction, len(groupTxs))
+	for i, tx := range groupTxs {
+		sqlcTx := sqlc.Transaction(tx)
+		transactions[i] = sqlcToDomain(&sqlcTx)
 	}
 
 	return transactions, nil
@@ -1610,4 +1563,29 @@ func stringToUUIDPtr(s *string) *uuid.UUID {
 		return nil
 	}
 	return &id
+}
+
+// stringAmountToCents converts a string amount in dollars to cents (int64)
+// Example: "10.50" -> 1050
+func stringAmountToCents(amount string) (int64, error) {
+	d, err := decimal.NewFromString(amount)
+	if err != nil {
+		return 0, fmt.Errorf("invalid amount format: %w", err)
+	}
+	// Multiply by 100 to convert dollars to cents
+	cents := d.Mul(decimal.NewFromInt(100)).IntPart()
+	return cents, nil
+}
+
+// centsToDecimalString converts cents (int64) to a decimal string for EPX API
+// Example: 1050 -> "10.50"
+func centsToDecimalString(cents int64) string {
+	d := decimal.NewFromInt(cents).Div(decimal.NewFromInt(100))
+	return d.StringFixed(2)
+}
+
+// formatCentsForLog formats cents (int64) as a dollar amount for logging
+// Example: 1050 -> "$10.50"
+func formatCentsForLog(cents int64) string {
+	return "$" + centsToDecimalString(cents)
 }
