@@ -3,9 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/rsa"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -23,12 +21,11 @@ import (
 type contextKey string
 
 const (
-	AuthTypeKey     contextKey = "auth_type"
-	ServiceIDKey    contextKey = "service_id"
-	MerchantIDKey   contextKey = "merchant_id"
-	MerchantCodeKey contextKey = "merchant_code"
-	TokenJTIKey     contextKey = "token_jti"
-	RequestIDKey    contextKey = "request_id"
+	AuthTypeKey   contextKey = "auth_type"
+	ServiceIDKey  contextKey = "service_id"
+	MerchantIDKey contextKey = "merchant_id"
+	TokenJTIKey   contextKey = "token_jti"
+	RequestIDKey  contextKey = "request_id"
 )
 
 // AuthInterceptor provides authentication for ConnectRPC services
@@ -36,7 +33,6 @@ type AuthInterceptor struct {
 	db         *sql.DB
 	publicKeys map[string]*rsa.PublicKey // service_id -> public key
 	logger     *zap.Logger
-	saltPrefix string // For consistent hashing
 }
 
 // NewAuthInterceptor creates a new authentication interceptor
@@ -45,7 +41,6 @@ func NewAuthInterceptor(db *sql.DB, logger *zap.Logger) (*AuthInterceptor, error
 		db:         db,
 		publicKeys: make(map[string]*rsa.PublicKey),
 		logger:     logger,
-		saltPrefix: "payment_service_", // This should be from config in production
 	}
 
 	// Load public keys from database
@@ -130,17 +125,11 @@ func (ai *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 		}
 		ctx = context.WithValue(ctx, RequestIDKey, requestID)
 
-		// Try JWT authentication first (for services)
+		// JWT authentication (for services only)
 		if authHeader := req.Header().Get("Authorization"); authHeader != "" {
 			if strings.HasPrefix(authHeader, "Bearer ") {
 				return ai.authenticateJWT(ctx, req, next, authHeader)
 			}
-		}
-
-		// Try API key authentication (for merchants)
-		if apiKey := req.Header().Get("X-API-Key"); apiKey != "" {
-			apiSecret := req.Header().Get("X-API-Secret")
-			return ai.authenticateAPIKey(ctx, req, next, apiKey, apiSecret)
 		}
 
 		// Log failed auth attempt
@@ -169,31 +158,21 @@ func (ai *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFun
 			return next(ctx, conn)
 		}
 
-		// Extract headers from connection
+		// Extract Authorization header from connection
 		authHeader := conn.RequestHeader().Get("Authorization")
-		apiKey := conn.RequestHeader().Get("X-API-Key")
 
-		// Authenticate based on available credentials
-		var authenticated bool
+		// JWT authentication only (for services)
 		var authErr error
-
 		if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 			ctx, authErr = ai.authenticateJWTContext(ctx, authHeader)
-			authenticated = authErr == nil
-		} else if apiKey != "" {
-			apiSecret := conn.RequestHeader().Get("X-API-Secret")
-			ctx, authErr = ai.authenticateAPIKeyContext(ctx, apiKey, apiSecret)
-			authenticated = authErr == nil
-		}
-
-		if !authenticated {
 			if authErr == nil {
-				authErr = fmt.Errorf("missing authentication")
+				return next(ctx, conn)
 			}
-			return connect.NewError(connect.CodeUnauthenticated, authErr)
+		} else {
+			authErr = fmt.Errorf("missing authentication")
 		}
 
-		return next(ctx, conn)
+		return connect.NewError(connect.CodeUnauthenticated, authErr)
 	}
 }
 
@@ -300,86 +279,6 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 	return ctx, nil
 }
 
-// authenticateAPIKey handles API key authentication
-func (ai *AuthInterceptor) authenticateAPIKey(ctx context.Context, req connect.AnyRequest,
-	next connect.UnaryFunc, apiKey, apiSecret string) (connect.AnyResponse, error) {
-
-	ctx, err := ai.authenticateAPIKeyContext(ctx, apiKey, apiSecret)
-	if err != nil {
-		ai.logger.Warn("API key auth failed",
-			zap.String("api_key_prefix", truncateAPIKey(apiKey)),
-			zap.Error(err))
-		ai.logAuth(ctx, false, err.Error(), req.Spec().Procedure)
-		return nil, connect.NewError(connect.CodeUnauthenticated,
-			fmt.Errorf("invalid API credentials"))
-	}
-
-	// Apply rate limiting
-	if err := ai.checkRateLimit(ctx); err != nil {
-		ai.logAuth(ctx, false, "rate limit exceeded", req.Spec().Procedure)
-		return nil, connect.NewError(connect.CodeResourceExhausted, err)
-	}
-
-	// Log successful auth
-	ai.logAuth(ctx, true, "", req.Spec().Procedure)
-
-	return next(ctx, req)
-}
-
-// authenticateAPIKeyContext validates API key and adds auth info to context
-func (ai *AuthInterceptor) authenticateAPIKeyContext(ctx context.Context, apiKey, apiSecret string) (context.Context, error) {
-	// Validate input
-	if apiKey == "" || apiSecret == "" {
-		return ctx, fmt.Errorf("missing API credentials")
-	}
-
-	// Hash the credentials
-	apiKeyHash := ai.hashWithSalt(apiKey)
-	apiSecretHash := ai.hashWithSalt(apiSecret)
-
-	// Look up merchant
-	var merchantID string
-	var merchantCode string
-	err := ai.db.QueryRow(`
-		SELECT mc.merchant_id, m.merchant_code
-		FROM merchant_credentials mc
-		JOIN merchants m ON mc.merchant_id = m.id
-		WHERE mc.api_key_hash = $1
-		AND mc.api_secret_hash = $2
-		AND mc.is_active = true
-		AND (mc.expires_at IS NULL OR mc.expires_at > NOW())
-		AND m.status = 'active'
-	`, apiKeyHash, apiSecretHash).Scan(&merchantID, &merchantCode)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return ctx, fmt.Errorf("invalid API credentials")
-		}
-		return ctx, fmt.Errorf("authentication error: %w", err)
-	}
-
-	// Update last used timestamp asynchronously
-	go func() {
-		_, err := ai.db.Exec(`
-			UPDATE merchant_credentials
-			SET last_used_at = NOW()
-			WHERE api_key_hash = $1
-		`, apiKeyHash)
-		if err != nil {
-			ai.logger.Error("Failed to update last_used_at",
-				zap.String("merchant_id", merchantID),
-				zap.Error(err))
-		}
-	}()
-
-	// Add auth context
-	ctx = context.WithValue(ctx, AuthTypeKey, "api_key")
-	ctx = context.WithValue(ctx, MerchantIDKey, merchantID)
-	ctx = context.WithValue(ctx, MerchantCodeKey, merchantCode)
-
-	return ctx, nil
-}
-
 // verifyServiceMerchantAccess checks if a service has access to a merchant
 func (ai *AuthInterceptor) verifyServiceMerchantAccess(serviceID, merchantID string) error {
 	var hasAccess bool
@@ -431,36 +330,18 @@ func (ai *AuthInterceptor) isTokenBlacklisted(jti string) bool {
 
 // checkRateLimit implements token bucket rate limiting
 func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
-	// Extract entity info from context
-	authType, _ := ctx.Value(AuthTypeKey).(string)
+	// Extract service info from context (JWT auth only)
+	entityType := "service"
+	entityID, _ := ctx.Value(ServiceIDKey).(string)
 
-	var entityType, entityID string
+	// Get service rate limit
 	var limit int
-
-	if authType == "jwt" {
-		entityType = "service"
-		entityID, _ = ctx.Value(ServiceIDKey).(string)
-
-		// Get service rate limit
-		err := ai.db.QueryRow(`
-			SELECT requests_per_second FROM services
-			WHERE service_id = $1
-		`, entityID).Scan(&limit)
-		if err != nil {
-			limit = 100 // Default limit
-		}
-	} else {
-		entityType = "merchant"
-		entityID, _ = ctx.Value(MerchantIDKey).(string)
-
-		// Get merchant rate limit
-		err := ai.db.QueryRow(`
-			SELECT requests_per_second FROM merchants
-			WHERE id = $1
-		`, entityID).Scan(&limit)
-		if err != nil {
-			limit = 50 // Default limit
-		}
+	err := ai.db.QueryRow(`
+		SELECT requests_per_second FROM services
+		WHERE service_id = $1
+	`, entityID).Scan(&limit)
+	if err != nil {
+		limit = 100 // Default limit
 	}
 
 	// Build bucket key (per-minute buckets)
@@ -471,7 +352,7 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 
 	// Token bucket algorithm with database storage
 	var tokens int
-	err := ai.db.QueryRow(`
+	err = ai.db.QueryRow(`
 		INSERT INTO rate_limit_buckets (bucket_key, tokens, last_refill)
 		VALUES ($1, $2, NOW())
 		ON CONFLICT (bucket_key) DO UPDATE
@@ -496,19 +377,13 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 
 // logAuth logs authentication attempts to the audit log
 func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg string, procedure string) {
-	// Extract context values
+	// Extract context values (JWT auth only)
 	authType, _ := ctx.Value(AuthTypeKey).(string)
 	requestID, _ := ctx.Value(RequestIDKey).(string)
 
-	var actorID, actorName string
-	if authType == "jwt" {
-		actorID, _ = ctx.Value(ServiceIDKey).(string)
-		actorName = fmt.Sprintf("service:%s", actorID)
-	} else if authType == "api_key" {
-		actorID, _ = ctx.Value(MerchantIDKey).(string)
-		merchantCode, _ := ctx.Value(MerchantCodeKey).(string)
-		actorName = fmt.Sprintf("merchant:%s", merchantCode)
-	}
+	// Extract service info
+	actorID, _ := ctx.Value(ServiceIDKey).(string)
+	actorName := fmt.Sprintf("service:%s", actorID)
 
 	// Log to audit table asynchronously
 	go func() {
@@ -537,21 +412,7 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 	}()
 }
 
-// hashWithSalt creates a salted hash of the input
-func (ai *AuthInterceptor) hashWithSalt(input string) string {
-	h := sha256.New()
-	h.Write([]byte(ai.saltPrefix + input))
-	return hex.EncodeToString(h.Sum(nil))
-}
-
 // Helper functions
-
-func truncateAPIKey(key string) string {
-	if len(key) > 10 {
-		return key[:10] + "..."
-	}
-	return key
-}
 
 func generateRequestID() string {
 	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), rand.Int63())

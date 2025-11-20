@@ -33,21 +33,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **✅ Authentication Table Fixes** (2025-11-20)
-  - **Issue**: Authentication middleware references incorrect table names causing runtime failures
-  - **Root Cause**: Database migration created `services` table but middleware queried `registered_services`
+- **✅ Authentication Architecture - Services-Only with JWT/RSA** (2025-11-20)
+  - **Issue**: Authentication middleware had mixed API key and JWT authentication code, contradicting original Services-Only design
+  - **Root Cause**: Middleware contained API key authentication code for `merchant_credentials` table that was never part of the original architecture
+  - **Architectural Decision**: Services-Only authentication with JWT/RSA public key verification
+    - **Why**: Merchants don't directly authenticate - their registered applications (services) authenticate on their behalf
+    - **Security Model**: Services sign JWTs with RSA private keys, verified against public keys in `services` table
+    - **Access Control**: `service_merchants` table defines which services can access which merchants
   - **Changes Made**:
     - **Auth Middleware** (`internal/middleware/connect_auth.go`):
       - Fixed `loadPublicKeys()` to query `services` table instead of `registered_services`
       - Fixed `verifyServiceMerchantAccess()` JOIN to use `services` instead of `registered_services`
       - Fixed `checkRateLimit()` to query `services` instead of `registered_services`
-    - **Database Migration** (`internal/db/migrations/010_merchant_credentials.sql`):
-      - Created missing `merchant_credentials` table for API key authentication
-      - Added indexes for efficient lookup by `api_key_hash` and `api_secret_hash`
-      - Added trigger to auto-update `updated_at` timestamp
-      - Includes `is_active`, `expires_at`, and `last_used_at` fields
-  - **Impact**: Authentication now works correctly when enabled (currently disabled for testing)
-  - **Future Work**: Create authentication integration tests
+      - Removed all API key authentication code (X-API-Key/X-API-Secret headers)
+      - Removed unused helper functions: `hashWithSalt()`, `truncateAPIKey()`
+      - Removed unused constants: `MerchantCodeKey`
+      - Simplified rate limiting to services-only (removed merchant rate limiting)
+      - Simplified audit logging to services-only
+    - **Database**: Removed `010_merchant_credentials.sql` migration (API key auth not part of architecture)
+    - **Tests**: Removed `tests/integration/auth/api_key_auth_test.go` (not applicable)
+  - **Authentication Tables** (from `008_auth_tables.sql`):
+    - `services` - Registered applications with RSA public keys
+    - `service_merchants` - Which services can access which merchants
+    - `jwt_blacklist` - Revoked tokens
+    - `rate_limit_buckets` - Token bucket rate limiting
+  - **Impact**: Clean Services-Only architecture with JWT/RSA authentication
+  - **Future Work**: Implement authentication integration tests for JWT, EPX callbacks, and cron endpoints
 
 - **✅ ACH BRIC Transaction Support** (2025-11-20)
   - **Issue**: ACH payments using saved BRIC tokens were failing with "Missing ACCOUNT_NBR" error from EPX
