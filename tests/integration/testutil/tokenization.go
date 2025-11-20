@@ -114,10 +114,10 @@ var (
 )
 
 // SkipIfBRICStorageUnavailable skips tests that require EPX BRIC Storage
-// BRIC Storage (CCE8/CKC8) is now available in sandbox
+// BRIC Storage (CCE8/CKC8) is now available and working for ACH and credit cards
 // This function is kept for backward compatibility but no longer skips
 func SkipIfBRICStorageUnavailable(t *testing.T) {
-	// BRIC Storage is now available - no longer skip
+	// BRIC Storage is working - no longer skip
 	// Tests will fail if credentials are missing, which is the desired behavior
 }
 
@@ -292,7 +292,8 @@ func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
 }
 
 // SavePaymentMethod saves a tokenized payment method via the API
-func SavePaymentMethod(client *Client, merchantID, customerID, token string, card *TestCard, ach *TestACH) (string, error) {
+// jwtToken is required for authentication
+func SavePaymentMethod(client *Client, jwtToken, merchantID, customerID, token string, card *TestCard, ach *TestACH) (string, error) {
 	req := map[string]interface{}{
 		"merchant_id":   merchantID,
 		"customer_id":   customerID,
@@ -312,6 +313,10 @@ func SavePaymentMethod(client *Client, merchantID, customerID, token string, car
 		req["account_type"] = ach.AccountType
 		req["bank_name"] = "Test Bank"
 	}
+
+	// Set JWT authorization header
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
 
 	// ConnectRPC endpoint for SavePaymentMethod
 	resp, err := client.Do("POST", "/payment_method.v1.PaymentMethodService/SavePaymentMethod", req)
@@ -340,7 +345,8 @@ func SavePaymentMethod(client *Client, merchantID, customerID, token string, car
 }
 
 // TokenizeAndSaveCard is a convenience function that tokenizes a card and saves it
-func TokenizeAndSaveCard(cfg *Config, client *Client, merchantID, customerID string, card TestCard) (string, error) {
+// jwtToken is required for authentication when saving the payment method
+func TokenizeAndSaveCard(cfg *Config, client *Client, jwtToken, merchantID, customerID string, card TestCard) (string, error) {
 	// Tokenize card
 	token, err := TokenizeCard(cfg, card)
 	if err != nil {
@@ -351,7 +357,7 @@ func TokenizeAndSaveCard(cfg *Config, client *Client, merchantID, customerID str
 	time.Sleep(100 * time.Millisecond)
 
 	// Save payment method
-	paymentMethodID, err := SavePaymentMethod(client, merchantID, customerID, token, &card, nil)
+	paymentMethodID, err := SavePaymentMethod(client, jwtToken, merchantID, customerID, token, &card, nil)
 	if err != nil {
 		return "", fmt.Errorf("save payment method failed: %w", err)
 	}
@@ -360,7 +366,8 @@ func TokenizeAndSaveCard(cfg *Config, client *Client, merchantID, customerID str
 }
 
 // TokenizeAndSaveACH is a convenience function that tokenizes an ACH account and saves it
-func TokenizeAndSaveACH(cfg *Config, client *Client, merchantID, customerID string, ach TestACH) (string, error) {
+// jwtToken is required for authentication when saving the payment method
+func TokenizeAndSaveACH(cfg *Config, client *Client, jwtToken, merchantID, customerID string, ach TestACH) (string, error) {
 	// Tokenize ACH
 	token, err := TokenizeACH(cfg, ach)
 	if err != nil {
@@ -371,7 +378,7 @@ func TokenizeAndSaveACH(cfg *Config, client *Client, merchantID, customerID stri
 	time.Sleep(100 * time.Millisecond)
 
 	// Save payment method
-	paymentMethodID, err := SavePaymentMethod(client, merchantID, customerID, token, nil, &ach)
+	paymentMethodID, err := SavePaymentMethod(client, jwtToken, merchantID, customerID, token, nil, &ach)
 	if err != nil {
 		return "", fmt.Errorf("save payment method failed: %w", err)
 	}

@@ -30,8 +30,9 @@ func TestSaleTransaction_WithStoredCard(t *testing.T) {
 	defer cancel()
 
 	// Tokenize and save payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestVisaCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -82,8 +83,9 @@ func TestAuthorizeAndCapture_WithStoredCard(t *testing.T) {
 	defer cancel()
 
 	// Tokenize and save payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestMastercardCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestMastercardCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -136,8 +138,9 @@ func TestAuthorizeAndCapture_PartialCapture(t *testing.T) {
 	defer cancel()
 
 	// Tokenize and save payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestVisaCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -231,8 +234,9 @@ func TestGetTransaction(t *testing.T) {
 	defer cancel()
 
 	// Create a transaction
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestVisaCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -282,8 +286,9 @@ func TestListTransactions(t *testing.T) {
 	defer cancel()
 
 	// Create payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestVisaCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 

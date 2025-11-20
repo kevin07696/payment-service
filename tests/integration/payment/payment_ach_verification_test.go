@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+
+
 // TestACH_SaveAccount tests that saving an ACH account creates a pre-note
 // and sets verification_status='pending'
 func TestACH_SaveAccount(t *testing.T) {
@@ -31,8 +33,9 @@ func TestACH_SaveAccount(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Save ACH account (triggers pre-note CKC0)
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, merchantID, customerID, testutil.TestACHChecking)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -63,8 +66,9 @@ func TestACH_BlockUnverifiedPayments(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Save ACH account (unverified)
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, merchantID, customerID, testutil.TestACHChecking)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -112,8 +116,9 @@ func TestACH_AllowVerifiedPayments(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Save ACH account
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, merchantID, customerID, testutil.TestACHChecking)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -169,8 +174,9 @@ func TestACH_FailedAccountBlocked(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Save ACH account
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, merchantID, customerID, testutil.TestACHChecking)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -226,8 +232,9 @@ func TestACH_HighValuePayments(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Save and verify ACH account
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, merchantID, customerID, testutil.TestACHChecking)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 

@@ -18,26 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// addJWTAuth adds JWT authentication to a Connect request
-func addJWTAuth[T any](t *testing.T, req *connect.Request[T], cfg *testutil.Config, merchantID string) {
-	t.Helper()
 
-	services, err := testutil.LoadTestServices()
-	require.NoError(t, err, "Failed to load test services")
-	require.NotEmpty(t, services, "No test services available")
-
-	service := services[0]
-
-	token, err := testutil.GenerateJWT(
-		service.PrivateKeyPEM,
-		service.ServiceID,
-		merchantID,
-		1*time.Hour,
-	)
-	require.NoError(t, err, "Failed to generate JWT")
-
-	req.Header().Set("Authorization", "Bearer "+token)
-}
 
 // TestRefund_IdempotencyWithClientUUID tests refund idempotency using client-generated idempotency keys
 // Pattern: client provides idempotency_key, which becomes the transaction ID (database enforces PRIMARY KEY uniqueness)
@@ -53,8 +34,9 @@ func TestRefund_IdempotencyWithClientUUID(t *testing.T) {
 	defer cancel()
 
 	// Create tokenized payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestVisaCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -137,8 +119,9 @@ func TestRefund_MultipleDifferentUUIDs(t *testing.T) {
 	defer cancel()
 
 	// Create tokenized payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestVisaCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -223,8 +206,9 @@ func TestRefund_ConcurrentSameUUID(t *testing.T) {
 	defer cancel()
 
 	// Create tokenized payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestVisaCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 

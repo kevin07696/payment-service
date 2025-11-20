@@ -31,8 +31,9 @@ func TestRefund_MultiplePartialRefunds(t *testing.T) {
 	defer cancel()
 
 	// Create tokenized payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestVisaCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -112,8 +113,9 @@ func TestVoid_CancelAuthorization(t *testing.T) {
 	defer cancel()
 
 	// Create tokenized payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestAmexCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestAmexCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -164,8 +166,9 @@ func TestVoid_CapturedTransactionValidation(t *testing.T) {
 	defer cancel()
 
 	// Create tokenized payment method
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient}
-	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, merchantID, customerID, testutil.TestVisaCard)
+	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
+	jwtToken := generateJWTToken(t, merchantID)
+	paymentMethodID, err := testutil.TokenizeAndSaveCard(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
