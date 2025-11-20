@@ -45,7 +45,7 @@ func MarkACHAsFailed(db *sql.DB, paymentMethodID string, returnCode string) erro
 
 // GetACHVerificationStatus retrieves the current verification status of an ACH payment method
 func GetACHVerificationStatus(db *sql.DB, paymentMethodID string) (string, bool, error) {
-	var verificationStatus string
+	var verificationStatus sql.NullString
 	var isVerified bool
 
 	err := db.QueryRow(`
@@ -58,7 +58,12 @@ func GetACHVerificationStatus(db *sql.DB, paymentMethodID string) (string, bool,
 		return "", false, fmt.Errorf("failed to get verification status: %w", err)
 	}
 
-	return verificationStatus, isVerified, nil
+	status := ""
+	if verificationStatus.Valid {
+		status = verificationStatus.String
+	}
+
+	return status, isVerified, nil
 }
 
 // SimulateDaysPassed updates the created_at timestamp to simulate time passing

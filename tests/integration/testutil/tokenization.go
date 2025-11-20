@@ -1,11 +1,15 @@
 package testutil
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -197,38 +201,54 @@ func TokenizeCard(cfg *Config, card TestCard) (string, error) {
 	return authGuid, nil
 }
 
-// TokenizeACH tokenizes an ACH account using EPX BRIC Storage (CKC8) and returns the Storage BRIC
-// Based on EPX Transaction Specs - BRIC Storage.pdf (page 12)
+// TokenizeACH tokenizes an ACH account using EPX Server Post API with CKC0 (pre-note)
+// Returns the AUTH_GUID (Storage BRIC) that can be used for future ACH transactions
+// Based on EPX ACH Transaction Specs - Server Post API (HTTPS POST method)
 func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
 	// Validate EPX credentials are configured
 	if cfg.EPXMac == "" {
 		return "", fmt.Errorf("EPX_MAC_STAGING environment variable is required for tokenization")
 	}
 
-	// Build XML request for BRIC Storage (CKC8)
-	batchID := time.Now().Format("20060102")
-	tranNbr := fmt.Sprintf("%d", time.Now().Unix())
+	// Build form data for Server Post API with CKC0 (ACH Pre-Note Debit)
+	now := time.Now()
+	batchID := now.Format("20060102")                         // YYYYMMDD
+	tranNbr := fmt.Sprintf("%d", now.Unix())
+	localDate := now.Format("010206")                        // MMDDYY
+	localTime := now.Format("150405")                        // HHMMSS
 
-	xmlRequest := fmt.Sprintf(`<DETAIL cust_nbr="%s" merch_nbr="%s" dba_nbr="%s" terminal_nbr="%s">
-<TRAN_TYPE>CKC8</TRAN_TYPE>
-<BATCH_ID>%s</BATCH_ID>
-<TRAN_NBR>%s</TRAN_NBR>
-<ACCOUNT_NBR>%s</ACCOUNT_NBR>
-<ROUTING_NBR>%s</ROUTING_NBR>
-<CARD_ENT_METH>X</CARD_ENT_METH>
-<INDUSTRY_TYPE>E</INDUSTRY_TYPE>
-<FIRST_NAME>Test</FIRST_NAME>
-<LAST_NAME>Customer</LAST_NAME>
-</DETAIL>`,
-		cfg.EPXCustNbr, cfg.EPXMerchNbr, cfg.EPXDBANbr, cfg.EPXTerminalNbr,
-		batchID, tranNbr,
-		ach.AccountNumber, ach.RoutingNumber)
+	formData := url.Values{}
+	formData.Set("CUST_NBR", cfg.EPXCustNbr)
+	formData.Set("MERCH_NBR", cfg.EPXMerchNbr)
+	formData.Set("DBA_NBR", cfg.EPXDBANbr)
+	formData.Set("TERMINAL_NBR", cfg.EPXTerminalNbr)
+	formData.Set("TRAN_TYPE", "CKC0")                         // ACH Checking Pre-Note Debit
+	formData.Set("AMOUNT", "0.00")                            // Pre-note is $0.00
+	formData.Set("TRAN_NBR", tranNbr)
+	formData.Set("BATCH_ID", batchID)
+	formData.Set("LOCAL_DATE", localDate)
+	formData.Set("LOCAL_TIME", localTime)
+	formData.Set("ACCOUNT_NBR", ach.AccountNumber)
+	formData.Set("ROUTING_NBR", ach.RoutingNumber)
+	formData.Set("CARD_ENT_METH", "X")                        // Manually entered
+	formData.Set("INDUSTRY_TYPE", "E")                        // E-commerce
+	formData.Set("FIRST_NAME", "Test")
+	formData.Set("LAST_NAME", "Customer")
 
-	// Send request to EPX
+	// Calculate MAC signature (concatenate all values excluding MAC itself)
+	macPayload := ""
+	for key := range formData {
+		if key != "MAC" {
+			macPayload += formData.Get(key)
+		}
+	}
+	formData.Set("MAC", calculateMAC(macPayload, cfg.EPXMac))
+
+	// Send request to EPX Server Post API (sandbox)
 	epxURL := "https://secure.epxuap.com"
-	resp, err := http.Post(epxURL, "application/xml", strings.NewReader(xmlRequest))
+	resp, err := http.PostForm(epxURL, formData)
 	if err != nil {
-		return "", fmt.Errorf("EPX BRIC Storage request failed: %w", err)
+		return "", fmt.Errorf("EPX Server Post request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -237,7 +257,7 @@ func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
 		return "", fmt.Errorf("failed to read EPX response: %w", err)
 	}
 
-	// Parse XML response
+	// Parse XML response (EPX returns <RESPONSE><FIELDS><FIELD KEY="xxx">value</FIELD></FIELDS></RESPONSE>)
 	var xmlResp struct {
 		Fields []struct {
 			Key   string `xml:"KEY,attr"`
@@ -249,7 +269,7 @@ func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
 		return "", fmt.Errorf("failed to parse XML response: %w\nRaw: %s", err, string(body))
 	}
 
-	// Extract fields from response
+	// Extract fields from XML
 	fields := make(map[string]string)
 	for _, field := range xmlResp.Fields {
 		fields[field.Key] = field.Value
@@ -259,9 +279,9 @@ func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
 	authGuid := fields["AUTH_GUID"]
 	authRespText := fields["AUTH_RESP_TEXT"]
 
-	// Check for approval (00 = approved, 85 = not declined)
-	if authResp != "00" && authResp != "85" {
-		return "", fmt.Errorf("EPX BRIC Storage failed: %s (code: %s)", authRespText, authResp)
+	// Check for approval (00 = approved)
+	if authResp != "00" {
+		return "", fmt.Errorf("EPX ACH pre-note failed: %s (code: %s)", authRespText, authResp)
 	}
 
 	if authGuid == "" {
@@ -272,9 +292,9 @@ func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
 }
 
 // SavePaymentMethod saves a tokenized payment method via the API
-func SavePaymentMethod(client *Client, agentID, customerID, token string, card *TestCard, ach *TestACH) (string, error) {
+func SavePaymentMethod(client *Client, merchantID, customerID, token string, card *TestCard, ach *TestACH) (string, error) {
 	req := map[string]interface{}{
-		"agent_id":      agentID,
+		"merchant_id":   merchantID,
 		"customer_id":   customerID,
 		"payment_token": token,
 		"is_default":    true,
@@ -293,7 +313,8 @@ func SavePaymentMethod(client *Client, agentID, customerID, token string, card *
 		req["bank_name"] = "Test Bank"
 	}
 
-	resp, err := client.Do("POST", "/api/v1/payment-methods", req)
+	// ConnectRPC endpoint for SavePaymentMethod
+	resp, err := client.Do("POST", "/payment_method.v1.PaymentMethodService/SavePaymentMethod", req)
 	if err != nil {
 		return "", err
 	}
@@ -309,16 +330,17 @@ func SavePaymentMethod(client *Client, agentID, customerID, token string, card *
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	// ConnectRPC response structure uses camelCase: {"paymentMethodId": "...", "merchantId": "...", ...}
 	paymentMethodID, ok := result["paymentMethodId"].(string)
 	if !ok || paymentMethodID == "" {
-		return "", fmt.Errorf("payment method ID not found in response")
+		return "", fmt.Errorf("paymentMethodId not found in response: %+v", result)
 	}
 
 	return paymentMethodID, nil
 }
 
 // TokenizeAndSaveCard is a convenience function that tokenizes a card and saves it
-func TokenizeAndSaveCard(cfg *Config, client *Client, agentID, customerID string, card TestCard) (string, error) {
+func TokenizeAndSaveCard(cfg *Config, client *Client, merchantID, customerID string, card TestCard) (string, error) {
 	// Tokenize card
 	token, err := TokenizeCard(cfg, card)
 	if err != nil {
@@ -329,7 +351,7 @@ func TokenizeAndSaveCard(cfg *Config, client *Client, agentID, customerID string
 	time.Sleep(100 * time.Millisecond)
 
 	// Save payment method
-	paymentMethodID, err := SavePaymentMethod(client, agentID, customerID, token, &card, nil)
+	paymentMethodID, err := SavePaymentMethod(client, merchantID, customerID, token, &card, nil)
 	if err != nil {
 		return "", fmt.Errorf("save payment method failed: %w", err)
 	}
@@ -338,7 +360,7 @@ func TokenizeAndSaveCard(cfg *Config, client *Client, agentID, customerID string
 }
 
 // TokenizeAndSaveACH is a convenience function that tokenizes an ACH account and saves it
-func TokenizeAndSaveACH(cfg *Config, client *Client, agentID, customerID string, ach TestACH) (string, error) {
+func TokenizeAndSaveACH(cfg *Config, client *Client, merchantID, customerID string, ach TestACH) (string, error) {
 	// Tokenize ACH
 	token, err := TokenizeACH(cfg, ach)
 	if err != nil {
@@ -349,7 +371,7 @@ func TokenizeAndSaveACH(cfg *Config, client *Client, agentID, customerID string,
 	time.Sleep(100 * time.Millisecond)
 
 	// Save payment method
-	paymentMethodID, err := SavePaymentMethod(client, agentID, customerID, token, nil, &ach)
+	paymentMethodID, err := SavePaymentMethod(client, merchantID, customerID, token, nil, &ach)
 	if err != nil {
 		return "", fmt.Errorf("save payment method failed: %w", err)
 	}
@@ -367,4 +389,11 @@ func parseYear(year string) int {
 	var y int
 	fmt.Sscanf(year, "%d", &y)
 	return y
+}
+
+// calculateMAC calculates HMAC-SHA256 MAC for EPX Server Post requests
+func calculateMAC(payload, macKey string) string {
+	h := hmac.New(sha256.New, []byte(macKey))
+	h.Write([]byte(payload))
+	return hex.EncodeToString(h.Sum(nil))
 }

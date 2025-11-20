@@ -18,13 +18,13 @@ func TestACH_SaveAccount(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	customerID := "test-customer-ach-save-001"
+	customerID := "10000000-0000-0000-0000-000000000001" // Customer UUID
 	time.Sleep(2 * time.Second)
 
 	// Save ACH account (triggers pre-note CKC0)
 	paymentMethodID, err := testutil.TokenizeAndSaveACH(
 		cfg, client,
-		"test-merchant-staging",
+		"00000000-0000-0000-0000-000000000001", // Merchant UUID
 		customerID,
 		testutil.TestACHChecking,
 	)
@@ -48,13 +48,13 @@ func TestACH_BlockUnverifiedPayments(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	customerID := "test-customer-ach-block-001"
+	customerID := "10000000-0000-0000-0000-000000000002" // Customer UUID
 	time.Sleep(2 * time.Second)
 
 	// Save ACH account (unverified)
 	paymentMethodID, err := testutil.TokenizeAndSaveACH(
 		cfg, client,
-		"test-merchant-staging",
+		"00000000-0000-0000-0000-000000000001", // Merchant UUID
 		customerID,
 		testutil.TestACHChecking,
 	)
@@ -63,7 +63,7 @@ func TestACH_BlockUnverifiedPayments(t *testing.T) {
 
 	// Try to make payment with unverified ACH account
 	saleReq := map[string]interface{}{
-		"agent_id":          "test-merchant-staging",
+		"merchant_id":       "00000000-0000-0000-0000-000000000001", // Merchant UUID
 		"customer_id":       customerID,
 		"payment_method_id": paymentMethodID,
 		"amount":            "100.00",
@@ -99,13 +99,13 @@ func TestACH_AllowVerifiedPayments(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	customerID := "test-customer-ach-allow-001"
+	customerID := "10000000-0000-0000-0000-000000000003" // Customer UUID
 	time.Sleep(2 * time.Second)
 
 	// Save ACH account
 	paymentMethodID, err := testutil.TokenizeAndSaveACH(
 		cfg, client,
-		"test-merchant-staging",
+		"00000000-0000-0000-0000-000000000001", // Merchant UUID
 		customerID,
 		testutil.TestACHChecking,
 	)
@@ -125,7 +125,7 @@ func TestACH_AllowVerifiedPayments(t *testing.T) {
 
 	// Now try to make payment
 	saleReq := map[string]interface{}{
-		"agent_id":          "test-merchant-staging",
+		"merchant_id":       "00000000-0000-0000-0000-000000000001", // Merchant UUID
 		"customer_id":       customerID,
 		"payment_method_id": paymentMethodID,
 		"amount":            "250.00",
@@ -159,13 +159,13 @@ func TestACH_FailedAccountBlocked(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	customerID := "test-customer-ach-failed-001"
+	customerID := "10000000-0000-0000-0000-000000000004" // Customer UUID
 	time.Sleep(2 * time.Second)
 
 	// Save ACH account
 	paymentMethodID, err := testutil.TokenizeAndSaveACH(
 		cfg, client,
-		"test-merchant-staging",
+		"00000000-0000-0000-0000-000000000001", // Merchant UUID
 		customerID,
 		testutil.TestACHChecking,
 	)
@@ -185,7 +185,7 @@ func TestACH_FailedAccountBlocked(t *testing.T) {
 
 	// Try to make payment
 	saleReq := map[string]interface{}{
-		"agent_id":          "test-merchant-staging",
+		"merchant_id":       "00000000-0000-0000-0000-000000000001", // Merchant UUID
 		"customer_id":       customerID,
 		"payment_method_id": paymentMethodID,
 		"amount":            "50.00",
@@ -218,7 +218,7 @@ func TestACH_HighValuePayments(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	customerID := "test-customer-ach-highvalue-001"
+	customerID := "10000000-0000-0000-0000-000000000005" // Customer UUID
 	time.Sleep(2 * time.Second)
 
 	// Save and verify ACH account
@@ -238,7 +238,7 @@ func TestACH_HighValuePayments(t *testing.T) {
 
 	// Try high-value payment ($2,500)
 	saleReq := map[string]interface{}{
-		"agent_id":          "test-merchant-staging",
+		"merchant_id":       "00000000-0000-0000-0000-000000000001", // Merchant UUID
 		"customer_id":       customerID,
 		"payment_method_id": paymentMethodID,
 		"amount":            "2500.00",
