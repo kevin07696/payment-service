@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -67,12 +68,12 @@ func main() {
 		zap.String("database", cfg.DBName),
 	)
 
-	// Initialize dependencies
-	deps := initDependencies(dbPool, cfg, logger)
-
-	// Create sql.DB for auth middleware (needed for standard database/sql interface)
+	// Create sql.DB for auth middleware and cron handlers (needed for standard database/sql interface)
 	sqlDB := stdlib.OpenDBFromPool(dbPool)
 	defer sqlDB.Close()
+
+	// Initialize dependencies
+	deps := initDependencies(dbPool, sqlDB, cfg, logger)
 
 	// Create ConnectRPC HTTP mux
 	mux := http.NewServeMux()
@@ -202,8 +203,11 @@ func main() {
 
 	httpMux.HandleFunc("/cron/process-billing", cronAuthMiddleware(deps.billingCronHandler.ProcessBilling))
 	httpMux.HandleFunc("/cron/sync-disputes", cronAuthMiddleware(deps.disputeSyncCronHandler.SyncDisputes))
+	httpMux.HandleFunc("/cron/verify-ach", cronAuthMiddleware(deps.achVerificationCronHandler.VerifyACH))
 	httpMux.HandleFunc("/cron/health", cronAuthMiddleware(deps.billingCronHandler.HealthCheck))
 	httpMux.HandleFunc("/cron/stats", cronAuthMiddleware(deps.billingCronHandler.Stats))
+	httpMux.HandleFunc("/cron/ach/health", cronAuthMiddleware(deps.achVerificationCronHandler.HealthCheck))
+	httpMux.HandleFunc("/cron/ach/stats", cronAuthMiddleware(deps.achVerificationCronHandler.Stats))
 
 	// Browser Post endpoints (with rate limiting and EPX auth for callbacks)
 	httpMux.HandleFunc("/api/v1/payments/browser-post/form",
@@ -328,6 +332,7 @@ type Dependencies struct {
 	merchantHandler            *merchantHandler.ConnectHandler
 	billingCronHandler         *cronHandler.BillingHandler
 	disputeSyncCronHandler     *cronHandler.DisputeSyncHandler
+	achVerificationCronHandler *cronHandler.ACHVerificationHandler
 	browserPostCallbackHandler *paymentHandler.BrowserPostCallbackHandler
 }
 
@@ -426,7 +431,7 @@ func initDatabase(cfg *Config, logger *zap.Logger) (*pgxpool.Pool, error) {
 }
 
 // initDependencies initializes all services and handlers with dependency injection
-func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *Dependencies {
+func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, cfg *Config, logger *zap.Logger) *Dependencies {
 	// Initialize database adapter
 	dbCfg := database.DefaultPostgreSQLConfig(
 		fmt.Sprintf(
@@ -535,6 +540,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 	// Initialize cron handlers (for HTTP endpoints)
 	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, logger, cfg.CronSecret)
 	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
+	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(sqlDB, logger, cfg.CronSecret)
 
 	// Initialize Browser Post callback handler
 	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(
@@ -556,6 +562,7 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 		merchantHandler:            merchantHdlr,
 		billingCronHandler:         billingCronHdlr,
 		disputeSyncCronHandler:     disputeSyncCronHdlr,
+		achVerificationCronHandler: achVerificationCronHdlr,
 		browserPostCallbackHandler: browserPostCallbackHdlr,
 	}
 }

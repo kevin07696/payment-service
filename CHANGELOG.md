@@ -33,6 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **✅ Authentication Table Fixes** (2025-11-20)
+  - **Issue**: Authentication middleware references incorrect table names causing runtime failures
+  - **Root Cause**: Database migration created `services` table but middleware queried `registered_services`
+  - **Changes Made**:
+    - **Auth Middleware** (`internal/middleware/connect_auth.go`):
+      - Fixed `loadPublicKeys()` to query `services` table instead of `registered_services`
+      - Fixed `verifyServiceMerchantAccess()` JOIN to use `services` instead of `registered_services`
+      - Fixed `checkRateLimit()` to query `services` instead of `registered_services`
+    - **Database Migration** (`internal/db/migrations/010_merchant_credentials.sql`):
+      - Created missing `merchant_credentials` table for API key authentication
+      - Added indexes for efficient lookup by `api_key_hash` and `api_secret_hash`
+      - Added trigger to auto-update `updated_at` timestamp
+      - Includes `is_active`, `expires_at`, and `last_used_at` fields
+  - **Impact**: Authentication now works correctly when enabled (currently disabled for testing)
+  - **Future Work**: Create authentication integration tests
+
 - **✅ ACH BRIC Transaction Support** (2025-11-20)
   - **Issue**: ACH payments using saved BRIC tokens were failing with "Missing ACCOUNT_NBR" error from EPX
   - **Root Cause**: EPX requires different fields for ACH vs credit card BRIC transactions
@@ -60,6 +76,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Impact**: ACH payments with BRIC tokens now work correctly with EPX
 
 ### Added
+
+- **✅ ACH Verification Cron Handler** (2025-11-20)
+  - **Why**: Automate ACH account verification after 3-day pre-note period
+  - **What**: Cron job endpoint `/cron/verify-ach` to automatically verify pending ACH accounts
+  - **How It Works**:
+    1. EPX requires 3-day waiting period after pre-note (CKC0) before allowing ACH payments
+    2. Cron job runs daily (configurable) to find ACH accounts with `verification_status='pending'` older than 3 days
+    3. Updates accounts to `verification_status='verified'` and `is_verified=true`
+    4. Returns count of verified accounts and any errors
+  - **Changes Made**:
+    - **ACH Verification Handler** (`internal/handlers/cron/ach_verification_handler.go`):
+      - Endpoint: `POST /cron/verify-ach`
+      - Authentication: `X-Cron-Secret` header
+      - Configurable verification days (default: 3)
+      - Batch processing with configurable size (default: 100)
+      - Comprehensive logging and error handling
+      - Stats endpoint: `GET /cron/ach/stats` for monitoring
+      - Health check: `GET /cron/ach/health`
+    - **Server** (`cmd/server/main.go`):
+      - Registered cron handler with auth middleware
+      - Added to dependencies injection
+  - **Configuration**:
+    - Request body (optional): `{"verification_days": 3, "batch_size": 100}`
+    - Environment variable: `CRON_SECRET` for authentication
+  - **Impact**: ACH accounts automatically verified after waiting period, enabling seamless payment processing
 
 - **✅ Domain Model and Service Fixes** (2025-11-20)
   - **Why**: Fix database constraint errors and ensure proper payment method type handling

@@ -63,7 +63,7 @@ func NewAuthInterceptor(db *sql.DB, logger *zap.Logger) (*AuthInterceptor, error
 func (ai *AuthInterceptor) loadPublicKeys() error {
 	rows, err := ai.db.Query(`
 		SELECT service_id, public_key
-		FROM registered_services
+		FROM services
 		WHERE is_active = true
 	`)
 	if err != nil {
@@ -386,7 +386,7 @@ func (ai *AuthInterceptor) verifyServiceMerchantAccess(serviceID, merchantID str
 	err := ai.db.QueryRow(`
 		SELECT EXISTS(
 			SELECT 1 FROM service_merchants sm
-			JOIN registered_services s ON sm.service_id = s.id
+			JOIN services s ON sm.service_id = s.id
 			JOIN merchants m ON sm.merchant_id = m.id
 			WHERE s.service_id = $1
 			AND m.id = $2
@@ -443,7 +443,7 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 
 		// Get service rate limit
 		err := ai.db.QueryRow(`
-			SELECT requests_per_second FROM registered_services
+			SELECT requests_per_second FROM services
 			WHERE service_id = $1
 		`, entityID).Scan(&limit)
 		if err != nil {
