@@ -127,7 +127,12 @@ func (s *paymentMethodService) SavePaymentMethod(ctx context.Context, req *ports
 			AccountType:  toNullableText(req.AccountType),
 			IsDefault:    pgtype.Bool{Bool: req.IsDefault, Valid: true},
 			IsActive:     pgtype.Bool{Bool: true, Valid: true},
-			IsVerified:   pgtype.Bool{Bool: req.PaymentType == domain.PaymentMethodTypeCreditCard, Valid: true}, // Credit cards don't need verification
+			IsVerified:   pgtype.Bool{Bool: req.PaymentType == domain.PaymentMethodTypeCreditCard, Valid: true}, // Credit cards have immediate verification
+		}
+
+		// ACH payment methods require 3-day verification via pre-note
+		if req.PaymentType == domain.PaymentMethodTypeACH {
+			params.VerificationStatus = pgtype.Text{String: "pending", Valid: true}
 		}
 
 		dbPM, err := q.CreatePaymentMethod(ctx, params)
