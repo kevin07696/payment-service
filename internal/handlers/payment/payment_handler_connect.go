@@ -314,6 +314,12 @@ func handleServiceErrorConnect(err error) error {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("agent is inactive"))
 	case errors.Is(err, domain.ErrPaymentMethodNotFound):
 		return connect.NewError(connect.CodeNotFound, errors.New("payment method not found"))
+	case errors.Is(err, domain.ErrPaymentMethodNotVerified):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("ACH payment method must be verified before use"))
+	case errors.Is(err, domain.ErrPaymentMethodExpired):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is expired"))
+	case errors.Is(err, domain.ErrPaymentMethodInactive):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is not active"))
 	case errors.Is(err, domain.ErrTransactionCannotBeVoided):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("transaction cannot be voided"))
 	case errors.Is(err, domain.ErrTransactionCannotBeCaptured):

@@ -189,7 +189,17 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		// Check if payment method can be used for this amount (ACH must be verified)
 		canUse, reason := domainPM.CanUseForAmount(req.AmountCents)
 		if !canUse {
-			return nil, fmt.Errorf("payment method cannot be used: %s", reason)
+			// Map reason strings to domain errors
+			switch reason {
+			case "payment method is not active":
+				return nil, domain.ErrPaymentMethodInactive
+			case "credit card is expired":
+				return nil, domain.ErrPaymentMethodExpired
+			case "ACH account must be verified before use":
+				return nil, domain.ErrPaymentMethodNotVerified
+			default:
+				return nil, fmt.Errorf("payment method cannot be used: %s", reason)
+			}
 		}
 
 		authGUID = dbPM.Bric
@@ -206,19 +216,38 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
 	epxTranNbr := util.UUIDToEPXTranNbr(txID)
 
-	// Use Sale transaction type for all purchases (credit card or ACH with BRIC)
+	// Determine transaction type based on payment method (credit card vs ACH)
+	var transactionType adapterports.TransactionType
+	if paymentMethodType == domain.PaymentMethodTypeACH {
+		transactionType = adapterports.TransactionTypeACHDebit // CKC2 - ACH Debit/Sale
+	} else {
+		transactionType = adapterports.TransactionTypeSale // CCE1 - CC Sale (auth + capture)
+	}
+
+	// For BRIC-based transactions, set Card Entry Method to "Z"
+	cardEntryMethod := "Z" // BRIC/token
+
 	epxReq := &adapterports.ServerPostRequest{
 		CustNbr:         merchant.CustNbr,
 		MerchNbr:        merchant.MerchNbr,
 		DBAnbr:          merchant.DbaNbr,
 		TerminalNbr:     merchant.TerminalNbr,
-		TransactionType: adapterports.TransactionTypeSale,
+		TransactionType: transactionType,
 		Amount:          centsToDecimalString(req.AmountCents),
 		PaymentType:     adapterports.PaymentMethodType(paymentMethodType),
-		AuthGUID:        authGUID,
 		TranNbr:         epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:       "SALE",     // Transaction class: SALE = auth + capture combined
 		CustomerID:      stringOrEmpty(req.CustomerID),
+		CardEntryMethod: &cardEntryMethod, // "Z" for BRIC-based transactions
+	}
+
+	// EPX uses different fields for ACH vs credit card BRIC transactions
+	// ACH: ORIG_AUTH_GUID (reference to previous ACH transaction)
+	// Credit Card: AUTH_GUID (storage token)
+	if paymentMethodType == domain.PaymentMethodTypeACH {
+		epxReq.OriginalAuthGUID = authGUID
+	} else {
+		epxReq.AuthGUID = authGUID
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)

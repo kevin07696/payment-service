@@ -4,9 +4,12 @@
 package payment_test
 
 import (
+	"encoding/json"
+	"io"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kevin07696/payment-service/tests/integration/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,18 +65,20 @@ func TestACH_BlockUnverifiedPayments(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Try to make payment with unverified ACH account
+	idempotencyKey := uuid.New().String()
 	saleReq := map[string]interface{}{
-		"merchant_id":       "00000000-0000-0000-0000-000000000001", // Merchant UUID
-		"customer_id":       customerID,
-		"payment_method_id": paymentMethodID,
-		"amount":            "100.00",
-		"currency":          "USD",
+		"merchantId":      "00000000-0000-0000-0000-000000000001", // Merchant UUID
+		"customerId":      customerID,
+		"paymentMethodId": paymentMethodID,
+		"amountCents":     10000, // $100.00 in cents
+		"currency":        "USD",
+		"idempotencyKey":  idempotencyKey,
 		"metadata": map[string]string{
 			"test_case": "unverified_ach_blocked",
 		},
 	}
 
-	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
+	saleResp, err := client.Do("POST", "/payment.v1.PaymentService/Sale", saleReq)
 	require.NoError(t, err)
 	defer saleResp.Body.Close()
 
@@ -81,17 +86,21 @@ func TestACH_BlockUnverifiedPayments(t *testing.T) {
 	assert.NotEqual(t, 200, saleResp.StatusCode,
 		"Payment should be rejected for unverified ACH account")
 
-	var errorResult map[string]interface{}
-	err = testutil.DecodeResponse(saleResp, &errorResult)
+	// Manually decode error response (DecodeResponse returns error for non-2xx)
+	body, err := io.ReadAll(saleResp.Body)
 	require.NoError(t, err)
 
-	// Verify error message mentions verification requirement
-	if errorMsg, ok := errorResult["error"].(string); ok {
-		assert.Contains(t, errorMsg, "verified",
-			"Error should mention verification requirement")
-	}
+	var errorResult map[string]interface{}
+	err = json.Unmarshal(body, &errorResult)
+	require.NoError(t, err)
 
-	t.Logf("✅ Unverified ACH payment correctly blocked - Error: %v", errorResult["error"])
+	// Verify error message mentions verification requirement (ConnectRPC uses "message" field)
+	errorMsg, ok := errorResult["message"].(string)
+	require.True(t, ok, "Error response should have 'message' field")
+	assert.Contains(t, errorMsg, "verified",
+		"Error should mention verification requirement")
+
+	t.Logf("✅ Unverified ACH payment correctly blocked - Error: %v", errorMsg)
 }
 
 // TestACH_AllowVerifiedPayments tests that verified ACH accounts can be used for payments
@@ -124,20 +133,28 @@ func TestACH_AllowVerifiedPayments(t *testing.T) {
 	assert.True(t, isVerified)
 
 	// Now try to make payment
+	idempotencyKey := uuid.New().String()
 	saleReq := map[string]interface{}{
-		"merchant_id":       "00000000-0000-0000-0000-000000000001", // Merchant UUID
-		"customer_id":       customerID,
-		"payment_method_id": paymentMethodID,
-		"amount":            "250.00",
-		"currency":          "USD",
+		"merchantId":      "00000000-0000-0000-0000-000000000001", // Merchant UUID
+		"customerId":      customerID,
+		"paymentMethodId": paymentMethodID,
+		"amountCents":     25000, // $250.00 in cents
+		"currency":        "USD",
+		"idempotencyKey":  idempotencyKey,
 		"metadata": map[string]string{
 			"test_case": "verified_ach_allowed",
 		},
 	}
 
-	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
+	saleResp, err := client.Do("POST", "/payment.v1.PaymentService/Sale", saleReq)
 	require.NoError(t, err)
 	defer saleResp.Body.Close()
+
+	// Log the response for debugging
+	if saleResp.StatusCode != 200 {
+		body, _ := io.ReadAll(saleResp.Body)
+		t.Fatalf("❌ Payment failed with status %d: %s", saleResp.StatusCode, string(body))
+	}
 
 	// Should succeed
 	assert.Equal(t, 200, saleResp.StatusCode,
@@ -147,9 +164,21 @@ func TestACH_AllowVerifiedPayments(t *testing.T) {
 	err = testutil.DecodeResponse(saleResp, &result)
 	require.NoError(t, err)
 
-	assert.True(t, result["isApproved"].(bool), "Transaction should be approved")
-	assert.Equal(t, "ach", result["paymentMethodType"])
-	assert.Equal(t, "250.00", result["amount"])
+	t.Logf("Response body: %+v", result)
+
+	isApproved, ok := result["isApproved"].(bool)
+	if !ok {
+		t.Fatalf("isApproved field not found or wrong type in response: %+v", result)
+	}
+	assert.True(t, isApproved, "Transaction should be approved")
+
+	// amountCents might be string or number depending on serialization
+	amountStr, ok := result["amountCents"].(string)
+	if ok {
+		assert.Equal(t, "25000", amountStr, "Amount should be 25000 cents ($250.00)")
+	} else {
+		assert.Equal(t, float64(25000), result["amountCents"], "Amount should be 25000 cents ($250.00)")
+	}
 
 	t.Logf("✅ Verified ACH payment approved - Transaction ID: %s", result["transactionId"])
 }
@@ -184,15 +213,17 @@ func TestACH_FailedAccountBlocked(t *testing.T) {
 	assert.False(t, isVerified)
 
 	// Try to make payment
+	idempotencyKey := uuid.New().String()
 	saleReq := map[string]interface{}{
-		"merchant_id":       "00000000-0000-0000-0000-000000000001", // Merchant UUID
-		"customer_id":       customerID,
-		"payment_method_id": paymentMethodID,
-		"amount":            "50.00",
-		"currency":          "USD",
+		"merchantId":      "00000000-0000-0000-0000-000000000001", // Merchant UUID
+		"customerId":      customerID,
+		"paymentMethodId": paymentMethodID,
+		"amountCents":     5000, // $50.00 in cents
+		"currency":        "USD",
+		"idempotencyKey":  idempotencyKey,
 	}
 
-	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
+	saleResp, err := client.Do("POST", "/payment.v1.PaymentService/Sale", saleReq)
 	require.NoError(t, err)
 	defer saleResp.Body.Close()
 
@@ -200,17 +231,21 @@ func TestACH_FailedAccountBlocked(t *testing.T) {
 	assert.NotEqual(t, 200, saleResp.StatusCode,
 		"Payment should be rejected for failed ACH account")
 
-	var errorResult map[string]interface{}
-	err = testutil.DecodeResponse(saleResp, &errorResult)
+	// Manually decode error response (DecodeResponse returns error for non-2xx)
+	body, err := io.ReadAll(saleResp.Body)
 	require.NoError(t, err)
 
-	// Verify error message mentions inactive status
-	if errorMsg, ok := errorResult["error"].(string); ok {
-		assert.Contains(t, errorMsg, "not active",
-			"Error should mention inactive status")
-	}
+	var errorResult map[string]interface{}
+	err = json.Unmarshal(body, &errorResult)
+	require.NoError(t, err)
 
-	t.Logf("✅ Failed ACH account correctly blocked - Error: %v", errorResult["error"])
+	// Verify error message mentions inactive status (ConnectRPC uses "message" field)
+	errorMsg, ok := errorResult["message"].(string)
+	require.True(t, ok, "Error response should have 'message' field")
+	assert.Contains(t, errorMsg, "not active",
+		"Error should mention inactive status")
+
+	t.Logf("✅ Failed ACH account correctly blocked - Error: %v", errorMsg)
 }
 
 // TestACH_HighValuePayments tests that even verified ACH can handle high-value transactions
@@ -224,7 +259,7 @@ func TestACH_HighValuePayments(t *testing.T) {
 	// Save and verify ACH account
 	paymentMethodID, err := testutil.TokenizeAndSaveACH(
 		cfg, client,
-		"test-merchant-staging",
+		"00000000-0000-0000-0000-000000000001", // Merchant UUID
 		customerID,
 		testutil.TestACHChecking,
 	)
@@ -237,18 +272,20 @@ func TestACH_HighValuePayments(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try high-value payment ($2,500)
+	idempotencyKey := uuid.New().String()
 	saleReq := map[string]interface{}{
-		"merchant_id":       "00000000-0000-0000-0000-000000000001", // Merchant UUID
-		"customer_id":       customerID,
-		"payment_method_id": paymentMethodID,
-		"amount":            "2500.00",
-		"currency":          "USD",
+		"merchantId":      "00000000-0000-0000-0000-000000000001", // Merchant UUID
+		"customerId":      customerID,
+		"paymentMethodId": paymentMethodID,
+		"amountCents":     250000, // $2,500.00 in cents
+		"currency":        "USD",
+		"idempotencyKey":  idempotencyKey,
 		"metadata": map[string]string{
 			"test_case": "high_value_verified_ach",
 		},
 	}
 
-	saleResp, err := client.Do("POST", "/api/v1/payments/sale", saleReq)
+	saleResp, err := client.Do("POST", "/payment.v1.PaymentService/Sale", saleReq)
 	require.NoError(t, err)
 	defer saleResp.Body.Close()
 
@@ -261,7 +298,14 @@ func TestACH_HighValuePayments(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, result["isApproved"].(bool))
-	assert.Equal(t, "2500.00", result["amount"])
+
+	// amountCents might be string or number depending on serialization
+	amountStr, ok := result["amountCents"].(string)
+	if ok {
+		assert.Equal(t, "250000", amountStr, "Amount should be 250000 cents ($2,500.00)")
+	} else {
+		assert.Equal(t, float64(250000), result["amountCents"], "Amount should be 250000 cents ($2,500.00)")
+	}
 
 	t.Logf("✅ High-value ACH payment approved - $2,500 transaction")
 }
