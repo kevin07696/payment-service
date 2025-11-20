@@ -31,6 +31,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - ✅ Credit card support (AUTH/CAPTURE/SALE flows)
     - ✅ ACH support (STORAGE for verification, SALE for payments, REFUND)
 
+### Fixed
+
+- **✅ ACH BRIC Transaction Support** (2025-11-20)
+  - **Issue**: ACH payments using saved BRIC tokens were failing with "Missing ACCOUNT_NBR" error from EPX
+  - **Root Cause**: EPX requires different fields for ACH vs credit card BRIC transactions
+    - Credit cards use `AUTH_GUID` (storage token)
+    - ACH uses `ORIG_AUTH_GUID` (reference to previous ACH transaction per EPX documentation)
+  - **Changes Made**:
+    - **Payment Service** (`internal/services/payment/payment_service.go`):
+      - Conditionally set `OriginalAuthGUID` for ACH transactions, `AuthGUID` for credit cards
+      - Use CKC2 transaction type for ACH sales, CCE1 for credit card sales
+      - Set `CARD_ENT_METH='Z'` for BRIC-based transactions
+      - Map `CanUseForAmount` error reasons to proper domain errors
+    - **Payment Handler** (`internal/handlers/payment/payment_handler_connect.go`):
+      - Added error handling for `ErrPaymentMethodNotVerified`
+      - Added error handling for `ErrPaymentMethodExpired`
+      - Added error handling for `ErrPaymentMethodInactive`
+    - **Tests** (`tests/integration/payment/ach_verification_test.go`):
+      - Added comprehensive ACH verification test suite (5 tests)
+      - Handle `amountCents` as string in ConnectRPC responses
+  - **Test Coverage**:
+    - ✅ `TestACH_SaveAccount` - Verify ACH tokenization sets verification_status='pending'
+    - ✅ `TestACH_BlockUnverifiedPayments` - Verify unverified ACH accounts cannot be used
+    - ✅ `TestACH_AllowVerifiedPayments` - Verify verified ACH accounts can process payments
+    - ✅ `TestACH_FailedAccountBlocked` - Verify failed ACH accounts cannot be used
+    - ✅ `TestACH_HighValuePayments` - Verify verified ACH can handle high-value transactions
+  - **Impact**: ACH payments with BRIC tokens now work correctly with EPX
+
 ### Added
 
 - **✅ Domain Model and Service Fixes** (2025-11-20)
