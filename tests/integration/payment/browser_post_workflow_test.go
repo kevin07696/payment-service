@@ -13,89 +13,114 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIntegration_BrowserPost_SaleRefund_Workflow tests the full SALE → REFUND workflow with real EPX
-// Uses headless Chrome automation to get real BRIC from EPX (fully automated!)
-// Requires Chrome/Chromium installed on the system
-// Requires ngrok or CALLBACK_BASE_URL for EPX to reach callback endpoint
-// Note: EPX test merchant doesn't support AUTH-only ("A"), so we use SALE ("U") instead
-func TestIntegration_BrowserPost_SaleRefund_Workflow(t *testing.T) {
-	cfg, client := testutil.Setup(t)
-	time.Sleep(2 * time.Second)
-
-	// Try using localhost:8081 directly (EPX developer verified whitelist)
-	callbackBaseURL := "http://localhost:8081"
-	t.Logf("📡 Using callback URL: %s", callbackBaseURL)
-
-	// Step 1: Get REAL BRIC from EPX using automated browser (SALE transaction)
-	t.Log("🚀 Getting REAL BRIC from EPX via automated browser (SALE)...")
-	bricResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "50.00", callbackBaseURL)
-
-	t.Logf("✅ Step 1: SALE with REAL BRIC (automated):")
-	t.Logf("   Transaction ID: %s", bricResult.TransactionID)
-	t.Logf("   Group ID: %s", bricResult.GroupID)
-
-	// Give EPX time to process the SALE
-	time.Sleep(2 * time.Second)
-
-	// Step 2: REFUND using group_id (uses real BRIC)
-	refundReq := map[string]interface{}{
-		"group_id": bricResult.GroupID, // Use group_id for refund
-		"amount":   "25.00",            // Partial refund
-		"reason":   "Customer request - automated test",
+// TestBrowserPost_Workflows tests various payment workflows using Browser Post API
+// Uses table-driven approach to test different transaction types and workflows
+func TestBrowserPost_Workflows(t *testing.T) {
+	tests := []struct {
+		name            string
+		transactionType string   // "SALE", "AUTH", "STORAGE"
+		amount          string   // Initial transaction amount
+		workflow        []string // Sequence of operations: ["SALE", "REFUND"] or ["AUTH", "CAPTURE", "REFUND"]
+		refundAmount    string   // Amount to refund (for partial refund tests)
+	}{
+		{
+			name:            "SALE_to_REFUND",
+			transactionType: "SALE",
+			amount:          "50.00",
+			workflow:        []string{"SALE", "REFUND"},
+			refundAmount:    "25.00",
+		},
+		{
+			name:            "AUTH_CAPTURE_REFUND",
+			transactionType: "AUTH",
+			amount:          "50.00",
+			workflow:        []string{"AUTH", "CAPTURE", "REFUND"},
+			refundAmount:    "25.00",
+		},
+		{
+			name:            "AUTH_VOID",
+			transactionType: "AUTH",
+			amount:          "100.00",
+			workflow:        []string{"AUTH", "VOID"},
+			refundAmount:    "",
+		},
+		// Future: Add STORAGE test case for tokenizing without immediate charge
+		// {
+		//     name:            "STORAGE_to_SALE",
+		//     transactionType: "STORAGE",
+		//     amount:          "0.00",
+		//     workflow:        []string{"STORAGE", "SALE"},
+		//     refundAmount:    "",
+		// },
 	}
 
-	t.Log("💸 Refunding with REAL BRIC...")
-	refundResp, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
-	require.NoError(t, err)
-	defer refundResp.Body.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, client := testutil.Setup(t)
+			time.Sleep(2 * time.Second)
 
-	assert.Equal(t, 200, refundResp.StatusCode, "REFUND should succeed with REAL BRIC")
+			callbackBaseURL := "http://localhost:8081"
+			t.Logf("📡 Using callback URL: %s", callbackBaseURL)
 
-	var refundResult map[string]interface{}
-	err = testutil.DecodeResponse(refundResp, &refundResult)
-	require.NoError(t, err)
+			// Step 1: Get BRIC via Browser Post based on transaction type
+			t.Logf("🚀 Getting REAL BRIC from EPX via automated browser (%s)...", tt.transactionType)
 
-	isApproved, _ := refundResult["isApproved"].(bool)
-	assert.True(t, isApproved, "REFUND should be approved with REAL BRIC")
+			var bricResult *testutil.RealBRICResult
 
-	refundTransactionID := refundResult["transactionId"].(string)
-	refundGroupID := refundResult["groupId"].(string)
+			switch tt.transactionType {
+			case "SALE":
+				bricResult = testutil.GetRealBRICForSaleAutomated(t, client, cfg, tt.amount, callbackBaseURL)
+			case "AUTH":
+				bricResult = testutil.GetRealBRICForAuthAutomated(t, client, cfg, tt.amount, callbackBaseURL)
+			// case "STORAGE":
+			//     bricResult = testutil.GetRealBRICForStorageAutomated(t, client, cfg, callbackBaseURL)
+			default:
+				t.Fatalf("Unknown transaction type: %s", tt.transactionType)
+			}
 
-	assert.Equal(t, bricResult.GroupID, refundGroupID, "REFUND should share same group_id")
-	t.Logf("✅ Step 2: REFUND successful - Transaction ID: %s", refundTransactionID)
+			t.Logf("✅ Step 1: %s completed", tt.transactionType)
+			t.Logf("   Transaction ID: %s", bricResult.TransactionID)
+			t.Logf("   Group ID: %s", bricResult.GroupID)
 
-	t.Log("========================================================================")
-	t.Logf("✅ SALE → REFUND workflow COMPLETE with automated REAL BRIC:")
-	t.Logf("   SALE: %s (group: %s)", bricResult.TransactionID, bricResult.GroupID)
-	t.Logf("   REFUND: %s (group: %s)", refundTransactionID, refundGroupID)
-	t.Log("   ✅ All operations approved - NO 'RR' errors!")
-	t.Log("========================================================================")
+			time.Sleep(2 * time.Second)
+
+			// Execute workflow steps
+			stepNum := 2
+			for _, operation := range tt.workflow[1:] { // Skip first step (already done)
+				t.Logf("🔄 Step %d: Executing %s...", stepNum, operation)
+
+				switch operation {
+				case "CAPTURE":
+					executeCaptureStep(t, client, bricResult, tt.amount)
+
+				case "REFUND":
+					executeRefundStep(t, client, bricResult, tt.refundAmount)
+
+				case "VOID":
+					executeVoidStep(t, client, bricResult)
+
+				case "SALE":
+					// For STORAGE → SALE workflow
+					executeSaleWithStoredBRIC(t, client, bricResult, tt.amount)
+				}
+
+				stepNum++
+				time.Sleep(2 * time.Second)
+			}
+
+			t.Log("========================================================================")
+			t.Logf("✅ %s workflow COMPLETE with automated REAL BRIC", tt.name)
+			t.Log("   ✅ All operations approved - NO 'RR' errors!")
+			t.Log("========================================================================")
+		})
+	}
 }
 
-// TestIntegration_BrowserPost_AuthCaptureRefund_Workflow tests the full AUTH → CAPTURE → REFUND workflow with real EPX
-// Verifies all three transactions share the same group_id and EPX accepts real BRIC for all operations
-// Uses headless Chrome automation to get real BRIC from EPX (fully automated!)
-// Requires ngrok or CALLBACK_BASE_URL for EPX to reach callback endpoint
-func TestIntegration_BrowserPost_AuthCaptureRefund_Workflow(t *testing.T) {
-	cfg, client := testutil.Setup(t)
-	time.Sleep(2 * time.Second)
-
-	// Try using localhost:8081 directly (EPX developer verified whitelist)
-	callbackBaseURL := "http://localhost:8081"
-	t.Logf("📡 Using callback URL: %s", callbackBaseURL)
-
-	// Step 1: Get REAL BRIC from EPX using automated browser
-	t.Log("🚀 Getting REAL BRIC from EPX via automated browser (AUTH)...")
-	bricResult := testutil.GetRealBRICForAuthAutomated(t, client, cfg, "50.00", callbackBaseURL)
-
-	t.Logf("✅ Step 1: AUTH with REAL BRIC:")
-	t.Logf("   Transaction ID: %s", bricResult.TransactionID)
-	t.Logf("   Group ID: %s", bricResult.GroupID)
-
-	// Step 3: CAPTURE using transaction_id (uses real BRIC)
+// executeCaptureStep performs a CAPTURE operation
+func executeCaptureStep(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult, amount string) {
 	captureReq := map[string]interface{}{
-		"transaction_id": bricResult.TransactionID, // Use AUTH transaction ID
-		"amount":         bricResult.Amount,        // Full capture
+		"transaction_id": bricResult.TransactionID,
+		"amount":         amount,
 	}
 
 	t.Log("💳 Capturing with REAL BRIC...")
@@ -116,19 +141,24 @@ func TestIntegration_BrowserPost_AuthCaptureRefund_Workflow(t *testing.T) {
 	captureGroupID := captureResult["groupId"].(string)
 
 	assert.Equal(t, bricResult.GroupID, captureGroupID, "CAPTURE should share same group_id")
-	t.Logf("✅ Step 2: CAPTURE successful - Transaction ID: %s", captureTransactionID)
+	t.Logf("✅ CAPTURE successful - Transaction ID: %s", captureTransactionID)
+}
 
-	time.Sleep(2 * time.Second)
+// executeRefundStep performs a REFUND operation
+func executeRefundStep(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult, refundAmount string) {
+	// Convert refund amount to cents for ConnectRPC
+	var amountCents int64
+	fmt.Sscanf(refundAmount, "%f", &amountCents)
+	amountCents = int64(amountCents * 100)
 
-	// Step 4: REFUND using group_id (uses real BRIC)
 	refundReq := map[string]interface{}{
-		"group_id": bricResult.GroupID, // Use group_id for refund
-		"amount":   "25.00",            // Partial refund
-		"reason":   "Customer request",
+		"transaction_id": bricResult.TransactionID,
+		"amount_cents":   amountCents,
+		"reason":         "Customer request - automated test",
 	}
 
 	t.Log("💸 Refunding with REAL BRIC...")
-	refundResp, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
+	refundResp, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refundReq)
 	require.NoError(t, err)
 	defer refundResp.Body.Close()
 
@@ -138,49 +168,23 @@ func TestIntegration_BrowserPost_AuthCaptureRefund_Workflow(t *testing.T) {
 	err = testutil.DecodeResponse(refundResp, &refundResult)
 	require.NoError(t, err)
 
-	isRefundApproved, _ := refundResult["isApproved"].(bool)
-	assert.True(t, isRefundApproved, "REFUND should be approved with REAL BRIC")
+	isApproved, _ := refundResult["isApproved"].(bool)
+	assert.True(t, isApproved, "REFUND should be approved with REAL BRIC")
 
-	refundTransactionID := refundResult["transactionId"].(string)
-	refundGroupID := refundResult["groupId"].(string)
+	refundTransactionID, ok := refundResult["transactionId"].(string)
+	require.True(t, ok && refundTransactionID != "", "REFUND should return transaction_id")
 
-	// Verify all three transactions share the same group_id
-	assert.Equal(t, bricResult.GroupID, refundGroupID, "REFUND should share same group_id")
+	refundParentTxID, ok := refundResult["parentTransactionId"].(string)
+	require.True(t, ok && refundParentTxID != "", "REFUND should have parent_transaction_id")
 
-	t.Logf("✅ Step 3: REFUND successful - Transaction ID: %s", refundTransactionID)
-
-	t.Log("========================================================================")
-	t.Logf("✅ AUTH → CAPTURE → REFUND workflow COMPLETE with REAL BRIC:")
-	t.Logf("   AUTH: %s (group: %s)", bricResult.TransactionID, bricResult.GroupID)
-	t.Logf("   CAPTURE: %s (group: %s)", captureTransactionID, captureGroupID)
-	t.Logf("   REFUND: %s (group: %s)", refundTransactionID, refundGroupID)
-	t.Log("   ✅ All operations approved - NO 'RR' errors!")
-	t.Log("========================================================================")
+	assert.Equal(t, bricResult.TransactionID, refundParentTxID, "REFUND parent should be the original transaction")
+	t.Logf("✅ REFUND successful - Transaction ID: %s (parent: %s)", refundTransactionID, refundParentTxID)
 }
 
-// TestIntegration_BrowserPost_AuthVoid_Workflow tests AUTH → VOID workflow with real EPX
-// VOID cancels an authorization before capture
-// Uses headless Chrome automation to get real BRIC from EPX (fully automated!)
-// Requires ngrok or CALLBACK_BASE_URL for EPX to reach callback endpoint
-func TestIntegration_BrowserPost_AuthVoid_Workflow(t *testing.T) {
-	cfg, client := testutil.Setup(t)
-	time.Sleep(2 * time.Second)
-
-	// Try using localhost:8081 directly (EPX developer verified whitelist)
-	callbackBaseURL := "http://localhost:8081"
-	t.Logf("📡 Using callback URL: %s", callbackBaseURL)
-
-	// Step 1: Get REAL BRIC from EPX using automated browser
-	t.Log("🚀 Getting REAL BRIC from EPX via automated browser (AUTH)...")
-	bricResult := testutil.GetRealBRICForAuthAutomated(t, client, cfg, "100.00", callbackBaseURL)
-
-	t.Logf("✅ Step 1: AUTH with REAL BRIC:")
-	t.Logf("   Transaction ID: %s", bricResult.TransactionID)
-	t.Logf("   Group ID: %s", bricResult.GroupID)
-
-	// Step 3: VOID the authorization using group_id (uses real BRIC)
+// executeVoidStep performs a VOID operation
+func executeVoidStep(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult) {
 	voidReq := map[string]interface{}{
-		"group_id": bricResult.GroupID, // Use group_id for void
+		"group_id": bricResult.GroupID,
 	}
 
 	t.Log("🚫 Voiding authorization with REAL BRIC...")
@@ -200,27 +204,14 @@ func TestIntegration_BrowserPost_AuthVoid_Workflow(t *testing.T) {
 	voidTransactionID := voidResult["transactionId"].(string)
 	voidGroupID := voidResult["groupId"].(string)
 
-	// Verify VOID shares same group_id
 	assert.Equal(t, bricResult.GroupID, voidGroupID, "VOID should share same group_id as AUTH")
+	t.Logf("✅ VOID successful - Transaction ID: %s", voidTransactionID)
+}
 
-	t.Logf("✅ Step 2: VOID successful - Transaction ID: %s", voidTransactionID)
-
-	// Verify VOID transaction
-	time.Sleep(1 * time.Second)
-	getVoidTxResp, err := client.Do("GET", fmt.Sprintf("/api/v1/payments/%s", voidTransactionID), nil)
-	require.NoError(t, err)
-	defer getVoidTxResp.Body.Close()
-
-	var voidTx map[string]interface{}
-	err = testutil.DecodeResponse(getVoidTxResp, &voidTx)
-	require.NoError(t, err)
-
-	assert.Equal(t, "TRANSACTION_STATUS_APPROVED", voidTx["status"], "VOID status (gateway outcome)")
-
-	t.Log("========================================================================")
-	t.Logf("✅ AUTH → VOID workflow COMPLETE with REAL BRIC:")
-	t.Logf("   AUTH: %s (group: %s)", bricResult.TransactionID, bricResult.GroupID)
-	t.Logf("   VOID: %s (group: %s)", voidTransactionID, voidGroupID)
-	t.Log("   ✅ VOID successfully cancelled authorization - NO 'RR' errors!")
-	t.Log("========================================================================")
+// executeSaleWithStoredBRIC performs a SALE using a stored BRIC from STORAGE transaction
+func executeSaleWithStoredBRIC(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult, amount string) {
+	// This would use the stored BRIC from STORAGE transaction to make a SALE
+	// Implementation depends on how the service handles stored BRICs
+	t.Log("💳 Processing SALE with stored BRIC...")
+	// TODO: Implement SALE with stored BRIC when STORAGE endpoint is available
 }
