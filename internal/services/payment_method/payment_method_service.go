@@ -703,6 +703,36 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 		pm.LastUsedAt = &dbPM.LastUsedAt.Time
 	}
 
+	// ACH Verification fields (from migration 009)
+	if dbPM.VerificationStatus.Valid {
+		pm.VerificationStatus = &dbPM.VerificationStatus.String
+	}
+
+	if dbPM.PrenoteTransactionID.Valid {
+		prenoteID := uuid.UUID(dbPM.PrenoteTransactionID.Bytes).String()
+		pm.PreNoteTransactionID = &prenoteID
+	}
+
+	if dbPM.VerifiedAt.Valid {
+		pm.VerifiedAt = &dbPM.VerifiedAt.Time
+	}
+
+	if dbPM.VerificationFailureReason.Valid {
+		pm.VerificationFailureReason = &dbPM.VerificationFailureReason.String
+	}
+
+	// ReturnCount is NOT NULL DEFAULT 0, so always present
+	returnCount := int(dbPM.ReturnCount)
+	pm.ReturnCount = &returnCount
+
+	if dbPM.DeactivationReason.Valid {
+		pm.DeactivationReason = &dbPM.DeactivationReason.String
+	}
+
+	if dbPM.DeactivatedAt.Valid {
+		pm.DeactivatedAt = &dbPM.DeactivatedAt.Time
+	}
+
 	return pm
 }
 

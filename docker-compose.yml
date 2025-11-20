@@ -67,6 +67,9 @@ services:
       # Environment
       ENVIRONMENT: ${ENVIRONMENT:-development}
 
+      # Authentication (disable for integration testing)
+      DISABLE_AUTH: ${DISABLE_AUTH:-true}
+
       # Secret Manager Configuration
       SECRET_MANAGER: ${SECRET_MANAGER:-mock}  # Use 'mock' for local dev, 'gcp' for production
       SECRET_CACHE_TTL_MINUTES: ${SECRET_CACHE_TTL_MINUTES:-5}

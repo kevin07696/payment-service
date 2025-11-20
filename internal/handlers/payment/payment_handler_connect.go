@@ -165,6 +165,7 @@ func (h *ConnectHandler) Sale(
 
 	tx, err := h.service.Sale(ctx, serviceReq)
 	if err != nil {
+		h.logger.Error("Sale service error", zap.Error(err), zap.String("merchant_id", serviceReq.MerchantID))
 		return nil, handleServiceErrorConnect(err)
 	}
 

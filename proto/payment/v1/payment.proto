@@ -73,12 +73,12 @@ message SaleRequest {
 
   // Payment method - exactly one required
   oneof payment_method {
-    string payment_method_id = 5; // UUID of saved payment method
+    string payment_method_id = 5; // UUID of saved payment method (ACH/credit card)
     string payment_token = 6; // EPX token (AUTH_GUID/BRIC) for one-time use
   }
 
-  string idempotency_key = 7;
-  map<string, string> metadata = 8;
+  string idempotency_key = 8;
+  map<string, string> metadata = 9;
 }
 
 // VoidRequest cancels an authorized or captured payment

@@ -34,14 +34,20 @@ const (
 	TransactionTypeACHSavingsPreNoteDebit  TransactionType = "CKS0" // ACH Savings Pre-Note Debit
 	TransactionTypeACHSavingsPreNoteCredit TransactionType = "CKS1" // ACH Savings Pre-Note Credit
 	TransactionTypeACHSavingsVoid        TransactionType = "CKSX" // ACH Savings Void
+
+	// PIN-less Debit Transactions (instant verification, one-time use)
+	TransactionTypePINlessDebitPurchase TransactionType = "DB0P" // PIN-less Debit Purchase (instant)
+	TransactionTypePINlessDebitReturn   TransactionType = "DB0S" // PIN-less Debit Return/Refund
+	TransactionTypePINlessDebitVoid     TransactionType = "DB0V" // PIN-less Debit Void
 )
 
 // PaymentMethodType represents the payment method
 type PaymentMethodType string
 
 const (
-	PaymentMethodTypeCreditCard PaymentMethodType = "credit_card"
-	PaymentMethodTypeACH        PaymentMethodType = "ach"
+	PaymentMethodTypeCreditCard  PaymentMethodType = "credit_card"
+	PaymentMethodTypeACH         PaymentMethodType = "ach"
+	PaymentMethodTypePINlessDebit PaymentMethodType = "pinless_debit" // One-time debit card payments
 )
 
 // ServerPostRequest contains all parameters for EPX Server Post transaction

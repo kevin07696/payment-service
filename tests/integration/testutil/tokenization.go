@@ -85,12 +85,36 @@ var (
 		AccountType:   "savings",
 		LastFour:      "3210",
 	}
+
+	// Test debit cards (for PIN-less debit DB0P transactions)
+	// PIN-less debit uses same card numbers as credit cards but different transaction type
+	TestVisaDebitCard = TestCard{
+		Number:   "4111111111111111",
+		ExpMonth: "12",
+		ExpYear:  "2025",
+		CVV:      "123",
+		ZipCode:  "12345",
+		CardType: "visa",
+		LastFour: "1111",
+	}
+
+	TestMastercardDebitCard = TestCard{
+		Number:   "5555555555554444",
+		ExpMonth: "12",
+		ExpYear:  "2025",
+		CVV:      "123",
+		ZipCode:  "12345",
+		CardType: "mastercard",
+		LastFour: "4444",
+	}
 )
 
 // SkipIfBRICStorageUnavailable skips tests that require EPX BRIC Storage
-// BRIC Storage (CCE8/CKC8) must be enabled by EPX in the sandbox merchant account
+// BRIC Storage (CCE8/CKC8) is now available in sandbox
+// This function is kept for backward compatibility but no longer skips
 func SkipIfBRICStorageUnavailable(t *testing.T) {
-	t.Skip("BRIC Storage tokenization requires EPX to enable CCE8/CKC8 transaction types in sandbox - Coming Soon")
+	// BRIC Storage is now available - no longer skip
+	// Tests will fail if credentials are missing, which is the desired behavior
 }
 
 // TokenizeCard tokenizes a credit card using EPX BRIC Storage (CCE8) and returns the Storage BRIC

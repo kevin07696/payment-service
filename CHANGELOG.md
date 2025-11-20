@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **❌ PIN-less Debit Implementation Removed** (2025-11-20)
+  - **Why Removed**: PIN-less debit is only available for specific industries (utility, insurance, mortgage, education, government)
+  - **Business Use Case**: Restaurant and car dealership payment processing
+  - **Industry Restriction**: EPX restricts PIN-less debit to approved industries only
+  - **Impact**: No functionality loss - target industries not supported anyway
+  - **Alternative Solutions**:
+    1. **Browser Post API** - For one-time credit/debit card payments (customer enters card on website)
+    2. **ACH with Server Post** - For recurring payments (3-day verification, lower fees)
+    3. **Credit Cards with Server Post** - For agent-assisted payments (phone orders)
+  - **What Was Removed**:
+    - `PINlessDebitCard` proto message
+    - `pinless_debit` oneof field from `SaleRequest`
+    - `PaymentMethodTypePINlessDebit` domain constant
+    - PIN-less debit handling in service and handler
+    - DB0P transaction type routing
+    - Integration test for PIN-less debit
+  - **What Was Kept** (still functional):
+    - ✅ Transaction type constants fixed to uppercase (SALE, AUTH, CAPTURE, REFUND, VOID, STORAGE)
+    - ✅ Proper payment_method_type handling (credit_card, ach)
+    - ✅ Credit card support (AUTH/CAPTURE/SALE flows)
+    - ✅ ACH support (STORAGE for verification, SALE for payments, REFUND)
+
+### Added
+
+- **✅ Domain Model and Service Fixes** (2025-11-20)
+  - **Why**: Fix database constraint errors and ensure proper payment method type handling
+  - **Changes Made**:
+    - **Domain Model** (`internal/domain/transaction.go`):
+      - Fixed transaction type constants to uppercase (SALE, AUTH, CAPTURE, REFUND, VOID, PRE_NOTE, STORAGE)
+      - Added `TransactionTypeStorage` constant for tokenization transactions
+      - Fixed database constraint compatibility (types must match DB CHECK constraint)
+      - Supports two payment types: credit_card, ach
+    - **Payment Service** (`internal/services/payment/payment_service.go`):
+      - Fixed payment_method_type to use actual variable instead of hardcoded "CreditCard"
+      - Correctly routes payment_method_type for all payment methods
+    - **Service Port** (`internal/services/ports/payment_service.go`):
+      - Supports two payment method options:
+        - `PaymentMethodID` - Use saved payment method (ACH or credit card with BRIC)
+        - `PaymentToken` - One-time token from EPX (AUTH_GUID/BRIC)
+  - **Supported Payment Flows**:
+    - **Credit Card**: AUTH → CAPTURE (or SALE for combined), REFUND, VOID
+    - **ACH**: STORAGE (CKC0 verification) → SALE (debit), REFUND
+  - **Quality Assurance**:
+    - ✅ go build ./... - Compiles successfully
+    - ✅ go vet - No issues
+    - ✅ Database constraints work correctly
+
 ### In Progress
 
 - **🧪 Test Suite Updates for Transaction Refactoring** (2025-11-19)

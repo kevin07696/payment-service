@@ -353,6 +353,10 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 		ports.TransactionTypeACHSavingsPreNoteDebit:   true,
 		ports.TransactionTypeACHSavingsPreNoteCredit:  true,
 		ports.TransactionTypeACHSavingsVoid:           true,
+		// PIN-less Debit
+		ports.TransactionTypePINlessDebitPurchase: true,
+		ports.TransactionTypePINlessDebitReturn:   true,
+		ports.TransactionTypePINlessDebitVoid:     true,
 	}
 	if !validTypes[req.TransactionType] {
 		return fmt.Errorf("invalid transaction type: %s", req.TransactionType)

@@ -135,14 +135,22 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 	}
 
 	// Get merchant credentials using sqlc
+	// Try parsing as UUID first, otherwise treat as slug
+	var merchant sqlc.Merchant
 	merchantID, err := uuid.Parse(resolvedMerchantID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
-	}
-
-	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get merchant: %w", err)
+	if err == nil {
+		// Valid UUID - lookup by ID
+		merchant, err = s.queries.GetMerchantByID(ctx, merchantID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get merchant by ID: %w", err)
+		}
+	} else {
+		// Not a UUID - lookup by slug
+		merchant, err = s.queries.GetMerchantBySlug(ctx, resolvedMerchantID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get merchant by slug: %w", err)
+		}
+		merchantID = merchant.ID // Use the merchant's UUID for subsequent operations
 	}
 
 	// Check if merchant is active (Valid must be true and Bool must be true)
@@ -156,9 +164,11 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
 	}
 
-	// Determine auth_guid (payment token)
+	// Determine payment method type and auth credentials
 	var authGUID string
 	var paymentMethodUUID *uuid.UUID // Reuse parsed UUID
+	var paymentMethodType domain.PaymentMethodType = domain.PaymentMethodTypeCreditCard // Default
+
 	if req.PaymentMethodID != nil {
 		// Using saved payment method - parse UUID once
 		pmID, err := uuid.Parse(*req.PaymentMethodID)
@@ -167,22 +177,36 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		}
 		paymentMethodUUID = &pmID
 
-		pm, err := s.queries.GetPaymentMethodByID(ctx, pmID)
+		dbPM, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get payment method: %w", err)
 		}
-		authGUID = pm.Bric
+
+		// Convert to domain model to use grace period logic
+		domainPM := sqlcPaymentMethodToDomain(&dbPM)
+		paymentMethodType = domainPM.PaymentType
+
+		// Check if payment method can be used for this amount (ACH must be verified)
+		canUse, reason := domainPM.CanUseForAmount(req.AmountCents)
+		if !canUse {
+			return nil, fmt.Errorf("payment method cannot be used: %s", reason)
+		}
+
+		authGUID = dbPM.Bric
+
 	} else if req.PaymentToken != nil {
 		// Using one-time token
 		authGUID = *req.PaymentToken
+
 	} else {
-		return nil, fmt.Errorf("either payment_method_id or payment_token is required")
+		return nil, fmt.Errorf("payment method required: provide payment_method_id or payment_token")
 	}
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID (parsed from idempotency key above)
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
 	epxTranNbr := util.UUIDToEPXTranNbr(txID)
 
+	// Use Sale transaction type for all purchases (credit card or ACH with BRIC)
 	epxReq := &adapterports.ServerPostRequest{
 		CustNbr:         merchant.CustNbr,
 		MerchNbr:        merchant.MerchNbr,
@@ -190,7 +214,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		TerminalNbr:     merchant.TerminalNbr,
 		TransactionType: adapterports.TransactionTypeSale,
 		Amount:          centsToDecimalString(req.AmountCents),
-		PaymentType:     adapterports.PaymentMethodTypeCreditCard,
+		PaymentType:     adapterports.PaymentMethodType(paymentMethodType),
 		AuthGUID:        authGUID,
 		TranNbr:         epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:       "SALE",     // Transaction class: SALE = auth + capture combined
@@ -245,11 +269,11 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 			CustomerID:          customerIDUUID,
 			AmountCents:         amountCents,
 			Currency:            req.Currency,
-			Type:                string(domain.TransactionTypeSale),
-			PaymentMethodType:   string(domain.PaymentMethodTypeCreditCard),
+			Type:                string(domain.TransactionTypeSale), // SALE for all purchases (credit, ACH, PIN-less debit)
+			PaymentMethodType:   string(paymentMethodType),          // Use actual type: credit_card, ach, or pinless_debit
 			PaymentMethodID:     toNullableUUID(req.PaymentMethodID),
 			TranNbr:             pgtype.Text{String: epxTranNbr, Valid: true},
-			AuthGuid:            toNullableText(&epxResp.AuthGUID), // Store SALE's BRIC
+			AuthGuid:            toNullableText(&epxResp.AuthGUID), // Store transaction's BRIC
 			AuthResp:            pgtype.Text{String: epxResp.AuthResp, Valid: true},
 			AuthCode:            toNullableText(&epxResp.AuthCode),
 			AuthCardType:        toNullableText(&epxResp.AuthCardType),
@@ -321,14 +345,22 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 	}
 
 	// Get merchant credentials
+	// Try parsing as UUID first, otherwise treat as slug
+	var merchant sqlc.Merchant
 	merchantID, err := uuid.Parse(resolvedMerchantID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
-	}
-
-	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get merchant: %w", err)
+	if err == nil {
+		// Valid UUID - lookup by ID
+		merchant, err = s.queries.GetMerchantByID(ctx, merchantID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get merchant by ID: %w", err)
+		}
+	} else {
+		// Not a UUID - lookup by slug
+		merchant, err = s.queries.GetMerchantBySlug(ctx, resolvedMerchantID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get merchant by slug: %w", err)
+		}
+		merchantID = merchant.ID // Use the merchant's UUID for subsequent operations
 	}
 
 	if !merchant.IsActive {
@@ -1552,4 +1584,79 @@ func centsToDecimalString(cents int64) string {
 // Example: 1050 -> "$10.50"
 func formatCentsForLog(cents int64) string {
 	return "$" + centsToDecimalString(cents)
+}
+
+// sqlcPaymentMethodToDomain converts sqlc model to domain model
+func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.PaymentMethod {
+	pm := &domain.PaymentMethod{
+		ID:           dbPM.ID.String(),
+		MerchantID:   dbPM.MerchantID.String(),
+		CustomerID:   dbPM.CustomerID.String(),
+		PaymentType:  domain.PaymentMethodType(dbPM.PaymentType),
+		PaymentToken: dbPM.Bric,
+		LastFour:     dbPM.LastFour,
+		IsDefault:    dbPM.IsDefault.Bool,
+		IsActive:     dbPM.IsActive.Bool,
+		IsVerified:   dbPM.IsVerified.Bool,
+		CreatedAt:    dbPM.CreatedAt,
+		UpdatedAt:    dbPM.UpdatedAt,
+	}
+
+	if dbPM.CardBrand.Valid {
+		pm.CardBrand = &dbPM.CardBrand.String
+	}
+
+	if dbPM.CardExpMonth.Valid {
+		expMonth := int(dbPM.CardExpMonth.Int32)
+		pm.CardExpMonth = &expMonth
+	}
+
+	if dbPM.CardExpYear.Valid {
+		expYear := int(dbPM.CardExpYear.Int32)
+		pm.CardExpYear = &expYear
+	}
+
+	if dbPM.BankName.Valid {
+		pm.BankName = &dbPM.BankName.String
+	}
+
+	if dbPM.AccountType.Valid {
+		pm.AccountType = &dbPM.AccountType.String
+	}
+
+	if dbPM.LastUsedAt.Valid {
+		pm.LastUsedAt = &dbPM.LastUsedAt.Time
+	}
+
+	// ACH Verification fields (from migration 009)
+	if dbPM.VerificationStatus.Valid {
+		pm.VerificationStatus = &dbPM.VerificationStatus.String
+	}
+
+	if dbPM.PrenoteTransactionID.Valid {
+		prenoteID := uuid.UUID(dbPM.PrenoteTransactionID.Bytes).String()
+		pm.PreNoteTransactionID = &prenoteID
+	}
+
+	if dbPM.VerifiedAt.Valid {
+		pm.VerifiedAt = &dbPM.VerifiedAt.Time
+	}
+
+	if dbPM.VerificationFailureReason.Valid {
+		pm.VerificationFailureReason = &dbPM.VerificationFailureReason.String
+	}
+
+	// ReturnCount is NOT NULL DEFAULT 0, so always present
+	returnCount := int(dbPM.ReturnCount)
+	pm.ReturnCount = &returnCount
+
+	if dbPM.DeactivationReason.Valid {
+		pm.DeactivationReason = &dbPM.DeactivationReason.String
+	}
+
+	if dbPM.DeactivatedAt.Valid {
+		pm.DeactivatedAt = &dbPM.DeactivatedAt.Time
+	}
+
+	return pm
 }

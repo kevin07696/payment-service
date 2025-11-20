@@ -4,6 +4,17 @@ import (
 	"time"
 )
 
+// VerificationStatus represents the verification status of a payment method
+type VerificationStatus string
+
+const (
+	VerificationStatusPending  VerificationStatus = "pending"
+	VerificationStatusVerified VerificationStatus = "verified"
+	VerificationStatusFailed   VerificationStatus = "failed"
+)
+
+// No grace period - ACH accounts must be fully verified before use
+
 // PaymentMethod represents a saved payment method (tokenized)
 type PaymentMethod struct {
 	// Identity
@@ -37,6 +48,15 @@ type PaymentMethod struct {
 	IsDefault  bool `json:"is_default"`
 	IsActive   bool `json:"is_active"`
 	IsVerified bool `json:"is_verified"` // For ACH pre-note verification
+
+	// ACH Verification (from migration 009)
+	VerificationStatus      *string    `json:"verification_status"`       // "pending", "verified", "failed"
+	PreNoteTransactionID    *string    `json:"prenote_transaction_id"`    // Links to pre-note transaction
+	VerifiedAt              *time.Time `json:"verified_at"`               // When verification completed
+	VerificationFailureReason *string  `json:"verification_failure_reason"` // Why verification failed
+	ReturnCount             *int       `json:"return_count"`              // Number of ACH returns received
+	DeactivationReason      *string    `json:"deactivation_reason"`       // Why payment method deactivated
+	DeactivatedAt           *time.Time `json:"deactivated_at"`            // When deactivated
 
 	// Timestamps
 	CreatedAt  time.Time  `json:"created_at"`
@@ -75,19 +95,46 @@ func (pm *PaymentMethod) IsExpired() bool {
 	return false
 }
 
+// CanUseForAmount returns true if the payment method can be used for the specified amount
+// For ACH: requires full verification (no grace period)
+func (pm *PaymentMethod) CanUseForAmount(amountCents int64) (bool, string) {
+	if !pm.IsActive {
+		return false, "payment method is not active"
+	}
+
+	// Credit card checks
+	if pm.IsCreditCard() {
+		if pm.IsExpired() {
+			return false, "credit card is expired"
+		}
+		return true, ""
+	}
+
+	// ACH checks - must be fully verified before any payments
+	if pm.IsACH() {
+		if !pm.IsVerified {
+			return false, "ACH account must be verified before use"
+		}
+		return true, ""
+	}
+
+	return true, ""
+}
+
 // CanBeUsed returns true if the payment method can be used for transactions
+// NOTE: This does NOT check amount-specific limits. Use CanUseForAmount() for that.
 func (pm *PaymentMethod) CanBeUsed() bool {
 	if !pm.IsActive {
 		return false
 	}
 
-	// ACH must be verified
-	if pm.IsACH() && !pm.IsVerified {
+	// Credit card must not be expired
+	if pm.IsCreditCard() && pm.IsExpired() {
 		return false
 	}
 
-	// Credit card must not be expired
-	if pm.IsCreditCard() && pm.IsExpired() {
+	// ACH must be verified
+	if pm.IsACH() && !pm.IsVerified {
 		return false
 	}
 

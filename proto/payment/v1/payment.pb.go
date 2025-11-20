@@ -395,8 +395,8 @@ type SaleRequest struct {
 	//	*SaleRequest_PaymentMethodId
 	//	*SaleRequest_PaymentToken
 	PaymentMethod  isSaleRequest_PaymentMethod `protobuf_oneof:"payment_method"`
-	IdempotencyKey string                      `protobuf:"bytes,7,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	Metadata       map[string]string           `protobuf:"bytes,8,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	IdempotencyKey string                      `protobuf:"bytes,8,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	Metadata       map[string]string           `protobuf:"bytes,9,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -503,7 +503,7 @@ type isSaleRequest_PaymentMethod interface {
 }
 
 type SaleRequest_PaymentMethodId struct {
-	PaymentMethodId string `protobuf:"bytes,5,opt,name=payment_method_id,json=paymentMethodId,proto3,oneof"` // UUID of saved payment method
+	PaymentMethodId string `protobuf:"bytes,5,opt,name=payment_method_id,json=paymentMethodId,proto3,oneof"` // UUID of saved payment method (ACH/credit card)
 }
 
 type SaleRequest_PaymentToken struct {
@@ -1451,8 +1451,8 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12,\n" +
 	"\x11payment_method_id\x18\x05 \x01(\tH\x00R\x0fpaymentMethodId\x12%\n" +
 	"\rpayment_token\x18\x06 \x01(\tH\x00R\fpaymentToken\x12'\n" +
-	"\x0fidempotency_key\x18\a \x01(\tR\x0eidempotencyKey\x12A\n" +
-	"\bmetadata\x18\b \x03(\v2%.payment.v1.SaleRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\x0fidempotency_key\x18\b \x01(\tR\x0eidempotencyKey\x12A\n" +
+	"\bmetadata\x18\t \x03(\v2%.payment.v1.SaleRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +

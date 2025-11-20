@@ -31,8 +31,11 @@ type SaleRequest struct {
 	CustomerID      *string
 	AmountCents     int64 // Amount in cents
 	Currency        string
-	PaymentMethodID *string
-	PaymentToken    *string
+
+	// Payment Method Options (mutually exclusive):
+	PaymentMethodID *string // Use saved payment method (ACH or credit card with BRIC)
+	PaymentToken    *string // One-time token from EPX (AUTH_GUID/BRIC)
+
 	IdempotencyKey  *string
 	Metadata        map[string]interface{}
 }

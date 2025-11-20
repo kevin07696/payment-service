@@ -116,19 +116,22 @@ func seedTestMerchant(t *testing.T, cfg *Config) {
 			updated_at
 		) VALUES (
 			'00000000-0000-0000-0000-000000000001'::uuid,
-			'test-merchant-integration',
+			'test-merchant-staging',
 			'/epx/staging/mac_secret',
 			$1, $2, $3, $4,
-			'test',
-			'Integration Test Merchant',
+			'staging',
+			'Test Merchant (Staging)',
 			true,
 			NOW(),
 			NOW()
 		) ON CONFLICT (id) DO UPDATE SET
+			slug = 'test-merchant-staging',
 			cust_nbr = EXCLUDED.cust_nbr,
 			merch_nbr = EXCLUDED.merch_nbr,
 			dba_nbr = EXCLUDED.dba_nbr,
 			terminal_nbr = EXCLUDED.terminal_nbr,
+			environment = 'staging',
+			name = 'Test Merchant (Staging)',
 			updated_at = NOW()
 	`, cfg.EPXCustNbr, cfg.EPXMerchNbr, cfg.EPXDBANbr, cfg.EPXTerminalNbr)
 

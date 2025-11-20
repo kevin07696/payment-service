@@ -17,8 +17,10 @@ type Client struct {
 	HTTPClient *http.Client
 }
 
-// NewClient creates a new test API client
+// NewClient creates a new test API client for ConnectRPC
 func NewClient(baseURL string) *Client {
+	// Use standard HTTP/1.1 transport for Connect protocol
+	// The h2c server supports both HTTP/1.1 and HTTP/2
 	return &Client{
 		BaseURL: baseURL,
 		HTTPClient: &http.Client{
@@ -63,6 +65,43 @@ func (c *Client) DoForm(method, path string, formData url.Values) (*http.Respons
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+
+	return resp, nil
+}
+
+// DoConnectRPC performs a ConnectRPC call using HTTP/JSON protocol
+// serviceName: e.g., "payment.v1.PaymentService"
+// method: e.g., "Sale"
+// body: request message as map or struct
+func (c *Client) DoConnectRPC(serviceName, method string, body interface{}) (*http.Response, error) {
+	// ConnectRPC path format: /package.service.ServiceName/Method
+	path := fmt.Sprintf("/%s/%s", serviceName, method)
+
+	var bodyReader io.Reader
+	if body != nil {
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request body: %w", err)
+		}
+		bodyReader = bytes.NewReader(jsonBody)
+	}
+
+	req, err := http.NewRequest("POST", c.BaseURL+path, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	// ConnectRPC HTTP/JSON protocol headers
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	// Use Connect protocol (works with HTTP/1.1 and HTTP/2)
+	req.Header.Set("Connect-Protocol-Version", "1")
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

@@ -17,12 +17,13 @@ const (
 type TransactionType string
 
 const (
-	TransactionTypeAuth    TransactionType = "auth"     // Authorization only (EPX TRAN_GROUP=A)
-	TransactionTypeCapture TransactionType = "capture"  // Capture authorized funds
-	TransactionTypeSale    TransactionType = "sale"     // Combined auth + capture (EPX TRAN_GROUP=U)
-	TransactionTypeRefund  TransactionType = "refund"   // Return funds
-	TransactionTypeVoid    TransactionType = "void"     // Cancel transaction before settlement
-	TransactionTypePreNote TransactionType = "pre_note" // ACH verification
+	TransactionTypeAuth    TransactionType = "AUTH"     // Authorization only (EPX TRAN_GROUP=A)
+	TransactionTypeCapture TransactionType = "CAPTURE"  // Capture authorized funds
+	TransactionTypeSale    TransactionType = "SALE"     // Combined auth + capture (EPX TRAN_GROUP=U)
+	TransactionTypeRefund  TransactionType = "REFUND"   // Return funds
+	TransactionTypeVoid    TransactionType = "VOID"     // Cancel transaction before settlement
+	TransactionTypePreNote TransactionType = "PRE_NOTE" // ACH verification
+	TransactionTypeStorage TransactionType = "STORAGE"  // Tokenization (credit card or ACH)
 )
 
 // PaymentMethodType represents the payment method used
