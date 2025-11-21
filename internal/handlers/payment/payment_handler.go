@@ -374,11 +374,25 @@ func epxCardTypeToBrand(epxCode string) string {
 	}
 }
 
-// extractLastFour extracts last 4 digits from masked card number or returns empty
+// extractLastFour extracts last 4 digits from transaction metadata or linked payment method
 func extractLastFour(tx *domain.Transaction) string {
-	// Gateway may provide last 4 in metadata or we might need to extract
-	// from other fields - for now return empty as this needs gateway-specific logic
-	// TODO: Extract from metadata or other gateway fields
+	// Check transaction metadata for last_four (from gateway response)
+	if tx.Metadata != nil {
+		if lastFour, ok := tx.Metadata["last_four"].(string); ok && lastFour != "" {
+			return lastFour
+		}
+		// Check for AUTH_MASKED_ACCOUNT_NBR (EPX field)
+		if maskedAcct, ok := tx.Metadata["AUTH_MASKED_ACCOUNT_NBR"].(string); ok && len(maskedAcct) >= 4 {
+			return maskedAcct[len(maskedAcct)-4:]
+		}
+		// Check for CARD_NBR (EPX field)
+		if cardNbr, ok := tx.Metadata["CARD_NBR"].(string); ok && len(cardNbr) >= 4 {
+			return cardNbr[len(cardNbr)-4:]
+		}
+	}
+
+	// Note: If payment_method_id is present, caller should fetch the payment method separately
+	// to get last_four. We don't fetch it here to avoid N+1 query issues.
 	return ""
 }
 

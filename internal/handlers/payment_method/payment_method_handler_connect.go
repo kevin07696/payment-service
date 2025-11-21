@@ -343,13 +343,26 @@ func (h *ConnectHandler) StoreACHAccount(
 	return connect.NewResponse(paymentMethodToResponse(pm)), nil
 }
 
-// UpdatePaymentMethod updates metadata only (billing info, nickname)
-// TODO: Implement payment method metadata update functionality
+// UpdatePaymentMethod updates payment method metadata (billing info, nickname)
+//
+// NOTE: Not yet implemented - requires schema migration to add billing fields:
+//   - billing_name, billing_address, billing_city, billing_state, billing_zip
+//   - nickname (optional user-provided label)
+//
+// Current schema only stores: last_four, card_brand, card_exp_*, bank_name, account_type
+//
+// Implementation plan:
+//   1. Add migration to add billing_* columns to customer_payment_methods table
+//   2. Update domain.PaymentMethod to include billing fields
+//   3. Update sqlc queries to support UPDATE of billing fields
+//   4. Implement this handler to call payment method service
+//
+// Use case: Allow customers to update billing address without re-tokenizing card
 func (h *ConnectHandler) UpdatePaymentMethod(
 	ctx context.Context,
 	req *connect.Request[paymentmethodv1.UpdatePaymentMethodRequest],
 ) (*connect.Response[paymentmethodv1.PaymentMethodResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("UpdatePaymentMethod not yet implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("UpdatePaymentMethod requires billing fields schema migration"))
 }
 
 // handleServiceErrorConnect maps domain errors to Connect error codes

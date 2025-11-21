@@ -4,8 +4,6 @@
 package payment_method_test
 
 import (
-	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
