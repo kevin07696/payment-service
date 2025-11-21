@@ -45,43 +45,6 @@ func TestStorePaymentMethod_CreditCard(t *testing.T) {
 	t.Logf("Stored payment method: %s", paymentMethodID)
 }
 
-// TestStorePaymentMethod_ACH tests storing a tokenized ACH payment method
-func TestStorePaymentMethod_ACH(t *testing.T) {
-	t.Skip("TODO: Update to use StoreACHAccount RPC once implemented (currently returns Unimplemented)")
-
-	cfg, client := testutil.Setup(t)
-	time.Sleep(2 * time.Second) // EPX rate limiting
-	merchantID := "test-merchant-staging"
-	jwtToken := generateJWTToken(t, merchantID)
-
-	// TODO: Replace with StoreACHAccount RPC call
-	paymentMethodID, err := testutil.TokenizeAndSaveACH(
-		cfg,
-		client,
-		jwtToken,
-		"test-merchant-staging",
-		"test-customer-002",
-		testutil.TestACHChecking,
-	)
-	require.NoError(t, err, "Should tokenize and save ACH")
-	assert.NotEmpty(t, paymentMethodID, "Should return payment method ID")
-
-	t.Logf("Stored ACH payment method: %s", paymentMethodID)
-
-	// Verify we can retrieve it
-	resp, err := client.Do("GET", fmt.Sprintf("/api/v1/payment-methods/%s", paymentMethodID), nil)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	assert.Equal(t, 200, resp.StatusCode, "Should retrieve payment method")
-
-	var result map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	require.NoError(t, err)
-
-	assert.Equal(t, "7890", result["lastFour"])
-	assert.Equal(t, "checking", result["accountType"])
-}
 
 // TestGetPaymentMethod retrieves a stored payment method
 // Uses Browser Post STORAGE flow to create payment method first

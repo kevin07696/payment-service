@@ -1010,7 +1010,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
 		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
 		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:        "",
+		TranGroup:        "VOID",     // EPX TRAN_GROUP classification
 		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
 	}
 
@@ -1273,7 +1273,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
 		OriginalAuthGUID: authBRIC,   // Reference to CAPTURE (or AUTH if SALE)
 		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:        "",
+		TranGroup:        "REFUND",   // EPX TRAN_GROUP classification
 		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
 	}
 

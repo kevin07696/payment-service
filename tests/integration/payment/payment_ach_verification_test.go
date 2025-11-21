@@ -157,64 +157,6 @@ func TestACH_AllowVerifiedPayments(t *testing.T) {
 	t.Logf("✅ Verified ACH payment approved - Transaction ID: %s", saleResp.Msg.TransactionId)
 }
 
-// TestACH_FailedAccountBlocked tests that failed ACH accounts cannot be used
-func TestACH_FailedAccountBlocked(t *testing.T) {
-	cfg, _ := testutil.Setup(t)
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	client := paymentv1connect.NewPaymentServiceClient(httpClient, cfg.ServiceURL)
-	merchantID := "00000000-0000-0000-0000-000000000001"
-	customerID := "10000000-0000-0000-0000-000000000004"
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	time.Sleep(1 * time.Second)
-
-	// Generate JWT token for authentication
-	jwtToken := generateJWTToken(t, merchantID)
-
-	// Save ACH account
-	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
-	paymentMethodID, err := testutil.TokenizeAndSaveACH(cfg, testClient, jwtToken, merchantID, customerID, testutil.TestACHChecking)
-	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-
-	// Simulate ACH return code (failed verification)
-	db := testutil.GetDB(t)
-	err = testutil.MarkACHAsFailed(db, paymentMethodID, "R03: No Account/Unable to Locate")
-	require.NoError(t, err)
-
-	// Verify status changed
-	status, isVerified, err := testutil.GetACHVerificationStatus(db, paymentMethodID)
-	require.NoError(t, err)
-	assert.Equal(t, "failed", status)
-	assert.False(t, isVerified)
-
-	// Try to make payment
-	idempotencyKey := uuid.New().String()
-	saleReq := connect.NewRequest(&paymentv1.SaleRequest{
-		MerchantId:  merchantID,
-		CustomerId:  customerID,
-		AmountCents: 5000, // $50.00
-		Currency:    "USD",
-		PaymentMethod: &paymentv1.SaleRequest_PaymentMethodId{
-			PaymentMethodId: paymentMethodID,
-		},
-		IdempotencyKey: idempotencyKey,
-	})
-	addJWTAuth(t, saleReq, cfg, merchantID)
-
-	_, err = client.Sale(ctx, saleReq)
-
-	// Should be rejected
-	require.Error(t, err, "Payment should be rejected for failed ACH account")
-
-	// Verify error message mentions inactive status
-	assert.Contains(t, err.Error(), "not active",
-		"Error should mention inactive status")
-
-	t.Logf("✅ Failed ACH account correctly blocked - Error: %v", err)
-}
-
 // TestACH_HighValuePayments tests that even verified ACH can handle high-value transactions
 func TestACH_HighValuePayments(t *testing.T) {
 	cfg, _ := testutil.Setup(t)

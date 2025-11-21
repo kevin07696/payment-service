@@ -98,17 +98,8 @@ func (pm *PaymentMethod) IsExpired() bool {
 // CanUseForAmount returns true if the payment method can be used for the specified amount
 // For ACH: requires full verification (no grace period)
 func (pm *PaymentMethod) CanUseForAmount(amountCents int64) (bool, string) {
-	// ACH-specific checks BEFORE general active check
-	// This allows us to distinguish between "pending verification" and "failed/inactive"
-	if pm.IsACH() && !pm.IsVerified {
-		// If verification status is explicitly "pending", return verification-specific error
-		if pm.VerificationStatus != nil && *pm.VerificationStatus == "pending" {
-			return false, "ACH account must be verified before use"
-		}
-		// For failed or other non-verified states, fall through to active check below
-	}
-
-	// Check active status (applies to all payment types, including failed ACH accounts)
+	// Check active status FIRST (applies to all payment types)
+	// Inactive payment methods should always return "not active" regardless of other states
 	if !pm.IsActive {
 		return false, "payment method is not active"
 	}
@@ -116,6 +107,11 @@ func (pm *PaymentMethod) CanUseForAmount(amountCents int64) (bool, string) {
 	// Credit card expiration check
 	if pm.IsCreditCard() && pm.IsExpired() {
 		return false, "credit card is expired"
+	}
+
+	// ACH verification check (only if active)
+	if pm.IsACH() && !pm.IsVerified {
+		return false, "ACH account must be verified before use"
 	}
 
 	return true, ""

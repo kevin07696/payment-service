@@ -153,8 +153,8 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 		FROM customer_payment_methods
 		WHERE payment_type = 'ach'
 		  AND verification_status = 'pending'
-		  AND is_active = true
 		  AND created_at <= $1
+		  AND deleted_at IS NULL
 		ORDER BY created_at ASC
 		LIMIT $2
 	`
@@ -194,11 +194,12 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 		zap.Int("verification_days", verificationDays),
 	)
 
-	// Update each payment method to verified status
+	// Update each payment method to verified status and activate it
 	updateQuery := `
 		UPDATE customer_payment_methods
 		SET verification_status = 'verified',
 		    is_verified = true,
+		    is_active = true,
 		    verified_at = NOW(),
 		    updated_at = NOW()
 		WHERE id = $1
@@ -320,7 +321,7 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	// Total ACH accounts
 	err := h.db.QueryRow(`
 		SELECT COUNT(*) FROM customer_payment_methods
-		WHERE payment_type = 'ach' AND is_active = true
+		WHERE payment_type = 'ach' AND deleted_at IS NULL
 	`).Scan(&stats.TotalACH)
 	if err != nil && err != sql.ErrNoRows {
 		h.logger.Error("Failed to query total ACH", zap.Error(err))
@@ -331,7 +332,7 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		SELECT COUNT(*) FROM customer_payment_methods
 		WHERE payment_type = 'ach'
 		  AND verification_status = 'pending'
-		  AND is_active = true
+		  AND deleted_at IS NULL
 	`).Scan(&stats.Pending)
 	if err != nil && err != sql.ErrNoRows {
 		h.logger.Error("Failed to query pending ACH", zap.Error(err))
@@ -342,7 +343,7 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		SELECT COUNT(*) FROM customer_payment_methods
 		WHERE payment_type = 'ach'
 		  AND verification_status = 'verified'
-		  AND is_active = true
+		  AND deleted_at IS NULL
 	`).Scan(&stats.Verified)
 	if err != nil && err != sql.ErrNoRows {
 		h.logger.Error("Failed to query verified ACH", zap.Error(err))
@@ -353,6 +354,7 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		SELECT COUNT(*) FROM customer_payment_methods
 		WHERE payment_type = 'ach'
 		  AND verification_status = 'failed'
+		  AND deleted_at IS NULL
 	`).Scan(&stats.Failed)
 	if err != nil && err != sql.ErrNoRows {
 		h.logger.Error("Failed to query failed ACH", zap.Error(err))
@@ -364,8 +366,8 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		SELECT COUNT(*) FROM customer_payment_methods
 		WHERE payment_type = 'ach'
 		  AND verification_status = 'pending'
-		  AND is_active = true
 		  AND created_at <= $1
+		  AND deleted_at IS NULL
 	`, cutoffDate).Scan(&stats.EligibleNow)
 	if err != nil && err != sql.ErrNoRows {
 		h.logger.Error("Failed to query eligible ACH", zap.Error(err))

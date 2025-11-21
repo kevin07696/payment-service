@@ -27,7 +27,14 @@ func MarkACHAsVerified(db *sql.DB, paymentMethodID string) error {
 // MarkACHAsFailed simulates receiving an ACH return code (e.g., R03 - No Account)
 // This allows testing failed verification scenarios
 func MarkACHAsFailed(db *sql.DB, paymentMethodID string, returnCode string) error {
-	_, err := db.Exec(`
+	// Use explicit transaction to ensure commit
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(`
 		UPDATE customer_payment_methods
 		SET verification_status = 'failed',
 		    is_active = false,
@@ -39,6 +46,20 @@ func MarkACHAsFailed(db *sql.DB, paymentMethodID string, returnCode string) erro
 
 	if err != nil {
 		return fmt.Errorf("failed to mark ACH as failed: %w", err)
+	}
+
+	// Verify the update affected exactly 1 row
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows != 1 {
+		return fmt.Errorf("expected 1 row affected, got %d", rows)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-11-21)
+
+- **ACH Verification Cron Handler** (`internal/handlers/cron/ach_verification_handler.go`)
+  - Fixed query to find pending ACH accounts regardless of `is_active` status
+  - ACH accounts are created with `is_active = false` until verified
+  - Updated cron to set `is_active = true` when marking accounts as verified
+  - Removed incorrect `is_active = true` filter from SELECT query
+  - Updated Stats queries to use `deleted_at IS NULL` instead of `is_active = true`
+  - All 6 ACH verification cron tests now passing ✅
+
+- **ACH Verification Cron Tests** (`tests/integration/cron/ach_verification_cron_test.go`)
+  - Unskipped `TestACHVerificationCron_Basic` - Verifies 3-day waiting period
+  - Unskipped `TestACHVerificationCron_VerificationDays` - Tests custom verification periods
+  - Unskipped `TestACHVerificationCron_BatchSize` - Tests batch size limiting
+  - Added JWT token generation and HTTP client setup
+  - Updated test assertions to handle shared database state
+  - Added debug verification that accounts are properly backdated
+
+### Issues Identified
+
+- **P0 Critical: Void/Refund Using Empty TranGroup** (2025-11-20)
+  - **Location:** `internal/services/payment/payment_service.go:1013, 1276`
+  - **Issue:** Both `Void()` and `Refund()` operations send `TranGroup: ""` to EPX instead of the transaction's `group_id`
+  - **Impact:** Void and refund operations may not properly reference parent transactions in EPX gateway
+  - **Required Fix:**
+    - Void should use: `TranGroup: domainTxsRefetch[0].GroupID` (AUTH's transaction group)
+    - Refund should use: `TranGroup: domainTxsRefetch[0].GroupID` (CAPTURE/SALE's transaction group)
+  - **Status:** Documented in `docs/development/TODO_P0_CRITICAL_FIXES.md`
+  - **Priority:** P0 - Must fix before production deployment
+
+- **TestACH_FailedAccountBlocked Test Failure** (2025-11-20)
+  - **Root Cause:** Database connection pooling or transaction timing issue
+  - **Symptom:** Payment service validation returns "ACH must be verified" instead of "payment method is not active" for failed ACH accounts
+  - **Database State:** Correctly shows `verification_status='failed'` ✓
+  - **Domain Logic:** Should fall through to "not active" check ✓
+  - **Hypothesis:** Test helper UPDATE may not be committed/visible when payment service reads
+  - **Potential Fix:** Add explicit transaction commit in test helper or small delay between UPDATE and payment attempt
+  - **Impact:** 4/5 ACH integration tests passing (80% success rate)
+
 ### Changed
 
 - **Documentation Reorganization** (2025-11-20)
