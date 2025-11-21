@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Refactored (2025-11-21)
+
+- **Admin CLI Refactored to Use SQLC and Add Audit Trail** (`cmd/admin/main.go`)
+  - **Eliminated all raw SQL**: Converted 9+ raw SQL queries to use type-safe sqlc-generated code
+  - **Added comprehensive audit logging**: All admin operations now create database-backed audit logs
+  - **Architecture improvements**:
+    - Changed `AdminCLI` struct to use `sqlc.Querier` interface instead of `*sql.DB`
+    - Added proper context handling for all queries
+    - Improved type safety with pgtype for nullable fields (UUID, Int4, Bool, Text)
+  - **Operations refactored**:
+    - Login: Uses `GetAdminByEmail` instead of raw SELECT
+    - Create Service: Uses `CreateService` with proper parameter types
+    - Create Merchant: Uses `CreateMerchant` with UUID handling
+    - Grant Access: Uses `GrantServiceAccess` with foreign keys
+    - List Services/Merchants: Uses `ListServices`/`ListMerchants` with pagination
+    - Auto Login: Uses `ListAdmins` with filtering
+  - **Audit trail events**:
+    - `admin.login` / `admin.login.failed` - Admin authentication attempts
+    - `admin.auto_login` - Automatic admin login for CLI operations
+    - `service.create` / `service.create.failed` - Service registration
+    - `merchant.create` / `merchant.create.failed` - Merchant onboarding
+    - `service.grant_access` / `service.grant_access.failed` - Access grants
+  - **Benefits**: Type safety, consistency, compliance-ready audit trail, better maintainability
+  - **Quality checks**: ✅ go vet ✅ go build ✅ go test -short ./...
+  - **Note**: Some raw SQL remains in performance-critical middleware initialization (connect_auth, epx_callback_auth, ach_verification stats)
+
 ### Fixed (2025-11-21)
 
 - **EPX Server Post BRIC Token Parameter Fix** (`internal/adapters/epx/server_post_adapter.go:499-500`)
