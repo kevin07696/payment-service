@@ -453,6 +453,9 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, cfg *Config, logger *
 		logger.Fatal("Failed to initialize database adapter", zap.Error(err))
 	}
 
+	// Start database connection pool monitoring (checks every 30 seconds)
+	dbAdapter.StartPoolMonitoring(context.Background(), 30*time.Second)
+
 	// Initialize EPX adapters with environment-specific configuration
 	epxEnv := "sandbox"
 	if getEnv("ENVIRONMENT", "development") == "production" {
@@ -550,7 +553,8 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, cfg *Config, logger *
 		dbAdapter,
 		browserPost,
 		keyExchange,
-		secretManager, // Secret manager for fetching merchant-specific MACs
+		secretManager,      // Secret manager for fetching merchant-specific MACs
+		paymentMethodSvc,   // Payment method service for saving payment methods
 		logger,
 		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
 		cfg.CallbackBaseURL,    // Base URL for callbacks
