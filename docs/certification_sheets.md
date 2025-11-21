@@ -53,7 +53,12 @@ Browser Post transactions use the EPX hosted payment form where customers enter 
 7. EPX validates TAC and processes transaction
 8. EPX redirects back with transaction result
 
-**Example TAC:** `0123456789ABCDEFGHIJ` (20-character alphanumeric token)
+**Example TAC:**
+```
+QnJuHTpXRCsNXnxNlGyrmw==|oy5DEup7ep2hOGB37bh04OOuaPXZHTWvIhNyK6sRLTLvQfl9MAsUEy8LjcLj/w68ztkt58bes87KCvlCG4Phh0534lQG0CyQy8WCwr6CD4RnnEhER4pZYROjk8WVkjqDEsyumyE5tggdunA5neQJ/+gJUp0xfgLveVDrU6RI7biSqJa2IidbmUhZfMBRv+vP7X8zshFXzO75ZckHk2QLB749UkANj3DVfiS8AjfP1WJvIqyNB0fNtKfI1SSwiWzI/JfYkNAMxuE7fuTWvuEbiJBbJCOlo7b+DjqwKoDW1bJqgZ3h2tvopCkVzsnFr69zWSH+TX7o1cWIshMXcGzdz8cFCwb+U3zqYCwXOi0kces=
+```
+
+**TAC Format:** Base64-encoded encrypted token with pipe delimiter (approximately 400 characters)
 
 **Note:** TACs are dynamically generated for each transaction and cannot be predetermined. Each Browser Post transaction requires a unique TAC from EPX Key Exchange.
 
@@ -86,13 +91,13 @@ REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback
 ```xml
 <RESPONSE>
   <FIELDS>
-    <FIELD KEY="TAC">A1B2C3D4E5F6G7H8I9J0</FIELD>
+    <FIELD KEY="TAC">QnJuHTpXRCsNXnxNlGyrmw==|oy5DEup7ep2hOGB37bh04OOuaPXZHTWvIhNyK6sRLTLvQfl9MAsUEy8LjcLj/w68ztkt58bes87KCvlCG4Phh0534lQG0CyQy8WCwr6CD4RnnEhER4pZYROjk8WVkjqDEsyumyE5tggdunA5neQJ/+gJUp0xfgLveVDrU6RI7biSqJa2IidbmUhZfMBRv+vP7X8zshFXzO75ZckHk2QLB749UkANj3DVfiS8AjfP1WJvIqyNB0fNtKfI1SSwiWzI/JfYkNAMxuE7fuTWvuEbiJBbJCOlo7b+DjqwKoDW1bJqgZ3h2tvopCkVzsnFr69zWSH+TX7o1cWIshMXcGzdz8cFCwb+U3zqYCwXOi0kces=</FIELD>
   </FIELDS>
 </RESPONSE>
 ```
 
 **TAC Characteristics:**
-- Format: 20-character alphanumeric string
+- Format: Base64-encoded encrypted token with pipe delimiter (~400 characters)
 - Expiration: 4 hours from generation
 - Single-use: Each TAC is valid for one transaction only
 - Security: TAC proves the service has valid EPX credentials (via MAC validation)
@@ -109,7 +114,7 @@ REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback
 POST https://services.epxuap.com/browserpost/
 Content-Type: application/x-www-form-urlencoded
 
-TAC=<generated_by_service>&
+TAC=QnJuHTpXRCsNXnxNlGyrmw==|oy5DEup7ep2hOGB37bh04OOuaPXZHTWvIhNyK6sRLTLvQfl9MAsUEy8LjcLj/w68ztkt58bes87KCvlCG4Phh0534lQG0CyQy8WCwr6CD4RnnEhER4pZYROjk8WVkjqDEsyumyE5tggdunA5neQJ/+gJUp0xfgLveVDrU6RI7biSqJa2IidbmUhZfMBRv+vP7X8zshFXzO75ZckHk2QLB749UkANj3DVfiS8AjfP1WJvIqyNB0fNtKfI1SSwiWzI/JfYkNAMxuE7fuTWvuEbiJBbJCOlo7b+DjqwKoDW1bJqgZ3h2tvopCkVzsnFr69zWSH+TX7o1cWIshMXcGzdz8cFCwb+U3zqYCwXOi0kces=&
 TRAN_NBR=2188937920&
 TRAN_GROUP=2188937920&
 AMOUNT=50.00&
@@ -158,7 +163,7 @@ GET /api/v1/payments/browser-post/callback?AUTH_AMOUNT=50.00&AUTH_AMOUNT_REQUEST
 POST https://services.epxuap.com/browserpost/
 Content-Type: application/x-www-form-urlencoded
 
-TAC=<generated_by_service>&
+TAC=4ZlUy5nB1VVmSgPsXFqViQ==|Yt5SAbrOxvvHqW7he9nzkxV0/fQkt/KIdEF8w+mLCWuo1dlWlMiRffEP9fyauo6AE/TNakeVOymXdbfpHEEPr4/4OzDSVs9KAEAlJOaAFssOMQ32dPqaDoyoDw/PsLhd7NKn0UihjjqjYQG8zAEFEC9xvAq0FZgSon+Z3eNuAbSBW4kUV4A0LlSTwX6K8hVMmdZG17iQkmqHLEFNjABzNQDgERRib6r0bQWRO0wOjBAHCzflgY1IFMUCqcHSdFqTrP9svhcjFyfVZFRiNk1a6EbEwl/so/BlJ5nlTM9DHaT5AFxSddAave7F7vw+yB2UsRYnhQMNj9eQzEVysJjdgyP8FdhmhcAt+MhchPwzrWQ=&
 TRAN_NBR=1414128065&
 TRAN_GROUP=1414128065&
 AMOUNT=50.00&
@@ -166,6 +171,8 @@ REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback&
 REDIRECT_URL_DECLINE=http://localhost:8081/api/v1/payments/browser-post/callback&
 REDIRECT_URL_ERROR=http://localhost:8081/api/v1/payments/browser-post/callback
 ```
+
+**Note:** TAC format is identical for all transaction types (SALE, AUTH, STORAGE). The TRAN_GROUP parameter in the Key Exchange request determines the transaction type.
 
 #### Response (EPX Redirect Callback)
 
@@ -204,7 +211,7 @@ GET /api/v1/payments/browser-post/callback?AUTH_AMOUNT=50.00&AUTH_AMOUNT_REQUEST
 POST https://services.epxuap.com/browserpost/
 Content-Type: application/x-www-form-urlencoded
 
-TAC=<generated_by_service>&
+TAC=QnJuHTpXRCsNXnxNlGyrmw==|oy5DEup7ep2hOGB37bh04OOuaPXZHTWvIhNyK6sRLTLvQfl9MAsUEy8LjcLj/w68ztkt58bes87KCvlCG4Phh0534lQG0CyQy8WCwr6CD4RnnEhER4pZYROjk8WVkjqDEsyumyE5tggdunA5neQJ/+gJUp0xfgLveVDrU6RI7biSqJa2IidbmUhZfMBRv+vP7X8zshFXzO75ZckHk2QLB749UkANj3DVfiS8AjfP1WJvIqyNB0fNtKfI1SSwiWzI/JfYkNAMxuE7fuTWvuEbiJBbJCOlo7b+DjqwKoDW1bJqgZ3h2tvopCkVzsnFr69zWSH+TX7o1cWIshMXcGzdz8cFCwb+U3zqYCwXOi0kces=&
 TRAN_NBR=3697076326&
 TRAN_GROUP=3697076326&
 AMOUNT=0.00&
@@ -213,6 +220,8 @@ REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback&
 REDIRECT_URL_DECLINE=http://localhost:8081/api/v1/payments/browser-post/callback&
 REDIRECT_URL_ERROR=http://localhost:8081/api/v1/payments/browser-post/callback
 ```
+
+**Note:** TAC format is identical for all transaction types. Each TAC is single-use and expires after 4 hours.
 
 #### Response (EPX Redirect Callback) - Visa Card
 
