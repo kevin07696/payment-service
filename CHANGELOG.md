@@ -31,6 +31,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added (2025-11-21)
 
+- **Refactoring: Converter Package** (`internal/converters/`)
+  - Created centralized converter package for type conversion helpers
+  - Functions: `ToNullableText`, `ToNullableUUID`, `ToNullableUUIDFromUUID`, `ToNullableInt32`, `StringOrEmpty`
+  - Comprehensive test coverage in `pgtype_test.go`
+  - Eliminated ~50 lines of duplicated helper functions from service files
+  - Single source of truth for pgtype conversions
+  - Updated `payment_service.go`, `transaction_helper.go` to use converter package
+
+- **Refactoring: Payment Token Resolution Helper** (`internal/services/payment/`)
+  - Created `resolvePaymentToken()` method to centralize payment method resolution logic
+  - Added `PaymentTokenInfo` struct to encapsulate resolution results
+  - Eliminated ~65 lines of duplicated code from Sale and Authorize methods
+  - Optional amount validation via parameter for payment method checks
+  - Consistent error handling across transaction types
+
+- **Refactoring: Merchant Credential Resolver Foundation** (`internal/services/authorization/`)
+  - Created `MerchantCredentialResolver` service for fetching merchant records + MAC secrets
+  - `MerchantCredentials` struct combines Merchant and MACSecret
+  - `Resolve()` method for standard context, `ResolveWithinTx()` for transactional queries
+  - Validates merchant is active before returning credentials
+  - Foundation laid for replacing 8+ duplicated merchant fetching calls
+
 - **JWT Context Extraction for Audit Logging** (`internal/middleware/auth_context.go`)
   - Created `ExtractAuthContext()` helper to extract actor_id, actor_name, request_id from JWT
   - Created `ExtractAuthType()` to get authentication type from context

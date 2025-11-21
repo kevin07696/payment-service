@@ -23,12 +23,13 @@ import (
 
 // paymentService implements the PaymentService port
 type paymentService struct {
-	queries          sqlc.Querier
-	txManager        database.TransactionManager
-	serverPost       adapterports.ServerPostAdapter
-	secretManager    adapterports.SecretManagerAdapter
-	merchantResolver *authorization.MerchantResolver
-	logger           *zap.Logger
+	queries                   sqlc.Querier
+	txManager                 database.TransactionManager
+	serverPost                adapterports.ServerPostAdapter
+	secretManager             adapterports.SecretManagerAdapter
+	merchantResolver          *authorization.MerchantResolver
+	merchantCredentialResolver *authorization.MerchantCredentialResolver
+	logger                    *zap.Logger
 }
 
 // NewPaymentService creates a new payment service
@@ -40,13 +41,21 @@ func NewPaymentService(
 	merchantResolver *authorization.MerchantResolver,
 	logger *zap.Logger,
 ) ports.PaymentService {
+	// Create merchant credential resolver
+	merchantCredentialResolver := authorization.NewMerchantCredentialResolver(
+		queries,
+		secretManager,
+		logger,
+	)
+
 	return &paymentService{
-		queries:          queries,
-		txManager:        txManager,
-		serverPost:       serverPost,
-		secretManager:    secretManager,
-		merchantResolver: merchantResolver,
-		logger:           logger,
+		queries:                   queries,
+		txManager:                 txManager,
+		serverPost:                serverPost,
+		secretManager:             secretManager,
+		merchantResolver:          merchantResolver,
+		merchantCredentialResolver: merchantCredentialResolver,
+		logger:                    logger,
 	}
 }
 

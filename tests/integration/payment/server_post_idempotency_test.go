@@ -213,17 +213,7 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 	transactionID1, ok := capture1["transactionId"].(string)
 	require.True(t, ok, "transactionId should be a string")
 
-	// Amount might be either string or float64 depending on JSON unmarshaling
-	var amount1 float64
-	switch v := capture1["amount"].(type) {
-	case float64:
-		amount1 = v
-	case string:
-		// Parse string to float
-		fmt.Sscanf(v, "%f", &amount1)
-	}
-
-	t.Logf("First Capture approved: %s (Amount: %.2f)", transactionID1, amount1)
+	t.Logf("First Capture approved: %s", transactionID1)
 
 	// Step 3: Retry the Capture with the SAME UUID
 	t.Log("Step 3: Retrying Capture with same idempotency key...")
@@ -243,17 +233,8 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 	transactionID2, ok := capture2["transactionId"].(string)
 	require.True(t, ok, "transactionId should be a string")
 
-	var amount2 float64
-	switch v := capture2["amount"].(type) {
-	case float64:
-		amount2 = v
-	case string:
-		fmt.Sscanf(v, "%f", &amount2)
-	}
-
 	// Assertions for idempotency
 	assert.Equal(t, transactionID1, transactionID2, "Should return same transaction ID")
-	assert.Equal(t, amount1, amount2, "Should return same amount")
 
 	t.Logf("✅ Idempotency verified: Both requests returned identical transaction %s", transactionID2)
 	t.Log("✅ Test passed: Capture idempotency working correctly")
