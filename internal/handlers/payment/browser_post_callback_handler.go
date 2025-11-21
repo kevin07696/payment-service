@@ -661,11 +661,11 @@ func (h *BrowserPostCallbackHandler) extractReturnURL(rawParams map[string]strin
 }
 
 // redirectToService redirects browser to calling service (POS/e-commerce/etc.) with transaction data
-func (h *BrowserPostCallbackHandler) redirectToService(w http.ResponseWriter, returnURL, txID, groupID, status string, response *ports.BrowserPostResponse) {
+func (h *BrowserPostCallbackHandler) redirectToService(w http.ResponseWriter, returnURL, txID, parentTxID, status string, response *ports.BrowserPostResponse) {
 	// Build redirect URL with transaction data as query parameters
-	redirectURL := fmt.Sprintf("%s?groupId=%s&transactionId=%s&status=%s&amount=%s&cardType=%s&authCode=%s",
+	redirectURL := fmt.Sprintf("%s?parentTransactionId=%s&transactionId=%s&status=%s&amount=%s&cardType=%s&authCode=%s",
 		returnURL,
-		groupID,
+		parentTxID,
 		txID,
 		status,
 		response.Amount,
@@ -675,7 +675,7 @@ func (h *BrowserPostCallbackHandler) redirectToService(w http.ResponseWriter, re
 
 	h.logger.Info("Redirecting to calling service",
 		zap.String("return_url", returnURL),
-		zap.String("group_id", groupID),
+		zap.String("parent_transaction_id", parentTxID),
 		zap.String("status", status),
 	)
 
@@ -738,7 +738,7 @@ func (h *BrowserPostCallbackHandler) redirectToService(w http.ResponseWriter, re
 }
 
 // renderReceiptPage renders an HTML receipt page to the user
-func (h *BrowserPostCallbackHandler) renderReceiptPage(w http.ResponseWriter, response *ports.BrowserPostResponse, txID string, groupID string) {
+func (h *BrowserPostCallbackHandler) renderReceiptPage(w http.ResponseWriter, response *ports.BrowserPostResponse, txID string, parentTxID string) {
 	approved := response.IsApproved
 
 	// Mask card number (show last 4 digits) - get from raw params if available
@@ -757,17 +757,17 @@ func (h *BrowserPostCallbackHandler) renderReceiptPage(w http.ResponseWriter, re
 
 	data := map[string]interface{}{
 		"Approved":      approved,
-		"Amount":        response.Amount,
-		"Currency":      "USD",
-		"CardType":      getCardTypeName(response.AuthCardType),
-		"MaskedCard":    maskedCard,
-		"AuthCode":      response.AuthCode,
-		"AuthRespText":  response.AuthRespText,
-		"TransactionID": txID,
-		"GroupID":       groupID,
-		"TranNbr":       response.TranNbr,
-		"BRIC":          response.AuthGUID,
-		"InvoiceNbr":    invoiceNbr,
+		"Amount":              response.Amount,
+		"Currency":            "USD",
+		"CardType":            getCardTypeName(response.AuthCardType),
+		"MaskedCard":          maskedCard,
+		"AuthCode":            response.AuthCode,
+		"AuthRespText":        response.AuthRespText,
+		"TransactionID":       txID,
+		"ParentTransactionID": parentTxID,
+		"TranNbr":             response.TranNbr,
+		"BRIC":                response.AuthGUID,
+		"InvoiceNbr":          invoiceNbr,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1053,10 +1053,10 @@ const receiptTemplate = `
                 </div>
                 {{end}}
 
-                {{if .GroupID}}
+                {{if .ParentTransactionID}}
                 <div class="detail-row">
-                    <span class="detail-label">Group ID</span>
-                    <span class="detail-value">{{.GroupID}}</span>
+                    <span class="detail-label">Parent Transaction ID</span>
+                    <span class="detail-value">{{.ParentTransactionID}}</span>
                 </div>
                 {{end}}
 

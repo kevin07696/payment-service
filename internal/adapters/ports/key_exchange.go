@@ -19,7 +19,7 @@ type KeyExchangeRequest struct {
 	// Transaction details
 	Amount      string // Transaction amount (e.g., "29.99")
 	TranNbr     string // Unique transaction number
-	TranGroup   string // Transaction group ID (our group_id)
+	TranGroup   string // EPX transaction classification: SALE, AUTH, VOID, REFUND, PRENOTE, STORAGE, etc.
 	RedirectURL string // URL where EPX will redirect after payment
 
 	// Optional fields

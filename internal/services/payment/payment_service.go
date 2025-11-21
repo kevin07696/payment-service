@@ -1449,7 +1449,6 @@ func (s *paymentService) GetTransactionsByGroup(ctx context.Context, parentTrans
 // isUniqueViolation checks if the error is a PostgreSQL unique constraint violation
 func isUniqueViolation(err error) bool {
 	// Check for Postgres unique_violation error code (23505)
-	// This occurs when trying to insert duplicate (group_id, type)
 	if err == nil {
 		return false
 	}

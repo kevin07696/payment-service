@@ -136,7 +136,7 @@ func (m *MockSecretManagerAdapter) DeleteSecret(ctx context.Context, path string
 // TestSqlcToDomain_ValidTransaction tests conversion from sqlc to domain model
 func TestSqlcToDomain_ValidTransaction(t *testing.T) {
 	txID := uuid.New()
-	groupID := uuid.New()
+	parentTxID := uuid.New()
 	merchantID := uuid.New()
 	customerID := uuid.New()
 	authGUID := "bric-abc123"
@@ -145,7 +145,7 @@ func TestSqlcToDomain_ValidTransaction(t *testing.T) {
 
 	sqlcTx := &sqlc.Transaction{
 		ID:                  txID,
-		ParentTransactionID: pgtype.UUID{Bytes: groupID, Valid: true},
+		ParentTransactionID: pgtype.UUID{Bytes: parentTxID, Valid: true},
 		MerchantID:          merchantID,
 		CustomerID:          pgtype.UUID{Bytes: customerID, Valid: true},
 		AmountCents:         10050, // $100.50
@@ -163,7 +163,7 @@ func TestSqlcToDomain_ValidTransaction(t *testing.T) {
 	// Assert: Conversion is accurate
 	assert.Equal(t, txID.String(), domainTx.ID)
 	require.NotNil(t, domainTx.ParentTransactionID)
-	assert.Equal(t, groupID.String(), *domainTx.ParentTransactionID)
+	assert.Equal(t, parentTxID.String(), *domainTx.ParentTransactionID)
 	assert.Equal(t, merchantID.String(), domainTx.MerchantID)
 	require.NotNil(t, domainTx.CustomerID)
 	assert.Equal(t, customerID.String(), *domainTx.CustomerID)

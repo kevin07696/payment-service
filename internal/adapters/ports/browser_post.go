@@ -16,7 +16,7 @@ type BrowserPostFormData struct {
 	// Transaction details
 	Amount    string // Transaction amount (e.g., "29.99")
 	TranNbr   string // Unique transaction number (matches TAC request)
-	TranGroup string // Transaction group ID (our group_id)
+	TranGroup string // EPX transaction classification: SALE, AUTH, VOID, REFUND, PRENOTE, STORAGE, etc.
 
 	// Redirect URLs
 	RedirectURL        string // Success redirect URL

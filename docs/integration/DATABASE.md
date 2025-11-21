@@ -6,21 +6,6 @@
 
 ---
 
-## ⚠️ CRITICAL: Documentation Out of Sync
-
-**This document contains outdated schema information and is being updated.**
-
-**Known Issues:**
-- ❌ `transactions` table shown with `group_id` - **WRONG** (actual: `parent_transaction_id`)
-- ❌ `amount` shown as NUMERIC(19,4) - **WRONG** (actual: `amount_cents` BIGINT)
-- ❌ Query patterns use `group_id` - **WRONG** (use `parent_transaction_id`)
-
-**For accurate schema**, refer to: `internal/db/migrations/003_transactions.sql`
-
-**Status:** Blocked pending schema decision - see `docs/TODO_GROUP_ID_CLEANUP.md`
-
----
-
 ## Overview
 
 **Database:** PostgreSQL 15+
@@ -290,10 +275,10 @@ WHERE merchant_id = $1 AND customer_id = $2
 ```sql
 CREATE TABLE transactions (
     id UUID PRIMARY KEY,
-    group_id UUID NOT NULL DEFAULT gen_random_uuid(),
+    parent_transaction_id UUID,
     merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE RESTRICT,
     customer_id VARCHAR(100),
-    amount NUMERIC(19, 4) NOT NULL,
+    amount_cents BIGINT NOT NULL,
     currency VARCHAR(3) NOT NULL DEFAULT 'USD',
     type VARCHAR(20) NOT NULL,
     payment_method_type VARCHAR(20) NOT NULL,
@@ -323,10 +308,10 @@ CREATE TABLE transactions (
 | Column | Type | Nullable | Description |
 |--------|------|----------|-------------|
 | `id` | UUID | NOT NULL | Primary key (client-provided via idempotency) |
-| `group_id` | UUID | NOT NULL | Groups related transactions (auth → capture → refund) |
+| `parent_transaction_id` | UUID | NULL | Links child transactions to parent (AUTH → CAPTURE → REFUND chain) |
 | `merchant_id` | UUID | NOT NULL | FK to `merchants.id` (multi-tenant isolation) |
 | `customer_id` | VARCHAR(100) | NULL | Customer identifier (NULL for guest transactions) |
-| `amount` | NUMERIC(19,4) | NOT NULL | Transaction amount (supports up to 4 decimal places) |
+| `amount_cents` | BIGINT | NOT NULL | Transaction amount in cents (e.g., 10050 = $100.50) |
 | `currency` | VARCHAR(3) | NOT NULL | ISO 4217 currency code (default: `USD`) |
 | `type` | VARCHAR(20) | NOT NULL | `auth`, `sale`, `capture`, `refund`, `void`, `pre_note` |
 | `payment_method_type` | VARCHAR(20) | NOT NULL | `credit_card` or `ach` |
@@ -345,7 +330,7 @@ CREATE TABLE transactions (
 **Indexes:**
 
 ```sql
-idx_transactions_group_id              ON (group_id)
+idx_transactions_parent_transaction_id  ON (parent_transaction_id) WHERE parent_transaction_id IS NOT NULL
 idx_transactions_merchant_id           ON (merchant_id)
 idx_transactions_merchant_customer     ON (merchant_id, customer_id) WHERE customer_id IS NOT NULL
 idx_transactions_customer_id           ON (customer_id) WHERE customer_id IS NOT NULL
@@ -381,18 +366,16 @@ idx_transactions_deleted_at            ON (deleted_at) WHERE deleted_at IS NOT N
 - `approved` - `auth_resp = '00'`
 - `declined` - `auth_resp != '00'`
 
-**group_id Pattern:**
+**parent_transaction_id Pattern:**
 
-Transactions are linked by `group_id`:
+Transactions are linked via `parent_transaction_id` in a chain:
 
 ```
-┌─────────────────────────────────────────┐
-│ group_id: 550e8400-e29b-41d4-a716-...   │
-├─────────────────────────────────────────┤
-│ 1. type='auth',    amount=100.00        │
-│ 2. type='capture', amount=100.00        │
-│ 3. type='refund',  amount=30.00         │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ AUTH (id: uuid-1, parent_transaction_id: NULL)                   │
+│   └─> CAPTURE (id: uuid-2, parent_transaction_id: uuid-1)       │
+│         └─> REFUND (id: uuid-3, parent_transaction_id: uuid-2)  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 **auth_guid Usage:**
@@ -405,28 +388,35 @@ Each transaction can have its own BRIC token:
 **Example:**
 
 ```sql
--- Create authorization
+-- Create authorization (root transaction)
 INSERT INTO transactions (
-    id, group_id, merchant_id, customer_id, amount, type,
+    id, parent_transaction_id, merchant_id, customer_id, amount_cents, type,
     payment_method_type, auth_guid, auth_resp, auth_code
 ) VALUES (
-    '550e8400-...', '550e8400-...', 'merchant-uuid', 'CUST-123',
-    100.00, 'auth', 'credit_card', 'BRIC-TOKEN-123', '00', 'AUTH123'
+    '550e8400-...', NULL, 'merchant-uuid', 'CUST-123',
+    10000, 'auth', 'credit_card', 'BRIC-TOKEN-123', '00', 'AUTH123'
 );
 
--- Capture authorization
+-- Capture authorization (child transaction)
 INSERT INTO transactions (
-    id, group_id, merchant_id, amount, type,
+    id, parent_transaction_id, merchant_id, amount_cents, type,
     payment_method_type, auth_guid, auth_resp
 ) VALUES (
     gen_random_uuid(), '550e8400-...', 'merchant-uuid',
-    100.00, 'capture', 'credit_card', 'BRIC-TOKEN-456', '00'
+    10000, 'capture', 'credit_card', 'BRIC-TOKEN-456', '00'
 );
 
--- Get transaction group
-SELECT type, amount, status, auth_code, created_at
-FROM transactions
-WHERE group_id = '550e8400-...' AND deleted_at IS NULL
+-- Get transaction chain (all related transactions)
+WITH RECURSIVE transaction_chain AS (
+  -- Start with root transaction
+  SELECT * FROM transactions WHERE id = '550e8400-...'
+  UNION ALL
+  -- Recursively find children
+  SELECT t.* FROM transactions t
+  INNER JOIN transaction_chain tc ON t.parent_transaction_id = tc.id
+)
+SELECT type, amount_cents, status, auth_code, created_at
+FROM transaction_chain WHERE deleted_at IS NULL
 ORDER BY created_at;
 ```
 
@@ -552,13 +542,13 @@ WHERE s.merchant_id = $1 AND s.status = 'active'
 ```sql
 CREATE TABLE chargebacks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    group_id UUID,
+    transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
     agent_id VARCHAR(100) NOT NULL,
     customer_id VARCHAR(100),
     case_number VARCHAR(255) UNIQUE NOT NULL,
     dispute_date TIMESTAMPTZ NOT NULL,
     chargeback_date TIMESTAMPTZ NOT NULL,
-    chargeback_amount VARCHAR(255) NOT NULL,
+    chargeback_amount NUMERIC(19,4) NOT NULL,
     currency VARCHAR(3) NOT NULL DEFAULT 'USD',
     reason_code VARCHAR(50) NOT NULL,
     reason_description TEXT,
@@ -581,13 +571,13 @@ CREATE TABLE chargebacks (
 | Column | Type | Nullable | Description |
 |--------|------|----------|-------------|
 | `id` | UUID | NOT NULL | Primary key (auto-generated) |
-| `group_id` | UUID | NULL | Logical reference to `transactions.group_id` |
+| `transaction_id` | UUID | NOT NULL | FK to specific disputed transaction `transactions.id` |
 | `agent_id` | VARCHAR(100) | NOT NULL | Denormalized merchant ID for querying |
 | `customer_id` | VARCHAR(100) | NULL | Customer identifier (NULL for guest) |
 | `case_number` | VARCHAR(255) | NOT NULL | North Capital unique case ID |
 | `dispute_date` | TIMESTAMPTZ | NOT NULL | When dispute was filed |
 | `chargeback_date` | TIMESTAMPTZ | NOT NULL | When chargeback occurred |
-| `chargeback_amount` | VARCHAR(255) | NOT NULL | Disputed amount (string for precision) |
+| `chargeback_amount` | NUMERIC(19,4) | NOT NULL | Disputed amount |
 | `currency` | VARCHAR(3) | NOT NULL | ISO 4217 currency code (default: `USD`) |
 | `reason_code` | VARCHAR(50) | NOT NULL | Chargeback reason code (e.g., "P22", "F10") |
 | `reason_description` | TEXT | NULL | Human-readable reason |
@@ -606,7 +596,7 @@ CREATE TABLE chargebacks (
 **Indexes:**
 
 ```sql
-idx_chargebacks_group_id            ON (group_id) WHERE group_id IS NOT NULL
+idx_chargebacks_transaction_id      ON (transaction_id)
 idx_chargebacks_agent_id            ON (agent_id)
 idx_chargebacks_agent_customer      ON (agent_id, customer_id) WHERE customer_id IS NOT NULL
 idx_chargebacks_customer_id         ON (customer_id) WHERE customer_id IS NOT NULL
@@ -616,6 +606,9 @@ idx_chargebacks_respond_by_date     ON (respond_by_date) WHERE status = 'pending
 idx_chargebacks_created_at          ON (created_at DESC)
 idx_chargebacks_deleted_at          ON (deleted_at) WHERE deleted_at IS NOT NULL
 ```
+
+**Foreign Keys:**
+- `transaction_id` → `transactions(id)` ON DELETE RESTRICT
 
 **Unique Constraints:**
 - `case_number` - North API unique identifier
@@ -631,10 +624,10 @@ idx_chargebacks_deleted_at          ON (deleted_at) WHERE deleted_at IS NOT NULL
 | `lost` | Dispute lost |
 | `accepted` | Chargeback accepted (no defense) |
 
-**Why group_id instead of transaction_id?**
-- Chargebacks can reference entire transaction flow (auth → capture → partial refund)
-- `group_id` links all related transactions
-- JOIN on `group_id` gets complete transaction history
+**Transaction Linking:**
+- Chargebacks link to specific disputed transaction via `transaction_id`
+- To get complete transaction history, traverse `parent_transaction_id` chain
+- Can find related transactions (refunds, voids) by walking the chain
 
 **Example:**
 
@@ -646,13 +639,31 @@ WHERE agent_id = $1 AND status = 'pending'
   AND respond_by_date >= CURRENT_DATE AND deleted_at IS NULL
 ORDER BY respond_by_date;
 
--- Link chargeback to transaction group
-SELECT t.type, t.amount, t.status, t.created_at,
-       c.case_number, c.chargeback_amount, c.reason_description
+-- Get chargeback with disputed transaction details
+SELECT c.case_number, c.chargeback_amount, c.reason_description,
+       t.type, t.amount_cents, t.status, t.created_at
 FROM chargebacks c
-JOIN transactions t ON c.group_id = t.group_id
-WHERE c.id = $1 AND t.deleted_at IS NULL
-ORDER BY t.created_at;
+JOIN transactions t ON c.transaction_id = t.id
+WHERE c.id = $1 AND t.deleted_at IS NULL;
+
+-- Get complete transaction chain for chargeback (shows auth → capture → refund)
+WITH RECURSIVE transaction_chain AS (
+  -- Start with disputed transaction
+  SELECT t.* FROM transactions t
+  JOIN chargebacks c ON c.transaction_id = t.id
+  WHERE c.id = $1
+  UNION ALL
+  -- Find parent transactions
+  SELECT t.* FROM transactions t
+  INNER JOIN transaction_chain tc ON t.id = tc.parent_transaction_id
+  UNION ALL
+  -- Find child transactions
+  SELECT t.* FROM transactions t
+  INNER JOIN transaction_chain tc ON t.parent_transaction_id = tc.id
+)
+SELECT type, amount_cents, status, created_at
+FROM transaction_chain WHERE deleted_at IS NULL
+ORDER BY created_at;
 ```
 
 ---
@@ -889,7 +900,8 @@ customer_payment_methods (1) ──< subscriptions (N)
 
 subscriptions (1) ──< transactions (N)
 
-transactions.group_id ──< chargebacks.group_id (logical)
+transactions (1) ──< chargebacks (N)  [via transaction_id]
+transactions (1) ──< transactions (N) [via parent_transaction_id, self-referencing]
 
 webhook_subscriptions (1) ──< webhook_deliveries (N)
 ```

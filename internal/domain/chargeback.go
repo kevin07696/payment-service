@@ -27,8 +27,9 @@ type Chargeback struct {
 	// Identity
 	ID string `json:"id"` // UUID
 
-	// Link to transaction group (get all transaction data via JOIN)
-	GroupID string `json:"group_id"` // References transactions.group_id
+	// Link to specific disputed transaction
+	// Can traverse to related transactions via transactions.parent_transaction_id
+	TransactionID string `json:"transaction_id"` // References transactions.id
 
 	// Multi-tenant
 	AgentID string `json:"agent_id"`

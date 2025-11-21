@@ -68,8 +68,8 @@ type ServerPostRequest struct {
 	AuthGUID string // EPX BRIC token from previous transaction or tokenization
 
 	// Transaction identification
-	TranNbr   string // Unique transaction number
-	TranGroup string // Transaction group ID (our group_id)
+	TranNbr   string // Unique transaction number (EPX TRAN_NBR)
+	TranGroup string // EPX transaction classification: SALE, AUTH, VOID, REFUND, PRENOTE, STORAGE, etc.
 
 	// For capture/void/refund: reference to original transaction
 	OriginalAuthGUID string // AUTH_GUID of transaction to capture/void/refund
