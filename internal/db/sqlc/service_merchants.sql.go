@@ -35,6 +35,58 @@ func (q *Queries) CheckServiceHasScope(ctx context.Context, arg CheckServiceHasS
 	return has_scope, err
 }
 
+const checkServiceMerchantAccessByID = `-- name: CheckServiceMerchantAccessByID :one
+SELECT EXISTS(
+    SELECT 1 FROM service_merchants sm
+    JOIN services s ON sm.service_id = s.id
+    JOIN merchants m ON sm.merchant_id = m.id
+    WHERE s.service_id = $1
+        AND m.id = $2
+        AND s.is_active = true
+        AND m.is_active = true
+        AND (sm.expires_at IS NULL OR sm.expires_at > NOW())
+) as has_access
+`
+
+type CheckServiceMerchantAccessByIDParams struct {
+	ServiceID  string    `json:"service_id"`
+	MerchantID uuid.UUID `json:"merchant_id"`
+}
+
+// Check if a service has access to a merchant by merchant UUID (for authentication)
+func (q *Queries) CheckServiceMerchantAccessByID(ctx context.Context, arg CheckServiceMerchantAccessByIDParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkServiceMerchantAccessByID, arg.ServiceID, arg.MerchantID)
+	var has_access bool
+	err := row.Scan(&has_access)
+	return has_access, err
+}
+
+const checkServiceMerchantAccessBySlug = `-- name: CheckServiceMerchantAccessBySlug :one
+SELECT EXISTS(
+    SELECT 1 FROM service_merchants sm
+    JOIN services s ON sm.service_id = s.id
+    JOIN merchants m ON sm.merchant_id = m.id
+    WHERE s.service_id = $1
+        AND m.slug = $2
+        AND s.is_active = true
+        AND m.is_active = true
+        AND (sm.expires_at IS NULL OR sm.expires_at > NOW())
+) as has_access
+`
+
+type CheckServiceMerchantAccessBySlugParams struct {
+	ServiceID    string `json:"service_id"`
+	MerchantSlug string `json:"merchant_slug"`
+}
+
+// Check if a service has access to a merchant by merchant slug (for authentication)
+func (q *Queries) CheckServiceMerchantAccessBySlug(ctx context.Context, arg CheckServiceMerchantAccessBySlugParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkServiceMerchantAccessBySlug, arg.ServiceID, arg.MerchantSlug)
+	var has_access bool
+	err := row.Scan(&has_access)
+	return has_access, err
+}
+
 const getServiceMerchantAccess = `-- name: GetServiceMerchantAccess :one
 SELECT service_id, merchant_id, scopes, granted_by, granted_at, expires_at FROM service_merchants
 WHERE service_id = $1 AND merchant_id = $2

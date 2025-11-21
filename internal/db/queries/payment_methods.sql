@@ -154,3 +154,62 @@ SET verification_status = 'failed',
     deactivated_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
+
+-- ACH Statistics Queries
+
+-- name: CountTotalACH :one
+-- Count total ACH payment methods (not deleted)
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach' AND deleted_at IS NULL;
+
+-- name: CountPendingACH :one
+-- Count ACH payment methods pending verification
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'pending'
+  AND deleted_at IS NULL;
+
+-- name: CountVerifiedACH :one
+-- Count verified ACH payment methods
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'verified'
+  AND deleted_at IS NULL;
+
+-- name: CountFailedACH :one
+-- Count failed ACH payment methods
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'failed'
+  AND deleted_at IS NULL;
+
+-- name: CountEligibleACH :one
+-- Count ACH payment methods eligible for verification (pending > cutoff date)
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'pending'
+  AND created_at <= sqlc.arg(cutoff_date)
+  AND deleted_at IS NULL;
+
+-- name: FindEligibleACHForVerification :many
+-- Find ACH payment methods eligible for verification
+SELECT id, merchant_id, customer_id, payment_type
+FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'pending'
+  AND created_at <= sqlc.arg(cutoff_date)
+  AND deleted_at IS NULL
+ORDER BY created_at ASC
+LIMIT sqlc.arg(batch_limit);
+
+-- name: VerifyACHPaymentMethod :execresult
+-- Mark an ACH payment method as verified and activate it
+UPDATE customer_payment_methods
+SET verification_status = 'verified',
+    is_verified = true,
+    is_active = true,
+    verified_at = NOW(),
+    updated_at = NOW()
+WHERE id = sqlc.arg(id)
+  AND verification_status = 'pending'
+  AND payment_type = 'ach';

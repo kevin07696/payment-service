@@ -4,8 +4,11 @@ package mocks
 
 import (
 	"context"
+	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/stretchr/testify/mock"
@@ -554,6 +557,135 @@ func (m *MockQuerier) GetPaymentMethodByPreNoteTransaction(ctx context.Context, 
 
 func (m *MockQuerier) MarkVerificationFailed(ctx context.Context, arg sqlc.MarkVerificationFailedParams) error {
 	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+// JWT Blacklist Methods
+
+func (m *MockQuerier) IsJWTBlacklisted(ctx context.Context, jti string) (bool, error) {
+	args := m.Called(ctx, jti)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockQuerier) BlacklistJWT(ctx context.Context, arg sqlc.BlacklistJWTParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) CleanupExpiredBlacklist(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+// EPX IP Whitelist Methods
+
+func (m *MockQuerier) ListActiveIPWhitelist(ctx context.Context) ([]netip.Addr, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]netip.Addr), args.Error(1)
+}
+
+func (m *MockQuerier) AddIPToWhitelist(ctx context.Context, arg sqlc.AddIPToWhitelistParams) (sqlc.EpxIpWhitelist, error) {
+	args := m.Called(ctx, arg)
+	return args.Get(0).(sqlc.EpxIpWhitelist), args.Error(1)
+}
+
+func (m *MockQuerier) RemoveIPFromWhitelist(ctx context.Context, ipAddress netip.Addr) error {
+	args := m.Called(ctx, ipAddress)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) GetIPWhitelistEntry(ctx context.Context, ipAddress netip.Addr) (sqlc.EpxIpWhitelist, error) {
+	args := m.Called(ctx, ipAddress)
+	return args.Get(0).(sqlc.EpxIpWhitelist), args.Error(1)
+}
+
+// Service Authentication Methods
+
+func (m *MockQuerier) ListActiveServicePublicKeys(ctx context.Context) ([]sqlc.ListActiveServicePublicKeysRow, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sqlc.ListActiveServicePublicKeysRow), args.Error(1)
+}
+
+func (m *MockQuerier) GetServiceRateLimit(ctx context.Context, serviceID string) (pgtype.Int4, error) {
+	args := m.Called(ctx, serviceID)
+	return args.Get(0).(pgtype.Int4), args.Error(1)
+}
+
+func (m *MockQuerier) CheckServiceMerchantAccessByID(ctx context.Context, arg sqlc.CheckServiceMerchantAccessByIDParams) (bool, error) {
+	args := m.Called(ctx, arg)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockQuerier) CheckServiceMerchantAccessBySlug(ctx context.Context, arg sqlc.CheckServiceMerchantAccessBySlugParams) (bool, error) {
+	args := m.Called(ctx, arg)
+	return args.Bool(0), args.Error(1)
+}
+
+// ACH Statistics Methods
+
+func (m *MockQuerier) CountTotalACH(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockQuerier) CountPendingACH(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockQuerier) CountVerifiedACH(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockQuerier) CountFailedACH(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockQuerier) CountEligibleACH(ctx context.Context, cutoffDate time.Time) (int64, error) {
+	args := m.Called(ctx, cutoffDate)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockQuerier) FindEligibleACHForVerification(ctx context.Context, arg sqlc.FindEligibleACHForVerificationParams) ([]sqlc.FindEligibleACHForVerificationRow, error) {
+	args := m.Called(ctx, arg)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sqlc.FindEligibleACHForVerificationRow), args.Error(1)
+}
+
+func (m *MockQuerier) VerifyACHPaymentMethod(ctx context.Context, id uuid.UUID) (pgconn.CommandTag, error) {
+	args := m.Called(ctx, id)
+	return args.Get(0).(pgconn.CommandTag), args.Error(1)
+}
+
+// Rate Limit Methods
+
+func (m *MockQuerier) ConsumeRateLimitToken(ctx context.Context, arg sqlc.ConsumeRateLimitTokenParams) (int32, error) {
+	args := m.Called(ctx, arg)
+	return args.Get(0).(int32), args.Error(1)
+}
+
+func (m *MockQuerier) RefillRateLimitBucket(ctx context.Context, arg sqlc.RefillRateLimitBucketParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) GetRateLimitBucket(ctx context.Context, bucketKey string) (sqlc.RateLimitBucket, error) {
+	args := m.Called(ctx, bucketKey)
+	return args.Get(0).(sqlc.RateLimitBucket), args.Error(1)
+}
+
+func (m *MockQuerier) CleanupOldRateLimitBuckets(ctx context.Context) error {
+	args := m.Called(ctx)
 	return args.Error(0)
 }
 

@@ -52,3 +52,29 @@ SELECT EXISTS(
         AND sqlc.arg(scope)::text = ANY(scopes)
         AND (expires_at IS NULL OR expires_at > NOW())
 ) as has_scope;
+
+-- name: CheckServiceMerchantAccessByID :one
+-- Check if a service has access to a merchant by merchant UUID (for authentication)
+SELECT EXISTS(
+    SELECT 1 FROM service_merchants sm
+    JOIN services s ON sm.service_id = s.id
+    JOIN merchants m ON sm.merchant_id = m.id
+    WHERE s.service_id = sqlc.arg(service_id)
+        AND m.id = sqlc.arg(merchant_id)
+        AND s.is_active = true
+        AND m.is_active = true
+        AND (sm.expires_at IS NULL OR sm.expires_at > NOW())
+) as has_access;
+
+-- name: CheckServiceMerchantAccessBySlug :one
+-- Check if a service has access to a merchant by merchant slug (for authentication)
+SELECT EXISTS(
+    SELECT 1 FROM service_merchants sm
+    JOIN services s ON sm.service_id = s.id
+    JOIN merchants m ON sm.merchant_id = m.id
+    WHERE s.service_id = sqlc.arg(service_id)
+        AND m.slug = sqlc.arg(merchant_slug)
+        AND s.is_active = true
+        AND m.is_active = true
+        AND (sm.expires_at IS NULL OR sm.expires_at > NOW())
+) as has_access;

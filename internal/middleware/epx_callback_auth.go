@@ -5,30 +5,33 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"go.uber.org/zap"
 )
 
 // EPXCallbackAuth provides authentication for EPX payment gateway callbacks
 type EPXCallbackAuth struct {
-	db             *sql.DB
+	queries        sqlc.Querier
 	macSecret      string
 	logger         *zap.Logger
 	ipWhitelistMap map[string]bool // Cached IP whitelist for performance
 }
 
 // NewEPXCallbackAuth creates a new EPX callback authenticator
-func NewEPXCallbackAuth(db *sql.DB, macSecret string, logger *zap.Logger) (*EPXCallbackAuth, error) {
+func NewEPXCallbackAuth(queries sqlc.Querier, macSecret string, logger *zap.Logger) (*EPXCallbackAuth, error) {
 	auth := &EPXCallbackAuth{
-		db:             db,
+		queries:        queries,
 		macSecret:      macSecret,
 		logger:         logger,
 		ipWhitelistMap: make(map[string]bool),
@@ -44,25 +47,16 @@ func NewEPXCallbackAuth(db *sql.DB, macSecret string, logger *zap.Logger) (*EPXC
 
 // loadIPWhitelist loads the EPX IP whitelist from the database
 func (e *EPXCallbackAuth) loadIPWhitelist() error {
-	rows, err := e.db.Query(`
-		SELECT ip_address
-		FROM epx_ip_whitelist
-		WHERE is_active = true
-	`)
+	ctx := context.Background()
+	ipAddresses, err := e.queries.ListActiveIPWhitelist(ctx)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 
 	whitelist := make(map[string]bool)
 
-	for rows.Next() {
-		var ipAddress string
-		if err := rows.Scan(&ipAddress); err != nil {
-			e.logger.Error("Failed to scan IP address", zap.Error(err))
-			continue
-		}
-		whitelist[ipAddress] = true
+	for _, ipAddr := range ipAddresses {
+		whitelist[ipAddr.String()] = true
 	}
 
 	e.ipWhitelistMap = whitelist
@@ -244,21 +238,41 @@ func (e *EPXCallbackAuth) getClientIP(r *http.Request) string {
 // logCallbackAttempt logs EPX callback authentication attempts
 func (e *EPXCallbackAuth) logCallbackAttempt(clientIP, path string, success bool, errorMsg string) {
 	go func() {
+		ctx := context.Background()
+
 		metadata := map[string]interface{}{
 			"path":      path,
 			"client_ip": clientIP,
 		}
-
 		metadataJSON, _ := json.Marshal(metadata)
 
-		_, err := e.db.Exec(`
-			INSERT INTO audit_log (
-				actor_type, actor_id, actor_name, action,
-				metadata, ip_address, success, error_message,
-				performed_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-		`, "system", "epx_gateway", "EPX Payment Gateway", "epx.callback.auth",
-			metadataJSON, clientIP, success, errorMsg)
+		// Parse IP address for audit log
+		var ipAddrPtr *netip.Addr
+		if addr, err := netip.ParseAddr(clientIP); err == nil {
+			ipAddrPtr = &addr
+		}
+
+		errorMsgText := pgtype.Text{}
+		if errorMsg != "" {
+			errorMsgText = pgtype.Text{String: errorMsg, Valid: true}
+		}
+
+		err := e.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
+			ID:           pgtype.UUID{Bytes: uuid.New(), Valid: true},
+			ActorType:    pgtype.Text{String: "system", Valid: true},
+			ActorID:      pgtype.Text{String: "epx_gateway", Valid: true},
+			ActorName:    pgtype.Text{String: "EPX Payment Gateway", Valid: true},
+			Action:       "epx.callback.auth",
+			EntityType:   pgtype.Text{},
+			EntityID:     pgtype.Text{},
+			Changes:      []byte{},
+			Metadata:     metadataJSON,
+			IpAddress:    ipAddrPtr,
+			UserAgent:    pgtype.Text{},
+			RequestID:    pgtype.Text{},
+			Success:      pgtype.Bool{Bool: success, Valid: true},
+			ErrorMessage: errorMsgText,
+		})
 
 		if err != nil {
 			e.logger.Error("Failed to log EPX callback attempt",

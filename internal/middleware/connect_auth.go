@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"crypto/rsa"
-	"database/sql"
 	"fmt"
 	"math/rand"
 	"net"
@@ -13,21 +12,23 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/kevin07696/payment-service/internal/auth"
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"go.uber.org/zap"
 )
 
 // AuthInterceptor provides authentication for ConnectRPC services
 type AuthInterceptor struct {
-	db         *sql.DB
+	queries    sqlc.Querier
 	publicKeys map[string]*rsa.PublicKey // service_id -> public key
 	logger     *zap.Logger
 }
 
 // NewAuthInterceptor creates a new authentication interceptor
-func NewAuthInterceptor(db *sql.DB, logger *zap.Logger) (*AuthInterceptor, error) {
+func NewAuthInterceptor(queries sqlc.Querier, logger *zap.Logger) (*AuthInterceptor, error) {
 	ai := &AuthInterceptor{
-		db:         db,
+		queries:    queries,
 		publicKeys: make(map[string]*rsa.PublicKey),
 		logger:     logger,
 	}
@@ -45,36 +46,24 @@ func NewAuthInterceptor(db *sql.DB, logger *zap.Logger) (*AuthInterceptor, error
 
 // loadPublicKeys loads all active service public keys from the database
 func (ai *AuthInterceptor) loadPublicKeys() error {
-	rows, err := ai.db.Query(`
-		SELECT service_id, public_key
-		FROM services
-		WHERE is_active = true
-	`)
+	ctx := context.Background()
+	keys, err := ai.queries.ListActiveServicePublicKeys(ctx)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 
 	newKeys := make(map[string]*rsa.PublicKey)
 
-	for rows.Next() {
-		var serviceID, publicKeyPEM string
-		if err := rows.Scan(&serviceID, &publicKeyPEM); err != nil {
-			ai.logger.Error("Failed to scan service key",
-				zap.String("service_id", serviceID),
-				zap.Error(err))
-			continue
-		}
-
-		publicKey, err := jwt.ParseRSAPublicKeyFromPEM([]byte(publicKeyPEM))
+	for _, key := range keys {
+		publicKey, err := jwt.ParseRSAPublicKeyFromPEM([]byte(key.PublicKey))
 		if err != nil {
 			ai.logger.Error("Failed to parse public key",
-				zap.String("service_id", serviceID),
+				zap.String("service_id", key.ServiceID),
 				zap.Error(err))
 			continue
 		}
 
-		newKeys[serviceID] = publicKey
+		newKeys[key.ServiceID] = publicKey
 	}
 
 	ai.publicKeys = newKeys
@@ -270,19 +259,18 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 
 // verifyServiceMerchantAccess checks if a service has access to a merchant
 func (ai *AuthInterceptor) verifyServiceMerchantAccess(serviceID, merchantID string) error {
-	var hasAccess bool
-	err := ai.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM service_merchants sm
-			JOIN services s ON sm.service_id = s.id
-			JOIN merchants m ON sm.merchant_id = m.id
-			WHERE s.service_id = $1
-			AND m.id = $2
-			AND s.is_active = true
-			AND m.status = 'active'
-			AND (sm.expires_at IS NULL OR sm.expires_at > NOW())
-		)
-	`, serviceID, merchantID).Scan(&hasAccess)
+	ctx := context.Background()
+
+	// Parse merchant UUID
+	merchantUUID, err := uuid.Parse(merchantID)
+	if err != nil {
+		return fmt.Errorf("invalid merchant ID: %w", err)
+	}
+
+	hasAccess, err := ai.queries.CheckServiceMerchantAccessByID(ctx, sqlc.CheckServiceMerchantAccessByIDParams{
+		ServiceID:  serviceID,
+		MerchantID: merchantUUID,
+	})
 
 	if err != nil {
 		return fmt.Errorf("failed to verify access: %w", err)
@@ -298,14 +286,8 @@ func (ai *AuthInterceptor) verifyServiceMerchantAccess(serviceID, merchantID str
 
 // isTokenBlacklisted checks if a JWT has been blacklisted
 func (ai *AuthInterceptor) isTokenBlacklisted(jti string) bool {
-	var exists bool
-	err := ai.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM jwt_blacklist
-			WHERE jti = $1
-			AND expires_at > NOW()
-		)
-	`, jti).Scan(&exists)
+	ctx := context.Background()
+	isBlacklisted, err := ai.queries.IsJWTBlacklisted(ctx, jti)
 
 	if err != nil {
 		ai.logger.Error("Failed to check JWT blacklist",
@@ -314,7 +296,7 @@ func (ai *AuthInterceptor) isTokenBlacklisted(jti string) bool {
 		return false // Fail open for availability
 	}
 
-	return exists
+	return isBlacklisted
 }
 
 // checkRateLimit implements token bucket rate limiting
@@ -323,14 +305,11 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 	entityType := "service"
 	entityID, _ := ctx.Value(auth.ServiceIDKey).(string)
 
-	// Get service rate limit
-	var limit int
-	err := ai.db.QueryRow(`
-		SELECT requests_per_second FROM services
-		WHERE service_id = $1
-	`, entityID).Scan(&limit)
-	if err != nil {
-		limit = 100 // Default limit
+	// Get service rate limit using sqlc
+	rateLimit, err := ai.queries.GetServiceRateLimit(ctx, entityID)
+	limit := 100 // Default limit
+	if err == nil && rateLimit.Valid {
+		limit = int(rateLimit.Int32)
 	}
 
 	// Build bucket key (per-minute buckets)
@@ -339,16 +318,11 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 		entityID,
 		time.Now().Format("2006-01-02-15:04"))
 
-	// Token bucket algorithm with database storage
-	var tokens int
-	err = ai.db.QueryRow(`
-		INSERT INTO rate_limit_buckets (bucket_key, tokens, last_refill)
-		VALUES ($1, $2, NOW())
-		ON CONFLICT (bucket_key) DO UPDATE
-		SET tokens = GREATEST(rate_limit_buckets.tokens - 1, 0),
-			last_refill = NOW()
-		RETURNING tokens
-	`, bucketKey, limit).Scan(&tokens)
+	// Token bucket algorithm with database storage using sqlc
+	tokens, err := ai.queries.ConsumeRateLimitToken(ctx, sqlc.ConsumeRateLimitTokenParams{
+		BucketKey:     bucketKey,
+		InitialTokens: int32(limit),
+	})
 
 	if err != nil {
 		ai.logger.Error("Rate limit check failed",

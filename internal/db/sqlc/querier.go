@@ -6,8 +6,11 @@ package sqlc
 
 import (
 	"context"
+	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -17,13 +20,39 @@ type Querier interface {
 	ActivatePaymentMethod(ctx context.Context, id uuid.UUID) error
 	ActivateService(ctx context.Context, id uuid.UUID) error
 	AddEvidenceFile(ctx context.Context, arg AddEvidenceFileParams) error
+	// Add an IP address to the EPX whitelist
+	AddIPToWhitelist(ctx context.Context, arg AddIPToWhitelistParams) (EpxIpWhitelist, error)
+	// Add a JWT token to the blacklist
+	BlacklistJWT(ctx context.Context, arg BlacklistJWTParams) error
 	CancelSubscription(ctx context.Context, arg CancelSubscriptionParams) (Subscription, error)
 	CheckServiceHasScope(ctx context.Context, arg CheckServiceHasScopeParams) (bool, error)
+	// Check if a service has access to a merchant by merchant UUID (for authentication)
+	CheckServiceMerchantAccessByID(ctx context.Context, arg CheckServiceMerchantAccessByIDParams) (bool, error)
+	// Check if a service has access to a merchant by merchant slug (for authentication)
+	CheckServiceMerchantAccessBySlug(ctx context.Context, arg CheckServiceMerchantAccessBySlugParams) (bool, error)
+	// Remove expired entries from JWT blacklist
+	CleanupExpiredBlacklist(ctx context.Context) error
+	// Remove old rate limit bucket entries
+	CleanupOldRateLimitBuckets(ctx context.Context) error
+	// Atomically consume a token from the rate limit bucket
+	// Returns the number of tokens remaining after consumption
+	ConsumeRateLimitToken(ctx context.Context, arg ConsumeRateLimitTokenParams) (int32, error)
 	CountAuditLogs(ctx context.Context, arg CountAuditLogsParams) (int64, error)
 	CountChargebacks(ctx context.Context, arg CountChargebacksParams) (int64, error)
+	// Count ACH payment methods eligible for verification (pending > cutoff date)
+	CountEligibleACH(ctx context.Context, cutoffDate time.Time) (int64, error)
+	// Count failed ACH payment methods
+	CountFailedACH(ctx context.Context) (int64, error)
 	CountMerchants(ctx context.Context, arg CountMerchantsParams) (int64, error)
+	// Count ACH payment methods pending verification
+	CountPendingACH(ctx context.Context) (int64, error)
 	CountSubscriptions(ctx context.Context, arg CountSubscriptionsParams) (int64, error)
+	// ACH Statistics Queries
+	// Count total ACH payment methods (not deleted)
+	CountTotalACH(ctx context.Context) (int64, error)
 	CountTransactions(ctx context.Context, arg CountTransactionsParams) (int64, error)
+	// Count verified ACH payment methods
+	CountVerifiedACH(ctx context.Context) (int64, error)
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) error
@@ -51,6 +80,8 @@ type Querier interface {
 	DeleteExpiredAdminSessions(ctx context.Context) error
 	DeletePaymentMethod(ctx context.Context, id uuid.UUID) error
 	DeleteWebhookSubscription(ctx context.Context, arg DeleteWebhookSubscriptionParams) error
+	// Find ACH payment methods eligible for verification
+	FindEligibleACHForVerification(ctx context.Context, arg FindEligibleACHForVerificationParams) ([]FindEligibleACHForVerificationRow, error)
 	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
 	GetAdminByID(ctx context.Context, id uuid.UUID) (Admin, error)
 	GetAdminSession(ctx context.Context, id uuid.UUID) (AdminSession, error)
@@ -60,6 +91,8 @@ type Querier interface {
 	GetChargebackByID(ctx context.Context, id uuid.UUID) (Chargeback, error)
 	GetChargebackByTransactionID(ctx context.Context, transactionID uuid.UUID) (Chargeback, error)
 	GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPaymentMethodParams) (CustomerPaymentMethod, error)
+	// Get a specific IP whitelist entry
+	GetIPWhitelistEntry(ctx context.Context, ipAddress netip.Addr) (EpxIpWhitelist, error)
 	GetMerchantByID(ctx context.Context, id uuid.UUID) (Merchant, error)
 	GetMerchantBySlug(ctx context.Context, slug string) (Merchant, error)
 	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (CustomerPaymentMethod, error)
@@ -69,9 +102,13 @@ type Querier interface {
 	// Get ACH payment methods pending verification older than specified cutoff date
 	// Used by cron job to mark accounts as verified after 3 days with no returns
 	GetPendingACHVerifications(ctx context.Context, arg GetPendingACHVerificationsParams) ([]CustomerPaymentMethod, error)
+	// Get current state of a rate limit bucket
+	GetRateLimitBucket(ctx context.Context, bucketKey string) (RateLimitBucket, error)
 	GetServiceByID(ctx context.Context, id uuid.UUID) (Service, error)
 	GetServiceByServiceID(ctx context.Context, serviceID string) (Service, error)
 	GetServiceMerchantAccess(ctx context.Context, arg GetServiceMerchantAccessParams) (ServiceMerchant, error)
+	// Get rate limit for a specific service
+	GetServiceRateLimit(ctx context.Context, serviceID string) (pgtype.Int4, error)
 	GetSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscription, error)
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (Transaction, error)
 	// UpdateTransaction removed: transactions are immutable/append-only
@@ -94,7 +131,13 @@ type Querier interface {
 	IncrementReturnCount(ctx context.Context, arg IncrementReturnCountParams) error
 	IncrementSubscriptionFailureCount(ctx context.Context, arg IncrementSubscriptionFailureCountParams) (Subscription, error)
 	IncrementSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
+	// Check if a JWT token is blacklisted
+	IsJWTBlacklisted(ctx context.Context, jti string) (bool, error)
+	// Get all active IP addresses from EPX whitelist
+	ListActiveIPWhitelist(ctx context.Context) ([]netip.Addr, error)
 	ListActiveMerchants(ctx context.Context) ([]Merchant, error)
+	// Get all active service public keys for JWT verification
+	ListActiveServicePublicKeys(ctx context.Context) ([]ListActiveServicePublicKeysRow, error)
 	ListActiveWebhooksByEvent(ctx context.Context, arg ListActiveWebhooksByEventParams) ([]WebhookSubscription, error)
 	ListAdmins(ctx context.Context, arg ListAdminsParams) ([]Admin, error)
 	ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]AuditLog, error)
@@ -123,6 +166,10 @@ type Querier interface {
 	MarkVerificationFailed(ctx context.Context, arg MarkVerificationFailedParams) error
 	MerchantExists(ctx context.Context, id uuid.UUID) (bool, error)
 	MerchantExistsBySlug(ctx context.Context, slug string) (bool, error)
+	// Refill a rate limit bucket to maximum capacity
+	RefillRateLimitBucket(ctx context.Context, arg RefillRateLimitBucketParams) error
+	// Deactivate an IP address from the EPX whitelist
+	RemoveIPFromWhitelist(ctx context.Context, ipAddress netip.Addr) error
 	ResetSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
 	RevokeServiceAccess(ctx context.Context, arg RevokeServiceAccessParams) error
 	RotateServiceKey(ctx context.Context, arg RotateServiceKeyParams) (Service, error)
@@ -149,6 +196,8 @@ type Querier interface {
 	UpdateVerificationStatus(ctx context.Context, arg UpdateVerificationStatusParams) error
 	UpdateWebhookDeliveryStatus(ctx context.Context, arg UpdateWebhookDeliveryStatusParams) (WebhookDelivery, error)
 	UpdateWebhookSubscription(ctx context.Context, arg UpdateWebhookSubscriptionParams) (WebhookSubscription, error)
+	// Mark an ACH payment method as verified and activate it
+	VerifyACHPaymentMethod(ctx context.Context, id uuid.UUID) (pgconn.CommandTag, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -237,6 +237,7 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 	}
 
 	// Call EPX Key Exchange to get TAC (do this before idempotency check - we need fresh TAC regardless)
+	// EPX accepts full transaction type strings as TRAN_GROUP: SALE, AUTH, STORAGE
 	keyExchangeReq := &ports.KeyExchangeRequest{
 		MerchantID:  merchantID.String(),
 		CustNbr:     merchant.CustNbr,
@@ -246,7 +247,7 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		MAC:         macSecret.Value, // Merchant-specific MAC from secret manager
 		Amount:      amountStr,
 		TranNbr:     epxTranNbr,      // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:   transactionType, // SALE or AUTH
+		TranGroup:   transactionType, // SALE, AUTH, or STORAGE (full string, not code)
 		RedirectURL: redirectURL,     // Include transaction_id in redirect URL
 	}
 
@@ -287,6 +288,7 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		)
 
 		// Return form config for existing transaction (idempotent response)
+		// tranType must match TRAN_GROUP sent to Key Exchange (full string, not code)
 		formConfig := map[string]interface{}{
 			"transactionId": transactionID.String(),
 			"epxTranNbr":    epxTranNbr,
@@ -298,8 +300,8 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 			"dbaName":       merchant.DbaNbr,
 			"terminalNbr":   merchant.TerminalNbr,
 			"industryType":  "E",
-			"tranType":      "S",
-			"redirectURL":   redirectURL, // Use redirectURL variable (includes customer_id if provided)
+			"tranType":      transactionType, // SALE, AUTH, or STORAGE - must match Key Exchange
+			"redirectURL":   redirectURL,     // Use redirectURL variable (includes customer_id if provided)
 			"returnUrl":     returnURL,
 			"merchantId":    merchant.ID.String(),
 			"merchantName":  merchant.Name,
@@ -396,9 +398,9 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		"dbaName":     merchant.DbaNbr,
 		"terminalNbr": merchant.TerminalNbr,
 
-		// Static config
-		"industryType": "E", // E-commerce
-		"tranType":     "S", // Sale (auth + capture)
+		// EPX transaction configuration
+		"industryType": "E",              // E-commerce
+		"tranType":     transactionType,  // SALE, AUTH, or STORAGE - must match Key Exchange
 
 		// Pass-through data (EPX will echo these back in callback via USER_DATA_* fields)
 		// Note: Frontend should map returnUrl → USER_DATA_1, merchantId → USER_DATA_3

@@ -54,3 +54,15 @@ SET
     updated_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id)
 RETURNING *;
+
+-- name: ListActiveServicePublicKeys :many
+-- Get all active service public keys for JWT verification
+SELECT service_id, public_key
+FROM services
+WHERE is_active = true;
+
+-- name: GetServiceRateLimit :one
+-- Get rate limit for a specific service
+SELECT requests_per_second
+FROM services
+WHERE service_id = sqlc.arg(service_id) AND is_active = true;

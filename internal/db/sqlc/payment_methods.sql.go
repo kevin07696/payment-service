@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -22,6 +23,82 @@ WHERE id = $1 AND deleted_at IS NULL
 func (q *Queries) ActivatePaymentMethod(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, activatePaymentMethod, id)
 	return err
+}
+
+const countEligibleACH = `-- name: CountEligibleACH :one
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'pending'
+  AND created_at <= $1
+  AND deleted_at IS NULL
+`
+
+// Count ACH payment methods eligible for verification (pending > cutoff date)
+func (q *Queries) CountEligibleACH(ctx context.Context, cutoffDate time.Time) (int64, error) {
+	row := q.db.QueryRow(ctx, countEligibleACH, cutoffDate)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countFailedACH = `-- name: CountFailedACH :one
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'failed'
+  AND deleted_at IS NULL
+`
+
+// Count failed ACH payment methods
+func (q *Queries) CountFailedACH(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countFailedACH)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPendingACH = `-- name: CountPendingACH :one
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'pending'
+  AND deleted_at IS NULL
+`
+
+// Count ACH payment methods pending verification
+func (q *Queries) CountPendingACH(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingACH)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countTotalACH = `-- name: CountTotalACH :one
+
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach' AND deleted_at IS NULL
+`
+
+// ACH Statistics Queries
+// Count total ACH payment methods (not deleted)
+func (q *Queries) CountTotalACH(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countTotalACH)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countVerifiedACH = `-- name: CountVerifiedACH :one
+SELECT COUNT(*) FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'verified'
+  AND deleted_at IS NULL
+`
+
+// Count verified ACH payment methods
+func (q *Queries) CountVerifiedACH(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countVerifiedACH)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const createPaymentMethod = `-- name: CreatePaymentMethod :one
@@ -150,6 +227,55 @@ WHERE id = $1 AND deleted_at IS NULL
 func (q *Queries) DeletePaymentMethod(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, deletePaymentMethod, id)
 	return err
+}
+
+const findEligibleACHForVerification = `-- name: FindEligibleACHForVerification :many
+SELECT id, merchant_id, customer_id, payment_type
+FROM customer_payment_methods
+WHERE payment_type = 'ach'
+  AND verification_status = 'pending'
+  AND created_at <= $1
+  AND deleted_at IS NULL
+ORDER BY created_at ASC
+LIMIT $2
+`
+
+type FindEligibleACHForVerificationParams struct {
+	CutoffDate time.Time `json:"cutoff_date"`
+	BatchLimit int32     `json:"batch_limit"`
+}
+
+type FindEligibleACHForVerificationRow struct {
+	ID          uuid.UUID `json:"id"`
+	MerchantID  uuid.UUID `json:"merchant_id"`
+	CustomerID  string    `json:"customer_id"`
+	PaymentType string    `json:"payment_type"`
+}
+
+// Find ACH payment methods eligible for verification
+func (q *Queries) FindEligibleACHForVerification(ctx context.Context, arg FindEligibleACHForVerificationParams) ([]FindEligibleACHForVerificationRow, error) {
+	rows, err := q.db.Query(ctx, findEligibleACHForVerification, arg.CutoffDate, arg.BatchLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindEligibleACHForVerificationRow{}
+	for rows.Next() {
+		var i FindEligibleACHForVerificationRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MerchantID,
+			&i.CustomerID,
+			&i.PaymentType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getDefaultPaymentMethod = `-- name: GetDefaultPaymentMethod :one
@@ -602,4 +728,21 @@ type UpdateVerificationStatusParams struct {
 func (q *Queries) UpdateVerificationStatus(ctx context.Context, arg UpdateVerificationStatusParams) error {
 	_, err := q.db.Exec(ctx, updateVerificationStatus, arg.VerificationStatus, arg.VerificationFailureReason, arg.ID)
 	return err
+}
+
+const verifyACHPaymentMethod = `-- name: VerifyACHPaymentMethod :execresult
+UPDATE customer_payment_methods
+SET verification_status = 'verified',
+    is_verified = true,
+    is_active = true,
+    verified_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1
+  AND verification_status = 'pending'
+  AND payment_type = 'ach'
+`
+
+// Mark an ACH payment method as verified and activate it
+func (q *Queries) VerifyACHPaymentMethod(ctx context.Context, id uuid.UUID) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, verifyACHPaymentMethod, id)
 }

@@ -2,30 +2,30 @@ package cron
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"go.uber.org/zap"
 )
 
 // ACHVerificationHandler handles cron job endpoints for ACH verification
 type ACHVerificationHandler struct {
-	db         *sql.DB
+	queries    sqlc.Querier
 	logger     *zap.Logger
 	cronSecret string // Secret token for authenticating cron requests
 }
 
 // NewACHVerificationHandler creates a new ACH verification cron handler
 func NewACHVerificationHandler(
-	db *sql.DB,
+	queries sqlc.Querier,
 	logger *zap.Logger,
 	cronSecret string,
 ) *ACHVerificationHandler {
 	return &ACHVerificationHandler{
-		db:         db,
+		queries:    queries,
 		logger:     logger,
 		cronSecret: cronSecret,
 	}
@@ -148,18 +148,11 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 	// In production, you might want to calculate business days excluding weekends/holidays
 	cutoffDate := time.Now().AddDate(0, 0, -verificationDays)
 
-	query := `
-		SELECT id, merchant_id, customer_id, payment_type
-		FROM customer_payment_methods
-		WHERE payment_type = 'ach'
-		  AND verification_status = 'pending'
-		  AND created_at <= $1
-		  AND deleted_at IS NULL
-		ORDER BY created_at ASC
-		LIMIT $2
-	`
-
-	rows, err := h.db.QueryContext(ctx, query, cutoffDate, batchSize)
+	// Find eligible ACH accounts using sqlc
+	paymentMethods, err := h.queries.FindEligibleACHForVerification(ctx, sqlc.FindEligibleACHForVerificationParams{
+		CutoffDate: cutoffDate,
+		BatchLimit: int32(batchSize),
+	})
 	if err != nil {
 		h.logger.Error("Failed to query pending ACH accounts",
 			zap.Error(err),
@@ -167,73 +160,35 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 		)
 		return 0, 0, []error{fmt.Errorf("failed to query pending accounts: %w", err)}
 	}
-	defer rows.Close()
-
-	var paymentMethodIDs []string
-	for rows.Next() {
-		var id, merchantID, customerID, paymentType string
-		if err := rows.Scan(&id, &merchantID, &customerID, &paymentType); err != nil {
-			h.logger.Error("Failed to scan payment method",
-				zap.Error(err),
-			)
-			errs = append(errs, fmt.Errorf("failed to scan row: %w", err))
-			continue
-		}
-
-		paymentMethodIDs = append(paymentMethodIDs, id)
-	}
-
-	if err := rows.Err(); err != nil {
-		h.logger.Error("Error iterating rows", zap.Error(err))
-		errs = append(errs, fmt.Errorf("error iterating rows: %w", err))
-	}
 
 	h.logger.Info("Found ACH accounts eligible for verification",
-		zap.Int("count", len(paymentMethodIDs)),
+		zap.Int("count", len(paymentMethods)),
 		zap.Time("cutoff_date", cutoffDate),
 		zap.Int("verification_days", verificationDays),
 	)
 
-	// Update each payment method to verified status and activate it
-	updateQuery := `
-		UPDATE customer_payment_methods
-		SET verification_status = 'verified',
-		    is_verified = true,
-		    is_active = true,
-		    verified_at = NOW(),
-		    updated_at = NOW()
-		WHERE id = $1
-		  AND verification_status = 'pending'
-		  AND payment_type = 'ach'
-	`
-
-	for _, paymentMethodID := range paymentMethodIDs {
-		result, err := h.db.ExecContext(ctx, updateQuery, paymentMethodID)
+	// Update each payment method to verified status and activate it using sqlc
+	for _, pm := range paymentMethods {
+		result, err := h.queries.VerifyACHPaymentMethod(ctx, pm.ID)
 		if err != nil {
 			h.logger.Error("Failed to verify ACH account",
-				zap.String("payment_method_id", paymentMethodID),
+				zap.String("payment_method_id", pm.ID.String()),
 				zap.Error(err),
 			)
-			errs = append(errs, fmt.Errorf("failed to verify %s: %w", paymentMethodID, err))
+			errs = append(errs, fmt.Errorf("failed to verify %s: %w", pm.ID.String(), err))
 			continue
 		}
 
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			h.logger.Warn("Failed to get rows affected",
-				zap.String("payment_method_id", paymentMethodID),
-				zap.Error(err),
-			)
-		}
+		rowsAffected := result.RowsAffected()
 
 		if rowsAffected == 0 {
 			h.logger.Warn("No rows updated - payment method may have been modified",
-				zap.String("payment_method_id", paymentMethodID),
+				zap.String("payment_method_id", pm.ID.String()),
 			)
 			skipped++
 		} else {
 			h.logger.Info("ACH account verified",
-				zap.String("payment_method_id", paymentMethodID),
+				zap.String("payment_method_id", pm.ID.String()),
 			)
 			verified++
 		}
@@ -309,6 +264,9 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract context from request
+	ctx := r.Context()
+
 	// Query ACH verification statistics
 	var stats struct {
 		TotalACH    int `json:"total_ach"`
@@ -318,59 +276,45 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		EligibleNow int `json:"eligible_now"` // Pending accounts eligible for verification
 	}
 
-	// Total ACH accounts
-	err := h.db.QueryRow(`
-		SELECT COUNT(*) FROM customer_payment_methods
-		WHERE payment_type = 'ach' AND deleted_at IS NULL
-	`).Scan(&stats.TotalACH)
-	if err != nil && err != sql.ErrNoRows {
+	// Total ACH accounts using sqlc
+	totalACH, err := h.queries.CountTotalACH(ctx)
+	if err != nil {
 		h.logger.Error("Failed to query total ACH", zap.Error(err))
+	} else {
+		stats.TotalACH = int(totalACH)
 	}
 
-	// Pending verification
-	err = h.db.QueryRow(`
-		SELECT COUNT(*) FROM customer_payment_methods
-		WHERE payment_type = 'ach'
-		  AND verification_status = 'pending'
-		  AND deleted_at IS NULL
-	`).Scan(&stats.Pending)
-	if err != nil && err != sql.ErrNoRows {
+	// Pending verification using sqlc
+	pendingACH, err := h.queries.CountPendingACH(ctx)
+	if err != nil {
 		h.logger.Error("Failed to query pending ACH", zap.Error(err))
+	} else {
+		stats.Pending = int(pendingACH)
 	}
 
-	// Verified
-	err = h.db.QueryRow(`
-		SELECT COUNT(*) FROM customer_payment_methods
-		WHERE payment_type = 'ach'
-		  AND verification_status = 'verified'
-		  AND deleted_at IS NULL
-	`).Scan(&stats.Verified)
-	if err != nil && err != sql.ErrNoRows {
+	// Verified using sqlc
+	verifiedACH, err := h.queries.CountVerifiedACH(ctx)
+	if err != nil {
 		h.logger.Error("Failed to query verified ACH", zap.Error(err))
+	} else {
+		stats.Verified = int(verifiedACH)
 	}
 
-	// Failed
-	err = h.db.QueryRow(`
-		SELECT COUNT(*) FROM customer_payment_methods
-		WHERE payment_type = 'ach'
-		  AND verification_status = 'failed'
-		  AND deleted_at IS NULL
-	`).Scan(&stats.Failed)
-	if err != nil && err != sql.ErrNoRows {
+	// Failed using sqlc
+	failedACH, err := h.queries.CountFailedACH(ctx)
+	if err != nil {
 		h.logger.Error("Failed to query failed ACH", zap.Error(err))
+	} else {
+		stats.Failed = int(failedACH)
 	}
 
-	// Eligible for verification (pending > 3 days)
+	// Eligible for verification (pending > 3 days) using sqlc
 	cutoffDate := time.Now().AddDate(0, 0, -3)
-	err = h.db.QueryRow(`
-		SELECT COUNT(*) FROM customer_payment_methods
-		WHERE payment_type = 'ach'
-		  AND verification_status = 'pending'
-		  AND created_at <= $1
-		  AND deleted_at IS NULL
-	`, cutoffDate).Scan(&stats.EligibleNow)
-	if err != nil && err != sql.ErrNoRows {
+	eligibleACH, err := h.queries.CountEligibleACH(ctx, cutoffDate)
+	if err != nil {
 		h.logger.Error("Failed to query eligible ACH", zap.Error(err))
+	} else {
+		stats.EligibleNow = int(eligibleACH)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

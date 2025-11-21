@@ -23,6 +23,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	"github.com/kevin07696/payment-service/internal/adapters/epx"
 	"github.com/kevin07696/payment-service/internal/adapters/north"
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	chargebackHandler "github.com/kevin07696/payment-service/internal/handlers/chargeback"
 	cronHandler "github.com/kevin07696/payment-service/internal/handlers/cron"
 	merchantHandler "github.com/kevin07696/payment-service/internal/handlers/merchant"
@@ -73,8 +74,11 @@ func main() {
 	sqlDB := stdlib.OpenDBFromPool(dbPool)
 	defer sqlDB.Close()
 
+	// Create sqlc queries object
+	queries := sqlc.New(dbPool)
+
 	// Initialize dependencies
-	deps := initDependencies(dbPool, sqlDB, cfg, logger)
+	deps := initDependencies(dbPool, sqlDB, queries, cfg, logger)
 
 	// Create ConnectRPC HTTP mux
 	mux := http.NewServeMux()
@@ -83,7 +87,7 @@ func main() {
 	var authInterceptor *authMiddleware.AuthInterceptor
 	if !cfg.DisableAuth {
 		var err error
-		authInterceptor, err = authMiddleware.NewAuthInterceptor(sqlDB, logger)
+		authInterceptor, err = authMiddleware.NewAuthInterceptor(queries, logger)
 		if err != nil {
 			logger.Fatal("Failed to initialize auth interceptor", zap.Error(err))
 		}
@@ -178,7 +182,7 @@ func main() {
 	var epxAuth *authMiddleware.EPXCallbackAuth
 	if !cfg.DisableAuth && cfg.EPXMacSecret != "" {
 		var err error
-		epxAuth, err = authMiddleware.NewEPXCallbackAuth(sqlDB, cfg.EPXMacSecret, logger)
+		epxAuth, err = authMiddleware.NewEPXCallbackAuth(queries, cfg.EPXMacSecret, logger)
 		if err != nil {
 			logger.Error("Failed to initialize EPX callback auth", zap.Error(err))
 		} else {
@@ -449,7 +453,7 @@ func initDatabase(cfg *Config, logger *zap.Logger) (*pgxpool.Pool, error) {
 }
 
 // initDependencies initializes all services and handlers with dependency injection
-func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, cfg *Config, logger *zap.Logger) *Dependencies {
+func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries, cfg *Config, logger *zap.Logger) *Dependencies {
 	// Initialize database adapter
 	dbCfg := database.DefaultPostgreSQLConfig(
 		fmt.Sprintf(
@@ -561,7 +565,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, cfg *Config, logger *
 	// Initialize cron handlers (for HTTP endpoints)
 	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, logger, cfg.CronSecret)
 	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
-	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(sqlDB, logger, cfg.CronSecret)
+	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(queries, logger, cfg.CronSecret)
 
 	// Initialize Browser Post callback handler
 	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(

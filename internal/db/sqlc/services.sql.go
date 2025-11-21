@@ -138,6 +138,52 @@ func (q *Queries) GetServiceByServiceID(ctx context.Context, serviceID string) (
 	return i, err
 }
 
+const getServiceRateLimit = `-- name: GetServiceRateLimit :one
+SELECT requests_per_second
+FROM services
+WHERE service_id = $1 AND is_active = true
+`
+
+// Get rate limit for a specific service
+func (q *Queries) GetServiceRateLimit(ctx context.Context, serviceID string) (pgtype.Int4, error) {
+	row := q.db.QueryRow(ctx, getServiceRateLimit, serviceID)
+	var requests_per_second pgtype.Int4
+	err := row.Scan(&requests_per_second)
+	return requests_per_second, err
+}
+
+const listActiveServicePublicKeys = `-- name: ListActiveServicePublicKeys :many
+SELECT service_id, public_key
+FROM services
+WHERE is_active = true
+`
+
+type ListActiveServicePublicKeysRow struct {
+	ServiceID string `json:"service_id"`
+	PublicKey string `json:"public_key"`
+}
+
+// Get all active service public keys for JWT verification
+func (q *Queries) ListActiveServicePublicKeys(ctx context.Context) ([]ListActiveServicePublicKeysRow, error) {
+	rows, err := q.db.Query(ctx, listActiveServicePublicKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveServicePublicKeysRow{}
+	for rows.Next() {
+		var i ListActiveServicePublicKeysRow
+		if err := rows.Scan(&i.ServiceID, &i.PublicKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listServices = `-- name: ListServices :many
 SELECT id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_by, created_at, updated_at FROM services
 WHERE
