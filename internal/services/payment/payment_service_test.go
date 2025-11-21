@@ -169,7 +169,7 @@ func TestSqlcToDomain_ValidTransaction(t *testing.T) {
 	assert.Equal(t, customerID.String(), *domainTx.CustomerID)
 	assert.Equal(t, int64(10050), domainTx.AmountCents) // $100.50 = 10050 cents
 	assert.Equal(t, "USD", domainTx.Currency)
-	assert.Equal(t, domain.TransactionTypeSale, domainTx.Type)
+	assert.Equal(t, domain.TransactionType("sale"), domainTx.Type)
 	assert.Equal(t, authGUID, domainTx.AuthGUID)
 	require.NotNil(t, domainTx.AuthResp)
 	assert.Equal(t, authResp, *domainTx.AuthResp)
@@ -328,7 +328,7 @@ func TestListTransactions_Success(t *testing.T) {
 			SubscriptionID: pgtype.UUID{Bytes: subscriptionID, Valid: true},
 			AmountCents:    10000,
 			Currency:       "USD",
-			Type:           "sale",
+			Type:           "SALE",
 			PaymentMethodType: "credit_card",
 			Status:         pgtype.Text{String: "approved", Valid: true},
 			CreatedAt:      now,
@@ -397,7 +397,7 @@ func TestListTransactions_WithSubscriptionIDOnly(t *testing.T) {
 			SubscriptionID: pgtype.UUID{Bytes: subscriptionID, Valid: true},
 			AmountCents:    5000,
 			Currency:       "USD",
-			Type:           "subscription_payment",
+			Type:           "SALE",
 			PaymentMethodType: "credit_card",
 			Status:         pgtype.Text{String: "approved", Valid: true},
 			CreatedAt:      now,
@@ -409,7 +409,7 @@ func TestListTransactions_WithSubscriptionIDOnly(t *testing.T) {
 			SubscriptionID: pgtype.UUID{Bytes: subscriptionID, Valid: true},
 			AmountCents:    5000,
 			Currency:       "USD",
-			Type:           "subscription_payment",
+			Type:           "SALE",
 			PaymentMethodType: "credit_card",
 			Status:         pgtype.Text{String: "approved", Valid: true},
 			CreatedAt:      now,
