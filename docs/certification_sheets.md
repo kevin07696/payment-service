@@ -40,7 +40,62 @@ This document contains real request and response examples for EPX payment gatewa
 
 ## Browser Post Transactions
 
-Browser Post transactions use the EPX hosted payment form where customers enter their card details directly on EPX's secure page. The service generates a TAC (Transaction Access Code) and redirects the customer to EPX. After processing, EPX redirects back to the service with the transaction result.
+Browser Post transactions use the EPX hosted payment form where customers enter their card details directly on EPX's secure page.
+
+**TAC (Transaction Access Code) Generation Flow:**
+
+1. Service requests TAC from EPX Key Exchange (`https://keyexch.epxuap.com`)
+2. Request includes: TRAN_NBR, AMOUNT, MAC (merchant authorization code), TRAN_GROUP, REDIRECT_URL
+3. EPX validates the MAC and returns a TAC token
+4. TAC is a temporary security token (expires in 4 hours)
+5. Service uses TAC to generate Browser Post form for customer
+6. Customer submits form to EPX with TAC
+7. EPX validates TAC and processes transaction
+8. EPX redirects back with transaction result
+
+**Example TAC:** `0123456789ABCDEFGHIJ` (20-character alphanumeric token)
+
+**Note:** TACs are dynamically generated for each transaction and cannot be predetermined. Each Browser Post transaction requires a unique TAC from EPX Key Exchange.
+
+#### TAC Key Exchange Request/Response Example
+
+Before submitting Browser Post form, the service must obtain a TAC from EPX:
+
+**Request to EPX Key Exchange:**
+
+```
+POST https://keyexch.epxuap.com
+Content-Type: application/x-www-form-urlencoded
+
+TRAN_NBR=2188937920&
+AMOUNT=50.00&
+MAC=2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y&
+TRAN_GROUP=SALE&
+REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback
+```
+
+**Key Fields:**
+- `MAC` - Merchant Authorization Code (from EPX credentials configuration)
+- `TRAN_NBR` - Unique 10-digit transaction number
+- `AMOUNT` - Transaction amount
+- `TRAN_GROUP` - Transaction group: `SALE`, `AUTH`, or `STORAGE`
+- `REDIRECT_URL` - Where EPX redirects after processing
+
+**Response from EPX Key Exchange:**
+
+```xml
+<RESPONSE>
+  <FIELDS>
+    <FIELD KEY="TAC">A1B2C3D4E5F6G7H8I9J0</FIELD>
+  </FIELDS>
+</RESPONSE>
+```
+
+**TAC Characteristics:**
+- Format: 20-character alphanumeric string
+- Expiration: 4 hours from generation
+- Single-use: Each TAC is valid for one transaction only
+- Security: TAC proves the service has valid EPX credentials (via MAC validation)
 
 ### Browser Post SALE
 
