@@ -14,18 +14,8 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/kevin07696/payment-service/internal/auth"
 	"go.uber.org/zap"
-)
-
-// AuthContext keys for storing auth information
-type contextKey string
-
-const (
-	AuthTypeKey   contextKey = "auth_type"
-	ServiceIDKey  contextKey = "service_id"
-	MerchantIDKey contextKey = "merchant_id"
-	TokenJTIKey   contextKey = "token_jti"
-	RequestIDKey  contextKey = "request_id"
 )
 
 // AuthInterceptor provides authentication for ConnectRPC services
@@ -123,7 +113,7 @@ func (ai *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 		if requestID == "" {
 			requestID = generateRequestID()
 		}
-		ctx = context.WithValue(ctx, RequestIDKey, requestID)
+		ctx = context.WithValue(ctx, auth.RequestIDKey, requestID)
 
 		// JWT authentication (for services only)
 		if authHeader := req.Header().Get("Authorization"); authHeader != "" {
@@ -269,11 +259,11 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 	}
 
 	// Add auth context
-	ctx = context.WithValue(ctx, AuthTypeKey, "jwt")
-	ctx = context.WithValue(ctx, ServiceIDKey, issuer)
-	ctx = context.WithValue(ctx, MerchantIDKey, merchantID)
+	ctx = context.WithValue(ctx, auth.AuthTypeKey, "jwt")
+	ctx = context.WithValue(ctx, auth.ServiceIDKey, issuer)
+	ctx = context.WithValue(ctx, auth.MerchantIDKey, merchantID)
 	if jti, ok := claims["jti"].(string); ok {
-		ctx = context.WithValue(ctx, TokenJTIKey, jti)
+		ctx = context.WithValue(ctx, auth.TokenJTIKey, jti)
 	}
 
 	return ctx, nil
@@ -332,7 +322,7 @@ func (ai *AuthInterceptor) isTokenBlacklisted(jti string) bool {
 func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 	// Extract service info from context (JWT auth only)
 	entityType := "service"
-	entityID, _ := ctx.Value(ServiceIDKey).(string)
+	entityID, _ := ctx.Value(auth.ServiceIDKey).(string)
 
 	// Get service rate limit
 	var limit int
@@ -378,11 +368,11 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 // logAuth logs authentication attempts to the audit log
 func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg string, procedure string) {
 	// Extract context values (JWT auth only)
-	authType, _ := ctx.Value(AuthTypeKey).(string)
-	requestID, _ := ctx.Value(RequestIDKey).(string)
+	authType, _ := ctx.Value(auth.AuthTypeKey).(string)
+	requestID, _ := ctx.Value(auth.RequestIDKey).(string)
 
 	// Extract service info
-	actorID, _ := ctx.Value(ServiceIDKey).(string)
+	actorID, _ := ctx.Value(auth.ServiceIDKey).(string)
 	actorName := fmt.Sprintf("service:%s", actorID)
 
 	// Log to audit table asynchronously

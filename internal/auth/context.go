@@ -6,19 +6,20 @@ import (
 )
 
 // Context keys for authentication data
-type contextKey string
+// Using unexported struct types prevents key collisions (Go best practice)
+type contextKey struct{}
 
-const (
+var (
 	// Authentication type keys
-	AuthTypeKey     contextKey = "auth_type"
-	ServiceIDKey    contextKey = "service_id"
-	MerchantIDKey   contextKey = "merchant_id"
-	MerchantCodeKey contextKey = "merchant_code"
-	TokenJTIKey     contextKey = "token_jti"
-	RequestIDKey    contextKey = "request_id"
-	ClientIPKey     contextKey = "client_ip"
-	ScopesKey       contextKey = "scopes"
-	EnvironmentKey  contextKey = "environment"
+	AuthTypeKey     = contextKey{}
+	ServiceIDKey    = contextKey{}
+	MerchantIDKey   = contextKey{}
+	MerchantCodeKey = contextKey{}
+	TokenJTIKey     = contextKey{}
+	RequestIDKey    = contextKey{}
+	ClientIPKey     = contextKey{}
+	ScopesKey       = contextKey{}
+	EnvironmentKey  = contextKey{}
 )
 
 // AuthType represents the type of authentication used

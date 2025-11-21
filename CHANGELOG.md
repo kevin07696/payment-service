@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (2025-11-21)
 
+- **Context Keys Refactor: String-based → Struct-based** (Go Best Practice)
+  - Converted context keys from string-based to unexported struct types
+  - Prevents potential key collisions across packages
+  - Follows official Go blog recommendations for context key patterns
+  - Updated `internal/auth/context.go` to use `type contextKey struct{}`
+  - Removed duplicate key definitions from `internal/middleware/connect_auth.go`
+  - Updated all usages in `internal/middleware/` to import from `internal/auth`
+  - All tests passing, no behavioral changes
+  - Files affected: `internal/auth/context.go`, `internal/middleware/connect_auth.go`, `internal/middleware/auth_context.go`
+
 - **Customer ID Migration: UUID → VARCHAR(100)**
   - Migrated `customer_id` from UUID to VARCHAR(100) to support external service identifiers
   - Affected tables: `customer_payment_methods`, `transactions`, `subscriptions`
@@ -43,6 +53,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Checks multiple EPX field names: `last_four`, `AUTH_MASKED_ACCOUNT_NBR`, `CARD_NBR`
   - Avoids N+1 queries by not fetching payment_method separately
   - Returns empty string if metadata unavailable
+
+### Documented (2025-11-21)
+
+- **React Integration Guide** (`docs/integration/REACT_INTEGRATION.md`)
+  - Comprehensive React integration guide for ConnectRPC payment APIs
+  - **Setup & Configuration:** ConnectRPC client setup with TypeScript
+  - **Authentication:** JWT token management with caching and auto-refresh
+  - **React Hooks:** Complete hooks for all endpoints
+    - `usePayment` - Authorize, Capture, Sale, Refund, Void, GetTransaction, ListTransactions
+    - `usePaymentMethods` - List, Delete, SetDefault, StoreACHAccount
+    - `useSubscription` - Create, Update, Cancel, List subscriptions
+  - **Browser Post Integration:** Complete React component for PCI-compliant card tokenization
+  - **Components:** PaymentForm, PaymentMethodList, BrowserPost, PaymentCallback, ErrorDisplay
+  - **Error Handling:** ConnectRPC error parsing with retry logic and user-friendly messages
+  - **TypeScript Types:** Amount helpers (dollars↔cents), currency formatting, idempotency keys
+  - **Complete Examples:** E-commerce checkout flow, subscription management
+  - **Best Practices:** Idempotency, BigInt handling, input validation, environment variables, loading states
+  - All code examples use TypeScript with proper type safety
 
 ### Removed (2025-11-21)
 
