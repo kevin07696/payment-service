@@ -13,6 +13,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/util"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
@@ -46,7 +47,7 @@ func NewSubscriptionService(
 // CreateSubscription creates a new recurring billing subscription
 func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports.CreateSubscriptionRequest) (*domain.Subscription, error) {
 	s.logger.Info("Creating subscription",
-		zap.String("agent_id", req.MerchantID),
+		zap.String("merchant_id", req.MerchantID),
 		zap.String("customer_id", req.CustomerID),
 		zap.Int64("amount_cents", req.AmountCents),
 	)
@@ -587,18 +588,34 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 
 	// Prepare EPX request - convert cents back to decimal string
 	amount := decimal.NewFromInt(sub.AmountCents).Div(decimal.NewFromInt(100))
+
+	// Generate deterministic TRAN_NBR from transaction ID using FNV-1a hash
+	// This ensures the same transaction ID always produces the same TRAN_NBR (idempotency)
+	tranNbr := util.UUIDToEPXTranNbr(txID)
+
+	// Recurring billing requires specific EPX fields:
+	// - OriginalAuthGUID: the Storage BRIC (not AuthGUID)
+	// - ACIExt: "RB" (Recurring Billing indicator)
+	// - CardEntryMethod: "Z" (stored credential/token)
+	aciExt := "RB"
+	cardEntryMethod := "Z"
+	industryType := "E" // E-commerce
+
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         merchant.CustNbr,
-		MerchNbr:        merchant.MerchNbr,
-		DBAnbr:          merchant.DbaNbr,
-		TerminalNbr:     merchant.TerminalNbr,
-		TransactionType: adapterports.TransactionTypeSale,
-		Amount:          amount.String(),
-		PaymentType:     adapterports.PaymentMethodType(pm.PaymentType),
-		AuthGUID:        pm.Bric,
-		TranNbr:         uuid.New().String(),
-		TranGroup:       uuid.New().String(),
-		CustomerID:      sub.CustomerID.String(),
+		CustNbr:          merchant.CustNbr,
+		MerchNbr:         merchant.MerchNbr,
+		DBAnbr:           merchant.DbaNbr,
+		TerminalNbr:      merchant.TerminalNbr,
+		TransactionType:  adapterports.TransactionTypeSale,
+		Amount:           amount.String(),
+		PaymentType:      adapterports.PaymentMethodType(pm.PaymentType),
+		OriginalAuthGUID: pm.Bric, // Use OriginalAuthGUID for stored BRIC
+		TranNbr:          tranNbr,
+		TranGroup:        uuid.New().String(),
+		CustomerID:       sub.CustomerID.String(),
+		ACIExt:           &aciExt,          // "RB" = Recurring Billing
+		CardEntryMethod:  &cardEntryMethod, // "Z" = stored credential
+		IndustryType:     &industryType,    // "E" = E-commerce
 	}
 
 	// Process transaction through EPX
@@ -642,9 +659,9 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 			Type:                string(domain.TransactionTypeSale),
 			PaymentMethodType:   pm.PaymentType,
 			PaymentMethodID:     toNullableUUID(&pmIDStr),
-			SubscriptionID:      pgtype.UUID{Bytes: sub.ID, Valid: true}, // Link to subscription
-			TranNbr:             pgtype.Text{},                            // EPX will populate
-			AuthGuid:            toNullableText(&epxResp.AuthGUID),        // Store BRIC token
+			SubscriptionID:      pgtype.UUID{Bytes: sub.ID, Valid: true},   // Link to subscription
+			TranNbr:             pgtype.Text{String: tranNbr, Valid: true}, // Store deterministic TRAN_NBR
+			AuthGuid:            toNullableText(&epxResp.AuthGUID),         // Store BRIC token
 			AuthResp:            pgtype.Text{String: epxResp.AuthResp, Valid: true},
 			AuthCode:            toNullableText(&epxResp.AuthCode),
 			AuthCardType:        toNullableText(&epxResp.AuthCardType),
@@ -826,4 +843,3 @@ func toNullableUUID(s *string) pgtype.UUID {
 	}
 	return pgtype.UUID{Bytes: id, Valid: true}
 }
-

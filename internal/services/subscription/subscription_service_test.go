@@ -390,6 +390,247 @@ func TestUpdateSubscription_Success(t *testing.T) {
 	mockTxManager.AssertExpectations(t)
 }
 
+// TestUpdateSubscription_ChangePaymentMethod tests payment method update
+func TestUpdateSubscription_ChangePaymentMethod(t *testing.T) {
+	service, mockQuerier, mockTxManager, _, _ := setupSubscriptionService(t)
+	ctx := context.Background()
+
+	subscriptionID := uuid.New()
+	merchantID := uuid.New()
+	customerID := uuid.New()
+	oldPaymentMethodID := uuid.New()
+	newPaymentMethodID := uuid.New()
+
+	// Existing subscription with old payment method
+	existingSub := fixtures.NewSubscription().
+		WithID(subscriptionID).
+		WithMerchantID(merchantID).
+		WithCustomerID(customerID).
+		WithPaymentMethodID(oldPaymentMethodID).
+		Active().
+		Build()
+
+	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+		Return(existingSub, nil)
+
+	// New payment method belongs to same customer
+	newPM := fixtures.NewPaymentMethod().
+		WithID(newPaymentMethodID).
+		WithMerchantID(merchantID).
+		WithCustomerID(customerID).
+		Active().
+		Build()
+
+	mockQuerier.On("GetPaymentMethodByID", ctx, newPaymentMethodID).
+		Return(newPM, nil)
+
+	// Updated subscription with new payment method
+	updatedSub := existingSub
+	updatedSub.PaymentMethodID = newPaymentMethodID
+
+	mockQuerier.On("UpdateSubscription", ctx, mock.MatchedBy(func(params sqlc.UpdateSubscriptionParams) bool {
+		return params.ID == subscriptionID &&
+			params.PaymentMethodID == newPaymentMethodID
+	})).Return(updatedSub, nil)
+
+	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+		Return(nil)
+
+	// Execute
+	newPMStr := newPaymentMethodID.String()
+	req := &ports.UpdateSubscriptionRequest{
+		SubscriptionID:  subscriptionID.String(),
+		PaymentMethodID: &newPMStr,
+	}
+
+	result, err := service.UpdateSubscription(ctx, req)
+
+	// Assert
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, newPaymentMethodID.String(), result.PaymentMethodID)
+
+	mockQuerier.AssertExpectations(t)
+	mockTxManager.AssertExpectations(t)
+}
+
+// TestUpdateSubscription_PaymentMethodBelongsToWrongCustomer tests ownership validation
+func TestUpdateSubscription_PaymentMethodBelongsToWrongCustomer(t *testing.T) {
+	service, mockQuerier, mockTxManager, _, _ := setupSubscriptionService(t)
+	ctx := context.Background()
+
+	subscriptionID := uuid.New()
+	merchantID := uuid.New()
+	customerID := uuid.New()
+	wrongCustomerID := uuid.New()
+	newPaymentMethodID := uuid.New()
+
+	// Existing subscription
+	existingSub := fixtures.NewSubscription().
+		WithID(subscriptionID).
+		WithMerchantID(merchantID).
+		WithCustomerID(customerID).
+		Active().
+		Build()
+
+	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+		Return(existingSub, nil)
+
+	// Payment method belongs to different customer
+	wrongPM := fixtures.NewPaymentMethod().
+		WithID(newPaymentMethodID).
+		WithMerchantID(merchantID).
+		WithCustomerID(wrongCustomerID). // Different customer!
+		Active().
+		Build()
+
+	mockQuerier.On("GetPaymentMethodByID", ctx, newPaymentMethodID).
+		Return(wrongPM, nil)
+
+	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+		Return(nil)
+
+	newPMStr := newPaymentMethodID.String()
+	req := &ports.UpdateSubscriptionRequest{
+		SubscriptionID:  subscriptionID.String(),
+		PaymentMethodID: &newPMStr,
+	}
+
+	result, err := service.UpdateSubscription(ctx, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "does not belong to customer")
+
+	mockQuerier.AssertExpectations(t)
+	mockTxManager.AssertExpectations(t)
+}
+
+// TestUpdateSubscription_PaymentMethodNotActive tests active status validation
+func TestUpdateSubscription_PaymentMethodNotActive(t *testing.T) {
+	service, mockQuerier, mockTxManager, _, _ := setupSubscriptionService(t)
+	ctx := context.Background()
+
+	subscriptionID := uuid.New()
+	merchantID := uuid.New()
+	customerID := uuid.New()
+	newPaymentMethodID := uuid.New()
+
+	// Existing subscription
+	existingSub := fixtures.NewSubscription().
+		WithID(subscriptionID).
+		WithMerchantID(merchantID).
+		WithCustomerID(customerID).
+		Active().
+		Build()
+
+	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+		Return(existingSub, nil)
+
+	// Payment method is inactive
+	inactivePM := fixtures.NewPaymentMethod().
+		WithID(newPaymentMethodID).
+		WithMerchantID(merchantID).
+		WithCustomerID(customerID).
+		Inactive(). // Not active!
+		Build()
+
+	mockQuerier.On("GetPaymentMethodByID", ctx, newPaymentMethodID).
+		Return(inactivePM, nil)
+
+	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+		Return(nil)
+
+	newPMStr := newPaymentMethodID.String()
+	req := &ports.UpdateSubscriptionRequest{
+		SubscriptionID:  subscriptionID.String(),
+		PaymentMethodID: &newPMStr,
+	}
+
+	result, err := service.UpdateSubscription(ctx, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "not active")
+
+	mockQuerier.AssertExpectations(t)
+	mockTxManager.AssertExpectations(t)
+}
+
+// TestUpdateSubscription_PaymentMethodNotFound tests not found error
+func TestUpdateSubscription_PaymentMethodNotFound(t *testing.T) {
+	service, mockQuerier, mockTxManager, _, _ := setupSubscriptionService(t)
+	ctx := context.Background()
+
+	subscriptionID := uuid.New()
+	newPaymentMethodID := uuid.New()
+
+	// Existing subscription
+	existingSub := fixtures.NewSubscription().
+		WithID(subscriptionID).
+		Active().
+		Build()
+
+	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+		Return(existingSub, nil)
+
+	// Payment method not found
+	mockQuerier.On("GetPaymentMethodByID", ctx, newPaymentMethodID).
+		Return(sqlc.CustomerPaymentMethod{}, fmt.Errorf("not found"))
+
+	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+		Return(nil)
+
+	newPMStr := newPaymentMethodID.String()
+	req := &ports.UpdateSubscriptionRequest{
+		SubscriptionID:  subscriptionID.String(),
+		PaymentMethodID: &newPMStr,
+	}
+
+	result, err := service.UpdateSubscription(ctx, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "payment method not found")
+
+	mockQuerier.AssertExpectations(t)
+	mockTxManager.AssertExpectations(t)
+}
+
+// TestUpdateSubscription_InvalidPaymentMethodIDFormat tests format validation
+func TestUpdateSubscription_InvalidPaymentMethodIDFormat(t *testing.T) {
+	service, mockQuerier, mockTxManager, _, _ := setupSubscriptionService(t)
+	ctx := context.Background()
+
+	subscriptionID := uuid.New()
+
+	existingSub := fixtures.NewSubscription().
+		WithID(subscriptionID).
+		Active().
+		Build()
+
+	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+		Return(existingSub, nil)
+
+	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+		Return(nil)
+
+	invalidPMID := "not-a-valid-uuid"
+	req := &ports.UpdateSubscriptionRequest{
+		SubscriptionID:  subscriptionID.String(),
+		PaymentMethodID: &invalidPMID,
+	}
+
+	result, err := service.UpdateSubscription(ctx, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "invalid payment_method_id format")
+
+	mockQuerier.AssertExpectations(t)
+	mockTxManager.AssertExpectations(t)
+}
+
 // TestUpdateSubscription_CannotUpdateCancelled tests status validation
 func TestUpdateSubscription_CannotUpdateCancelled(t *testing.T) {
 	service, mockQuerier, _, _, _ := setupSubscriptionService(t)
@@ -768,22 +1009,22 @@ func TestSqlcSubscriptionToDomain(t *testing.T) {
 	metadataJSON, _ := json.Marshal(metadata)
 
 	dbSub := &sqlc.Subscription{
-		ID:                  subscriptionID,
-		MerchantID:          merchantID,
-		CustomerID:          customerID,
-		AmountCents:         9999,
-		Currency:            "USD",
-		IntervalValue:       1,
-		IntervalUnit:        string(domain.IntervalUnitMonth),
-		Status:              string(domain.SubscriptionStatusActive),
-		PaymentMethodID:     paymentMethodID,
-		NextBillingDate:     pgtype.Date{Time: time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC), Valid: true},
-		FailureRetryCount:   0,
-		MaxRetries:          3,
-		Metadata:            metadataJSON,
-		CreatedAt:           time.Now(),
-		UpdatedAt:           time.Now(),
-		CancelledAt:         pgtype.Timestamptz{Valid: false},
+		ID:                    subscriptionID,
+		MerchantID:            merchantID,
+		CustomerID:            customerID,
+		AmountCents:           9999,
+		Currency:              "USD",
+		IntervalValue:         1,
+		IntervalUnit:          string(domain.IntervalUnitMonth),
+		Status:                string(domain.SubscriptionStatusActive),
+		PaymentMethodID:       paymentMethodID,
+		NextBillingDate:       pgtype.Date{Time: time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+		FailureRetryCount:     0,
+		MaxRetries:            3,
+		Metadata:              metadataJSON,
+		CreatedAt:             time.Now(),
+		UpdatedAt:             time.Now(),
+		CancelledAt:           pgtype.Timestamptz{Valid: false},
 		GatewaySubscriptionID: pgtype.Text{Valid: false},
 	}
 

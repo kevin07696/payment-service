@@ -19,18 +19,20 @@ WHERE
     merchant_id = $1 AND
     ($2::uuid IS NULL OR customer_id = $2) AND
     ($3::uuid IS NULL OR subscription_id = $3) AND
-    ($4::varchar IS NULL OR status = $4) AND
-    ($5::varchar IS NULL OR type = $5) AND
-    ($6::uuid IS NULL OR payment_method_id = $6)
+    ($4::uuid IS NULL OR parent_transaction_id = $4) AND
+    ($5::varchar IS NULL OR status = $5) AND
+    ($6::varchar IS NULL OR type = $6) AND
+    ($7::uuid IS NULL OR payment_method_id = $7)
 `
 
 type CountTransactionsParams struct {
-	MerchantID      uuid.UUID   `json:"merchant_id"`
-	CustomerID      pgtype.UUID `json:"customer_id"`
-	SubscriptionID  pgtype.UUID `json:"subscription_id"`
-	Status          pgtype.Text `json:"status"`
-	Type            pgtype.Text `json:"type"`
-	PaymentMethodID pgtype.UUID `json:"payment_method_id"`
+	MerchantID          uuid.UUID   `json:"merchant_id"`
+	CustomerID          pgtype.UUID `json:"customer_id"`
+	SubscriptionID      pgtype.UUID `json:"subscription_id"`
+	ParentTransactionID pgtype.UUID `json:"parent_transaction_id"`
+	Status              pgtype.Text `json:"status"`
+	Type                pgtype.Text `json:"type"`
+	PaymentMethodID     pgtype.UUID `json:"payment_method_id"`
 }
 
 func (q *Queries) CountTransactions(ctx context.Context, arg CountTransactionsParams) (int64, error) {
@@ -38,6 +40,7 @@ func (q *Queries) CountTransactions(ctx context.Context, arg CountTransactionsPa
 		arg.MerchantID,
 		arg.CustomerID,
 		arg.SubscriptionID,
+		arg.ParentTransactionID,
 		arg.Status,
 		arg.Type,
 		arg.PaymentMethodID,
@@ -212,18 +215,31 @@ func (q *Queries) GetTransactionByTranNbr(ctx context.Context, tranNbr pgtype.Te
 }
 
 const getTransactionTree = `-- name: GetTransactionTree :many
-WITH RECURSIVE transaction_tree AS (
-    -- Base case: the requested transaction (root of the subtree)
+WITH RECURSIVE
+find_root AS (
     SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM transactions WHERE transactions.id = $1
 
     UNION ALL
 
-    -- Recursive case: all children of transactions already in the tree
     SELECT t.id, t.parent_transaction_id, t.merchant_id, t.customer_id, t.amount_cents, t.currency, t.type, t.payment_method_type, t.payment_method_id, t.subscription_id, t.tran_nbr, t.auth_guid, t.auth_resp, t.auth_code, t.auth_card_type, t.status, t.processed_at, t.metadata, t.deleted_at, t.created_at, t.updated_at
     FROM transactions t
-    INNER JOIN transaction_tree tt ON t.parent_transaction_id = tt.id
+    INNER JOIN find_root fr ON fr.parent_transaction_id = t.id
+),
+root AS (
+    SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM find_root
+    WHERE parent_transaction_id IS NULL
+    LIMIT 1
+),
+full_tree AS (
+    SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM root
+
+    UNION ALL
+
+    SELECT t.id, t.parent_transaction_id, t.merchant_id, t.customer_id, t.amount_cents, t.currency, t.type, t.payment_method_type, t.payment_method_id, t.subscription_id, t.tran_nbr, t.auth_guid, t.auth_resp, t.auth_code, t.auth_card_type, t.status, t.processed_at, t.metadata, t.deleted_at, t.created_at, t.updated_at
+    FROM transactions t
+    INNER JOIN full_tree ft ON t.parent_transaction_id = ft.id
 )
-SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM transaction_tree
+SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM full_tree
 ORDER BY created_at ASC
 `
 
@@ -251,12 +267,17 @@ type GetTransactionTreeRow struct {
 	UpdatedAt           time.Time          `json:"updated_at"`
 }
 
-// Recursively fetches a transaction and all its descendants (children, grandchildren, etc.)
-// Use this to get the full transaction tree starting from any transaction
-// Example: GetTransactionTree(auth1) returns [auth1, void1, auth2, charge2, refund2]
-// Example: GetTransactionTree(auth2) returns [auth2, charge2, refund2]
-func (q *Queries) GetTransactionTree(ctx context.Context, parentTransactionID uuid.UUID) ([]GetTransactionTreeRow, error) {
-	rows, err := q.db.Query(ctx, getTransactionTree, parentTransactionID)
+// Recursively fetches the ENTIRE transaction tree starting from the root
+// Walks UP to find the root (transaction with parent_transaction_id = NULL), then DOWN to get all descendants
+// This ensures you always get the complete tree regardless of which transaction you query
+// Example: GetTransactionTree(auth1) returns [auth1, auth2, capture2, refund2]
+// Example: GetTransactionTree(auth2) returns [auth1, auth2, capture2, refund2] (includes root!)
+// Example: GetTransactionTree(capture2) returns [auth1, auth2, capture2, refund2] (includes root!)
+// Step 1: Walk UP the parent chain to find the root
+// Step 2: Get the root transaction (has no parent)
+// Step 3: Walk DOWN from root to get all descendants
+func (q *Queries) GetTransactionTree(ctx context.Context, transactionID uuid.UUID) ([]GetTransactionTreeRow, error) {
+	rows, err := q.db.Query(ctx, getTransactionTree, transactionID)
 	if err != nil {
 		return nil, err
 	}
@@ -303,22 +324,24 @@ WHERE
     merchant_id = $1 AND
     ($2::uuid IS NULL OR customer_id = $2) AND
     ($3::uuid IS NULL OR subscription_id = $3) AND
-    ($4::varchar IS NULL OR status = $4) AND
-    ($5::varchar IS NULL OR type = $5) AND
-    ($6::uuid IS NULL OR payment_method_id = $6)
+    ($4::uuid IS NULL OR parent_transaction_id = $4) AND
+    ($5::varchar IS NULL OR status = $5) AND
+    ($6::varchar IS NULL OR type = $6) AND
+    ($7::uuid IS NULL OR payment_method_id = $7)
 ORDER BY created_at DESC
-LIMIT $8 OFFSET $7
+LIMIT $9 OFFSET $8
 `
 
 type ListTransactionsParams struct {
-	MerchantID      uuid.UUID   `json:"merchant_id"`
-	CustomerID      pgtype.UUID `json:"customer_id"`
-	SubscriptionID  pgtype.UUID `json:"subscription_id"`
-	Status          pgtype.Text `json:"status"`
-	Type            pgtype.Text `json:"type"`
-	PaymentMethodID pgtype.UUID `json:"payment_method_id"`
-	OffsetVal       int32       `json:"offset_val"`
-	LimitVal        int32       `json:"limit_val"`
+	MerchantID          uuid.UUID   `json:"merchant_id"`
+	CustomerID          pgtype.UUID `json:"customer_id"`
+	SubscriptionID      pgtype.UUID `json:"subscription_id"`
+	ParentTransactionID pgtype.UUID `json:"parent_transaction_id"`
+	Status              pgtype.Text `json:"status"`
+	Type                pgtype.Text `json:"type"`
+	PaymentMethodID     pgtype.UUID `json:"payment_method_id"`
+	OffsetVal           int32       `json:"offset_val"`
+	LimitVal            int32       `json:"limit_val"`
 }
 
 func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error) {
@@ -326,6 +349,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 		arg.MerchantID,
 		arg.CustomerID,
 		arg.SubscriptionID,
+		arg.ParentTransactionID,
 		arg.Status,
 		arg.Type,
 		arg.PaymentMethodID,

@@ -53,7 +53,7 @@ type AuditLog struct {
 
 type Chargeback struct {
 	ID                  uuid.UUID          `json:"id"`
-	GroupID             pgtype.UUID        `json:"group_id"`
+	TransactionID       uuid.UUID          `json:"transaction_id"`
 	AgentID             string             `json:"agent_id"`
 	CustomerID          pgtype.Text        `json:"customer_id"`
 	CaseNumber          string             `json:"case_number"`

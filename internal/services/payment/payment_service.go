@@ -166,7 +166,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 
 	// Determine payment method type and auth credentials
 	var authGUID string
-	var paymentMethodUUID *uuid.UUID // Reuse parsed UUID
+	var paymentMethodUUID *uuid.UUID                                                    // Reuse parsed UUID
 	var paymentMethodType domain.PaymentMethodType = domain.PaymentMethodTypeCreditCard // Default
 
 	if req.PaymentMethodID != nil {
@@ -1383,14 +1383,15 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 	}
 
 	params := sqlc.ListTransactionsParams{
-		MerchantID:      merchantID,
-		CustomerID:      toNullableUUID(filters.CustomerID),
-		SubscriptionID:  toNullableUUID(filters.SubscriptionID),
-		Status:          toNullableText(filters.Status),
-		Type:            toNullableText(filters.Type),
-		PaymentMethodID: toNullableUUID(filters.PaymentMethodID),
-		LimitVal:        int32(limit),
-		OffsetVal:       int32(offset),
+		MerchantID:          merchantID,
+		CustomerID:          toNullableUUID(filters.CustomerID),
+		SubscriptionID:      toNullableUUID(filters.SubscriptionID),
+		ParentTransactionID: toNullableUUID(filters.ParentTransactionID),
+		Status:              toNullableText(filters.Status),
+		Type:                toNullableText(filters.Type),
+		PaymentMethodID:     toNullableUUID(filters.PaymentMethodID),
+		LimitVal:            int32(limit),
+		OffsetVal:           int32(offset),
 	}
 
 	dbTxs, err := s.queries.ListTransactions(ctx, params)
@@ -1399,12 +1400,13 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 	}
 
 	countParams := sqlc.CountTransactionsParams{
-		MerchantID:      merchantID,
-		CustomerID:      toNullableUUID(filters.CustomerID),
-		SubscriptionID:  toNullableUUID(filters.SubscriptionID),
-		Status:          toNullableText(filters.Status),
-		Type:            toNullableText(filters.Type),
-		PaymentMethodID: toNullableUUID(filters.PaymentMethodID),
+		MerchantID:          merchantID,
+		CustomerID:          toNullableUUID(filters.CustomerID),
+		SubscriptionID:      toNullableUUID(filters.SubscriptionID),
+		ParentTransactionID: toNullableUUID(filters.ParentTransactionID),
+		Status:              toNullableText(filters.Status),
+		Type:                toNullableText(filters.Type),
+		PaymentMethodID:     toNullableUUID(filters.PaymentMethodID),
 	}
 
 	count, err := s.queries.CountTransactions(ctx, countParams)
@@ -1455,7 +1457,6 @@ func isUniqueViolation(err error) bool {
 		strings.Contains(err.Error(), "duplicate key") ||
 		strings.Contains(err.Error(), "23505")
 }
-
 
 // Helper functions to convert between sqlc and domain models
 

@@ -2,6 +2,13 @@
   // TypeScript/JavaScript language server memory (16 GB)
   "typescript.tsserver.maxTsServerMemory": 16384,
 
+  // Go language server configuration
+  "gopls": {
+    "build.buildFlags": ["-tags=integration"],
+    "ui.semanticTokens": true,
+    "ui.completion.usePlaceholders": true
+  },
+
   // Additional memory-related settings
   "files.watcherExclude": {
     "**/.git/objects/**": true,

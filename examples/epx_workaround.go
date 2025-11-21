@@ -20,10 +20,10 @@ import (
 
 // Known EPX test values that might work
 var testBRICs = []string{
-	"0A1MQQYKXWYNHJX85DT",           // From previous successful test
+	"0A1MQQYKXWYNHJX85DT",                  // From previous successful test
 	"TEST_BRIC_" + uuid.New().String()[:8], // Generic test
-	"BRIC_4788250000028291",         // Card-based test
-	"AUTH_GUID_TEST_123",            // AUTH_GUID format
+	"BRIC_4788250000028291",                // Card-based test
+	"AUTH_GUID_TEST_123",                   // AUTH_GUID format
 }
 
 func main() {
@@ -108,7 +108,7 @@ func main() {
 			PaymentMethod:  &paymentv1.SaleRequest_PaymentToken{PaymentToken: bric},
 			IdempotencyKey: uuid.New().String(),
 			Metadata: map[string]string{
-				"test": "workaround",
+				"test":    "workaround",
 				"attempt": fmt.Sprintf("%d", i+1),
 			},
 		})

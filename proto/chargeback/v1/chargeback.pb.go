@@ -143,7 +143,7 @@ type ListChargebacksRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	AgentId         string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                                 // Required: merchant/agent ID
 	CustomerId      *string                `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3,oneof" json:"customer_id,omitempty"`                  // Optional: filter by customer
-	GroupId         *string                `protobuf:"bytes,3,opt,name=group_id,json=groupId,proto3,oneof" json:"group_id,omitempty"`                           // Optional: filter by transaction group
+	TransactionId   *string                `protobuf:"bytes,3,opt,name=transaction_id,json=transactionId,proto3,oneof" json:"transaction_id,omitempty"`         // Optional: filter by specific transaction
 	Status          *ChargebackStatus      `protobuf:"varint,4,opt,name=status,proto3,enum=chargeback.v1.ChargebackStatus,oneof" json:"status,omitempty"`       // Optional: filter by status
 	DisputeDateFrom *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=dispute_date_from,json=disputeDateFrom,proto3,oneof" json:"dispute_date_from,omitempty"` // Optional: date range
 	DisputeDateTo   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=dispute_date_to,json=disputeDateTo,proto3,oneof" json:"dispute_date_to,omitempty"`
@@ -197,9 +197,9 @@ func (x *ListChargebacksRequest) GetCustomerId() string {
 	return ""
 }
 
-func (x *ListChargebacksRequest) GetGroupId() string {
-	if x != nil && x.GroupId != nil {
-		return *x.GroupId
+func (x *ListChargebacksRequest) GetTransactionId() string {
+	if x != nil && x.TransactionId != nil {
+		return *x.TransactionId
 	}
 	return ""
 }
@@ -294,11 +294,11 @@ func (x *ListChargebacksResponse) GetTotalCount() int32 {
 
 // Chargeback represents a complete chargeback record (read-only)
 type Chargeback struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	GroupId    string                 `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"` // Links to transaction group
-	AgentId    string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	CustomerId string                 `protobuf:"bytes,4,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	TransactionId string                 `protobuf:"bytes,2,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // Links to specific disputed transaction (UUID)
+	AgentId       string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	CustomerId    string                 `protobuf:"bytes,4,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
 	// North API fields
 	CaseNumber        string                 `protobuf:"bytes,5,opt,name=case_number,json=caseNumber,proto3" json:"case_number,omitempty"` // North's caseNumber
 	DisputeDate       *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=dispute_date,json=disputeDate,proto3" json:"dispute_date,omitempty"`
@@ -359,9 +359,9 @@ func (x *Chargeback) GetId() string {
 	return ""
 }
 
-func (x *Chargeback) GetGroupId() string {
+func (x *Chargeback) GetTransactionId() string {
 	if x != nil {
-		return x.GroupId
+		return x.TransactionId
 	}
 	return ""
 }
@@ -499,30 +499,30 @@ const file_proto_chargeback_v1_chargeback_proto_rawDesc = "" +
 	"$proto/chargeback/v1/chargeback.proto\x12\rchargeback.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"V\n" +
 	"\x14GetChargebackRequest\x12#\n" +
 	"\rchargeback_id\x18\x01 \x01(\tR\fchargebackId\x12\x19\n" +
-	"\bagent_id\x18\x02 \x01(\tR\aagentId\"\xcd\x03\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\"\xdf\x03\n" +
 	"\x16ListChargebacksRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12$\n" +
 	"\vcustomer_id\x18\x02 \x01(\tH\x00R\n" +
-	"customerId\x88\x01\x01\x12\x1e\n" +
-	"\bgroup_id\x18\x03 \x01(\tH\x01R\agroupId\x88\x01\x01\x12<\n" +
+	"customerId\x88\x01\x01\x12*\n" +
+	"\x0etransaction_id\x18\x03 \x01(\tH\x01R\rtransactionId\x88\x01\x01\x12<\n" +
 	"\x06status\x18\x04 \x01(\x0e2\x1f.chargeback.v1.ChargebackStatusH\x02R\x06status\x88\x01\x01\x12K\n" +
 	"\x11dispute_date_from\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampH\x03R\x0fdisputeDateFrom\x88\x01\x01\x12G\n" +
 	"\x0fdispute_date_to\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampH\x04R\rdisputeDateTo\x88\x01\x01\x12\x14\n" +
 	"\x05limit\x18\a \x01(\x05R\x05limit\x12\x16\n" +
 	"\x06offset\x18\b \x01(\x05R\x06offsetB\x0e\n" +
-	"\f_customer_idB\v\n" +
-	"\t_group_idB\t\n" +
+	"\f_customer_idB\x11\n" +
+	"\x0f_transaction_idB\t\n" +
 	"\a_statusB\x14\n" +
 	"\x12_dispute_date_fromB\x12\n" +
 	"\x10_dispute_date_to\"w\n" +
 	"\x17ListChargebacksResponse\x12;\n" +
 	"\vchargebacks\x18\x01 \x03(\v2\x19.chargeback.v1.ChargebackR\vchargebacks\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xa7\b\n" +
+	"totalCount\"\xb3\b\n" +
 	"\n" +
 	"Chargeback\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
-	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12\x19\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12%\n" +
+	"\x0etransaction_id\x18\x02 \x01(\tR\rtransactionId\x12\x19\n" +
 	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1f\n" +
 	"\vcustomer_id\x18\x04 \x01(\tR\n" +
 	"customerId\x12\x1f\n" +

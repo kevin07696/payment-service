@@ -3,10 +3,9 @@
 CREATE TABLE IF NOT EXISTS chargebacks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    -- Link to transaction group (get all transaction data via JOIN)
-    -- This is NOT a foreign key - just references transactions.group_id for grouping
-    -- Allows finding all transactions related to this chargeback
-    group_id UUID,  -- Logical reference to transactions.group_id (NULL if transaction not found)
+    -- Link to specific transaction being disputed
+    -- Can traverse to parent/child transactions via transactions.parent_transaction_id
+    transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
     agent_id VARCHAR(100) NOT NULL,  -- Denormalized for querying (matches merchants.id)
     customer_id VARCHAR(100),  -- Denormalized for querying (NULL for guest)
 
@@ -41,7 +40,7 @@ CREATE TABLE IF NOT EXISTS chargebacks (
 );
 
 -- Indexes for performance
-CREATE INDEX idx_chargebacks_group_id ON chargebacks(group_id) WHERE group_id IS NOT NULL;
+CREATE INDEX idx_chargebacks_transaction_id ON chargebacks(transaction_id);
 CREATE INDEX idx_chargebacks_agent_id ON chargebacks(agent_id);
 CREATE INDEX idx_chargebacks_agent_customer ON chargebacks(agent_id, customer_id) WHERE customer_id IS NOT NULL;
 CREATE INDEX idx_chargebacks_customer_id ON chargebacks(customer_id) WHERE customer_id IS NOT NULL;

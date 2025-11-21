@@ -27,17 +27,17 @@ type CaptureRequest struct {
 
 // SaleRequest contains parameters for sale (auth + capture)
 type SaleRequest struct {
-	MerchantID      string
-	CustomerID      *string
-	AmountCents     int64 // Amount in cents
-	Currency        string
+	MerchantID  string
+	CustomerID  *string
+	AmountCents int64 // Amount in cents
+	Currency    string
 
 	// Payment Method Options (mutually exclusive):
 	PaymentMethodID *string // Use saved payment method (ACH or credit card with BRIC)
 	PaymentToken    *string // One-time token from EPX (AUTH_GUID/BRIC)
 
-	IdempotencyKey  *string
-	Metadata        map[string]interface{}
+	IdempotencyKey *string
+	Metadata       map[string]interface{}
 }
 
 // VoidRequest contains parameters for voiding a transaction

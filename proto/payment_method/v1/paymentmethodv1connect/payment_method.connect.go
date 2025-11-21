@@ -33,9 +33,6 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// PaymentMethodServiceSavePaymentMethodProcedure is the fully-qualified name of the
-	// PaymentMethodService's SavePaymentMethod RPC.
-	PaymentMethodServiceSavePaymentMethodProcedure = "/payment_method.v1.PaymentMethodService/SavePaymentMethod"
 	// PaymentMethodServiceGetPaymentMethodProcedure is the fully-qualified name of the
 	// PaymentMethodService's GetPaymentMethod RPC.
 	PaymentMethodServiceGetPaymentMethodProcedure = "/payment_method.v1.PaymentMethodService/GetPaymentMethod"
@@ -54,15 +51,16 @@ const (
 	// PaymentMethodServiceVerifyACHAccountProcedure is the fully-qualified name of the
 	// PaymentMethodService's VerifyACHAccount RPC.
 	PaymentMethodServiceVerifyACHAccountProcedure = "/payment_method.v1.PaymentMethodService/VerifyACHAccount"
-	// PaymentMethodServiceConvertFinancialBRICToStorageBRICProcedure is the fully-qualified name of the
-	// PaymentMethodService's ConvertFinancialBRICToStorageBRIC RPC.
-	PaymentMethodServiceConvertFinancialBRICToStorageBRICProcedure = "/payment_method.v1.PaymentMethodService/ConvertFinancialBRICToStorageBRIC"
+	// PaymentMethodServiceStoreACHAccountProcedure is the fully-qualified name of the
+	// PaymentMethodService's StoreACHAccount RPC.
+	PaymentMethodServiceStoreACHAccountProcedure = "/payment_method.v1.PaymentMethodService/StoreACHAccount"
+	// PaymentMethodServiceUpdatePaymentMethodProcedure is the fully-qualified name of the
+	// PaymentMethodService's UpdatePaymentMethod RPC.
+	PaymentMethodServiceUpdatePaymentMethodProcedure = "/payment_method.v1.PaymentMethodService/UpdatePaymentMethod"
 )
 
 // PaymentMethodServiceClient is a client for the payment_method.v1.PaymentMethodService service.
 type PaymentMethodServiceClient interface {
-	// SavePaymentMethod tokenizes and saves a payment method
-	SavePaymentMethod(context.Context, *connect.Request[v1.SavePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
 	// GetPaymentMethod retrieves a specific payment method
 	GetPaymentMethod(context.Context, *connect.Request[v1.GetPaymentMethodRequest]) (*connect.Response[v1.PaymentMethod], error)
 	// ListPaymentMethods lists all payment methods for a customer
@@ -75,9 +73,12 @@ type PaymentMethodServiceClient interface {
 	SetDefaultPaymentMethod(context.Context, *connect.Request[v1.SetDefaultPaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
 	// VerifyACHAccount sends pre-note for ACH verification
 	VerifyACHAccount(context.Context, *connect.Request[v1.VerifyACHAccountRequest]) (*connect.Response[v1.VerifyACHAccountResponse], error)
-	// ConvertFinancialBRICToStorageBRIC converts Financial BRIC to Storage BRIC and saves payment method
-	// Use case: Customer completes payment and wants to save their payment method
-	ConvertFinancialBRICToStorageBRIC(context.Context, *connect.Request[v1.ConvertFinancialBRICRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
+	// StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
+	// Use case: Customer adds bank account for recurring payments
+	StoreACHAccount(context.Context, *connect.Request[v1.StoreACHAccountRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
+	// UpdatePaymentMethod updates metadata only (billing info, nickname)
+	// Does NOT support changing account/routing numbers - create new payment method instead
+	UpdatePaymentMethod(context.Context, *connect.Request[v1.UpdatePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
 }
 
 // NewPaymentMethodServiceClient constructs a client for the payment_method.v1.PaymentMethodService
@@ -91,12 +92,6 @@ func NewPaymentMethodServiceClient(httpClient connect.HTTPClient, baseURL string
 	baseURL = strings.TrimRight(baseURL, "/")
 	paymentMethodServiceMethods := v1.File_proto_payment_method_v1_payment_method_proto.Services().ByName("PaymentMethodService").Methods()
 	return &paymentMethodServiceClient{
-		savePaymentMethod: connect.NewClient[v1.SavePaymentMethodRequest, v1.PaymentMethodResponse](
-			httpClient,
-			baseURL+PaymentMethodServiceSavePaymentMethodProcedure,
-			connect.WithSchema(paymentMethodServiceMethods.ByName("SavePaymentMethod")),
-			connect.WithClientOptions(opts...),
-		),
 		getPaymentMethod: connect.NewClient[v1.GetPaymentMethodRequest, v1.PaymentMethod](
 			httpClient,
 			baseURL+PaymentMethodServiceGetPaymentMethodProcedure,
@@ -133,10 +128,16 @@ func NewPaymentMethodServiceClient(httpClient connect.HTTPClient, baseURL string
 			connect.WithSchema(paymentMethodServiceMethods.ByName("VerifyACHAccount")),
 			connect.WithClientOptions(opts...),
 		),
-		convertFinancialBRICToStorageBRIC: connect.NewClient[v1.ConvertFinancialBRICRequest, v1.PaymentMethodResponse](
+		storeACHAccount: connect.NewClient[v1.StoreACHAccountRequest, v1.PaymentMethodResponse](
 			httpClient,
-			baseURL+PaymentMethodServiceConvertFinancialBRICToStorageBRICProcedure,
-			connect.WithSchema(paymentMethodServiceMethods.ByName("ConvertFinancialBRICToStorageBRIC")),
+			baseURL+PaymentMethodServiceStoreACHAccountProcedure,
+			connect.WithSchema(paymentMethodServiceMethods.ByName("StoreACHAccount")),
+			connect.WithClientOptions(opts...),
+		),
+		updatePaymentMethod: connect.NewClient[v1.UpdatePaymentMethodRequest, v1.PaymentMethodResponse](
+			httpClient,
+			baseURL+PaymentMethodServiceUpdatePaymentMethodProcedure,
+			connect.WithSchema(paymentMethodServiceMethods.ByName("UpdatePaymentMethod")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -144,19 +145,14 @@ func NewPaymentMethodServiceClient(httpClient connect.HTTPClient, baseURL string
 
 // paymentMethodServiceClient implements PaymentMethodServiceClient.
 type paymentMethodServiceClient struct {
-	savePaymentMethod                 *connect.Client[v1.SavePaymentMethodRequest, v1.PaymentMethodResponse]
-	getPaymentMethod                  *connect.Client[v1.GetPaymentMethodRequest, v1.PaymentMethod]
-	listPaymentMethods                *connect.Client[v1.ListPaymentMethodsRequest, v1.ListPaymentMethodsResponse]
-	updatePaymentMethodStatus         *connect.Client[v1.UpdatePaymentMethodStatusRequest, v1.PaymentMethodResponse]
-	deletePaymentMethod               *connect.Client[v1.DeletePaymentMethodRequest, v1.DeletePaymentMethodResponse]
-	setDefaultPaymentMethod           *connect.Client[v1.SetDefaultPaymentMethodRequest, v1.PaymentMethodResponse]
-	verifyACHAccount                  *connect.Client[v1.VerifyACHAccountRequest, v1.VerifyACHAccountResponse]
-	convertFinancialBRICToStorageBRIC *connect.Client[v1.ConvertFinancialBRICRequest, v1.PaymentMethodResponse]
-}
-
-// SavePaymentMethod calls payment_method.v1.PaymentMethodService.SavePaymentMethod.
-func (c *paymentMethodServiceClient) SavePaymentMethod(ctx context.Context, req *connect.Request[v1.SavePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
-	return c.savePaymentMethod.CallUnary(ctx, req)
+	getPaymentMethod          *connect.Client[v1.GetPaymentMethodRequest, v1.PaymentMethod]
+	listPaymentMethods        *connect.Client[v1.ListPaymentMethodsRequest, v1.ListPaymentMethodsResponse]
+	updatePaymentMethodStatus *connect.Client[v1.UpdatePaymentMethodStatusRequest, v1.PaymentMethodResponse]
+	deletePaymentMethod       *connect.Client[v1.DeletePaymentMethodRequest, v1.DeletePaymentMethodResponse]
+	setDefaultPaymentMethod   *connect.Client[v1.SetDefaultPaymentMethodRequest, v1.PaymentMethodResponse]
+	verifyACHAccount          *connect.Client[v1.VerifyACHAccountRequest, v1.VerifyACHAccountResponse]
+	storeACHAccount           *connect.Client[v1.StoreACHAccountRequest, v1.PaymentMethodResponse]
+	updatePaymentMethod       *connect.Client[v1.UpdatePaymentMethodRequest, v1.PaymentMethodResponse]
 }
 
 // GetPaymentMethod calls payment_method.v1.PaymentMethodService.GetPaymentMethod.
@@ -189,17 +185,19 @@ func (c *paymentMethodServiceClient) VerifyACHAccount(ctx context.Context, req *
 	return c.verifyACHAccount.CallUnary(ctx, req)
 }
 
-// ConvertFinancialBRICToStorageBRIC calls
-// payment_method.v1.PaymentMethodService.ConvertFinancialBRICToStorageBRIC.
-func (c *paymentMethodServiceClient) ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *connect.Request[v1.ConvertFinancialBRICRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
-	return c.convertFinancialBRICToStorageBRIC.CallUnary(ctx, req)
+// StoreACHAccount calls payment_method.v1.PaymentMethodService.StoreACHAccount.
+func (c *paymentMethodServiceClient) StoreACHAccount(ctx context.Context, req *connect.Request[v1.StoreACHAccountRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
+	return c.storeACHAccount.CallUnary(ctx, req)
+}
+
+// UpdatePaymentMethod calls payment_method.v1.PaymentMethodService.UpdatePaymentMethod.
+func (c *paymentMethodServiceClient) UpdatePaymentMethod(ctx context.Context, req *connect.Request[v1.UpdatePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
+	return c.updatePaymentMethod.CallUnary(ctx, req)
 }
 
 // PaymentMethodServiceHandler is an implementation of the payment_method.v1.PaymentMethodService
 // service.
 type PaymentMethodServiceHandler interface {
-	// SavePaymentMethod tokenizes and saves a payment method
-	SavePaymentMethod(context.Context, *connect.Request[v1.SavePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
 	// GetPaymentMethod retrieves a specific payment method
 	GetPaymentMethod(context.Context, *connect.Request[v1.GetPaymentMethodRequest]) (*connect.Response[v1.PaymentMethod], error)
 	// ListPaymentMethods lists all payment methods for a customer
@@ -212,9 +210,12 @@ type PaymentMethodServiceHandler interface {
 	SetDefaultPaymentMethod(context.Context, *connect.Request[v1.SetDefaultPaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
 	// VerifyACHAccount sends pre-note for ACH verification
 	VerifyACHAccount(context.Context, *connect.Request[v1.VerifyACHAccountRequest]) (*connect.Response[v1.VerifyACHAccountResponse], error)
-	// ConvertFinancialBRICToStorageBRIC converts Financial BRIC to Storage BRIC and saves payment method
-	// Use case: Customer completes payment and wants to save their payment method
-	ConvertFinancialBRICToStorageBRIC(context.Context, *connect.Request[v1.ConvertFinancialBRICRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
+	// StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
+	// Use case: Customer adds bank account for recurring payments
+	StoreACHAccount(context.Context, *connect.Request[v1.StoreACHAccountRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
+	// UpdatePaymentMethod updates metadata only (billing info, nickname)
+	// Does NOT support changing account/routing numbers - create new payment method instead
+	UpdatePaymentMethod(context.Context, *connect.Request[v1.UpdatePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
 }
 
 // NewPaymentMethodServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -224,12 +225,6 @@ type PaymentMethodServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewPaymentMethodServiceHandler(svc PaymentMethodServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	paymentMethodServiceMethods := v1.File_proto_payment_method_v1_payment_method_proto.Services().ByName("PaymentMethodService").Methods()
-	paymentMethodServiceSavePaymentMethodHandler := connect.NewUnaryHandler(
-		PaymentMethodServiceSavePaymentMethodProcedure,
-		svc.SavePaymentMethod,
-		connect.WithSchema(paymentMethodServiceMethods.ByName("SavePaymentMethod")),
-		connect.WithHandlerOptions(opts...),
-	)
 	paymentMethodServiceGetPaymentMethodHandler := connect.NewUnaryHandler(
 		PaymentMethodServiceGetPaymentMethodProcedure,
 		svc.GetPaymentMethod,
@@ -266,16 +261,20 @@ func NewPaymentMethodServiceHandler(svc PaymentMethodServiceHandler, opts ...con
 		connect.WithSchema(paymentMethodServiceMethods.ByName("VerifyACHAccount")),
 		connect.WithHandlerOptions(opts...),
 	)
-	paymentMethodServiceConvertFinancialBRICToStorageBRICHandler := connect.NewUnaryHandler(
-		PaymentMethodServiceConvertFinancialBRICToStorageBRICProcedure,
-		svc.ConvertFinancialBRICToStorageBRIC,
-		connect.WithSchema(paymentMethodServiceMethods.ByName("ConvertFinancialBRICToStorageBRIC")),
+	paymentMethodServiceStoreACHAccountHandler := connect.NewUnaryHandler(
+		PaymentMethodServiceStoreACHAccountProcedure,
+		svc.StoreACHAccount,
+		connect.WithSchema(paymentMethodServiceMethods.ByName("StoreACHAccount")),
+		connect.WithHandlerOptions(opts...),
+	)
+	paymentMethodServiceUpdatePaymentMethodHandler := connect.NewUnaryHandler(
+		PaymentMethodServiceUpdatePaymentMethodProcedure,
+		svc.UpdatePaymentMethod,
+		connect.WithSchema(paymentMethodServiceMethods.ByName("UpdatePaymentMethod")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/payment_method.v1.PaymentMethodService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case PaymentMethodServiceSavePaymentMethodProcedure:
-			paymentMethodServiceSavePaymentMethodHandler.ServeHTTP(w, r)
 		case PaymentMethodServiceGetPaymentMethodProcedure:
 			paymentMethodServiceGetPaymentMethodHandler.ServeHTTP(w, r)
 		case PaymentMethodServiceListPaymentMethodsProcedure:
@@ -288,8 +287,10 @@ func NewPaymentMethodServiceHandler(svc PaymentMethodServiceHandler, opts ...con
 			paymentMethodServiceSetDefaultPaymentMethodHandler.ServeHTTP(w, r)
 		case PaymentMethodServiceVerifyACHAccountProcedure:
 			paymentMethodServiceVerifyACHAccountHandler.ServeHTTP(w, r)
-		case PaymentMethodServiceConvertFinancialBRICToStorageBRICProcedure:
-			paymentMethodServiceConvertFinancialBRICToStorageBRICHandler.ServeHTTP(w, r)
+		case PaymentMethodServiceStoreACHAccountProcedure:
+			paymentMethodServiceStoreACHAccountHandler.ServeHTTP(w, r)
+		case PaymentMethodServiceUpdatePaymentMethodProcedure:
+			paymentMethodServiceUpdatePaymentMethodHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -298,10 +299,6 @@ func NewPaymentMethodServiceHandler(svc PaymentMethodServiceHandler, opts ...con
 
 // UnimplementedPaymentMethodServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedPaymentMethodServiceHandler struct{}
-
-func (UnimplementedPaymentMethodServiceHandler) SavePaymentMethod(context.Context, *connect.Request[v1.SavePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment_method.v1.PaymentMethodService.SavePaymentMethod is not implemented"))
-}
 
 func (UnimplementedPaymentMethodServiceHandler) GetPaymentMethod(context.Context, *connect.Request[v1.GetPaymentMethodRequest]) (*connect.Response[v1.PaymentMethod], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment_method.v1.PaymentMethodService.GetPaymentMethod is not implemented"))
@@ -327,6 +324,10 @@ func (UnimplementedPaymentMethodServiceHandler) VerifyACHAccount(context.Context
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment_method.v1.PaymentMethodService.VerifyACHAccount is not implemented"))
 }
 
-func (UnimplementedPaymentMethodServiceHandler) ConvertFinancialBRICToStorageBRIC(context.Context, *connect.Request[v1.ConvertFinancialBRICRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment_method.v1.PaymentMethodService.ConvertFinancialBRICToStorageBRIC is not implemented"))
+func (UnimplementedPaymentMethodServiceHandler) StoreACHAccount(context.Context, *connect.Request[v1.StoreACHAccountRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment_method.v1.PaymentMethodService.StoreACHAccount is not implemented"))
+}
+
+func (UnimplementedPaymentMethodServiceHandler) UpdatePaymentMethod(context.Context, *connect.Request[v1.UpdatePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment_method.v1.PaymentMethodService.UpdatePaymentMethod is not implemented"))
 }

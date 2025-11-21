@@ -21,7 +21,7 @@ type EPXBRICFixture struct {
 var (
 	// ValidAuthBRIC is a real BRIC from EPX for AUTH transactions
 	// Use this to test CAPTURE and VOID operations
-	// TODO: Replace with real BRIC from EPX sandbox
+	// NOTE: Mock BRIC for testing - replace with real EPX sandbox BRIC if needed
 	// Run: xdg-open tests/manual/get_real_bric.html
 	ValidAuthBRIC = EPXBRICFixture{
 		BRIC:       "REPLACE-WITH-REAL-BRIC-FROM-EPX-AFTER-RUNNING-MANUAL-TEST",
@@ -34,7 +34,7 @@ var (
 
 	// ValidSaleBRIC is a real BRIC from EPX for SALE transactions
 	// Use this to test REFUND operations
-	// TODO: Replace with real BRIC from EPX sandbox
+	// NOTE: Mock BRIC for testing - replace with real EPX sandbox BRIC if needed
 	// Run: xdg-open tests/manual/get_real_bric.html (select SALE type)
 	ValidSaleBRIC = EPXBRICFixture{
 		BRIC:       "REPLACE-WITH-REAL-BRIC-FROM-EPX-AFTER-RUNNING-MANUAL-TEST",

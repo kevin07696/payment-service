@@ -392,8 +392,8 @@ func (m *MockQuerier) GetChargebackByCaseNumber(ctx context.Context, arg sqlc.Ge
 	return args.Get(0).(sqlc.Chargeback), args.Error(1)
 }
 
-func (m *MockQuerier) GetChargebackByGroupID(ctx context.Context, groupID pgtype.UUID) (sqlc.Chargeback, error) {
-	args := m.Called(ctx, groupID)
+func (m *MockQuerier) GetChargebackByTransactionID(ctx context.Context, transactionID uuid.UUID) (sqlc.Chargeback, error) {
+	args := m.Called(ctx, transactionID)
 	return args.Get(0).(sqlc.Chargeback), args.Error(1)
 }
 

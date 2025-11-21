@@ -1,13 +1,13 @@
 -- name: CreateChargeback :one
 INSERT INTO chargebacks (
-    id, group_id, agent_id, customer_id,
+    id, transaction_id, agent_id, customer_id,
     case_number, dispute_date, chargeback_date,
     chargeback_amount, currency, reason_code, reason_description,
     status, respond_by_date,
     evidence_files, response_notes, internal_notes,
     raw_data
 ) VALUES (
-    sqlc.arg(id), sqlc.narg(group_id), sqlc.arg(agent_id), sqlc.narg(customer_id),
+    sqlc.arg(id), sqlc.arg(transaction_id), sqlc.arg(agent_id), sqlc.narg(customer_id),
     sqlc.arg(case_number), sqlc.arg(dispute_date), sqlc.arg(chargeback_date),
     sqlc.arg(chargeback_amount), sqlc.arg(currency), sqlc.arg(reason_code), sqlc.narg(reason_description),
     sqlc.arg(status), sqlc.narg(respond_by_date),
@@ -23,16 +23,16 @@ WHERE id = sqlc.arg(id);
 SELECT * FROM chargebacks
 WHERE agent_id = sqlc.arg(agent_id) AND case_number = sqlc.arg(case_number);
 
--- name: GetChargebackByGroupID :one
+-- name: GetChargebackByTransactionID :one
 SELECT * FROM chargebacks
-WHERE group_id = sqlc.arg(group_id);
+WHERE transaction_id = sqlc.arg(transaction_id);
 
 -- name: ListChargebacks :many
 SELECT * FROM chargebacks
 WHERE
     (sqlc.narg(agent_id)::varchar IS NULL OR agent_id = sqlc.narg(agent_id)) AND
     (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
-    (sqlc.narg(group_id)::uuid IS NULL OR group_id = sqlc.narg(group_id)) AND
+    (sqlc.narg(transaction_id)::uuid IS NULL OR transaction_id = sqlc.narg(transaction_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status)) AND
     (sqlc.narg(dispute_date_from)::date IS NULL OR dispute_date >= sqlc.narg(dispute_date_from)) AND
     (sqlc.narg(dispute_date_to)::date IS NULL OR dispute_date <= sqlc.narg(dispute_date_to))
@@ -44,7 +44,7 @@ SELECT COUNT(*) FROM chargebacks
 WHERE
     (sqlc.narg(agent_id)::varchar IS NULL OR agent_id = sqlc.narg(agent_id)) AND
     (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
-    (sqlc.narg(group_id)::uuid IS NULL OR group_id = sqlc.narg(group_id)) AND
+    (sqlc.narg(transaction_id)::uuid IS NULL OR transaction_id = sqlc.narg(transaction_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status)) AND
     (sqlc.narg(dispute_date_from)::date IS NULL OR dispute_date >= sqlc.narg(dispute_date_from)) AND
     (sqlc.narg(dispute_date_to)::date IS NULL OR dispute_date <= sqlc.narg(dispute_date_to));

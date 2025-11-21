@@ -2,6 +2,8 @@ package domain
 
 import (
 	"time"
+
+	"github.com/kevin07696/payment-service/pkg/timeutil"
 )
 
 // Environment represents the EPX environment
@@ -66,11 +68,11 @@ func (m *Merchant) GetMACSecretPath() string {
 // Deactivate marks the merchant as inactive
 func (m *Merchant) Deactivate() {
 	m.IsActive = false
-	m.UpdatedAt = time.Now()
+	m.UpdatedAt = timeutil.Now()
 }
 
 // Activate marks the merchant as active
 func (m *Merchant) Activate() {
 	m.IsActive = true
-	m.UpdatedAt = time.Now()
+	m.UpdatedAt = timeutil.Now()
 }

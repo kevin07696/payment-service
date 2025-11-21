@@ -35,7 +35,7 @@ SELECT COUNT(*) FROM chargebacks
 WHERE
     ($1::varchar IS NULL OR agent_id = $1) AND
     ($2::varchar IS NULL OR customer_id = $2) AND
-    ($3::uuid IS NULL OR group_id = $3) AND
+    ($3::uuid IS NULL OR transaction_id = $3) AND
     ($4::varchar IS NULL OR status = $4) AND
     ($5::date IS NULL OR dispute_date >= $5) AND
     ($6::date IS NULL OR dispute_date <= $6)
@@ -44,7 +44,7 @@ WHERE
 type CountChargebacksParams struct {
 	AgentID         pgtype.Text `json:"agent_id"`
 	CustomerID      pgtype.Text `json:"customer_id"`
-	GroupID         pgtype.UUID `json:"group_id"`
+	TransactionID   pgtype.UUID `json:"transaction_id"`
 	Status          pgtype.Text `json:"status"`
 	DisputeDateFrom pgtype.Date `json:"dispute_date_from"`
 	DisputeDateTo   pgtype.Date `json:"dispute_date_to"`
@@ -54,7 +54,7 @@ func (q *Queries) CountChargebacks(ctx context.Context, arg CountChargebacksPara
 	row := q.db.QueryRow(ctx, countChargebacks,
 		arg.AgentID,
 		arg.CustomerID,
-		arg.GroupID,
+		arg.TransactionID,
 		arg.Status,
 		arg.DisputeDateFrom,
 		arg.DisputeDateTo,
@@ -66,7 +66,7 @@ func (q *Queries) CountChargebacks(ctx context.Context, arg CountChargebacksPara
 
 const createChargeback = `-- name: CreateChargeback :one
 INSERT INTO chargebacks (
-    id, group_id, agent_id, customer_id,
+    id, transaction_id, agent_id, customer_id,
     case_number, dispute_date, chargeback_date,
     chargeback_amount, currency, reason_code, reason_description,
     status, respond_by_date,
@@ -79,12 +79,12 @@ INSERT INTO chargebacks (
     $12, $13,
     $14, $15, $16,
     $17
-) RETURNING id, group_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at
+) RETURNING id, transaction_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at
 `
 
 type CreateChargebackParams struct {
 	ID                uuid.UUID       `json:"id"`
-	GroupID           pgtype.UUID     `json:"group_id"`
+	TransactionID     uuid.UUID       `json:"transaction_id"`
 	AgentID           string          `json:"agent_id"`
 	CustomerID        pgtype.Text     `json:"customer_id"`
 	CaseNumber        string          `json:"case_number"`
@@ -105,7 +105,7 @@ type CreateChargebackParams struct {
 func (q *Queries) CreateChargeback(ctx context.Context, arg CreateChargebackParams) (Chargeback, error) {
 	row := q.db.QueryRow(ctx, createChargeback,
 		arg.ID,
-		arg.GroupID,
+		arg.TransactionID,
 		arg.AgentID,
 		arg.CustomerID,
 		arg.CaseNumber,
@@ -125,7 +125,7 @@ func (q *Queries) CreateChargeback(ctx context.Context, arg CreateChargebackPara
 	var i Chargeback
 	err := row.Scan(
 		&i.ID,
-		&i.GroupID,
+		&i.TransactionID,
 		&i.AgentID,
 		&i.CustomerID,
 		&i.CaseNumber,
@@ -151,7 +151,7 @@ func (q *Queries) CreateChargeback(ctx context.Context, arg CreateChargebackPara
 }
 
 const getChargebackByCaseNumber = `-- name: GetChargebackByCaseNumber :one
-SELECT id, group_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at FROM chargebacks
+SELECT id, transaction_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at FROM chargebacks
 WHERE agent_id = $1 AND case_number = $2
 `
 
@@ -165,42 +165,7 @@ func (q *Queries) GetChargebackByCaseNumber(ctx context.Context, arg GetChargeba
 	var i Chargeback
 	err := row.Scan(
 		&i.ID,
-		&i.GroupID,
-		&i.AgentID,
-		&i.CustomerID,
-		&i.CaseNumber,
-		&i.DisputeDate,
-		&i.ChargebackDate,
-		&i.ChargebackAmount,
-		&i.Currency,
-		&i.ReasonCode,
-		&i.ReasonDescription,
-		&i.Status,
-		&i.RespondByDate,
-		&i.ResponseSubmittedAt,
-		&i.ResolvedAt,
-		&i.EvidenceFiles,
-		&i.ResponseNotes,
-		&i.InternalNotes,
-		&i.RawData,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getChargebackByGroupID = `-- name: GetChargebackByGroupID :one
-SELECT id, group_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at FROM chargebacks
-WHERE group_id = $1
-`
-
-func (q *Queries) GetChargebackByGroupID(ctx context.Context, groupID pgtype.UUID) (Chargeback, error) {
-	row := q.db.QueryRow(ctx, getChargebackByGroupID, groupID)
-	var i Chargeback
-	err := row.Scan(
-		&i.ID,
-		&i.GroupID,
+		&i.TransactionID,
 		&i.AgentID,
 		&i.CustomerID,
 		&i.CaseNumber,
@@ -226,7 +191,7 @@ func (q *Queries) GetChargebackByGroupID(ctx context.Context, groupID pgtype.UUI
 }
 
 const getChargebackByID = `-- name: GetChargebackByID :one
-SELECT id, group_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at FROM chargebacks
+SELECT id, transaction_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at FROM chargebacks
 WHERE id = $1
 `
 
@@ -235,7 +200,42 @@ func (q *Queries) GetChargebackByID(ctx context.Context, id uuid.UUID) (Chargeba
 	var i Chargeback
 	err := row.Scan(
 		&i.ID,
-		&i.GroupID,
+		&i.TransactionID,
+		&i.AgentID,
+		&i.CustomerID,
+		&i.CaseNumber,
+		&i.DisputeDate,
+		&i.ChargebackDate,
+		&i.ChargebackAmount,
+		&i.Currency,
+		&i.ReasonCode,
+		&i.ReasonDescription,
+		&i.Status,
+		&i.RespondByDate,
+		&i.ResponseSubmittedAt,
+		&i.ResolvedAt,
+		&i.EvidenceFiles,
+		&i.ResponseNotes,
+		&i.InternalNotes,
+		&i.RawData,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getChargebackByTransactionID = `-- name: GetChargebackByTransactionID :one
+SELECT id, transaction_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at FROM chargebacks
+WHERE transaction_id = $1
+`
+
+func (q *Queries) GetChargebackByTransactionID(ctx context.Context, transactionID uuid.UUID) (Chargeback, error) {
+	row := q.db.QueryRow(ctx, getChargebackByTransactionID, transactionID)
+	var i Chargeback
+	err := row.Scan(
+		&i.ID,
+		&i.TransactionID,
 		&i.AgentID,
 		&i.CustomerID,
 		&i.CaseNumber,
@@ -261,11 +261,11 @@ func (q *Queries) GetChargebackByID(ctx context.Context, id uuid.UUID) (Chargeba
 }
 
 const listChargebacks = `-- name: ListChargebacks :many
-SELECT id, group_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at FROM chargebacks
+SELECT id, transaction_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at FROM chargebacks
 WHERE
     ($1::varchar IS NULL OR agent_id = $1) AND
     ($2::varchar IS NULL OR customer_id = $2) AND
-    ($3::uuid IS NULL OR group_id = $3) AND
+    ($3::uuid IS NULL OR transaction_id = $3) AND
     ($4::varchar IS NULL OR status = $4) AND
     ($5::date IS NULL OR dispute_date >= $5) AND
     ($6::date IS NULL OR dispute_date <= $6)
@@ -276,7 +276,7 @@ LIMIT $8 OFFSET $7
 type ListChargebacksParams struct {
 	AgentID         pgtype.Text `json:"agent_id"`
 	CustomerID      pgtype.Text `json:"customer_id"`
-	GroupID         pgtype.UUID `json:"group_id"`
+	TransactionID   pgtype.UUID `json:"transaction_id"`
 	Status          pgtype.Text `json:"status"`
 	DisputeDateFrom pgtype.Date `json:"dispute_date_from"`
 	DisputeDateTo   pgtype.Date `json:"dispute_date_to"`
@@ -288,7 +288,7 @@ func (q *Queries) ListChargebacks(ctx context.Context, arg ListChargebacksParams
 	rows, err := q.db.Query(ctx, listChargebacks,
 		arg.AgentID,
 		arg.CustomerID,
-		arg.GroupID,
+		arg.TransactionID,
 		arg.Status,
 		arg.DisputeDateFrom,
 		arg.DisputeDateTo,
@@ -304,7 +304,7 @@ func (q *Queries) ListChargebacks(ctx context.Context, arg ListChargebacksParams
 		var i Chargeback
 		if err := rows.Scan(
 			&i.ID,
-			&i.GroupID,
+			&i.TransactionID,
 			&i.AgentID,
 			&i.CustomerID,
 			&i.CaseNumber,
@@ -364,7 +364,7 @@ SET
     resolved_at = $3,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $4
-RETURNING id, group_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at
+RETURNING id, transaction_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at
 `
 
 type UpdateChargebackParams struct {
@@ -384,7 +384,7 @@ func (q *Queries) UpdateChargeback(ctx context.Context, arg UpdateChargebackPara
 	var i Chargeback
 	err := row.Scan(
 		&i.ID,
-		&i.GroupID,
+		&i.TransactionID,
 		&i.AgentID,
 		&i.CustomerID,
 		&i.CaseNumber,
@@ -456,7 +456,7 @@ SET
     reason_description = $6,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $7
-RETURNING id, group_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at
+RETURNING id, transaction_id, agent_id, customer_id, case_number, dispute_date, chargeback_date, chargeback_amount, currency, reason_code, reason_description, status, respond_by_date, response_submitted_at, resolved_at, evidence_files, response_notes, internal_notes, raw_data, deleted_at, created_at, updated_at
 `
 
 type UpdateChargebackStatusParams struct {
@@ -482,7 +482,7 @@ func (q *Queries) UpdateChargebackStatus(ctx context.Context, arg UpdateChargeba
 	var i Chargeback
 	err := row.Scan(
 		&i.ID,
-		&i.GroupID,
+		&i.TransactionID,
 		&i.AgentID,
 		&i.CustomerID,
 		&i.CaseNumber,

@@ -4,173 +4,337 @@
 package auth_test
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"database/sql"
-	"encoding/pem"
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"github.com/kevin07696/payment-service/tests/integration/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 // TestJWTAuthentication_ValidToken tests JWT authentication with valid RSA-signed token
 func TestJWTAuthentication_ValidToken(t *testing.T) {
-	t.Skip("TODO: Implement JWT authentication test - requires test service setup and auth enabled")
+	// Load pre-generated test services
+	testServices, err := testutil.LoadTestServices()
+	require.NoError(t, err, "Failed to load test services")
+	require.NotEmpty(t, testServices, "No test services available")
 
-	// This test requires:
-	// 1. Generate RSA key pair
-	// 2. Insert test service into services table with public key
-	// 3. Create service_merchants relationship
-	// 4. Generate valid JWT signed with private key
-	// 5. Make authenticated request
-	// 6. Verify request succeeds
+	// Use first test service
+	testService := testServices[0]
+	merchantID := "00000000-0000-0000-0000-000000000001" // Test merchant from seed
 
-	_, _ = testutil.Setup(t)
-	db := testutil.GetDB(t)
+	// Generate valid JWT
+	token, err := testutil.GenerateJWT(
+		testService.PrivateKeyPEM,
+		testService.ServiceID,
+		merchantID,
+		1*time.Hour, // 1 hour expiration
+	)
+	require.NoError(t, err, "Failed to generate JWT")
 
-	// Generate RSA key pair for testing
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
+	// Setup client with JWT auth header
+	cfg, client := testutil.Setup(t)
+	client.SetHeader("Authorization", "Bearer "+token)
 
-	publicKeyPEM := exportPublicKeyAsPEM(&privateKey.PublicKey)
+	// Make authenticated request to a simple endpoint
+	// Using a health or simple query endpoint to verify auth works
+	resp, err := client.DoConnectRPC("payment.v1.PaymentService", "ListTransactions", map[string]interface{}{
+		"merchantId": merchantID,
+		"limit":      10,
+	})
+	require.NoError(t, err, "Request failed")
+	defer resp.Body.Close()
 
-	// Insert test service
-	serviceID := "test-service-" + uuid.New().String()
-	testServiceID := insertTestService(t, db, serviceID, publicKeyPEM)
-	defer cleanupTestService(t, db, testServiceID)
+	// Verify successful authentication (200 OK or valid response, not 401)
+	require.NotEqual(t, 401, resp.StatusCode, "Authentication should succeed with valid JWT")
 
-	// Link service to merchant
-	merchantID := "00000000-0000-0000-0000-000000000001" // Test merchant
-	linkServiceToMerchant(t, db, testServiceID, merchantID)
-
-	// Generate JWT token
-	_ = generateJWT(t, privateKey, serviceID, merchantID)
-
-	// TODO: Enable authentication temporarily for this test
-	// Make authenticated request
-	// client.AddHeader("Authorization", "Bearer " + token)
-	// resp, err := client.Do("POST", "/payment.v1.PaymentService/GetTransaction", req)
-	// require.NoError(t, err)
-	// assert.Equal(t, 200, resp.StatusCode)
+	t.Logf("✅ JWT authentication successful with service: %s", testService.ServiceID)
+	t.Logf("   Service URL: %s", cfg.ServiceURL)
+	t.Logf("   Response status: %d", resp.StatusCode)
 }
 
 // TestJWTAuthentication_InvalidSignature tests JWT with wrong signature is rejected
 func TestJWTAuthentication_InvalidSignature(t *testing.T) {
-	t.Skip("TODO: Implement invalid JWT signature test")
+	merchantID := "00000000-0000-0000-0000-000000000001"
 
-	// This test verifies that JWT signed with wrong private key is rejected
-	// Expected: HTTP 401 Unauthorized
+	// Generate JWT signed with WRONG key (not in database)
+	token, err := testutil.GenerateJWTWithWrongKey("unknown-service-123", merchantID)
+	require.NoError(t, err, "Failed to generate JWT with wrong key")
+
+	// Setup client with invalid JWT
+	_, client := testutil.Setup(t)
+	client.SetHeader("Authorization", "Bearer "+token)
+
+	// Make authenticated request
+	resp, err := client.DoConnectRPC("payment.v1.PaymentService", "ListTransactions", map[string]interface{}{
+		"merchantId": merchantID,
+		"limit":      10,
+	})
+	require.NoError(t, err, "Request should complete (not connection error)")
+	defer resp.Body.Close()
+
+	// Verify authentication failed with 401
+	require.Equal(t, 401, resp.StatusCode, "Should reject JWT with invalid signature")
+
+	t.Logf("✅ Correctly rejected JWT with invalid signature (status: %d)", resp.StatusCode)
 }
 
 // TestJWTAuthentication_ExpiredToken tests expired JWT is rejected
 func TestJWTAuthentication_ExpiredToken(t *testing.T) {
-	t.Skip("TODO: Implement expired JWT test")
+	// Load test services
+	testServices, err := testutil.LoadTestServices()
+	require.NoError(t, err)
+	require.NotEmpty(t, testServices)
 
-	// This test verifies that JWT with past expiration is rejected
-	// Expected: HTTP 401 Unauthorized with "token expired" message
+	testService := testServices[0]
+	merchantID := "00000000-0000-0000-0000-000000000001"
+
+	// Generate JWT that expired 1 hour ago
+	token, err := testutil.GenerateJWT(
+		testService.PrivateKeyPEM,
+		testService.ServiceID,
+		merchantID,
+		-1*time.Hour, // Negative duration = already expired
+	)
+	require.NoError(t, err)
+
+	// Setup client with expired JWT
+	_, client := testutil.Setup(t)
+	client.SetHeader("Authorization", "Bearer "+token)
+
+	// Make authenticated request
+	resp, err := client.DoConnectRPC("payment.v1.PaymentService", "ListTransactions", map[string]interface{}{
+		"merchantId": merchantID,
+		"limit":      10,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Verify authentication failed with 401
+	require.Equal(t, 401, resp.StatusCode, "Should reject expired JWT")
+
+	t.Logf("✅ Correctly rejected expired JWT (status: %d)", resp.StatusCode)
 }
 
 // TestJWTAuthentication_MissingIssuer tests JWT without issuer is rejected
 func TestJWTAuthentication_MissingIssuer(t *testing.T) {
-	t.Skip("TODO: Implement missing issuer test")
+	// Load test services
+	testServices, err := testutil.LoadTestServices()
+	require.NoError(t, err)
+	require.NotEmpty(t, testServices)
 
-	// This test verifies that JWT without "iss" claim is rejected
-	// Expected: HTTP 401 Unauthorized with "missing issuer" message
+	testService := testServices[0]
+	merchantID := "00000000-0000-0000-0000-000000000001"
+
+	// Generate JWT WITHOUT "iss" claim
+	claims := map[string]interface{}{
+		// "iss" is intentionally missing
+		"merchant_id": merchantID,
+		"exp":         time.Now().Add(1 * time.Hour).Unix(),
+		"iat":         time.Now().Unix(),
+	}
+
+	token, err := testutil.GenerateJWTWithClaims(testService.PrivateKeyPEM, claims)
+	require.NoError(t, err)
+
+	// Setup client with JWT missing issuer
+	_, client := testutil.Setup(t)
+	client.SetHeader("Authorization", "Bearer "+token)
+
+	// Make authenticated request
+	resp, err := client.DoConnectRPC("payment.v1.PaymentService", "ListTransactions", map[string]interface{}{
+		"merchantId": merchantID,
+		"limit":      10,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Verify authentication failed with 401
+	require.Equal(t, 401, resp.StatusCode, "Should reject JWT without issuer")
+
+	t.Logf("✅ Correctly rejected JWT without issuer (status: %d)", resp.StatusCode)
 }
 
 // TestJWTAuthentication_UnknownIssuer tests JWT from unknown service is rejected
 func TestJWTAuthentication_UnknownIssuer(t *testing.T) {
-	t.Skip("TODO: Implement unknown issuer test")
+	// Load test services to get a valid private key
+	testServices, err := testutil.LoadTestServices()
+	require.NoError(t, err)
+	require.NotEmpty(t, testServices)
 
-	// This test verifies that JWT from service not in database is rejected
-	// Expected: HTTP 401 Unauthorized with "unknown issuer" message
+	testService := testServices[0]
+	merchantID := "00000000-0000-0000-0000-000000000001"
+
+	// Generate JWT with issuer NOT in database
+	token, err := testutil.GenerateJWT(
+		testService.PrivateKeyPEM,
+		"unknown-service-not-in-db", // This service_id doesn't exist in database
+		merchantID,
+		1*time.Hour,
+	)
+	require.NoError(t, err)
+
+	// Setup client with JWT from unknown issuer
+	_, client := testutil.Setup(t)
+	client.SetHeader("Authorization", "Bearer "+token)
+
+	// Make authenticated request
+	resp, err := client.DoConnectRPC("payment.v1.PaymentService", "ListTransactions", map[string]interface{}{
+		"merchantId": merchantID,
+		"limit":      10,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Verify authentication failed with 401
+	require.Equal(t, 401, resp.StatusCode, "Should reject JWT from unknown issuer")
+
+	t.Logf("✅ Correctly rejected JWT from unknown issuer (status: %d)", resp.StatusCode)
 }
 
 // TestJWTAuthentication_NoMerchantAccess tests JWT for merchant without access is rejected
 func TestJWTAuthentication_NoMerchantAccess(t *testing.T) {
-	t.Skip("TODO: Implement no merchant access test")
+	// Load test services
+	testServices, err := testutil.LoadTestServices()
+	require.NoError(t, err)
+	require.NotEmpty(t, testServices)
 
-	// This test verifies service can't access merchant it's not linked to
-	// Expected: HTTP 401 Unauthorized with "access denied" message
+	testService := testServices[0]
+	// Use a different merchant ID that the service is NOT linked to
+	// The seed script only links services to merchant 00000000-0000-0000-0000-000000000001
+	unauthorizedMerchantID := "00000000-0000-0000-0000-000000000002"
+
+	// Generate valid JWT for merchant the service doesn't have access to
+	token, err := testutil.GenerateJWT(
+		testService.PrivateKeyPEM,
+		testService.ServiceID,
+		unauthorizedMerchantID,
+		1*time.Hour,
+	)
+	require.NoError(t, err)
+
+	// Setup client with JWT
+	_, client := testutil.Setup(t)
+	client.SetHeader("Authorization", "Bearer "+token)
+
+	// Make authenticated request
+	resp, err := client.DoConnectRPC("payment.v1.PaymentService", "ListTransactions", map[string]interface{}{
+		"merchantId": unauthorizedMerchantID,
+		"limit":      10,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Verify authentication failed with 401 (service not authorized for this merchant)
+	require.Equal(t, 401, resp.StatusCode, "Should reject JWT for merchant without access")
+
+	t.Logf("✅ Correctly rejected service accessing unauthorized merchant (status: %d)", resp.StatusCode)
 }
 
 // TestJWTAuthentication_BlacklistedToken tests blacklisted JWT is rejected
 func TestJWTAuthentication_BlacklistedToken(t *testing.T) {
-	t.Skip("TODO: Implement blacklisted token test")
+	// Load test services
+	testServices, err := testutil.LoadTestServices()
+	require.NoError(t, err)
+	require.NotEmpty(t, testServices)
 
-	// This test verifies that JWT in blacklist table is rejected
-	// Setup: Insert JTI into jwt_blacklist table
-	// Expected: HTTP 401 Unauthorized with "token has been revoked" message
+	testService := testServices[0]
+	merchantID := "00000000-0000-0000-0000-000000000001"
+
+	// Generate a JWT with a known JTI
+	jti := "blacklisted-token-test-" + time.Now().Format("20060102-150405")
+	claims := map[string]interface{}{
+		"iss":         testService.ServiceID,
+		"merchant_id": merchantID,
+		"exp":         time.Now().Add(1 * time.Hour).Unix(),
+		"iat":         time.Now().Unix(),
+		"jti":         jti,
+	}
+
+	token, err := testutil.GenerateJWTWithClaims(testService.PrivateKeyPEM, claims)
+	require.NoError(t, err)
+
+	// Insert JTI into jwt_blacklist table
+	db := testutil.GetDB(t)
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO jwt_blacklist (jti, blacklisted_at, expires_at)
+		VALUES ($1, NOW(), NOW() + INTERVAL '2 hours')
+	`, jti)
+	require.NoError(t, err, "Failed to insert JTI into blacklist")
+
+	t.Logf("Blacklisted JTI: %s", jti)
+
+	// Setup client with blacklisted JWT
+	_, client := testutil.Setup(t)
+	client.SetHeader("Authorization", "Bearer "+token)
+
+	// Make authenticated request
+	resp, err := client.DoConnectRPC("payment.v1.PaymentService", "ListTransactions", map[string]interface{}{
+		"merchantId": merchantID,
+		"limit":      10,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Verify authentication failed with 401 (token revoked)
+	require.Equal(t, 401, resp.StatusCode, "Should reject blacklisted JWT")
+
+	t.Logf("✅ Correctly rejected blacklisted token (status: %d)", resp.StatusCode)
 }
 
 // TestJWTAuthentication_RateLimit tests rate limiting enforces request limits
 func TestJWTAuthentication_RateLimit(t *testing.T) {
-	t.Skip("TODO: Implement rate limit test")
+	t.Skip("Rate limiting test requires special setup with low rate limit")
 
-	// This test verifies that exceeding rate limit returns 429
-	// Setup: Service with low rate limit (e.g., 5 requests/second)
-	// Action: Make 10 rapid requests
-	// Expected: First 5 succeed (200), remaining fail (429 Too Many Requests)
-}
-
-// Helper functions
-
-func insertTestService(t *testing.T, db *sql.DB, serviceID string, publicKeyPEM string) uuid.UUID {
-	id := uuid.New()
-	_, err := db.Exec(`
-		INSERT INTO services (id, service_id, service_name, public_key, public_key_fingerprint, environment, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, id, serviceID, "Test Service", publicKeyPEM, "test-fingerprint", "test", true)
+	// Load test services
+	testServices, err := testutil.LoadTestServices()
 	require.NoError(t, err)
-	return id
-}
+	require.NotEmpty(t, testServices)
 
-func cleanupTestService(t *testing.T, db *sql.DB, id uuid.UUID) {
-	_, err := db.Exec(`DELETE FROM services WHERE id = $1`, id)
-	if err != nil {
-		t.Logf("Warning: Failed to cleanup test service: %v", err)
-	}
-}
+	testService := testServices[0]
+	merchantID := "00000000-0000-0000-0000-000000000001"
 
-func linkServiceToMerchant(t *testing.T, db *sql.DB, serviceID uuid.UUID, merchantID string) {
-	_, err := db.Exec(`
-		INSERT INTO service_merchants (service_id, merchant_id, scopes, granted_at)
-		VALUES ($1, $2, $3, NOW())
-	`, serviceID, merchantID, []string{"payment:create", "payment:read"})
-	require.NoError(t, err)
-}
-
-func generateJWT(t *testing.T, privateKey *rsa.PrivateKey, issuer string, merchantID string) string {
-	claims := jwt.MapClaims{
-		"iss":         issuer,
-		"merchant_id": merchantID,
-		"exp":         time.Now().Add(1 * time.Hour).Unix(),
-		"iat":         time.Now().Unix(),
-		"jti":         uuid.New().String(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	tokenString, err := token.SignedString(privateKey)
+	// Generate valid JWT
+	token, err := testutil.GenerateJWT(
+		testService.PrivateKeyPEM,
+		testService.ServiceID,
+		merchantID,
+		1*time.Hour,
+	)
 	require.NoError(t, err)
 
-	return tokenString
-}
+	// Setup client with JWT
+	_, client := testutil.Setup(t)
+	client.SetHeader("Authorization", "Bearer "+token)
 
-func exportPublicKeyAsPEM(publicKey *rsa.PublicKey) string {
-	pubKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
-	if err != nil {
-		panic(err)
+	// Make rapid requests to trigger rate limiting
+	// Note: The default test service has 100 requests/second limit
+	// This test needs a service with lower rate limit to reliably test
+	const numRequests = 150
+	var successCount, rateLimitCount int
+
+	for i := 0; i < numRequests; i++ {
+		resp, err := client.DoConnectRPC("payment.v1.PaymentService", "ListTransactions", map[string]interface{}{
+			"merchantId": merchantID,
+			"limit":      10,
+		})
+		require.NoError(t, err, "Request should complete (not connection error)")
+
+		if resp.StatusCode == 200 {
+			successCount++
+		} else if resp.StatusCode == 429 {
+			rateLimitCount++
+		}
+		resp.Body.Close()
 	}
 
-	pubKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: pubKeyBytes,
-	})
+	t.Logf("Made %d requests: %d succeeded, %d rate-limited", numRequests, successCount, rateLimitCount)
 
-	return string(pubKeyPEM)
+	// Verify that rate limiting was enforced
+	require.Greater(t, rateLimitCount, 0, "Should have some rate-limited requests when exceeding limit")
+
+	t.Logf("✅ Rate limiting correctly enforced (%d requests rate-limited)", rateLimitCount)
 }
+
+// Note: Helper functions moved to testutil/auth_helpers.go for reuse across tests

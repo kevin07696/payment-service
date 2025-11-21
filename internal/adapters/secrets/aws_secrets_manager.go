@@ -3,6 +3,7 @@ package secrets
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -48,8 +49,9 @@ type awsSecretsManagerAdapter struct {
 	cache  *secretCache
 }
 
-// secretCache implements a simple in-memory cache for secrets
+// secretCache implements a thread-safe in-memory cache for secrets
 type secretCache struct {
+	mu      sync.RWMutex
 	entries map[string]*cacheEntry
 	enabled bool
 	ttl     time.Duration
@@ -333,14 +335,19 @@ func (c *secretCache) get(key string) *ports.Secret {
 		return nil
 	}
 
+	c.mu.RLock()
 	entry, ok := c.entries[key]
+	c.mu.RUnlock()
+
 	if !ok {
 		return nil
 	}
 
 	// Check if expired
 	if time.Now().After(entry.expiresAt) {
+		c.mu.Lock()
 		delete(c.entries, key)
+		c.mu.Unlock()
 		return nil
 	}
 
@@ -352,6 +359,9 @@ func (c *secretCache) set(key string, secret *ports.Secret) {
 		return
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.entries[key] = &cacheEntry{
 		secret:    secret,
 		expiresAt: time.Now().Add(c.ttl),
@@ -359,9 +369,13 @@ func (c *secretCache) set(key string, secret *ports.Secret) {
 }
 
 func (c *secretCache) invalidate(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	delete(c.entries, key)
 }
 
 func (c *secretCache) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.entries = make(map[string]*cacheEntry)
 }

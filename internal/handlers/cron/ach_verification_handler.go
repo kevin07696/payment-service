@@ -39,11 +39,11 @@ type VerifyACHRequest struct {
 
 // VerifyACHResponse represents the response from ACH verification
 type VerifyACHResponse struct {
-	Success      bool     `json:"success"`
-	Verified     int      `json:"verified"`
-	Skipped      int      `json:"skipped"`
-	Errors       []string `json:"errors,omitempty"`
-	ProcessedAt  string   `json:"processed_at"`
+	Success     bool     `json:"success"`
+	Verified    int      `json:"verified"`
+	Skipped     int      `json:"skipped"`
+	Errors      []string `json:"errors,omitempty"`
+	ProcessedAt string   `json:"processed_at"`
 }
 
 // VerifyACH handles the POST /cron/verify-ach endpoint
@@ -310,11 +310,11 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 
 	// Query ACH verification statistics
 	var stats struct {
-		TotalACH     int `json:"total_ach"`
-		Pending      int `json:"pending"`
-		Verified     int `json:"verified"`
-		Failed       int `json:"failed"`
-		EligibleNow  int `json:"eligible_now"` // Pending accounts eligible for verification
+		TotalACH    int `json:"total_ach"`
+		Pending     int `json:"pending"`
+		Verified    int `json:"verified"`
+		Failed      int `json:"failed"`
+		EligibleNow int `json:"eligible_now"` // Pending accounts eligible for verification
 	}
 
 	// Total ACH accounts

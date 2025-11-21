@@ -15,9 +15,9 @@ import (
 	"connectrpc.com/connect"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
 	"github.com/kevin07696/payment-service/proto/payment/v1/paymentv1connect"
+	"go.uber.org/zap"
 )
 
 // WordPressConnectClient handles payment API calls with JWT authentication using ConnectRPC
@@ -169,11 +169,11 @@ func (c *WordPressConnectClient) generateToken(merchantID string, scopes []strin
 	expiresAt := now.Add(c.tokenExpiry)
 
 	claims := jwt.MapClaims{
-		"iss":         c.serviceID,        // Issuer (WordPress plugin)
-		"sub":         merchantID,         // Subject (merchant)
-		"merchant_id": merchantID,         // Merchant ID claim
-		"iat":         now.Unix(),         // Issued at
-		"exp":         expiresAt.Unix(),   // Expires at
+		"iss":         c.serviceID,         // Issuer (WordPress plugin)
+		"sub":         merchantID,          // Subject (merchant)
+		"merchant_id": merchantID,          // Merchant ID claim
+		"iat":         now.Unix(),          // Issued at
+		"exp":         expiresAt.Unix(),    // Expires at
 		"jti":         uuid.New().String(), // Unique token ID
 		"scopes":      scopes,              // Permissions
 	}
@@ -203,7 +203,7 @@ func (c *WordPressConnectClient) Sale(ctx context.Context, merchantID string, am
 		PaymentMethod:  &paymentv1.SaleRequest_PaymentToken{PaymentToken: paymentToken},
 		IdempotencyKey: uuid.New().String(),
 		Metadata: map[string]string{
-			"source": "wordpress-plugin",
+			"source":   "wordpress-plugin",
 			"order_id": uuid.New().String(),
 		},
 	})
@@ -403,13 +403,13 @@ func main() {
 
 	// Example: Refund (if needed)
 	/*
-	fmt.Println("\nRefunding 50.00...")
-	refundResp, err := client.RefundTransaction(ctx, merchantID, response.GroupId, "50.00")
-	if err != nil {
-		fmt.Printf("Refund failed: %v\n", err)
-		return
-	}
-	fmt.Printf("Refund successful! New status: %s\n", refundResp.Status)
+		fmt.Println("\nRefunding 50.00...")
+		refundResp, err := client.RefundTransaction(ctx, merchantID, response.GroupId, "50.00")
+		if err != nil {
+			fmt.Printf("Refund failed: %v\n", err)
+			return
+		}
+		fmt.Printf("Refund successful! New status: %s\n", refundResp.Status)
 	*/
 
 	fmt.Println("\n✓ WordPress ConnectRPC client successfully tested!")

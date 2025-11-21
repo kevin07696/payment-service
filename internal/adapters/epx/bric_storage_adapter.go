@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/pkg/resilience"
 	"go.uber.org/zap"
 )
 
@@ -53,9 +54,11 @@ func DefaultBRICStorageConfig(environment string) *BRICStorageConfig {
 
 // bricStorageAdapter implements the BRICStorageAdapter port
 type bricStorageAdapter struct {
-	config     *BRICStorageConfig
-	httpClient *http.Client
-	logger     *zap.Logger
+	config         *BRICStorageConfig
+	httpClient     *http.Client
+	logger         *zap.Logger
+	circuitBreaker *CircuitBreaker
+	backoff        resilience.BackoffStrategy
 }
 
 // NewBRICStorageAdapter creates a new EPX BRIC Storage adapter
@@ -75,10 +78,15 @@ func NewBRICStorageAdapter(config *BRICStorageConfig, logger *zap.Logger) ports.
 		Transport: transport,
 	}
 
+	// Initialize circuit breaker with defaults
+	circuitBreaker := NewCircuitBreaker(DefaultCircuitBreakerConfig())
+
 	return &bricStorageAdapter{
-		config:     config,
-		httpClient: httpClient,
-		logger:     logger,
+		config:         config,
+		httpClient:     httpClient,
+		logger:         logger,
+		circuitBreaker: circuitBreaker,
+		backoff:        resilience.DefaultExponentialBackoff(),
 	}
 }
 
@@ -358,66 +366,91 @@ type BRICStorageXMLResponse struct {
 
 // sendRequest sends the XML request to EPX and parses the response
 func (a *bricStorageAdapter) sendRequest(ctx context.Context, xmlRequest string, req *ports.BRICStorageRequest) (*ports.BRICStorageResponse, error) {
-	var lastErr error
+	// Execute request through circuit breaker
+	var response *ports.BRICStorageResponse
+	err := a.circuitBreaker.Call(func() error {
+		var lastErr error
 
-	for attempt := 0; attempt <= a.config.MaxRetries; attempt++ {
-		if attempt > 0 {
-			a.logger.Info("Retrying BRIC Storage request",
-				zap.Int("attempt", attempt),
-				zap.Int("max_retries", a.config.MaxRetries),
-			)
-			time.Sleep(a.config.RetryDelay)
-		}
-
-		// Create HTTP request
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", a.config.BaseURL, strings.NewReader(xmlRequest))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create HTTP request: %w", err)
-		}
-
-		httpReq.Header.Set("Content-Type", "application/xml")
-
-		// Send request
-		startTime := time.Now()
-		httpResp, err := a.httpClient.Do(httpReq)
-		if err != nil {
-			lastErr = err
-			if a.isRetryable(err) && attempt < a.config.MaxRetries {
-				a.logger.Warn("Retryable error occurred", zap.Error(err))
-				continue
+		for attempt := 0; attempt <= a.config.MaxRetries; attempt++ {
+			if attempt > 0 {
+				// Calculate exponential backoff delay with jitter
+				delay := a.backoff.NextDelay(attempt - 1)
+				a.logger.Info("Retrying BRIC Storage request with exponential backoff",
+					zap.Int("attempt", attempt),
+					zap.Int("max_retries", a.config.MaxRetries),
+					zap.Duration("backoff_delay", delay),
+				)
+				// Respect context cancellation during retry delay
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("retry cancelled: %w", ctx.Err())
+				case <-time.After(delay):
+					// Continue to retry
+				}
 			}
-			return nil, fmt.Errorf("failed to send request: %w", err)
-		}
-		defer httpResp.Body.Close()
 
-		// Read response
-		body, err := io.ReadAll(httpResp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read response: %w", err)
-		}
+			// Create HTTP request
+			httpReq, err := http.NewRequestWithContext(ctx, "POST", a.config.BaseURL, strings.NewReader(xmlRequest))
+			if err != nil {
+				return fmt.Errorf("failed to create HTTP request: %w", err)
+			}
 
-		a.logger.Info("Received BRIC Storage response",
-			zap.Int("status_code", httpResp.StatusCode),
-			zap.Duration("elapsed", time.Since(startTime)),
-		)
+			httpReq.Header.Set("Content-Type", "application/xml")
 
-		// Parse XML response
-		var xmlResp BRICStorageXMLResponse
-		if err := xml.Unmarshal(body, &xmlResp); err != nil {
-			a.logger.Error("Failed to parse XML response",
-				zap.Error(err),
-				zap.String("body", string(body)),
+			// Send request
+			startTime := time.Now()
+			httpResp, err := a.httpClient.Do(httpReq)
+			if err != nil {
+				lastErr = err
+				if a.isRetryable(err) && attempt < a.config.MaxRetries {
+					a.logger.Warn("Retryable error occurred", zap.Error(err))
+					continue
+				}
+				return fmt.Errorf("failed to send request: %w", err)
+			}
+			defer httpResp.Body.Close()
+
+			// Read response
+			body, err := io.ReadAll(httpResp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to read response: %w", err)
+			}
+
+			a.logger.Info("Received BRIC Storage response",
+				zap.Int("status_code", httpResp.StatusCode),
+				zap.Duration("elapsed", time.Since(startTime)),
 			)
-			return nil, fmt.Errorf("failed to parse XML response: %w", err)
+
+			// Parse XML response
+			var xmlResp BRICStorageXMLResponse
+			if err := xml.Unmarshal(body, &xmlResp); err != nil {
+				a.logger.Error("Failed to parse XML response",
+					zap.Error(err),
+					zap.String("body", string(body)),
+				)
+				return fmt.Errorf("failed to parse XML response: %w", err)
+			}
+
+			// Build response
+			parsedResp := a.buildResponse(&xmlResp, string(body))
+			response = parsedResp
+			return nil
 		}
 
-		// Build response
-		response := a.buildResponse(&xmlResp, string(body))
+		return fmt.Errorf("failed after %d retries: %w", a.config.MaxRetries, lastErr)
+	})
 
-		return response, nil
+	if err != nil {
+		// Check if circuit breaker rejected the request
+		if err == ErrCircuitOpen {
+			a.logger.Warn("Circuit breaker is open, rejecting BRIC Storage request",
+				zap.String("circuit_state", a.circuitBreaker.State().String()),
+			)
+		}
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("failed after %d retries: %w", a.config.MaxRetries, lastErr)
+	return response, nil
 }
 
 // buildResponse builds the BRICStorageResponse from XML response

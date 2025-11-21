@@ -25,7 +25,7 @@ func TestIntegration_ServerPost_Refund_IdempotencySameUUID(t *testing.T) {
 
 	// Step 1: Create a SALE via Browser Post to get a BRIC
 	t.Log("Step 1: Creating SALE via Browser Post...")
-	bricResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "50.00", callbackBaseURL)
+	bricResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "50.00", callbackBaseURL, "")
 	t.Logf("SALE approved: %s (Group: %s)", bricResult.TransactionID, bricResult.GroupID)
 
 	time.Sleep(2 * time.Second)
@@ -93,7 +93,7 @@ func TestIntegration_ServerPost_Void_IdempotencySameUUID(t *testing.T) {
 
 	// Step 1: Create an AUTH via Browser Post
 	t.Log("Step 1: Creating AUTH via Browser Post...")
-	bricResult := testutil.GetRealBRICForAuthAutomated(t, client, cfg, "50.00", callbackBaseURL)
+	bricResult := testutil.GetRealBRICForAuthAutomated(t, client, cfg, "50.00", callbackBaseURL, "")
 	t.Logf("AUTH approved: %s", bricResult.TransactionID)
 
 	time.Sleep(2 * time.Second)
@@ -157,7 +157,7 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 
 	// Step 1: Create an AUTH via Browser Post
 	t.Log("Step 1: Creating AUTH via Browser Post...")
-	bricResult := testutil.GetRealBRICForAuthAutomated(t, client, cfg, "50.00", callbackBaseURL)
+	bricResult := testutil.GetRealBRICForAuthAutomated(t, client, cfg, "50.00", callbackBaseURL, "")
 	t.Logf("AUTH approved: %s", bricResult.TransactionID)
 
 	time.Sleep(2 * time.Second)
@@ -241,7 +241,7 @@ func TestIntegration_ServerPost_Refund_IdempotencyConcurrent(t *testing.T) {
 
 	// Step 1: Create a SALE via Browser Post
 	t.Log("Step 1: Creating SALE via Browser Post...")
-	bricResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "100.00", callbackBaseURL)
+	bricResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "100.00", callbackBaseURL, "")
 	t.Logf("SALE approved: %s", bricResult.TransactionID)
 
 	time.Sleep(2 * time.Second)
@@ -344,7 +344,7 @@ func TestIntegration_ServerPost_Refund_DifferentUUIDs(t *testing.T) {
 
 	// Step 1: Create a SALE via Browser Post
 	t.Log("Step 1: Creating SALE via Browser Post...")
-	bricResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "100.00", callbackBaseURL)
+	bricResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "100.00", callbackBaseURL, "")
 	t.Logf("SALE approved: %s", bricResult.TransactionID)
 
 	time.Sleep(2 * time.Second)

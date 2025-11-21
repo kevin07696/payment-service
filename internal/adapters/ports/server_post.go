@@ -22,18 +22,18 @@ const (
 	TransactionTypeBRICStorageACH TransactionType = "CKC8" // BRIC Storage - ACH Checking Account
 
 	// ACH Checking Account Transactions
-	TransactionTypeACHDebit       TransactionType = "CKC2" // ACH Checking Account Debit/Sale
-	TransactionTypeACHCredit      TransactionType = "CKC3" // ACH Checking Account Credit/Refund
+	TransactionTypeACHDebit         TransactionType = "CKC2" // ACH Checking Account Debit/Sale
+	TransactionTypeACHCredit        TransactionType = "CKC3" // ACH Checking Account Credit/Refund
 	TransactionTypeACHPreNoteDebit  TransactionType = "CKC0" // ACH Checking Pre-Note Debit (account verification)
 	TransactionTypeACHPreNoteCredit TransactionType = "CKC1" // ACH Checking Pre-Note Credit (account verification)
-	TransactionTypeACHVoid        TransactionType = "CKCX" // ACH Checking Void
+	TransactionTypeACHVoid          TransactionType = "CKCX" // ACH Checking Void
 
 	// ACH Savings Account Transactions
-	TransactionTypeACHSavingsDebit       TransactionType = "CKS2" // ACH Savings Account Debit/Sale
-	TransactionTypeACHSavingsCredit      TransactionType = "CKS3" // ACH Savings Account Credit/Refund
+	TransactionTypeACHSavingsDebit         TransactionType = "CKS2" // ACH Savings Account Debit/Sale
+	TransactionTypeACHSavingsCredit        TransactionType = "CKS3" // ACH Savings Account Credit/Refund
 	TransactionTypeACHSavingsPreNoteDebit  TransactionType = "CKS0" // ACH Savings Pre-Note Debit
 	TransactionTypeACHSavingsPreNoteCredit TransactionType = "CKS1" // ACH Savings Pre-Note Credit
-	TransactionTypeACHSavingsVoid        TransactionType = "CKSX" // ACH Savings Void
+	TransactionTypeACHSavingsVoid          TransactionType = "CKSX" // ACH Savings Void
 
 	// PIN-less Debit Transactions (instant verification, one-time use)
 	TransactionTypePINlessDebitPurchase TransactionType = "DB0P" // PIN-less Debit Purchase (instant)
@@ -45,8 +45,8 @@ const (
 type PaymentMethodType string
 
 const (
-	PaymentMethodTypeCreditCard  PaymentMethodType = "credit_card"
-	PaymentMethodTypeACH         PaymentMethodType = "ach"
+	PaymentMethodTypeCreditCard   PaymentMethodType = "credit_card"
+	PaymentMethodTypeACH          PaymentMethodType = "ach"
 	PaymentMethodTypePINlessDebit PaymentMethodType = "pinless_debit" // One-time debit card payments
 )
 

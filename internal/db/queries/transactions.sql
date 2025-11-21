@@ -27,22 +27,40 @@ SELECT * FROM transactions
 WHERE id = sqlc.arg(id);
 
 -- name: GetTransactionTree :many
--- Recursively fetches a transaction and all its descendants (children, grandchildren, etc.)
--- Use this to get the full transaction tree starting from any transaction
--- Example: GetTransactionTree(auth1) returns [auth1, void1, auth2, charge2, refund2]
--- Example: GetTransactionTree(auth2) returns [auth2, charge2, refund2]
-WITH RECURSIVE transaction_tree AS (
-    -- Base case: the requested transaction (root of the subtree)
-    SELECT * FROM transactions WHERE transactions.id = sqlc.arg(parent_transaction_id)
+-- Recursively fetches the ENTIRE transaction tree starting from the root
+-- Walks UP to find the root (transaction with parent_transaction_id = NULL), then DOWN to get all descendants
+-- This ensures you always get the complete tree regardless of which transaction you query
+-- Example: GetTransactionTree(auth1) returns [auth1, auth2, capture2, refund2]
+-- Example: GetTransactionTree(auth2) returns [auth1, auth2, capture2, refund2] (includes root!)
+-- Example: GetTransactionTree(capture2) returns [auth1, auth2, capture2, refund2] (includes root!)
+WITH RECURSIVE
+-- Step 1: Walk UP the parent chain to find the root
+find_root AS (
+    SELECT * FROM transactions WHERE transactions.id = sqlc.arg(transaction_id)
 
     UNION ALL
 
-    -- Recursive case: all children of transactions already in the tree
     SELECT t.*
     FROM transactions t
-    INNER JOIN transaction_tree tt ON t.parent_transaction_id = tt.id
+    INNER JOIN find_root fr ON fr.parent_transaction_id = t.id
+),
+-- Step 2: Get the root transaction (has no parent)
+root AS (
+    SELECT * FROM find_root
+    WHERE parent_transaction_id IS NULL
+    LIMIT 1
+),
+-- Step 3: Walk DOWN from root to get all descendants
+full_tree AS (
+    SELECT * FROM root
+
+    UNION ALL
+
+    SELECT t.*
+    FROM transactions t
+    INNER JOIN full_tree ft ON t.parent_transaction_id = ft.id
 )
-SELECT * FROM transaction_tree
+SELECT * FROM full_tree
 ORDER BY created_at ASC;
 
 -- name: ListTransactions :many
@@ -51,6 +69,7 @@ WHERE
     merchant_id = sqlc.arg(merchant_id) AND
     (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(subscription_id)::uuid IS NULL OR subscription_id = sqlc.narg(subscription_id)) AND
+    (sqlc.narg(parent_transaction_id)::uuid IS NULL OR parent_transaction_id = sqlc.narg(parent_transaction_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status)) AND
     (sqlc.narg(type)::varchar IS NULL OR type = sqlc.narg(type)) AND
     (sqlc.narg(payment_method_id)::uuid IS NULL OR payment_method_id = sqlc.narg(payment_method_id))
@@ -63,6 +82,7 @@ WHERE
     merchant_id = sqlc.arg(merchant_id) AND
     (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(subscription_id)::uuid IS NULL OR subscription_id = sqlc.narg(subscription_id)) AND
+    (sqlc.narg(parent_transaction_id)::uuid IS NULL OR parent_transaction_id = sqlc.narg(parent_transaction_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status)) AND
     (sqlc.narg(type)::varchar IS NULL OR type = sqlc.narg(type)) AND
     (sqlc.narg(payment_method_id)::uuid IS NULL OR payment_method_id = sqlc.narg(payment_method_id));

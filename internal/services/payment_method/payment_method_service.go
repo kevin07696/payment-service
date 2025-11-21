@@ -3,7 +3,7 @@ package payment_method
 import (
 	"context"
 	"fmt"
-	"time"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -12,6 +12,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/util"
 	"go.uber.org/zap"
 )
 
@@ -45,292 +46,6 @@ func NewPaymentMethodService(
 		secretManager: secretManager,
 		logger:        logger,
 	}
-}
-
-// SavePaymentMethod tokenizes and saves a payment method
-func (s *paymentMethodService) SavePaymentMethod(ctx context.Context, req *ports.SavePaymentMethodRequest) (*domain.PaymentMethod, error) {
-	s.logger.Info("Saving payment method",
-		zap.String("merchant_id", req.MerchantID),
-		zap.String("customer_id", req.CustomerID),
-		zap.String("payment_type", string(req.PaymentType)),
-	)
-
-	// Check idempotency
-	if req.IdempotencyKey != nil {
-		existing, err := s.getPaymentMethodByIdempotencyKey(ctx, *req.IdempotencyKey)
-		if err == nil {
-			s.logger.Info("Idempotent request, returning existing payment method",
-				zap.String("payment_method_id", existing.ID),
-			)
-			return existing, nil
-		}
-	}
-
-	// Validate payment token
-	if req.PaymentToken == "" {
-		return nil, fmt.Errorf("payment_token is required")
-	}
-
-	// Validate last four digits
-	if len(req.LastFour) != 4 {
-		return nil, fmt.Errorf("last_four must be exactly 4 digits")
-	}
-
-	// Type-specific validation
-	if req.PaymentType == domain.PaymentMethodTypeCreditCard {
-		if req.CardBrand == nil || req.CardExpMonth == nil || req.CardExpYear == nil {
-			return nil, fmt.Errorf("card details (brand, exp_month, exp_year) are required for credit cards")
-		}
-	} else if req.PaymentType == domain.PaymentMethodTypeACH {
-		if req.BankName == nil || req.AccountType == nil {
-			return nil, fmt.Errorf("bank details (bank_name, account_type) are required for ACH")
-		}
-	}
-
-	// Parse merchant ID
-	merchantID, err := uuid.Parse(req.MerchantID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
-	}
-
-	// Parse customer ID to UUID (before transaction)
-	customerID, err := uuid.Parse(req.CustomerID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid customer_id format: %w", err)
-	}
-
-	var paymentMethod *domain.PaymentMethod
-	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
-		// If this is set as default, unset all other defaults first
-		if req.IsDefault {
-			err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
-				MerchantID: merchantID,
-				CustomerID: customerID,
-			})
-			if err != nil {
-				s.logger.Warn("Failed to unset existing defaults", zap.Error(err))
-			}
-		}
-
-		// Create payment method
-		params := sqlc.CreatePaymentMethodParams{
-			ID:           uuid.New(),
-			MerchantID:   merchantID,
-			CustomerID:   customerID,
-			PaymentType:  string(req.PaymentType),
-			Bric:         req.PaymentToken,
-			LastFour:     req.LastFour,
-			CardBrand:    toNullableText(req.CardBrand),
-			CardExpMonth: toNullableInt32(req.CardExpMonth),
-			CardExpYear:  toNullableInt32(req.CardExpYear),
-			BankName:     toNullableText(req.BankName),
-			AccountType:  toNullableText(req.AccountType),
-			IsDefault:    pgtype.Bool{Bool: req.IsDefault, Valid: true},
-			IsActive:     pgtype.Bool{Bool: true, Valid: true},
-			IsVerified:   pgtype.Bool{Bool: req.PaymentType == domain.PaymentMethodTypeCreditCard, Valid: true}, // Credit cards have immediate verification
-		}
-
-		// ACH payment methods require 3-day verification via pre-note
-		if req.PaymentType == domain.PaymentMethodTypeACH {
-			params.VerificationStatus = pgtype.Text{String: "pending", Valid: true}
-		}
-
-		dbPM, err := q.CreatePaymentMethod(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to create payment method: %w", err)
-		}
-
-		paymentMethod = sqlcPaymentMethodToDomain(&dbPM)
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	s.logger.Info("Payment method saved",
-		zap.String("payment_method_id", paymentMethod.ID),
-		zap.Bool("is_default", paymentMethod.IsDefault),
-	)
-
-	return paymentMethod, nil
-}
-
-// ConvertFinancialBRICToStorageBRIC converts a Financial BRIC to a Storage BRIC and saves it
-func (s *paymentMethodService) ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *ports.ConvertFinancialBRICRequest) (*domain.PaymentMethod, error) {
-	s.logger.Info("Converting Financial BRIC to Storage BRIC",
-		zap.String("merchant_id", req.MerchantID),
-		zap.String("customer_id", req.CustomerID),
-		zap.String("financial_bric", req.FinancialBRIC),
-		zap.String("payment_type", string(req.PaymentType)),
-		zap.String("transaction_id", req.TransactionID),
-	)
-
-	// Check idempotency
-	if req.IdempotencyKey != nil {
-		existing, err := s.getPaymentMethodByIdempotencyKey(ctx, *req.IdempotencyKey)
-		if err == nil {
-			s.logger.Info("Idempotent request, returning existing payment method",
-				zap.String("payment_method_id", existing.ID),
-			)
-			return existing, nil
-		}
-	}
-
-	// Validate required fields
-	if req.FinancialBRIC == "" {
-		return nil, fmt.Errorf("financial_bric is required")
-	}
-	if len(req.LastFour) != 4 {
-		return nil, fmt.Errorf("last_four must be exactly 4 digits")
-	}
-
-	// Type-specific validation
-	if req.PaymentType == domain.PaymentMethodTypeCreditCard {
-		if req.CardBrand == nil || req.CardExpMonth == nil || req.CardExpYear == nil {
-			return nil, fmt.Errorf("card details (brand, exp_month, exp_year) are required for credit cards")
-		}
-		// For credit cards, billing information is required for Account Verification
-		if req.Address == nil || req.ZipCode == nil {
-			return nil, fmt.Errorf("billing address and zip code are required for credit card Storage BRIC conversion")
-		}
-	} else if req.PaymentType == domain.PaymentMethodTypeACH {
-		if req.BankName == nil || req.AccountType == nil {
-			return nil, fmt.Errorf("bank details (bank_name, account_type) are required for ACH")
-		}
-	}
-
-	// Get merchant credentials
-	merchantID, err := uuid.Parse(req.MerchantID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
-	}
-
-	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get merchant: %w", err)
-	}
-
-	if !merchant.IsActive {
-		return nil, fmt.Errorf("merchant is not active")
-	}
-
-	// Build BRIC Storage request
-	batchID := fmt.Sprintf("BRIC-%d", time.Now().Unix())
-	tranNbr := uuid.New().String()
-
-	bricReq := &adapterports.BRICStorageRequest{
-		CustNbr:       merchant.CustNbr,
-		MerchNbr:      merchant.MerchNbr,
-		DBAnbr:        merchant.DbaNbr,
-		TerminalNbr:   merchant.TerminalNbr,
-		BatchID:       batchID,
-		TranNbr:       tranNbr,
-		PaymentType:   adapterports.PaymentMethodType(req.PaymentType),
-		FinancialBRIC: &req.FinancialBRIC,
-		FirstName:     req.FirstName,
-		LastName:      req.LastName,
-		Address:       req.Address,
-		City:          req.City,
-		State:         req.State,
-		ZipCode:       req.ZipCode,
-	}
-
-	// Add user data with transaction reference
-	userData := fmt.Sprintf("Converted from txn: %s", req.TransactionID)
-	bricReq.UserData1 = &userData
-
-	// Call EPX BRIC Storage API to convert Financial BRIC to Storage BRIC
-	s.logger.Info("Calling EPX BRIC Storage API",
-		zap.String("financial_bric", req.FinancialBRIC),
-		zap.String("payment_type", string(req.PaymentType)),
-	)
-
-	bricResp, err := s.bricStorage.ConvertFinancialBRICToStorage(ctx, bricReq)
-	if err != nil {
-		s.logger.Error("BRIC Storage conversion failed", zap.Error(err))
-		return nil, fmt.Errorf("failed to convert to Storage BRIC: %w", err)
-	}
-
-	if !bricResp.IsApproved {
-		s.logger.Warn("BRIC Storage conversion declined",
-			zap.String("auth_resp", bricResp.AuthResp),
-			zap.String("auth_resp_text", bricResp.AuthRespText),
-		)
-		return nil, fmt.Errorf("Storage BRIC conversion declined: %s", bricResp.AuthRespText)
-	}
-
-	s.logger.Info("Storage BRIC created successfully",
-		zap.String("storage_bric", bricResp.StorageBRIC),
-		zap.String("auth_resp", bricResp.AuthResp),
-	)
-
-	// Save Storage BRIC to payment_methods table
-	var paymentMethod *domain.PaymentMethod
-	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
-		// Parse customer ID to UUID
-		customerID, err := uuid.Parse(req.CustomerID)
-		if err != nil {
-			return fmt.Errorf("invalid customer_id format: %w", err)
-		}
-
-		// If this is set as default, unset all other defaults first
-		if req.IsDefault {
-			err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
-				MerchantID: merchantID,
-				CustomerID: customerID,
-			})
-			if err != nil {
-				s.logger.Warn("Failed to unset existing defaults", zap.Error(err))
-			}
-		}
-
-		// Create payment method with Storage BRIC
-		params := sqlc.CreatePaymentMethodParams{
-			ID:           uuid.New(),
-			MerchantID:   merchantID,
-			CustomerID:   customerID,
-			PaymentType:  string(req.PaymentType),
-			Bric:         bricResp.StorageBRIC, // Storage BRIC (never expires)
-			LastFour:     req.LastFour,
-			CardBrand:    toNullableText(req.CardBrand),
-			CardExpMonth: toNullableInt32(req.CardExpMonth),
-			CardExpYear:  toNullableInt32(req.CardExpYear),
-			BankName:     toNullableText(req.BankName),
-			AccountType:  toNullableText(req.AccountType),
-			IsDefault:    pgtype.Bool{Bool: req.IsDefault, Valid: true},
-			IsActive:     pgtype.Bool{Bool: true, Valid: true},
-			IsVerified:   pgtype.Bool{Bool: req.PaymentType == domain.PaymentMethodTypeCreditCard, Valid: true}, // Credit cards verified via Account Verification
-		}
-
-		dbPM, err := q.CreatePaymentMethod(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to create payment method: %w", err)
-		}
-
-		paymentMethod = sqlcPaymentMethodToDomain(&dbPM)
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	s.logger.Info("Payment method saved with Storage BRIC",
-		zap.String("payment_method_id", paymentMethod.ID),
-		zap.String("storage_bric", bricResp.StorageBRIC),
-		zap.Bool("is_default", paymentMethod.IsDefault),
-	)
-
-	// Log Network Transaction ID if present (for compliance)
-	if bricResp.NetworkTransactionID != nil {
-		s.logger.Info("Network Transaction ID obtained for card-on-file compliance",
-			zap.String("ntid", *bricResp.NetworkTransactionID),
-			zap.String("payment_method_id", paymentMethod.ID),
-		)
-	}
-
-	return paymentMethod, nil
 }
 
 // GetPaymentMethod retrieves a specific payment method
@@ -544,6 +259,167 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 
 	s.logger.Info("Default payment method set",
 		zap.String("payment_method_id", paymentMethod.ID),
+	)
+
+	return paymentMethod, nil
+}
+
+// StoreACHAccount stores ACH account with pre-note verification
+// Sends Pre-Note Debit (CKC0/CKS0) to EPX, stores GUID/BRIC with status=pending_verification
+func (s *paymentMethodService) StoreACHAccount(ctx context.Context, req *ports.StoreACHAccountRequest) (*domain.PaymentMethod, error) {
+	s.logger.Info("Storing ACH account with pre-note verification",
+		zap.String("merchant_id", req.MerchantID),
+		zap.String("customer_id", req.CustomerID),
+		zap.String("account_type", req.AccountType),
+	)
+
+	// Validate merchant ID
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
+	// Validate customer ID
+	customerID, err := uuid.Parse(req.CustomerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid customer_id format: %w", err)
+	}
+
+	// Validate account type
+	if req.AccountType != "CHECKING" && req.AccountType != "SAVINGS" {
+		return nil, fmt.Errorf("account_type must be CHECKING or SAVINGS")
+	}
+
+	// Get merchant credentials
+	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get merchant: %w", err)
+	}
+
+	if !merchant.IsActive {
+		return nil, fmt.Errorf("merchant is not active")
+	}
+
+	// Get MAC secret for EPX authentication
+	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
+	}
+
+	// Determine transaction type based on account type
+	var tranType adapterports.TransactionType
+	if req.AccountType == "CHECKING" {
+		tranType = adapterports.TransactionTypeACHPreNoteDebit // CKC0
+	} else {
+		tranType = adapterports.TransactionTypeACHSavingsPreNoteDebit // CKS0
+	}
+
+	// Parse idempotency key as UUID for transaction IDs
+	// This ensures idempotency - same idempotency_key = same TRAN_NBR
+	idempotencyUUID, err := uuid.Parse(req.IdempotencyKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid idempotency_key format (must be UUID): %w", err)
+	}
+
+	// Convert UUID to EPX-compatible TRAN_NBR (max 10 digits, numeric only)
+	tranNbr := util.UUIDToEPXTranNbr(idempotencyUUID)
+	tranGroup := idempotencyUUID.String()
+
+	// Build Server Post request for Pre-Note Debit
+	epxReq := &adapterports.ServerPostRequest{
+		CustNbr:         merchant.CustNbr,
+		MerchNbr:        merchant.MerchNbr,
+		DBAnbr:          merchant.DbaNbr,
+		TerminalNbr:     merchant.TerminalNbr,
+		TransactionType: tranType,
+		Amount:          "0.00", // Pre-note is $0
+		PaymentType:     adapterports.PaymentMethodTypeACH,
+		TranNbr:         tranNbr,
+		TranGroup:       tranGroup,
+		CustomerID:      req.CustomerID,
+		AccountNumber:   &req.AccountNumber,
+		RoutingNumber:   &req.RoutingNumber,
+		FirstName:       &req.FirstName,
+		LastName:        &req.LastName,
+		Address:         &req.Address,
+		City:            &req.City,
+		State:           &req.State,
+		ZipCode:         &req.ZipCode,
+	}
+
+	// Send Pre-Note transaction to EPX
+	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
+	if err != nil {
+		s.logger.Error("EPX ACH pre-note failed", zap.Error(err))
+		return nil, fmt.Errorf("failed to send ACH pre-note: %w", err)
+	}
+
+	if !epxResp.IsApproved {
+		return nil, fmt.Errorf("ACH pre-note was declined: %s", epxResp.AuthRespText)
+	}
+
+	if epxResp.AuthGUID == "" {
+		return nil, fmt.Errorf("EPX did not return AUTH_GUID for ACH account")
+	}
+
+	// Extract last four digits of account number
+	lastFour := req.AccountNumber
+	if len(lastFour) > 4 {
+		lastFour = lastFour[len(lastFour)-4:]
+	}
+
+	// Create payment method in database with status=pending_verification
+	var paymentMethod *domain.PaymentMethod
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
+		pmID := uuid.New()
+
+		// Parse transaction number to UUID for prenote_transaction_id
+		// Note: TranNbr is the transaction number we sent to EPX, which is a UUID string
+		tranID, err := uuid.Parse(epxResp.TranNbr)
+		if err != nil {
+			s.logger.Warn("Failed to parse transaction number as UUID, storing without prenote_transaction_id",
+				zap.String("tran_nbr", epxResp.TranNbr),
+				zap.Error(err),
+			)
+		}
+
+		params := sqlc.CreatePaymentMethodParams{
+			ID:                 pmID,
+			MerchantID:         merchantID,
+			CustomerID:         customerID,
+			PaymentType:        string(domain.PaymentMethodTypeACH),
+			Bric:               epxResp.AuthGUID,
+			LastFour:           lastFour,
+			BankName:           pgtype.Text{Valid: false}, // Bank name not provided in request
+			AccountType:        pgtype.Text{String: strings.ToLower(req.AccountType), Valid: true}, // Database expects lowercase
+			IsDefault:          pgtype.Bool{Bool: false, Valid: true},
+			IsActive:           pgtype.Bool{Bool: false, Valid: true}, // Not active until verified
+			IsVerified:         pgtype.Bool{Bool: false, Valid: true},
+			VerificationStatus: pgtype.Text{String: "pending", Valid: true},
+		}
+
+		// Add prenote transaction ID if we parsed it successfully
+		if err == nil {
+			params.PrenoteTransactionID = pgtype.UUID{Bytes: tranID, Valid: true}
+		}
+
+		dbPM, err := q.CreatePaymentMethod(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to create payment method: %w", err)
+		}
+
+		paymentMethod = sqlcPaymentMethodToDomain(&dbPM)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	s.logger.Info("ACH account stored with pending verification",
+		zap.String("payment_method_id", paymentMethod.ID),
+		zap.String("bric", epxResp.AuthGUID),
+		zap.String("tran_nbr", epxResp.TranNbr),
 	)
 
 	return paymentMethod, nil

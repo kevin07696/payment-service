@@ -192,9 +192,9 @@ func TestRegisterMerchant_MissingCredentials(t *testing.T) {
 	service, mockQuerier, _, _ := setupMerchantService(t)
 	ctx := context.Background()
 
-	testCases := []struct{
-		name string
-		req  *ports.RegisterMerchantRequest
+	testCases := []struct {
+		name          string
+		req           *ports.RegisterMerchantRequest
 		expectedError string
 	}{
 		{

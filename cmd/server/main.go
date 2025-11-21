@@ -37,6 +37,7 @@ import (
 	subscriptionService "github.com/kevin07696/payment-service/internal/services/subscription"
 	webhookService "github.com/kevin07696/payment-service/internal/services/webhook"
 	"github.com/kevin07696/payment-service/pkg/middleware"
+	"github.com/kevin07696/payment-service/pkg/resilience"
 	"github.com/kevin07696/payment-service/pkg/security"
 	"github.com/kevin07696/payment-service/proto/chargeback/v1/chargebackv1connect"
 	"github.com/kevin07696/payment-service/proto/merchant/v1/merchantv1connect"
@@ -93,6 +94,13 @@ func main() {
 
 	// Create Connect interceptors
 	var interceptorList []connect.Interceptor
+
+	// Add timeout interceptor first (outermost layer)
+	timeoutConfig := resilience.DefaultTimeoutConfig()
+	timeoutInterceptor := middleware.NewTimeoutInterceptor(timeoutConfig, logger)
+	interceptorList = append(interceptorList, timeoutInterceptor)
+
+	// Recovery and logging interceptors
 	interceptorList = append(interceptorList, middleware.RecoveryInterceptor(logger))
 	interceptorList = append(interceptorList, middleware.LoggingInterceptor(logger))
 
@@ -228,8 +236,12 @@ func main() {
 	httpMux.HandleFunc("/browser-post-demo", serveBrowserPostDemo)
 
 	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler: rateLimiter.Middleware(httpMux), // Apply rate limiting to all HTTP endpoints
+		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
+		Handler:           rateLimiter.Middleware(httpMux), // Apply rate limiting to all HTTP endpoints
+		ReadTimeout:       65 * time.Second,                // Slightly longer than handler timeout (60s)
+		WriteTimeout:      65 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	// Create ConnectRPC server with H2C support (HTTP/2 without TLS)
@@ -237,6 +249,9 @@ func main() {
 	connectServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           h2c.NewHandler(mux, &http2.Server{}),
+		ReadTimeout:       65 * time.Second, // Slightly longer than handler timeout (60s)
+		WriteTimeout:      65 * time.Second,
+		IdleTimeout:       120 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -554,7 +569,6 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, cfg *Config, logger *
 		browserPost,
 		keyExchange,
 		secretManager,      // Secret manager for fetching merchant-specific MACs
-		paymentMethodSvc,   // Payment method service for saving payment methods
 		logger,
 		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
 		cfg.CallbackBaseURL,    // Base URL for callbacks

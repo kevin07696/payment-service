@@ -163,15 +163,15 @@ func (h *Handler) Sale(ctx context.Context, req *paymentv1.SaleRequest) (*paymen
 // Void cancels an authorized or captured payment
 func (h *Handler) Void(ctx context.Context, req *paymentv1.VoidRequest) (*paymentv1.PaymentResponse, error) {
 	h.logger.Info("Void request received",
-		zap.String("group_id", req.GroupId),
+		zap.String("transaction_id", req.TransactionId),
 	)
 
-	if req.GroupId == "" {
-		return nil, status.Error(codes.InvalidArgument, "group_id is required")
+	if req.TransactionId == "" {
+		return nil, status.Error(codes.InvalidArgument, "transaction_id is required")
 	}
 
 	serviceReq := &ports.VoidRequest{
-		ParentTransactionID: req.GroupId,
+		ParentTransactionID: req.TransactionId,
 	}
 
 	if req.IdempotencyKey != "" {
@@ -189,15 +189,15 @@ func (h *Handler) Void(ctx context.Context, req *paymentv1.VoidRequest) (*paymen
 // Refund returns funds to the customer
 func (h *Handler) Refund(ctx context.Context, req *paymentv1.RefundRequest) (*paymentv1.PaymentResponse, error) {
 	h.logger.Info("Refund request received",
-		zap.String("group_id", req.GroupId),
+		zap.String("transaction_id", req.TransactionId),
 	)
 
-	if req.GroupId == "" {
-		return nil, status.Error(codes.InvalidArgument, "group_id is required")
+	if req.TransactionId == "" {
+		return nil, status.Error(codes.InvalidArgument, "transaction_id is required")
 	}
 
 	serviceReq := &ports.RefundRequest{
-		ParentTransactionID: req.GroupId,
+		ParentTransactionID: req.TransactionId,
 		Reason:              req.Reason,
 	}
 
@@ -251,8 +251,8 @@ func (h *Handler) ListTransactions(ctx context.Context, req *paymentv1.ListTrans
 	if req.CustomerId != "" {
 		filters.CustomerID = &req.CustomerId
 	}
-	if req.GroupId != "" {
-		filters.ParentTransactionID = &req.GroupId
+	if req.ParentTransactionId != "" {
+		filters.ParentTransactionID = &req.ParentTransactionId
 	}
 	if req.Status != paymentv1.TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED {
 		statusStr := protoStatusToDomain(req.Status)
@@ -324,17 +324,17 @@ func convertMetadata(meta map[string]string) map[string]interface{} {
 
 func transactionToPaymentResponse(tx *domain.Transaction) *paymentv1.PaymentResponse {
 	return &paymentv1.PaymentResponse{
-		TransactionId:        tx.ID,
-		ParentTransactionId:  stringPtrToString(tx.ParentTransactionID),
-		AmountCents:          tx.AmountCents,
-		Currency:             string(tx.Currency),
-		Status:               transactionStatusToProto(tx.Status),
-		Type:                 transactionTypeToProto(tx.Type),
-		IsApproved:           tx.IsApproved(),
-		AuthorizationCode:    stringPtrToString(tx.AuthCode),
-		Message:              stringPtrToString(tx.AuthRespText),
-		Card:                 extractCardInfo(tx),
-		CreatedAt:            timestamppb.New(tx.CreatedAt),
+		TransactionId:       tx.ID,
+		ParentTransactionId: stringPtrToString(tx.ParentTransactionID),
+		AmountCents:         tx.AmountCents,
+		Currency:            string(tx.Currency),
+		Status:              transactionStatusToProto(tx.Status),
+		Type:                transactionTypeToProto(tx.Type),
+		IsApproved:          tx.IsApproved(),
+		AuthorizationCode:   stringPtrToString(tx.AuthCode),
+		Message:             stringPtrToString(tx.AuthRespText),
+		Card:                extractCardInfo(tx),
+		CreatedAt:           timestamppb.New(tx.CreatedAt),
 	}
 }
 
@@ -384,21 +384,21 @@ func extractLastFour(tx *domain.Transaction) string {
 
 func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 	proto := &paymentv1.Transaction{
-		Id:                   tx.ID,
-		ParentTransactionId:  stringPtrToString(tx.ParentTransactionID),
-		MerchantId:           tx.MerchantID,
-		CustomerId:           stringPtrToString(tx.CustomerID),
-		AmountCents:          tx.AmountCents,
-		Currency:             string(tx.Currency),
-		Status:               transactionStatusToProto(tx.Status),
-		Type:                 transactionTypeToProto(tx.Type),
-		PaymentMethodType:    paymentMethodTypeToProto(tx.PaymentMethodType),
-		AuthorizationCode:    stringPtrToString(tx.AuthCode),
-		Message:              stringPtrToString(tx.AuthRespText),
-		Card:                 extractCardInfo(tx),
-		IdempotencyKey:       stringPtrToString(tx.IdempotencyKey),
-		CreatedAt:         timestamppb.New(tx.CreatedAt),
-		UpdatedAt:         timestamppb.New(tx.UpdatedAt),
+		Id:                  tx.ID,
+		ParentTransactionId: stringPtrToString(tx.ParentTransactionID),
+		MerchantId:          tx.MerchantID,
+		CustomerId:          stringPtrToString(tx.CustomerID),
+		AmountCents:         tx.AmountCents,
+		Currency:            string(tx.Currency),
+		Status:              transactionStatusToProto(tx.Status),
+		Type:                transactionTypeToProto(tx.Type),
+		PaymentMethodType:   paymentMethodTypeToProto(tx.PaymentMethodType),
+		AuthorizationCode:   stringPtrToString(tx.AuthCode),
+		Message:             stringPtrToString(tx.AuthRespText),
+		Card:                extractCardInfo(tx),
+		IdempotencyKey:      stringPtrToString(tx.IdempotencyKey),
+		CreatedAt:           timestamppb.New(tx.CreatedAt),
+		UpdatedAt:           timestamppb.New(tx.UpdatedAt),
 	}
 
 	if tx.PaymentMethodID != nil {

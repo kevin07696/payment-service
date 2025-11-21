@@ -37,11 +37,11 @@ const (
 
 // EPX Test Cards (Sandbox)
 var testCards = map[string]string{
-	"visa_approved":    "4788250000028291", // Will be approved
-	"visa_declined":    "4000300011112220", // Will be declined
-	"mastercard":       "5454545454545454", // MasterCard test
-	"amex":             "371449635398431",  // Amex test
-	"discover":         "6011000995500000", // Discover test
+	"visa_approved": "4788250000028291", // Will be approved
+	"visa_declined": "4000300011112220", // Will be declined
+	"mastercard":    "5454545454545454", // MasterCard test
+	"amex":          "371449635398431",  // Amex test
+	"discover":      "6011000995500000", // Discover test
 }
 
 // calculateMAC calculates HMAC-SHA256 for EPX request
@@ -72,7 +72,7 @@ func tokenizeCardWithEPX(cardNumber, expMonth, expYear, cvv string) (string, err
 	// Build tokenization request
 	params := map[string]string{
 		// Transaction details
-		"TransType": "CKC", // Create Key Card (tokenization)
+		"TransType": "CKC",  // Create Key Card (tokenization)
 		"Amount":    "0.00", // Tokenization doesn't charge
 		"CardNo":    cardNumber,
 		"ExpMonth":  expMonth,

@@ -27,69 +27,6 @@ func NewConnectHandler(service ports.PaymentMethodService, logger *zap.Logger) *
 	}
 }
 
-// SavePaymentMethod tokenizes and saves a payment method
-func (h *ConnectHandler) SavePaymentMethod(
-	ctx context.Context,
-	req *connect.Request[paymentmethodv1.SavePaymentMethodRequest],
-) (*connect.Response[paymentmethodv1.PaymentMethodResponse], error) {
-	msg := req.Msg
-
-	h.logger.Info("SavePaymentMethod request received",
-		zap.String("merchant_id", msg.MerchantId),
-		zap.String("customer_id", msg.CustomerId),
-		zap.String("payment_type", msg.PaymentType.String()),
-	)
-
-	// Validate request
-	if err := validateSavePaymentMethodRequest(msg); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	// Convert to service request
-	serviceReq := &ports.SavePaymentMethodRequest{
-		MerchantID:   msg.MerchantId,
-		CustomerID:   msg.CustomerId,
-		PaymentToken: msg.PaymentToken,
-		PaymentType:  paymentMethodTypeFromProto(msg.PaymentType),
-		LastFour:     msg.LastFour,
-		IsDefault:    msg.IsDefault,
-	}
-
-	// Credit card fields
-	if msg.CardBrand != nil {
-		serviceReq.CardBrand = msg.CardBrand
-	}
-	if msg.CardExpMonth != nil {
-		month := int(*msg.CardExpMonth)
-		serviceReq.CardExpMonth = &month
-	}
-	if msg.CardExpYear != nil {
-		year := int(*msg.CardExpYear)
-		serviceReq.CardExpYear = &year
-	}
-
-	// ACH fields
-	if msg.BankName != nil {
-		serviceReq.BankName = msg.BankName
-	}
-	if msg.AccountType != nil {
-		serviceReq.AccountType = msg.AccountType
-	}
-
-	if msg.IdempotencyKey != "" {
-		serviceReq.IdempotencyKey = &msg.IdempotencyKey
-	}
-
-	// Call service
-	pm, err := h.service.SavePaymentMethod(ctx, serviceReq)
-	if err != nil {
-		return nil, handleServiceErrorConnect(err)
-	}
-
-	// Convert to proto response and wrap in Connect response
-	return connect.NewResponse(paymentMethodToResponse(pm)), nil
-}
-
 // GetPaymentMethod retrieves a specific payment method
 func (h *ConnectHandler) GetPaymentMethod(
 	ctx context.Context,
@@ -309,94 +246,110 @@ func (h *ConnectHandler) VerifyACHAccount(
 	return connect.NewResponse(response), nil
 }
 
-// ConvertFinancialBRICToStorageBRIC converts a Financial BRIC to Storage BRIC and saves payment method
-func (h *ConnectHandler) ConvertFinancialBRICToStorageBRIC(
+// StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
+func (h *ConnectHandler) StoreACHAccount(
 	ctx context.Context,
-	req *connect.Request[paymentmethodv1.ConvertFinancialBRICRequest],
+	req *connect.Request[paymentmethodv1.StoreACHAccountRequest],
 ) (*connect.Response[paymentmethodv1.PaymentMethodResponse], error) {
 	msg := req.Msg
 
-	h.logger.Info("ConvertFinancialBRICToStorageBRIC request received",
+	h.logger.Info("StoreACHAccount request received",
 		zap.String("merchant_id", msg.MerchantId),
 		zap.String("customer_id", msg.CustomerId),
-		zap.String("transaction_id", msg.TransactionId),
-		zap.String("payment_type", msg.PaymentType.String()),
+		zap.String("account_type", msg.AccountType.String()),
 	)
 
-	// Validate request
-	if err := validateConvertFinancialBRICRequest(msg); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	// Validate required fields
+	if msg.MerchantId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("merchant_id is required"))
+	}
+	if msg.CustomerId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("customer_id is required"))
+	}
+	if msg.AccountNumber == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_number is required"))
+	}
+	if msg.RoutingNumber == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("routing_number is required"))
+	}
+	if msg.AccountHolderName == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_holder_name is required"))
 	}
 
-	// Convert to service request
-	serviceReq := &ports.ConvertFinancialBRICRequest{
-		MerchantID:    msg.MerchantId,
-		CustomerID:    msg.CustomerId,
-		FinancialBRIC: msg.FinancialBric,
-		PaymentType:   paymentMethodTypeFromProto(msg.PaymentType),
-		TransactionID: msg.TransactionId,
-		LastFour:      msg.LastFour,
-		IsDefault:     msg.IsDefault,
+	// Convert proto AccountType to string
+	var accountType string
+	switch msg.AccountType {
+	case paymentmethodv1.AccountType_ACCOUNT_TYPE_CHECKING:
+		accountType = "CHECKING"
+	case paymentmethodv1.AccountType_ACCOUNT_TYPE_SAVINGS:
+		accountType = "SAVINGS"
+	default:
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_type must be CHECKING or SAVINGS"))
 	}
 
-	// Credit card fields
-	if msg.CardBrand != nil {
-		serviceReq.CardBrand = msg.CardBrand
-	}
-	if msg.CardExpMonth != nil {
-		month := int(*msg.CardExpMonth)
-		serviceReq.CardExpMonth = &month
-	}
-	if msg.CardExpYear != nil {
-		year := int(*msg.CardExpYear)
-		serviceReq.CardExpYear = &year
+	// Validate idempotency key
+	if msg.IdempotencyKey == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key is required"))
 	}
 
-	// ACH fields
-	if msg.BankName != nil {
-		serviceReq.BankName = msg.BankName
-	}
-	if msg.AccountType != nil {
-		serviceReq.AccountType = msg.AccountType
+	// Build service request
+	serviceReq := &ports.StoreACHAccountRequest{
+		MerchantID:     msg.MerchantId,
+		CustomerID:     msg.CustomerId,
+		RoutingNumber:  msg.RoutingNumber,
+		AccountNumber:  msg.AccountNumber,
+		AccountType:    accountType,
+		NameOnAccount:  msg.AccountHolderName,
+		IdempotencyKey: msg.IdempotencyKey,
 	}
 
-	// Billing information
+	// Add optional billing information
 	if msg.FirstName != nil {
-		serviceReq.FirstName = msg.FirstName
+		serviceReq.FirstName = *msg.FirstName
 	}
 	if msg.LastName != nil {
-		serviceReq.LastName = msg.LastName
+		serviceReq.LastName = *msg.LastName
 	}
 	if msg.Address != nil {
-		serviceReq.Address = msg.Address
+		serviceReq.Address = *msg.Address
 	}
 	if msg.City != nil {
-		serviceReq.City = msg.City
+		serviceReq.City = *msg.City
 	}
 	if msg.State != nil {
-		serviceReq.State = msg.State
+		serviceReq.State = *msg.State
 	}
 	if msg.ZipCode != nil {
-		serviceReq.ZipCode = msg.ZipCode
+		serviceReq.ZipCode = *msg.ZipCode
 	}
 
-	if msg.IdempotencyKey != "" {
-		serviceReq.IdempotencyKey = &msg.IdempotencyKey
-	}
-
-	// Call service
-	pm, err := h.service.ConvertFinancialBRICToStorageBRIC(ctx, serviceReq)
+	// Call service to store ACH account
+	pm, err := h.service.StoreACHAccount(ctx, serviceReq)
 	if err != nil {
+		h.logger.Error("Failed to store ACH account",
+			zap.String("merchant_id", msg.MerchantId),
+			zap.String("customer_id", msg.CustomerId),
+			zap.Error(err),
+		)
 		return nil, handleServiceErrorConnect(err)
 	}
 
-	h.logger.Info("Financial BRIC converted to Storage BRIC successfully",
+	h.logger.Info("ACH account stored successfully",
 		zap.String("payment_method_id", pm.ID),
-		zap.String("customer_id", pm.CustomerID),
+		zap.String("merchant_id", msg.MerchantId),
+		zap.String("customer_id", msg.CustomerId),
 	)
 
-	// Convert to proto response and wrap in Connect response
 	return connect.NewResponse(paymentMethodToResponse(pm)), nil
+}
+
+// UpdatePaymentMethod updates metadata only (billing info, nickname)
+// TODO: Implement payment method metadata update functionality
+func (h *ConnectHandler) UpdatePaymentMethod(
+	ctx context.Context,
+	req *connect.Request[paymentmethodv1.UpdatePaymentMethodRequest],
+) (*connect.Response[paymentmethodv1.PaymentMethodResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("UpdatePaymentMethod not yet implemented"))
 }
 
 // handleServiceErrorConnect maps domain errors to Connect error codes

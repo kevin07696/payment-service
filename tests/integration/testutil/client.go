@@ -23,7 +23,7 @@ func NewClient(baseURL string) *Client {
 	// Use standard HTTP/1.1 transport for Connect protocol
 	// The h2c server supports both HTTP/1.1 and HTTP/2
 	return &Client{
-		BaseURL:    baseURL,
+		BaseURL: baseURL,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},

@@ -517,7 +517,7 @@ func (*SaleRequest_PaymentToken) isSaleRequest_PaymentMethod() {}
 // VoidRequest cancels an authorized or captured payment
 type VoidRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	GroupId        string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"` // Transaction group to void
+	TransactionId  string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // Transaction to void (becomes parent_transaction_id of VOID record)
 	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -553,9 +553,9 @@ func (*VoidRequest) Descriptor() ([]byte, []int) {
 	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *VoidRequest) GetGroupId() string {
+func (x *VoidRequest) GetTransactionId() string {
 	if x != nil {
-		return x.GroupId
+		return x.TransactionId
 	}
 	return ""
 }
@@ -570,8 +570,8 @@ func (x *VoidRequest) GetIdempotencyKey() string {
 // RefundRequest refunds a captured payment
 type RefundRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	GroupId        string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`              // Transaction group to refund
-	AmountCents    int64                  `protobuf:"varint,2,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Optional: partial refund amount in cents
+	TransactionId  string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // Transaction to refund (becomes parent_transaction_id of REFUND record)
+	AmountCents    int64                  `protobuf:"varint,2,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"`      // Optional: partial refund amount in cents
 	Reason         string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
 	IdempotencyKey string                 `protobuf:"bytes,4,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -608,9 +608,9 @@ func (*RefundRequest) Descriptor() ([]byte, []int) {
 	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *RefundRequest) GetGroupId() string {
+func (x *RefundRequest) GetTransactionId() string {
 	if x != nil {
-		return x.GroupId
+		return x.TransactionId
 	}
 	return ""
 }
@@ -930,15 +930,15 @@ func (x *GetTransactionRequest) GetTransactionId() string {
 
 // ListTransactionsRequest lists transactions
 type ListTransactionsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MerchantId    string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
-	CustomerId    string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`          // Optional: filter by customer
-	GroupId       string                 `protobuf:"bytes,3,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`                   // Optional: get all transactions in a group
-	Status        TransactionStatus      `protobuf:"varint,4,opt,name=status,proto3,enum=payment.v1.TransactionStatus" json:"status,omitempty"` // Optional: filter by status
-	Limit         int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`                                     // Default: 100
-	Offset        int32                  `protobuf:"varint,6,opt,name=offset,proto3" json:"offset,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	MerchantId          string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
+	CustomerId          string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`                              // Optional: filter by customer
+	ParentTransactionId string                 `protobuf:"bytes,3,opt,name=parent_transaction_id,json=parentTransactionId,proto3" json:"parent_transaction_id,omitempty"` // Optional: filter by parent (get transaction chain)
+	Status              TransactionStatus      `protobuf:"varint,4,opt,name=status,proto3,enum=payment.v1.TransactionStatus" json:"status,omitempty"`                     // Optional: filter by status
+	Limit               int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`                                                         // Default: 100
+	Offset              int32                  `protobuf:"varint,6,opt,name=offset,proto3" json:"offset,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ListTransactionsRequest) Reset() {
@@ -985,9 +985,9 @@ func (x *ListTransactionsRequest) GetCustomerId() string {
 	return ""
 }
 
-func (x *ListTransactionsRequest) GetGroupId() string {
+func (x *ListTransactionsRequest) GetParentTransactionId() string {
 	if x != nil {
-		return x.GroupId
+		return x.ParentTransactionId
 	}
 	return ""
 }
@@ -1456,12 +1456,12 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +
-	"\x0epayment_method\"Q\n" +
-	"\vVoidRequest\x12\x19\n" +
-	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12'\n" +
-	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\x8e\x01\n" +
-	"\rRefundRequest\x12\x19\n" +
-	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12!\n" +
+	"\x0epayment_method\"]\n" +
+	"\vVoidRequest\x12%\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\x9a\x01\n" +
+	"\rRefundRequest\x12%\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12!\n" +
 	"\famount_cents\x18\x02 \x01(\x03R\vamountCents\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12'\n" +
 	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\"\xeb\x02\n" +
@@ -1496,13 +1496,13 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12'\n" +
 	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\">\n" +
 	"\x15GetTransactionRequest\x12%\n" +
-	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\"\xdb\x01\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\"\xf4\x01\n" +
 	"\x17ListTransactionsRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12\x19\n" +
-	"\bgroup_id\x18\x03 \x01(\tR\agroupId\x125\n" +
+	"customerId\x122\n" +
+	"\x15parent_transaction_id\x18\x03 \x01(\tR\x13parentTransactionId\x125\n" +
 	"\x06status\x18\x04 \x01(\x0e2\x1d.payment.v1.TransactionStatusR\x06status\x12\x14\n" +
 	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x16\n" +
 	"\x06offset\x18\x06 \x01(\x05R\x06offset\"x\n" +

@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
@@ -20,6 +21,11 @@ type PostgreSQLConfig struct {
 	MinConns        int32  // Minimum number of connections in pool
 	MaxConnLifetime string // Max connection lifetime (e.g., "1h")
 	MaxConnIdleTime string // Max connection idle time (e.g., "30m")
+
+	// Query timeout settings
+	SimpleQueryTimeout  time.Duration // Timeout for simple queries (ID lookups, single row operations)
+	ComplexQueryTimeout time.Duration // Timeout for complex queries (JOINs, aggregations, filters)
+	ReportQueryTimeout  time.Duration // Timeout for report/analytics queries
 }
 
 // DefaultPostgreSQLConfig returns default configuration
@@ -30,6 +36,10 @@ func DefaultPostgreSQLConfig(databaseURL string) *PostgreSQLConfig {
 		MinConns:        5,
 		MaxConnLifetime: "1h",
 		MaxConnIdleTime: "30m",
+		// Query timeouts - tiered based on complexity
+		SimpleQueryTimeout:  2 * time.Second,  // ID lookups, single row operations
+		ComplexQueryTimeout: 5 * time.Second,  // JOINs, filters, aggregations
+		ReportQueryTimeout:  30 * time.Second, // Analytics, reports
 	}
 }
 
@@ -38,6 +48,7 @@ type PostgreSQLAdapter struct {
 	pool    *pgxpool.Pool
 	queries *sqlc.Queries
 	logger  *zap.Logger
+	config  *PostgreSQLConfig
 }
 
 // NewPostgreSQLAdapter creates a new PostgreSQL adapter with connection pooling
@@ -79,6 +90,7 @@ func NewPostgreSQLAdapter(ctx context.Context, cfg *PostgreSQLConfig, logger *za
 		pool:    pool,
 		queries: queries,
 		logger:  logger,
+		config:  cfg,
 	}, nil
 }
 
@@ -146,4 +158,76 @@ func (a *PostgreSQLAdapter) HealthCheck(ctx context.Context) error {
 // Stats returns connection pool statistics
 func (a *PostgreSQLAdapter) Stats() *pgxpool.Stat {
 	return a.pool.Stat()
+}
+
+// StartPoolMonitoring starts a background goroutine that monitors connection pool health
+// It logs warnings when pool utilization is high and errors when near exhaustion
+func (a *PostgreSQLAdapter) StartPoolMonitoring(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				a.logger.Info("Stopping connection pool monitoring")
+				return
+			case <-ticker.C:
+				stat := a.pool.Stat()
+				total := stat.MaxConns()
+				acquired := stat.AcquiredConns()
+				idle := stat.IdleConns()
+				utilization := float64(acquired) / float64(total) * 100
+
+				a.logger.Debug("Database connection pool status",
+					zap.Int32("total_connections", total),
+					zap.Int32("acquired_connections", acquired),
+					zap.Int32("idle_connections", idle),
+					zap.Float64("utilization_percent", utilization),
+				)
+
+				// Warn at 80% utilization
+				if utilization > 80 {
+					a.logger.Warn("Database connection pool highly utilized",
+						zap.Float64("utilization_percent", utilization),
+						zap.Int32("acquired", acquired),
+						zap.Int32("total", total),
+						zap.String("recommendation", "Consider increasing MaxConns or investigating connection leaks"),
+					)
+				}
+
+				// Error at 95% utilization (near exhaustion)
+				if utilization > 95 {
+					a.logger.Error("Database connection pool near exhaustion",
+						zap.Float64("utilization_percent", utilization),
+						zap.Int32("acquired", acquired),
+						zap.Int32("total", total),
+						zap.String("action_required", "CRITICAL: Scale up connections or fix leaks immediately"),
+					)
+				}
+			}
+		}
+	}()
+
+	a.logger.Info("Database connection pool monitoring started",
+		zap.Duration("check_interval", interval),
+	)
+}
+
+// SimpleQueryContext creates a context with timeout for simple queries
+// Use for: ID lookups, single row operations, existence checks
+func (a *PostgreSQLAdapter) SimpleQueryContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, a.config.SimpleQueryTimeout)
+}
+
+// ComplexQueryContext creates a context with timeout for complex queries
+// Use for: JOINs, WHERE clauses with multiple conditions, aggregations, GROUP BY
+func (a *PostgreSQLAdapter) ComplexQueryContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, a.config.ComplexQueryTimeout)
+}
+
+// ReportQueryContext creates a context with timeout for report/analytics queries
+// Use for: Large scans, complex aggregations, analytics, reports
+func (a *PostgreSQLAdapter) ReportQueryContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, a.config.ReportQueryTimeout)
 }

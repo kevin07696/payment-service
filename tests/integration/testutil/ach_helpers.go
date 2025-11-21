@@ -12,6 +12,7 @@ func MarkACHAsVerified(db *sql.DB, paymentMethodID string) error {
 		UPDATE customer_payment_methods
 		SET verification_status = 'verified',
 		    is_verified = true,
+		    is_active = true,
 		    verified_at = NOW()
 		WHERE id = $1
 	`, paymentMethodID)

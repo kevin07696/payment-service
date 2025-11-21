@@ -2,6 +2,7 @@
 bin/
 /server
 !cmd/server/*.go
+*.test
 
 # Environment
 .env

@@ -115,7 +115,7 @@ func TestComputeGroupState_MultiplePartialCaptures(t *testing.T) {
 	state := ComputeGroupState(txs)
 
 	assert.Equal(t, int64(10000), state.ActiveAuthAmount)
-	assert.Equal(t, int64(7000), state.CapturedAmount) // 30 + 40
+	assert.Equal(t, int64(7000), state.CapturedAmount)  // 30 + 40
 	assert.Equal(t, "bric_capture2", state.CaptureBRIC) // Most recent CAPTURE's BRIC
 }
 
@@ -213,7 +213,7 @@ func TestComputeGroupState_DeclinedTransactionsIgnored(t *testing.T) {
 // TestCanCapture_Success tests successful CAPTURE validation
 func TestCanCapture_Success(t *testing.T) {
 	tests := []struct {
-		name              string
+		name                string
 		authAmountCents     int64
 		capturedAmountCents int64
 		captureAmountCents  int64
@@ -452,6 +452,73 @@ func TestComplexWorkflow(t *testing.T) {
 	// Should not allow CAPTURE (already fully captured)
 	canCapture, _ := state.CanCapture(1)
 	assert.False(t, canCapture)
+}
+
+// TestComputeGroupState_ReAuthWithChildTransactions tests re-auth scenario with child transactions
+// Validates that auth1 → auth2 → capture2 → refund2 works correctly
+// This test validates the SQL GetTransactionTree query behavior where second AUTH has first AUTH as parent
+func TestComputeGroupState_ReAuthWithChildTransactions(t *testing.T) {
+	// Scenario: Customer increases cart amount, requiring re-authorization
+	// auth1 ($100) → auth2 ($150, parent=auth1) → capture2 ($150) → refund2 ($50)
+	txs := []*domain.Transaction{
+		makeTransaction("auth1", domain.TransactionTypeAuth, 10000, "bric_auth1"),          // $100 original auth
+		makeTransaction("auth2", domain.TransactionTypeAuth, 15000, "bric_auth2"),          // $150 re-auth (parent=auth1)
+		makeTransaction("capture2", domain.TransactionTypeCapture, 15000, "bric_capture2"), // Capture the re-auth
+		makeTransaction("refund2", domain.TransactionTypeRefund, 5000, "bric_refund2"),     // Partial refund
+	}
+
+	state := ComputeGroupState(txs)
+
+	// State should reflect auth2 (the most recent AUTH)
+	require.NotNil(t, state.ActiveAuthID)
+	assert.Equal(t, "auth2", *state.ActiveAuthID, "Should use second AUTH")
+	assert.Equal(t, int64(15000), state.ActiveAuthAmount, "Should use $150 from auth2")
+	assert.Equal(t, int64(15000), state.CapturedAmount, "Should have $150 captured")
+	assert.Equal(t, int64(5000), state.RefundedAmount, "Should have $50 refunded")
+	assert.Equal(t, "bric_capture2", state.CaptureBRIC, "Should use capture2's BRIC")
+	assert.False(t, state.IsAuthVoided, "Auth should not be voided")
+
+	// Validate remaining refundable amount
+	remaining := state.CapturedAmount - state.RefundedAmount
+	assert.Equal(t, int64(10000), remaining, "Should have $100 remaining for refund")
+
+	// Should allow refund of remaining $100
+	canRefund, reason := state.CanRefund(10000)
+	assert.True(t, canRefund, reason)
+
+	// Should not allow refund exceeding remaining
+	canRefund, reason = state.CanRefund(10001)
+	assert.False(t, canRefund)
+	assert.Contains(t, reason, "exceeds remaining refundable amount")
+
+	// Should not allow capture (already fully captured)
+	canCapture, _ := state.CanCapture(1)
+	assert.False(t, canCapture)
+}
+
+// TestComputeGroupState_ReAuthIgnoresFirstAuthCaptures tests that captures on old auth are ignored
+// When re-auth happens, previous auth's captures should not count toward new auth
+func TestComputeGroupState_ReAuthIgnoresFirstAuthCaptures(t *testing.T) {
+	// auth1 ($100) → capture1 ($50) → auth2 ($150, parent=auth1)
+	// After auth2, capture1 should not count in state
+	txs := []*domain.Transaction{
+		makeTransaction("auth1", domain.TransactionTypeAuth, 10000, "bric_auth1"),
+		makeTransaction("capture1", domain.TransactionTypeCapture, 5000, "bric_capture1"), // Capture on auth1
+		makeTransaction("auth2", domain.TransactionTypeAuth, 15000, "bric_auth2"),         // Re-auth resets state
+	}
+
+	state := ComputeGroupState(txs)
+
+	// State should be reset by auth2
+	require.NotNil(t, state.ActiveAuthID)
+	assert.Equal(t, "auth2", *state.ActiveAuthID)
+	assert.Equal(t, int64(15000), state.ActiveAuthAmount)
+	assert.Equal(t, int64(0), state.CapturedAmount, "Captured amount should reset to 0 after re-auth")
+	assert.Equal(t, int64(0), state.RefundedAmount, "Refunded amount should reset to 0 after re-auth")
+
+	// Should allow capturing full $150 from auth2
+	canCapture, reason := state.CanCapture(15000)
+	assert.True(t, canCapture, reason)
 }
 
 // Helper function

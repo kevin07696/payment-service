@@ -17,8 +17,8 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/kevin07696/payment-service/internal/handlers/payment"
-	"github.com/kevin07696/payment-service/proto/payment/v1/paymentv1connect"
 	"github.com/kevin07696/payment-service/pkg/middleware"
+	"github.com/kevin07696/payment-service/proto/payment/v1/paymentv1connect"
 )
 
 func main() {
@@ -71,8 +71,8 @@ func main() {
 	// Create server with H2C support (HTTP/2 without TLS)
 	addr := ":8080"
 	server := &http.Server{
-		Addr: addr,
-		Handler: h2c.NewHandler(mux, &http2.Server{}),
+		Addr:              addr,
+		Handler:           h2c.NewHandler(mux, &http2.Server{}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

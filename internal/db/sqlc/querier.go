@@ -57,8 +57,8 @@ type Querier interface {
 	GetAuditLogsByActor(ctx context.Context, arg GetAuditLogsByActorParams) ([]AuditLog, error)
 	GetAuditLogsByEntity(ctx context.Context, arg GetAuditLogsByEntityParams) ([]AuditLog, error)
 	GetChargebackByCaseNumber(ctx context.Context, arg GetChargebackByCaseNumberParams) (Chargeback, error)
-	GetChargebackByGroupID(ctx context.Context, groupID pgtype.UUID) (Chargeback, error)
 	GetChargebackByID(ctx context.Context, id uuid.UUID) (Chargeback, error)
+	GetChargebackByTransactionID(ctx context.Context, transactionID uuid.UUID) (Chargeback, error)
 	GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPaymentMethodParams) (CustomerPaymentMethod, error)
 	GetMerchantByID(ctx context.Context, id uuid.UUID) (Merchant, error)
 	GetMerchantBySlug(ctx context.Context, slug string) (Merchant, error)
@@ -77,11 +77,16 @@ type Querier interface {
 	// UpdateTransaction removed: transactions are immutable/append-only
 	// To modify a transaction (VOID/REFUND), create a NEW transaction record with parent_transaction_id
 	GetTransactionByTranNbr(ctx context.Context, tranNbr pgtype.Text) (Transaction, error)
-	// Recursively fetches a transaction and all its descendants (children, grandchildren, etc.)
-	// Use this to get the full transaction tree starting from any transaction
-	// Example: GetTransactionTree(auth1) returns [auth1, void1, auth2, charge2, refund2]
-	// Example: GetTransactionTree(auth2) returns [auth2, charge2, refund2]
-	GetTransactionTree(ctx context.Context, parentTransactionID uuid.UUID) ([]GetTransactionTreeRow, error)
+	// Recursively fetches the ENTIRE transaction tree starting from the root
+	// Walks UP to find the root (transaction with parent_transaction_id = NULL), then DOWN to get all descendants
+	// This ensures you always get the complete tree regardless of which transaction you query
+	// Example: GetTransactionTree(auth1) returns [auth1, auth2, capture2, refund2]
+	// Example: GetTransactionTree(auth2) returns [auth1, auth2, capture2, refund2] (includes root!)
+	// Example: GetTransactionTree(capture2) returns [auth1, auth2, capture2, refund2] (includes root!)
+	// Step 1: Walk UP the parent chain to find the root
+	// Step 2: Get the root transaction (has no parent)
+	// Step 3: Walk DOWN from root to get all descendants
+	GetTransactionTree(ctx context.Context, transactionID uuid.UUID) ([]GetTransactionTreeRow, error)
 	GetWebhookDeliveryHistory(ctx context.Context, arg GetWebhookDeliveryHistoryParams) ([]WebhookDelivery, error)
 	GetWebhookSubscription(ctx context.Context, id uuid.UUID) (WebhookSubscription, error)
 	GrantServiceAccess(ctx context.Context, arg GrantServiceAccessParams) (ServiceMerchant, error)

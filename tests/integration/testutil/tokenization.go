@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package testutil
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // TestCard represents a test credit card
@@ -214,26 +217,26 @@ func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
 
 	// Build form data for Server Post API with CKC0 (ACH Pre-Note Debit)
 	now := time.Now()
-	batchID := now.Format("20060102")                         // YYYYMMDD
+	batchID := now.Format("20060102") // YYYYMMDD
 	tranNbr := fmt.Sprintf("%d", now.Unix())
-	localDate := now.Format("010206")                        // MMDDYY
-	localTime := now.Format("150405")                        // HHMMSS
+	localDate := now.Format("010206") // MMDDYY
+	localTime := now.Format("150405") // HHMMSS
 
 	formData := url.Values{}
 	formData.Set("CUST_NBR", cfg.EPXCustNbr)
 	formData.Set("MERCH_NBR", cfg.EPXMerchNbr)
 	formData.Set("DBA_NBR", cfg.EPXDBANbr)
 	formData.Set("TERMINAL_NBR", cfg.EPXTerminalNbr)
-	formData.Set("TRAN_TYPE", "CKC0")                         // ACH Checking Pre-Note Debit
-	formData.Set("AMOUNT", "0.00")                            // Pre-note is $0.00
+	formData.Set("TRAN_TYPE", "CKC0") // ACH Checking Pre-Note Debit
+	formData.Set("AMOUNT", "0.00")    // Pre-note is $0.00
 	formData.Set("TRAN_NBR", tranNbr)
 	formData.Set("BATCH_ID", batchID)
 	formData.Set("LOCAL_DATE", localDate)
 	formData.Set("LOCAL_TIME", localTime)
 	formData.Set("ACCOUNT_NBR", ach.AccountNumber)
 	formData.Set("ROUTING_NBR", ach.RoutingNumber)
-	formData.Set("CARD_ENT_METH", "X")                        // Manually entered
-	formData.Set("INDUSTRY_TYPE", "E")                        // E-commerce
+	formData.Set("CARD_ENT_METH", "X") // Manually entered
+	formData.Set("INDUSTRY_TYPE", "E") // E-commerce
 	formData.Set("FIRST_NAME", "Test")
 	formData.Set("LAST_NAME", "Customer")
 
@@ -335,10 +338,12 @@ func TokenizeAndSaveCardViaBrowserPost(t *testing.T, cfg *Config, client *Client
 	}
 
 	// List payment methods for this customer to find the one we just created
-	client.SetHeader("Authorization", "Bearer "+jwtToken)
-	defer client.ClearHeaders()
+	// ListPaymentMethods is a ConnectRPC endpoint on port 8080, not HTTP port 8081
+	connectRPCClient := NewClient("http://localhost:8080")
+	connectRPCClient.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer connectRPCClient.ClearHeaders()
 
-	resp, err := client.DoConnectRPC("payment_method.v1.PaymentMethodService", "ListPaymentMethods", map[string]interface{}{
+	resp, err := connectRPCClient.DoConnectRPC("payment_method.v1.PaymentMethodService", "ListPaymentMethods", map[string]interface{}{
 		"merchant_id": merchantID,
 		"customer_id": customerID,
 	})
@@ -379,14 +384,74 @@ func parseMonth(month string) int {
 	return m
 }
 
-// TokenizeAndSaveACH is a stub for ACH account tokenization
-// TODO: Implement when StoreACHAccount RPC is available
-func TokenizeAndSaveACH(cfg *Config, client *Client, merchantID, customerID string, achAccount TestACH) (string, error) {
-	return "", fmt.Errorf("TokenizeAndSaveACH not yet implemented - waiting for StoreACHAccount RPC")
+// TokenizeAndSaveACH tokenizes and stores an ACH account using StoreACHAccount ConnectRPC
+// Returns the payment method ID
+// jwtToken is required for authentication
+func TokenizeAndSaveACH(cfg *Config, client *Client, jwtToken, merchantID, customerID string, achAccount TestACH) (string, error) {
+	// Validate JWT token is provided
+	if jwtToken == "" {
+		return "", fmt.Errorf("jwtToken is required for TokenizeAndSaveACH")
+	}
+
+	// StoreACHAccount is on ConnectRPC port 8080
+	connectRPCClient := NewClient("http://localhost:8080")
+	connectRPCClient.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer connectRPCClient.ClearHeaders()
+
+	// Determine account type enum value
+	var accountTypeValue int32
+	if achAccount.AccountType == "checking" {
+		accountTypeValue = 1 // ACCOUNT_TYPE_CHECKING
+	} else {
+		accountTypeValue = 2 // ACCOUNT_TYPE_SAVINGS
+	}
+
+	// Call StoreACHAccount RPC
+	requestBody := map[string]interface{}{
+		"merchant_id":          merchantID,
+		"customer_id":          customerID,
+		"account_number":       achAccount.AccountNumber,
+		"routing_number":       achAccount.RoutingNumber,
+		"account_holder_name":  "Test Customer",
+		"account_type":         accountTypeValue,
+		"std_entry_class":      3, // WEB (internet-initiated)
+		"first_name":           "Test",
+		"last_name":            "Customer",
+		"address":              "123 Test St",
+		"city":                 "Test City",
+		"state":                "CA",
+		"zip_code":             "12345",
+		"is_default":           false,
+		"idempotency_key":      uuid.New().String(),
+	}
+
+	resp, err := connectRPCClient.DoConnectRPC("payment_method.v1.PaymentMethodService", "StoreACHAccount", requestBody)
+	if err != nil {
+		return "", fmt.Errorf("StoreACHAccount RPC failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("StoreACHAccount failed: status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := DecodeResponse(resp, &result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// ConnectRPC returns camelCase field names (paymentMethodId not payment_method_id)
+	paymentMethodID, ok := result["paymentMethodId"].(string)
+	if !ok || paymentMethodID == "" {
+		return "", fmt.Errorf("paymentMethodId not found in response")
+	}
+
+	return paymentMethodID, nil
 }
 
-// TokenizeAndSaveCard is a stub for saving tokenized cards
-// TODO: Update to use Browser Post STORAGE flow
+// TokenizeAndSaveCard is deprecated - use TokenizeAndSaveCardViaBrowserPost instead
+// Browser Post STORAGE flow is now the standard approach for tokenizing and storing cards
 func TokenizeAndSaveCard(cfg *Config, client *Client, merchantID, customerID string, card TestCard) (string, error) {
 	return "", fmt.Errorf("TokenizeAndSaveCard deprecated - use TokenizeAndSaveCardViaBrowserPost instead")
 }

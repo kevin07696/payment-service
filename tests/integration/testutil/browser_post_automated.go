@@ -6,6 +6,7 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"testing"
 	"time"
@@ -103,6 +104,12 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	formResp, err := httpClient.Do("GET", formReq, nil)
 	require.NoError(t, err, "Failed to get Browser Post form")
 	defer formResp.Body.Close()
+
+	// Log error response body if not 200
+	if formResp.StatusCode != 200 {
+		bodyBytes, _ := io.ReadAll(formResp.Body)
+		t.Logf("❌ Form generation failed (status %d): %s", formResp.StatusCode, string(bodyBytes))
+	}
 
 	require.Equal(t, 200, formResp.StatusCode, "Form generation should succeed")
 
@@ -235,14 +242,18 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	// Step 4: Verify transaction was created with real BRIC
 	t.Logf("🔍 Querying database for transaction...")
 
+	// GetTransaction is a ConnectRPC endpoint on port 8080, not HTTP port 8081
+	// Create a ConnectRPC client for port 8080 (regardless of SERVICE_URL environment variable)
+	connectRPCClient := NewClient("http://localhost:8080")
+
 	// Set JWT auth if provided
 	if jwtToken != "" {
-		client.SetHeader("Authorization", "Bearer "+jwtToken)
-		defer client.ClearHeaders()
+		connectRPCClient.SetHeader("Authorization", "Bearer "+jwtToken)
+		defer connectRPCClient.ClearHeaders()
 	}
 
 	// Use ConnectRPC protocol (not REST) - ConnectRPC requires POST with service/method path
-	getTxResp, err := client.DoConnectRPC("payment.v1.PaymentService", "GetTransaction", map[string]interface{}{
+	getTxResp, err := connectRPCClient.DoConnectRPC("payment.v1.PaymentService", "GetTransaction", map[string]interface{}{
 		"transaction_id": transactionID,
 	})
 	require.NoError(t, err, "Failed to get transaction")

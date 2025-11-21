@@ -67,8 +67,8 @@ services:
       # Environment
       ENVIRONMENT: ${ENVIRONMENT:-development}
 
-      # Authentication (disable for integration testing)
-      DISABLE_AUTH: ${DISABLE_AUTH:-true}
+      # Authentication (enable by default, can disable with DISABLE_AUTH=true for debugging)
+      DISABLE_AUTH: ${DISABLE_AUTH:-false}
 
       # Secret Manager Configuration
       SECRET_MANAGER: ${SECRET_MANAGER:-mock}  # Use 'mock' for local dev, 'gcp' for production

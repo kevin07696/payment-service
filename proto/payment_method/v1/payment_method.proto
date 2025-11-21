@@ -15,10 +15,6 @@ enum PaymentMethodType {
 
 // PaymentMethodService handles saved payment method operations
 service PaymentMethodService {
-  // SavePaymentMethod tokenizes and saves a payment method
-  rpc SavePaymentMethod(SavePaymentMethodRequest) returns (PaymentMethodResponse) {
-  }
-
   // GetPaymentMethod retrieves a specific payment method
   rpc GetPaymentMethod(GetPaymentMethodRequest) returns (PaymentMethod) {
   }
@@ -43,11 +39,6 @@ service PaymentMethodService {
   rpc VerifyACHAccount(VerifyACHAccountRequest) returns (VerifyACHAccountResponse) {
   }
 
-  // ConvertFinancialBRICToStorageBRIC converts Financial BRIC to Storage BRIC and saves payment method
-  // Use case: Customer completes payment and wants to save their payment method
-  rpc ConvertFinancialBRICToStorageBRIC(ConvertFinancialBRICRequest) returns (PaymentMethodResponse) {
-  }
-
   // StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
   // Use case: Customer adds bank account for recurring payments
   rpc StoreACHAccount(StoreACHAccountRequest) returns (PaymentMethodResponse) {
@@ -57,29 +48,6 @@ service PaymentMethodService {
   // Does NOT support changing account/routing numbers - create new payment method instead
   rpc UpdatePaymentMethod(UpdatePaymentMethodRequest) returns (PaymentMethodResponse) {
   }
-}
-
-// SavePaymentMethodRequest saves a new payment method
-message SavePaymentMethodRequest {
-  string merchant_id = 1;
-  string customer_id = 2;
-  string payment_token = 3; // EPX token (AUTH_GUID from tokenization)
-  PaymentMethodType payment_type = 4;
-
-  // Display metadata
-  string last_four = 5; // Last 4 digits
-
-  // Credit card specific (optional)
-  optional string card_brand = 6; // "visa", "mastercard", "amex", "discover"
-  optional int32 card_exp_month = 7; // 1-12
-  optional int32 card_exp_year = 8; // 2025, 2026, etc.
-
-  // ACH specific (optional)
-  optional string bank_name = 9; // "Chase", "Bank of America", etc.
-  optional string account_type = 10; // "checking" or "savings"
-
-  bool is_default = 11; // Mark as default payment method
-  string idempotency_key = 12;
 }
 
 // GetPaymentMethodRequest retrieves a payment method
@@ -140,38 +108,6 @@ message VerifyACHAccountResponse {
   string transaction_id = 2; // Pre-note transaction ID
   string status = 3; // "pending", "verified", "failed"
   string message = 4;
-}
-
-// ConvertFinancialBRICRequest converts a Financial BRIC to Storage BRIC
-message ConvertFinancialBRICRequest {
-  string merchant_id = 1;
-  string customer_id = 2;
-  string financial_bric = 3; // AUTH_GUID from completed transaction
-  PaymentMethodType payment_type = 4;
-  string transaction_id = 5; // Reference to original transaction
-
-  // Display metadata
-  string last_four = 6; // Last 4 digits
-
-  // Credit card specific (optional)
-  optional string card_brand = 7;
-  optional int32 card_exp_month = 8;
-  optional int32 card_exp_year = 9;
-
-  // ACH specific (optional)
-  optional string bank_name = 10;
-  optional string account_type = 11;
-
-  bool is_default = 12;
-  string idempotency_key = 13;
-
-  // Billing information (required for Account Verification on credit cards)
-  optional string first_name = 14;
-  optional string last_name = 15;
-  optional string address = 16;
-  optional string city = 17;
-  optional string state = 18;
-  optional string zip_code = 19;
 }
 
 // AccountType for ACH accounts

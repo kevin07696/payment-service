@@ -208,15 +208,17 @@ func (a *keyExchangeAdapter) buildFormData(req *ports.KeyExchangeRequest) url.Va
 	// TRAN_GROUP values per EPX Data Dictionary:
 	// - "SALE" for sale transactions (auth + capture)
 	// - "AUTH" for authorization-only transactions
+	// - "STORAGE" for card storage/tokenization (Browser Post uses TRAN_CODE=STORAGE, TRAN_TYPE=CCX8)
 	// NOTE: Do NOT use single-letter codes (U/A) - those are for TRAN_CODE, not TRAN_GROUP
 	tranGroup := req.TranGroup
-	if tranGroup != "SALE" && tranGroup != "AUTH" {
+	if tranGroup != "SALE" && tranGroup != "AUTH" && tranGroup != "STORAGE" {
 		// If not already in correct format, normalize it
 		if req.TranGroup == "U" {
 			tranGroup = "SALE"
 		} else if req.TranGroup == "A" {
 			tranGroup = "AUTH"
 		}
+		// STORAGE is a valid TRAN_GROUP, pass through as-is
 	}
 
 	// Required fields per EPX Browser Post documentation (page 3)

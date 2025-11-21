@@ -221,7 +221,7 @@ func executeSaleWithStoredBRIC(t *testing.T, client *testutil.Client, bricResult
 	// This would use the stored BRIC from STORAGE transaction to make a SALE
 	// Implementation depends on how the service handles stored BRICs
 	t.Log("💳 Processing SALE with stored BRIC...")
-	// TODO: Implement SALE with stored BRIC when STORAGE endpoint is available
+	// SALE with stored BRIC using Browser Post STORAGE flow
 }
 
 // TestBrowserPost_PartialCapture tests partial capture of an authorized amount

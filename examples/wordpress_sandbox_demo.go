@@ -42,20 +42,20 @@ func tokenizeCard() (string, error) {
 
 	// Test card data (EPX sandbox test card - will be approved)
 	cardData := map[string]string{
-		"TransType":           "CKC",                    // Create Key Card (tokenization)
-		"CardNo":              "4788250000028291",       // EPX test card
-		"ExpMonth":            "12",
-		"ExpYear":             "25",
-		"CVV2":                "123",
-		"NameOnCard":          "Test Customer",
-		"Street":              "123 Main St",
-		"Zip":                 "12345",
-		"ExtData":             "<AccountNumber>12345</AccountNumber>",
-		"Amount":              "99.99",
-		"Total":               "99.99",
-		"Tax":                 "0.00",
-		"Tip":                 "0.00",
-		"EMail":               "customer@example.com",
+		"TransType":  "CKC",              // Create Key Card (tokenization)
+		"CardNo":     "4788250000028291", // EPX test card
+		"ExpMonth":   "12",
+		"ExpYear":    "25",
+		"CVV2":       "123",
+		"NameOnCard": "Test Customer",
+		"Street":     "123 Main St",
+		"Zip":        "12345",
+		"ExtData":    "<AccountNumber>12345</AccountNumber>",
+		"Amount":     "99.99",
+		"Total":      "99.99",
+		"Tax":        "0.00",
+		"Tip":        "0.00",
+		"EMail":      "customer@example.com",
 	}
 
 	// Build request
@@ -122,11 +122,11 @@ func min(a, b int) int {
 
 // WordPressPaymentClient - simplified version for testing
 type WordPressPaymentClient struct {
-	serviceID   string
-	privateKey  interface{}
-	merchantID  string
-	client      paymentv1connect.PaymentServiceClient
-	logger      *zap.Logger
+	serviceID  string
+	privateKey interface{}
+	merchantID string
+	client     paymentv1connect.PaymentServiceClient
+	logger     *zap.Logger
 }
 
 func NewWordPressPaymentClient(serviceID string, privateKeyPEM []byte, merchantID string) (*WordPressPaymentClient, error) {

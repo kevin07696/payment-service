@@ -180,15 +180,15 @@ func (h *ConnectHandler) Void(
 	msg := req.Msg
 
 	h.logger.Info("Void request received",
-		zap.String("group_id", msg.GroupId),
+		zap.String("transaction_id", msg.TransactionId),
 	)
 
-	if msg.GroupId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("group_id is required"))
+	if msg.TransactionId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction_id is required"))
 	}
 
 	serviceReq := &ports.VoidRequest{
-		ParentTransactionID: msg.GroupId,
+		ParentTransactionID: msg.TransactionId,
 	}
 
 	if msg.IdempotencyKey != "" {
@@ -211,15 +211,15 @@ func (h *ConnectHandler) Refund(
 	msg := req.Msg
 
 	h.logger.Info("Refund request received",
-		zap.String("group_id", msg.GroupId),
+		zap.String("transaction_id", msg.TransactionId),
 	)
 
-	if msg.GroupId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("group_id is required"))
+	if msg.TransactionId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction_id is required"))
 	}
 
 	serviceReq := &ports.RefundRequest{
-		ParentTransactionID: msg.GroupId,
+		ParentTransactionID: msg.TransactionId,
 		Reason:              msg.Reason,
 	}
 
@@ -280,8 +280,8 @@ func (h *ConnectHandler) ListTransactions(
 	if msg.CustomerId != "" {
 		filters.CustomerID = &msg.CustomerId
 	}
-	if msg.GroupId != "" {
-		filters.ParentTransactionID = &msg.GroupId
+	if msg.ParentTransactionId != "" {
+		filters.ParentTransactionID = &msg.ParentTransactionId
 	}
 	if msg.Status != paymentv1.TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED {
 		statusStr := protoStatusToDomain(msg.Status)

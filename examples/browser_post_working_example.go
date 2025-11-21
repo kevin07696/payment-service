@@ -23,7 +23,7 @@ func main() {
 	fmt.Println()
 
 	// Configuration
-	serviceURL := "http://localhost:8081" // HTTP endpoints on 8081
+	serviceURL := "http://localhost:8081"                // HTTP endpoints on 8081
 	merchantID := "1a20fff8-2cec-48e5-af49-87e501652913" // ACME Corp
 	amount := "10.00"
 	transactionType := "SALE"

@@ -73,13 +73,13 @@ func TestTransactionAmountEdgeCases(t *testing.T) {
 // TestCaptureValidation_TableDriven tests CAPTURE validation with comprehensive scenarios
 func TestCaptureValidation_TableDriven(t *testing.T) {
 	tests := []struct {
-		name                string
-		authAmountCents     int64
-		capturedSoFarCents  int64
-		captureAmountCents  int64
-		isVoided            bool
-		expectAllow         bool
-		expectReason        string
+		name               string
+		authAmountCents    int64
+		capturedSoFarCents int64
+		captureAmountCents int64
+		isVoided           bool
+		expectAllow        bool
+		expectReason       string
 	}{
 		// Valid scenarios
 		{

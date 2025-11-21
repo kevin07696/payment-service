@@ -50,13 +50,13 @@ type PaymentMethod struct {
 	IsVerified bool `json:"is_verified"` // For ACH pre-note verification
 
 	// ACH Verification (from migration 009)
-	VerificationStatus      *string    `json:"verification_status"`       // "pending", "verified", "failed"
-	PreNoteTransactionID    *string    `json:"prenote_transaction_id"`    // Links to pre-note transaction
-	VerifiedAt              *time.Time `json:"verified_at"`               // When verification completed
-	VerificationFailureReason *string  `json:"verification_failure_reason"` // Why verification failed
-	ReturnCount             *int       `json:"return_count"`              // Number of ACH returns received
-	DeactivationReason      *string    `json:"deactivation_reason"`       // Why payment method deactivated
-	DeactivatedAt           *time.Time `json:"deactivated_at"`            // When deactivated
+	VerificationStatus        *string    `json:"verification_status"`         // "pending", "verified", "failed"
+	PreNoteTransactionID      *string    `json:"prenote_transaction_id"`      // Links to pre-note transaction
+	VerifiedAt                *time.Time `json:"verified_at"`                 // When verification completed
+	VerificationFailureReason *string    `json:"verification_failure_reason"` // Why verification failed
+	ReturnCount               *int       `json:"return_count"`                // Number of ACH returns received
+	DeactivationReason        *string    `json:"deactivation_reason"`         // Why payment method deactivated
+	DeactivatedAt             *time.Time `json:"deactivated_at"`              // When deactivated
 
 	// Timestamps
 	CreatedAt  time.Time  `json:"created_at"`
@@ -98,24 +98,24 @@ func (pm *PaymentMethod) IsExpired() bool {
 // CanUseForAmount returns true if the payment method can be used for the specified amount
 // For ACH: requires full verification (no grace period)
 func (pm *PaymentMethod) CanUseForAmount(amountCents int64) (bool, string) {
+	// ACH-specific checks BEFORE general active check
+	// This allows us to distinguish between "pending verification" and "failed/inactive"
+	if pm.IsACH() && !pm.IsVerified {
+		// If verification status is explicitly "pending", return verification-specific error
+		if pm.VerificationStatus != nil && *pm.VerificationStatus == "pending" {
+			return false, "ACH account must be verified before use"
+		}
+		// For failed or other non-verified states, fall through to active check below
+	}
+
+	// Check active status (applies to all payment types, including failed ACH accounts)
 	if !pm.IsActive {
 		return false, "payment method is not active"
 	}
 
-	// Credit card checks
-	if pm.IsCreditCard() {
-		if pm.IsExpired() {
-			return false, "credit card is expired"
-		}
-		return true, ""
-	}
-
-	// ACH checks - must be fully verified before any payments
-	if pm.IsACH() {
-		if !pm.IsVerified {
-			return false, "ACH account must be verified before use"
-		}
-		return true, ""
+	// Credit card expiration check
+	if pm.IsCreditCard() && pm.IsExpired() {
+		return false, "credit card is expired"
 	}
 
 	return true, ""

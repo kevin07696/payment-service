@@ -83,13 +83,13 @@ message SaleRequest {
 
 // VoidRequest cancels an authorized or captured payment
 message VoidRequest {
-  string group_id = 1; // Transaction group to void
+  string transaction_id = 1; // Transaction to void (becomes parent_transaction_id of VOID record)
   string idempotency_key = 2;
 }
 
 // RefundRequest refunds a captured payment
 message RefundRequest {
-  string group_id = 1; // Transaction group to refund
+  string transaction_id = 1; // Transaction to refund (becomes parent_transaction_id of REFUND record)
   int64 amount_cents = 2; // Optional: partial refund amount in cents
   string reason = 3;
   string idempotency_key = 4;
@@ -133,7 +133,7 @@ message GetTransactionRequest {
 message ListTransactionsRequest {
   string merchant_id = 1;
   string customer_id = 2; // Optional: filter by customer
-  string group_id = 3; // Optional: get all transactions in a group
+  string parent_transaction_id = 3; // Optional: filter by parent (get transaction chain)
   TransactionStatus status = 4; // Optional: filter by status
   int32 limit = 5; // Default: 100
   int32 offset = 6;

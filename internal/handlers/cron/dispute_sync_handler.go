@@ -260,12 +260,29 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID strin
 	}
 
 	// Find matching transaction by transaction number
-	var groupID pgtype.UUID
+	// TransactionNumber from North API should match our tran_nbr field
+	var transactionID uuid.UUID
 	if dispute.TransactionNumber != "" {
-		// Try to find the transaction group
-		// This would require a query to find transaction by auth response or other identifiers
-		// For now, we'll leave it NULL and allow manual linking later
-		groupID = pgtype.UUID{Valid: false}
+		// Try to find the transaction by tran_nbr
+		tx, err := h.db.Queries().GetTransactionByTranNbr(ctx, pgtype.Text{
+			String: dispute.TransactionNumber,
+			Valid:  true,
+		})
+		if err != nil {
+			h.logger.Warn("Could not find transaction for chargeback",
+				zap.String("tran_nbr", dispute.TransactionNumber),
+				zap.String("case_number", dispute.CaseNumber),
+				zap.Error(err),
+			)
+			// Return error - we need a valid transaction for chargebacks
+			return fmt.Errorf("transaction not found for chargeback (tran_nbr: %s)", dispute.TransactionNumber)
+		}
+		transactionID = tx.ID
+	} else {
+		h.logger.Error("Dispute missing transaction number",
+			zap.String("case_number", dispute.CaseNumber),
+		)
+		return fmt.Errorf("dispute missing transaction number: %s", dispute.CaseNumber)
 	}
 
 	// Marshal dispute as raw_data
@@ -278,7 +295,7 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID strin
 	chargebackID := uuid.New()
 	params := sqlc.CreateChargebackParams{
 		ID:                chargebackID,
-		GroupID:           groupID,
+		TransactionID:     transactionID,
 		AgentID:           agentID,
 		CustomerID:        pgtype.Text{Valid: false}, // Not available from North API
 		CaseNumber:        dispute.CaseNumber,
@@ -412,9 +429,8 @@ func (h *DisputeSyncHandler) triggerChargebackWebhook(ctx context.Context, agent
 		"chargeback_date":    chargeback.ChargebackDate.Format("2006-01-02"),
 	}
 
-	if chargeback.GroupID.Valid {
-		eventData["transaction_id"] = chargeback.GroupID.Bytes
-	}
+	// Transaction ID is always set (NOT NULL in schema)
+	eventData["transaction_id"] = chargeback.TransactionID.String()
 
 	if chargeback.CustomerID.Valid {
 		eventData["customer_id"] = chargeback.CustomerID.String

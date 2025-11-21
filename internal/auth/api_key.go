@@ -29,13 +29,13 @@ func NewAPIKeyGenerator(db *sql.DB, saltPrefix string) *APIKeyGenerator {
 
 // APICredentials represents generated API credentials
 type APICredentials struct {
-	APIKey       string    `json:"api_key"`
-	APISecret    string    `json:"api_secret"`
-	MerchantID   string    `json:"merchant_id"`
-	Environment  string    `json:"environment"`
-	Description  string    `json:"description,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	APIKey      string    `json:"api_key"`
+	APISecret   string    `json:"api_secret"`
+	MerchantID  string    `json:"merchant_id"`
+	Environment string    `json:"environment"`
+	Description string    `json:"description,omitempty"`
+	ExpiresAt   time.Time `json:"expires_at,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // GenerateAPIKey generates a new API key with a specific prefix

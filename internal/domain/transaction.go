@@ -37,8 +37,8 @@ const (
 // Transaction represents a payment transaction
 type Transaction struct {
 	// Identity
-	ID                  string  `json:"id"`                     // UUID
-	ParentTransactionID *string `json:"parent_transaction_id"`  // Links related transactions (auth → capture → refund)
+	ID                  string  `json:"id"`                    // UUID
+	ParentTransactionID *string `json:"parent_transaction_id"` // Links related transactions (auth → capture → refund)
 
 	// Multi-tenant
 	MerchantID string `json:"merchant_id"` // Which merchant owns this transaction

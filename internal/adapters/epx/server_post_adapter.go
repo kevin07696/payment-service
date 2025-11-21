@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/pkg/resilience"
 	"go.uber.org/zap"
 )
 
@@ -67,9 +68,11 @@ func DefaultServerPostConfig(environment string) *ServerPostConfig {
 
 // serverPostAdapter implements the ServerPostAdapter port
 type serverPostAdapter struct {
-	config     *ServerPostConfig
-	httpClient *http.Client
-	logger     *zap.Logger
+	config         *ServerPostConfig
+	httpClient     *http.Client
+	logger         *zap.Logger
+	circuitBreaker *CircuitBreaker
+	backoff        resilience.BackoffStrategy
 }
 
 // NewServerPostAdapter creates a new EPX Server Post adapter
@@ -89,10 +92,15 @@ func NewServerPostAdapter(config *ServerPostConfig, logger *zap.Logger) ports.Se
 		Transport: transport,
 	}
 
+	// Initialize circuit breaker with defaults
+	circuitBreaker := NewCircuitBreaker(DefaultCircuitBreakerConfig())
+
 	return &serverPostAdapter{
-		config:     config,
-		httpClient: httpClient,
-		logger:     logger,
+		config:         config,
+		httpClient:     httpClient,
+		logger:         logger,
+		circuitBreaker: circuitBreaker,
+		backoff:        resilience.DefaultExponentialBackoff(),
 	}
 }
 
@@ -123,71 +131,97 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	// Send request with retries
-	var lastErr error
-	for attempt := 0; attempt <= a.config.MaxRetries; attempt++ {
-		if attempt > 0 {
-			a.logger.Info("Retrying Server Post request",
-				zap.Int("attempt", attempt),
-				zap.Int("max_retries", a.config.MaxRetries),
-			)
-			time.Sleep(a.config.RetryDelay)
-		}
-
-		startTime := time.Now()
-		httpResp, err := a.httpClient.Do(httpReq)
-		if err != nil {
-			lastErr = err
-			if a.isRetryable(err) && attempt < a.config.MaxRetries {
-				a.logger.Warn("Retryable error occurred",
-					zap.Error(err),
+	// Execute request through circuit breaker
+	var response *ports.ServerPostResponse
+	err = a.circuitBreaker.Call(func() error {
+		// Send request with retries
+		var lastErr error
+		for attempt := 0; attempt <= a.config.MaxRetries; attempt++ {
+			if attempt > 0 {
+				// Calculate exponential backoff delay with jitter
+				delay := a.backoff.NextDelay(attempt - 1)
+				a.logger.Info("Retrying Server Post request with exponential backoff",
 					zap.Int("attempt", attempt),
+					zap.Int("max_retries", a.config.MaxRetries),
+					zap.Duration("backoff_delay", delay),
 				)
-				continue
+				// Respect context cancellation during retry delay
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("retry cancelled: %w", ctx.Err())
+				case <-time.After(delay):
+					// Continue to retry
+				}
 			}
-			a.logger.Error("Failed to send Server Post request",
-				zap.Error(err),
+
+			startTime := time.Now()
+			httpResp, err := a.httpClient.Do(httpReq)
+			if err != nil {
+				lastErr = err
+				if a.isRetryable(err) && attempt < a.config.MaxRetries {
+					a.logger.Warn("Retryable error occurred",
+						zap.Error(err),
+						zap.Int("attempt", attempt),
+					)
+					continue
+				}
+				a.logger.Error("Failed to send Server Post request",
+					zap.Error(err),
+					zap.Duration("elapsed", time.Since(startTime)),
+				)
+				return fmt.Errorf("failed to send request: %w", err)
+			}
+			defer httpResp.Body.Close()
+
+			// Read response body
+			body, err := io.ReadAll(httpResp.Body)
+			if err != nil {
+				a.logger.Error("Failed to read response body", zap.Error(err))
+				return fmt.Errorf("failed to read response: %w", err)
+			}
+
+			a.logger.Info("Received Server Post response",
+				zap.Int("status_code", httpResp.StatusCode),
 				zap.Duration("elapsed", time.Since(startTime)),
+				zap.Int("body_length", len(body)),
+				zap.String("response_body", string(body)),
 			)
-			return nil, fmt.Errorf("failed to send request: %w", err)
-		}
-		defer httpResp.Body.Close()
 
-		// Read response body
-		body, err := io.ReadAll(httpResp.Body)
-		if err != nil {
-			a.logger.Error("Failed to read response body", zap.Error(err))
-			return nil, fmt.Errorf("failed to read response: %w", err)
-		}
+			// Parse response
+			parsedResp, err := a.parseResponse(body, req)
+			if err != nil {
+				a.logger.Error("Failed to parse Server Post response",
+					zap.Error(err),
+					zap.String("body", string(body)),
+				)
+				return fmt.Errorf("failed to parse response: %w", err)
+			}
 
-		a.logger.Info("Received Server Post response",
-			zap.Int("status_code", httpResp.StatusCode),
-			zap.Duration("elapsed", time.Since(startTime)),
-			zap.Int("body_length", len(body)),
-			zap.String("response_body", string(body)),
-		)
-
-		// Parse response
-		response, err := a.parseResponse(body, req)
-		if err != nil {
-			a.logger.Error("Failed to parse Server Post response",
-				zap.Error(err),
-				zap.String("body", string(body)),
+			a.logger.Info("Successfully processed Server Post transaction",
+				zap.String("auth_guid", parsedResp.AuthGUID),
+				zap.String("auth_resp", parsedResp.AuthResp),
+				zap.String("auth_resp_text", parsedResp.AuthRespText),
+				zap.Bool("is_approved", parsedResp.IsApproved),
 			)
-			return nil, fmt.Errorf("failed to parse response: %w", err)
+
+			response = parsedResp
+			return nil
 		}
 
-		a.logger.Info("Successfully processed Server Post transaction",
-			zap.String("auth_guid", response.AuthGUID),
-			zap.String("auth_resp", response.AuthResp),
-			zap.String("auth_resp_text", response.AuthRespText),
-			zap.Bool("is_approved", response.IsApproved),
-		)
+		return fmt.Errorf("failed after %d retries: %w", a.config.MaxRetries, lastErr)
+	})
 
-		return response, nil
+	if err != nil {
+		// Check if circuit breaker rejected the request
+		if err == ErrCircuitOpen {
+			a.logger.Warn("Circuit breaker is open, rejecting EPX request",
+				zap.String("circuit_state", a.circuitBreaker.State().String()),
+			)
+		}
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("failed after %d retries: %w", a.config.MaxRetries, lastErr)
+	return response, nil
 }
 
 // ProcessTransactionViaSocket sends transaction via XML Socket connection
@@ -208,63 +242,80 @@ func (a *serverPostAdapter) ProcessTransactionViaSocket(ctx context.Context, req
 	// Build XML request
 	xmlData := a.buildXMLRequest(req)
 
-	// Connect to socket with timeout
-	dialer := &net.Dialer{
-		Timeout: a.config.SocketTimeout,
-	}
+	// Execute socket call through circuit breaker
+	var response *ports.ServerPostResponse
+	err := a.circuitBreaker.Call(func() error {
+		// Connect to socket with timeout
+		dialer := &net.Dialer{
+			Timeout: a.config.SocketTimeout,
+		}
 
-	conn, err := dialer.DialContext(ctx, "tcp", a.config.SocketEndpoint)
-	if err != nil {
-		a.logger.Error("Failed to connect to EPX socket",
-			zap.Error(err),
-			zap.String("endpoint", a.config.SocketEndpoint),
+		conn, err := dialer.DialContext(ctx, "tcp", a.config.SocketEndpoint)
+		if err != nil {
+			a.logger.Error("Failed to connect to EPX socket",
+				zap.Error(err),
+				zap.String("endpoint", a.config.SocketEndpoint),
+			)
+			return fmt.Errorf("failed to connect to socket: %w", err)
+		}
+		defer conn.Close()
+
+		// Set read/write deadlines
+		deadline := time.Now().Add(a.config.SocketTimeout)
+		conn.SetDeadline(deadline)
+
+		// Send XML request
+		startTime := time.Now()
+		_, err = conn.Write([]byte(xmlData))
+		if err != nil {
+			a.logger.Error("Failed to write to socket", zap.Error(err))
+			return fmt.Errorf("failed to write to socket: %w", err)
+		}
+
+		// Read response
+		buffer := make([]byte, 4096)
+		n, err := conn.Read(buffer)
+		if err != nil {
+			a.logger.Error("Failed to read from socket", zap.Error(err))
+			return fmt.Errorf("failed to read from socket: %w", err)
+		}
+
+		responseXML := buffer[:n]
+
+		a.logger.Info("Received Socket response",
+			zap.Duration("elapsed", time.Since(startTime)),
+			zap.Int("bytes_received", n),
 		)
-		return nil, fmt.Errorf("failed to connect to socket: %w", err)
-	}
-	defer conn.Close()
 
-	// Set read/write deadlines
-	deadline := time.Now().Add(a.config.SocketTimeout)
-	conn.SetDeadline(deadline)
+		// Parse XML response
+		parsedResp, err := a.parseXMLResponse(responseXML, req)
+		if err != nil {
+			a.logger.Error("Failed to parse Socket response",
+				zap.Error(err),
+				zap.String("xml", string(responseXML)),
+			)
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
 
-	// Send XML request
-	startTime := time.Now()
-	_, err = conn.Write([]byte(xmlData))
-	if err != nil {
-		a.logger.Error("Failed to write to socket", zap.Error(err))
-		return nil, fmt.Errorf("failed to write to socket: %w", err)
-	}
-
-	// Read response
-	buffer := make([]byte, 4096)
-	n, err := conn.Read(buffer)
-	if err != nil {
-		a.logger.Error("Failed to read from socket", zap.Error(err))
-		return nil, fmt.Errorf("failed to read from socket: %w", err)
-	}
-
-	responseXML := buffer[:n]
-
-	a.logger.Info("Received Socket response",
-		zap.Duration("elapsed", time.Since(startTime)),
-		zap.Int("bytes_received", n),
-	)
-
-	// Parse XML response
-	response, err := a.parseXMLResponse(responseXML, req)
-	if err != nil {
-		a.logger.Error("Failed to parse Socket response",
-			zap.Error(err),
-			zap.String("xml", string(responseXML)),
+		a.logger.Info("Successfully processed Socket transaction",
+			zap.String("auth_guid", parsedResp.AuthGUID),
+			zap.String("auth_resp", parsedResp.AuthResp),
+			zap.Bool("is_approved", parsedResp.IsApproved),
 		)
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
 
-	a.logger.Info("Successfully processed Socket transaction",
-		zap.String("auth_guid", response.AuthGUID),
-		zap.String("auth_resp", response.AuthResp),
-		zap.Bool("is_approved", response.IsApproved),
-	)
+		response = parsedResp
+		return nil
+	})
+
+	if err != nil {
+		// Check if circuit breaker rejected the request
+		if err == ErrCircuitOpen {
+			a.logger.Warn("Circuit breaker is open, rejecting EPX socket request",
+				zap.String("circuit_state", a.circuitBreaker.State().String()),
+			)
+		}
+		return nil, err
+	}
 
 	return response, nil
 }
@@ -341,18 +392,18 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 		ports.TransactionTypeReversal:      true,
 		ports.TransactionTypeBRICStorageCC: true,
 		// ACH Checking
-		ports.TransactionTypeACHDebit:          true,
-		ports.TransactionTypeACHCredit:         true,
-		ports.TransactionTypeACHPreNoteDebit:   true,
-		ports.TransactionTypeACHPreNoteCredit:  true,
-		ports.TransactionTypeACHVoid:           true,
-		ports.TransactionTypeBRICStorageACH:    true,
+		ports.TransactionTypeACHDebit:         true,
+		ports.TransactionTypeACHCredit:        true,
+		ports.TransactionTypeACHPreNoteDebit:  true,
+		ports.TransactionTypeACHPreNoteCredit: true,
+		ports.TransactionTypeACHVoid:          true,
+		ports.TransactionTypeBRICStorageACH:   true,
 		// ACH Savings
-		ports.TransactionTypeACHSavingsDebit:          true,
-		ports.TransactionTypeACHSavingsCredit:         true,
-		ports.TransactionTypeACHSavingsPreNoteDebit:   true,
-		ports.TransactionTypeACHSavingsPreNoteCredit:  true,
-		ports.TransactionTypeACHSavingsVoid:           true,
+		ports.TransactionTypeACHSavingsDebit:         true,
+		ports.TransactionTypeACHSavingsCredit:        true,
+		ports.TransactionTypeACHSavingsPreNoteDebit:  true,
+		ports.TransactionTypeACHSavingsPreNoteCredit: true,
+		ports.TransactionTypeACHSavingsVoid:          true,
 		// PIN-less Debit
 		ports.TransactionTypePINlessDebitPurchase: true,
 		ports.TransactionTypePINlessDebitReturn:   true,

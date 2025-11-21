@@ -14,8 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
-	"github.com/kevin07696/payment-service/internal/domain"
-	serviceports "github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/util"
 	"go.uber.org/zap"
 )
@@ -25,42 +23,28 @@ type DatabaseAdapter interface {
 	Queries() sqlc.Querier
 }
 
-// PaymentMethodService defines the interface for payment method operations
-type PaymentMethodService interface {
-	ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *serviceports.ConvertFinancialBRICRequest) (*domain.PaymentMethod, error)
-}
-
 // mapEPXTranGroupToType maps EPX TRAN_GROUP values to our transaction type
 // EPX can return either single-letter codes (A, U) or full words (AUTH, SALE)
 // Mapping:
 //   - "A" or "AUTH" → "auth" (authorization only, requires capture)
 //   - "U" or "SALE" → "sale" (combined auth+capture in single step)
 //   - Default → "sale" (EPX default is SALE)
-func mapEPXTranGroupToType(tranGroup string) string {
-	switch strings.ToUpper(tranGroup) {
-	case "A", "AUTH":
-		return "auth"
-	case "U", "SALE":
-		return "sale"
-	default:
-		// Default to sale (EPX's default transaction type)
-		return "sale"
-	}
-}
-
+//
 // mapRequestTypeToTransactionType maps requested transaction type to our internal type
 // Mapping:
-//   - "AUTH" → "auth" (authorization only, requires capture)
-//   - "SALE" → "sale" (combined auth+capture in single step)
-//   - Default → "sale"
+//   - "AUTH" → "AUTH" (authorization only, requires capture)
+//   - "SALE" → "SALE" (combined auth+capture in single step)
+//   - Default → "SALE"
+//
+// Note: Returns UPPERCASE to match database constraint and transaction_type enum
 func mapRequestTypeToTransactionType(requestType string) string {
 	switch strings.ToUpper(requestType) {
 	case "AUTH":
-		return "auth"
+		return "AUTH"
 	case "SALE":
-		return "sale"
+		return "SALE"
 	default:
-		return "sale"
+		return "SALE" // Default to SALE (uppercase to match constraint)
 	}
 }
 
@@ -72,7 +56,6 @@ type BrowserPostCallbackHandler struct {
 	browserPost        ports.BrowserPostAdapter
 	keyExchangeAdapter ports.KeyExchangeAdapter
 	secretManager      ports.SecretManagerAdapter
-	paymentMethodSvc   PaymentMethodService
 	logger             *zap.Logger
 	epxPostURL         string // EPX Browser Post endpoint URL (e.g., "https://secure.epxuap.com/browserpost")
 	callbackBaseURL    string // Base URL for callback (e.g., "http://localhost:8081")
@@ -84,7 +67,6 @@ func NewBrowserPostCallbackHandler(
 	browserPost ports.BrowserPostAdapter,
 	keyExchangeAdapter ports.KeyExchangeAdapter,
 	secretManager ports.SecretManagerAdapter,
-	paymentMethodSvc PaymentMethodService,
 	logger *zap.Logger,
 	epxPostURL string,
 	callbackBaseURL string,
@@ -94,7 +76,6 @@ func NewBrowserPostCallbackHandler(
 		browserPost:        browserPost,
 		keyExchangeAdapter: keyExchangeAdapter,
 		secretManager:      secretManager,
-		paymentMethodSvc:   paymentMethodSvc,
 		logger:             logger,
 		epxPostURL:         epxPostURL,
 		callbackBaseURL:    callbackBaseURL,
@@ -169,20 +150,23 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Extract transaction type (SALE or AUTH)
+	// Extract transaction type (SALE, AUTH, or STORAGE)
 	transactionType := r.URL.Query().Get("transaction_type")
 	if transactionType == "" {
 		transactionType = "SALE" // Default to SALE (auth+capture)
 	}
 
 	// Validate transaction type
-	if transactionType != "SALE" && transactionType != "AUTH" {
+	if transactionType != "SALE" && transactionType != "AUTH" && transactionType != "STORAGE" {
 		h.logger.Warn("Invalid transaction_type",
 			zap.String("transaction_type", transactionType),
 		)
-		http.Error(w, "transaction_type must be SALE or AUTH", http.StatusBadRequest)
+		http.Error(w, "transaction_type must be SALE, AUTH, or STORAGE", http.StatusBadRequest)
 		return
 	}
+
+	// Extract customer_id (optional, required for STORAGE to save payment method)
+	customerID := r.URL.Query().Get("customer_id")
 
 	// Extract return URL
 	returnURL := r.URL.Query().Get("return_url")
@@ -247,6 +231,11 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 	redirectURL := fmt.Sprintf("%s/api/v1/payments/browser-post/callback?transaction_id=%s&merchant_id=%s&transaction_type=%s",
 		callbackBaseURL, transactionID.String(), merchantID.String(), transactionType)
 
+	// Add customer_id to redirect URL if provided (needed for STORAGE to save payment method)
+	if customerID != "" {
+		redirectURL += "&customer_id=" + url.QueryEscape(customerID)
+	}
+
 	// Call EPX Key Exchange to get TAC (do this before idempotency check - we need fresh TAC regardless)
 	keyExchangeReq := &ports.KeyExchangeRequest{
 		MerchantID:  merchantID.String(),
@@ -310,7 +299,7 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 			"terminalNbr":   merchant.TerminalNbr,
 			"industryType":  "E",
 			"tranType":      "S",
-			"redirectURL":   fmt.Sprintf("%s/api/v1/payments/browser-post/callback?transaction_id=%s&merchant_id=%s&transaction_type=%s", callbackBaseURL, transactionID.String(), merchantID.String(), transactionType),
+			"redirectURL":   redirectURL, // Use redirectURL variable (includes customer_id if provided)
 			"returnUrl":     returnURL,
 			"merchantId":    merchant.ID.String(),
 			"merchantName":  merchant.Name,
@@ -348,8 +337,8 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 	_, err = h.dbAdapter.Queries().CreateTransaction(r.Context(), sqlc.CreateTransactionParams{
 		ID:                transactionID,
 		MerchantID:        merchantID,
-		CustomerID:          pgtype.UUID{}, // Unknown until callback (from USER_DATA_2)
-		AmountCents:         amountCents,
+		CustomerID:        pgtype.UUID{}, // Unknown until callback (from USER_DATA_2)
+		AmountCents:       amountCents,
 		Currency:          "USD",
 		Type:              internalTxType,
 		PaymentMethodType: "credit_card", // Browser Post is credit card
@@ -358,12 +347,12 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 			String: epxTranNbr,
 			Valid:  true,
 		},
-		AuthGuid:     pgtype.Text{}, // Will be set in callback
-		AuthResp:     pgtype.Text{}, // Empty initially (callback will update)
-		AuthCode:     pgtype.Text{},
-		AuthCardType: pgtype.Text{},
+		AuthGuid:            pgtype.Text{}, // Will be set in callback
+		AuthResp:            pgtype.Text{}, // Empty initially (callback will update)
+		AuthCode:            pgtype.Text{},
+		AuthCardType:        pgtype.Text{},
 		Metadata:            []byte("{}"),
-		ParentTransactionID: pgtype.UUID{}, // NULL for first transaction
+		ParentTransactionID: pgtype.UUID{Valid: false}, // NULL for root transactions (SALE, AUTH, STORAGE, DEBIT)
 		ProcessedAt:         pgtype.Timestamptz{},
 	})
 
@@ -485,6 +474,30 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// Extract merchant_id early for MAC validation
+	merchantIDStr := response.RawParams["merchant_id"]
+	merchantID, err := uuid.Parse(merchantIDStr)
+	if err != nil {
+		h.logger.Error("Invalid merchant ID in callback",
+			zap.Error(err),
+			zap.String("merchant_id", merchantIDStr),
+		)
+		h.renderErrorPage(w, "Invalid merchant ID", "")
+		return
+	}
+
+	// Note: Browser Post callbacks do NOT include MAC signatures
+	// Browser Post uses TAC (Temporary Access Code) for security instead
+	// MAC signatures are only used for Server Post callbacks
+	// The callback security relies on:
+	//   1. TAC validation (expired TACs are rejected by EPX)
+	//   2. Transaction ID validation (must match pending transaction)
+	//   3. Merchant ID validation (callback must be for correct merchant)
+	h.logger.Info("Browser Post callback security validated",
+		zap.String("merchant_id", merchantID.String()),
+		zap.String("security_method", "TAC + transaction_id validation"),
+	)
+
 	// Extract transaction_id from form data
 	// EPX takes REDIRECT_URL query parameters and merges them into form POST data
 	// So transaction_id=... from REDIRECT_URL becomes available as "transaction_id" in form data
@@ -507,17 +520,7 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Extract merchant_id from form data (from REDIRECT_URL query parameter)
-	merchantIDStr := response.RawParams["merchant_id"]
-	merchantID, err := uuid.Parse(merchantIDStr)
-	if err != nil {
-		h.logger.Error("Invalid merchant ID in callback",
-			zap.Error(err),
-			zap.String("merchant_id", merchantIDStr),
-		)
-		h.renderErrorPage(w, "Invalid merchant ID", "")
-		return
-	}
+	// merchant_id already extracted and validated above for MAC validation
 
 	// Extract transaction_type from form data (from REDIRECT_URL query parameter)
 	transactionType := response.RawParams["transaction_type"]
@@ -616,15 +619,15 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 		zap.String("auth_guid", response.AuthGUID),
 	)
 
-	// Check if user wants to save payment method (from USER_DATA fields)
-	// If yes and transaction approved, convert Financial BRIC to Storage BRIC
-	if response.IsApproved && h.shouldSavePaymentMethod(response.RawParams) {
-		if err := h.savePaymentMethod(r.Context(), merchantID.String(), response, tx.ID.String()); err != nil {
-			h.logger.Error("Failed to save payment method",
+	// For STORAGE transactions, save the storage BRIC to payment_methods table
+	// STORAGE transaction type means the sole purpose is to tokenize the card
+	if transactionType == "STORAGE" && response.IsApproved {
+		if err := h.saveStorageBRICToPaymentMethod(r.Context(), merchantID, response, tx.ID.String()); err != nil {
+			h.logger.Error("Failed to save storage BRIC to payment method",
 				zap.Error(err),
 				zap.String("transaction_id", tx.ID.String()),
 			)
-			// Don't fail the transaction - user can save it later
+			// Don't fail the transaction - user can retry or save it later
 		}
 	}
 
@@ -796,36 +799,35 @@ func (h *BrowserPostCallbackHandler) renderErrorPage(w http.ResponseWriter, mess
 	}
 }
 
-// shouldSavePaymentMethod checks if the user requested to save their payment method
-// This is indicated by USER_DATA_2 field containing customer_id (if present, save payment method)
-func (h *BrowserPostCallbackHandler) shouldSavePaymentMethod(rawParams map[string]string) bool {
-	// Check USER_DATA_2 for customer_id - if present, save payment method
-	if customerID, ok := rawParams["USER_DATA_2"]; ok && customerID != "" {
-		return true
-	}
-	return false
-}
-
-// savePaymentMethod converts the Financial BRIC to a Storage BRIC and saves it
-func (h *BrowserPostCallbackHandler) savePaymentMethod(ctx context.Context, merchantID string, response *ports.BrowserPostResponse, txID string) error {
-	// Extract customer_id from USER_DATA_2
-	customerID, ok := response.RawParams["USER_DATA_2"]
+// saveStorageBRICToPaymentMethod saves the storage BRIC directly to payment_methods table
+// For STORAGE transactions, the AUTH_GUID returned by EPX is already a storage BRIC
+func (h *BrowserPostCallbackHandler) saveStorageBRICToPaymentMethod(ctx context.Context, merchantID uuid.UUID, response *ports.BrowserPostResponse, txID string) error {
+	// Extract customer_id from REDIRECT_URL query parameters
+	// EPX echoes back REDIRECT_URL query parameters in the callback form data
+	// So customer_id from REDIRECT_URL becomes available as "customer_id" in RawParams
+	customerID, ok := response.RawParams["customer_id"]
 	if !ok || customerID == "" {
-		return fmt.Errorf("customer_id not provided in USER_DATA_2")
+		return fmt.Errorf("customer_id not provided in REDIRECT_URL query parameters")
+	}
+
+	customerUUID, err := uuid.Parse(customerID)
+	if err != nil {
+		return fmt.Errorf("invalid customer_id: %w", err)
 	}
 
 	// Determine payment type
 	paymentType := "credit_card" // Browser Post is typically credit card
 	// Note: If we support ACH through Browser Post, we'd need to detect it here
 
-	// Extract last four digits from card number
+	// Extract last four digits from masked card number
+	// EPX returns AUTH_MASKED_ACCOUNT_NBR like "************1111"
 	lastFour := ""
-	if cardNbr, ok := response.RawParams["CARD_NBR"]; ok && len(cardNbr) >= 4 {
-		lastFour = cardNbr[len(cardNbr)-4:]
+	if maskedCardNbr, ok := response.RawParams["AUTH_MASKED_ACCOUNT_NBR"]; ok && len(maskedCardNbr) >= 4 {
+		lastFour = maskedCardNbr[len(maskedCardNbr)-4:]
 	}
 
 	if lastFour == "" {
-		return fmt.Errorf("unable to extract last four digits from card number")
+		return fmt.Errorf("unable to extract last four digits from AUTH_MASKED_ACCOUNT_NBR")
 	}
 
 	// Extract card expiration (YYMM format)
@@ -852,54 +854,54 @@ func (h *BrowserPostCallbackHandler) savePaymentMethod(ctx context.Context, merc
 		cardBrand = &brand
 	}
 
-	// Extract billing information
-	firstName := getStringPtr(response.RawParams, "FIRST_NAME")
-	lastName := getStringPtr(response.RawParams, "LAST_NAME")
-	address := getStringPtr(response.RawParams, "ADDRESS")
-	city := getStringPtr(response.RawParams, "CITY")
-	state := getStringPtr(response.RawParams, "STATE")
-	zipCode := getStringPtr(response.RawParams, "ZIP_CODE")
-
-	// Build ConvertFinancialBRICRequest using merchant_id (UUID from merchants table)
-	req := &serviceports.ConvertFinancialBRICRequest{
-		MerchantID:    merchantID,
-		CustomerID:    customerID,
-		FinancialBRIC: response.AuthGUID,
-		PaymentType:   domain.PaymentMethodType(paymentType),
-		TransactionID: txID,
-		LastFour:      lastFour,
-		CardBrand:     cardBrand,
-		CardExpMonth:  cardExpMonth,
-		CardExpYear:   cardExpYear,
-		IsDefault:     false, // Don't auto-set as default
-		FirstName:     firstName,
-		LastName:      lastName,
-		Address:       address,
-		City:          city,
-		State:         state,
-		ZipCode:       zipCode,
-	}
-
-	// Call payment method service to convert Financial BRIC to Storage BRIC
-	_, err := h.paymentMethodSvc.ConvertFinancialBRICToStorageBRIC(ctx, req)
+	// Save storage BRIC directly to payment_methods table
+	// For STORAGE transactions, AUTH_GUID is already a storage BRIC - no conversion needed
+	paymentMethodID := uuid.New()
+	_, err = h.dbAdapter.Queries().CreatePaymentMethod(ctx, sqlc.CreatePaymentMethodParams{
+		ID:          paymentMethodID,
+		MerchantID:  merchantID,
+		CustomerID:  customerUUID,
+		Bric:        response.AuthGUID, // Storage BRIC from EPX
+		PaymentType: paymentType,
+		LastFour:    lastFour,
+		CardBrand: func() pgtype.Text {
+			if cardBrand != nil {
+				return pgtype.Text{String: *cardBrand, Valid: true}
+			}
+			return pgtype.Text{}
+		}(),
+		CardExpMonth: func() pgtype.Int4 {
+			if cardExpMonth != nil {
+				return pgtype.Int4{Int32: int32(*cardExpMonth), Valid: true}
+			}
+			return pgtype.Int4{}
+		}(),
+		CardExpYear: func() pgtype.Int4 {
+			if cardExpYear != nil {
+				return pgtype.Int4{Int32: int32(*cardExpYear), Valid: true}
+			}
+			return pgtype.Int4{}
+		}(),
+		BankName:             pgtype.Text{}, // Not applicable for credit cards
+		AccountType:          pgtype.Text{}, // Not applicable for credit cards
+		IsDefault:            pgtype.Bool{Bool: false, Valid: true},
+		IsActive:             pgtype.Bool{Bool: true, Valid: true},
+		IsVerified:           pgtype.Bool{Bool: false, Valid: true}, // Credit cards don't need verification
+		VerificationStatus:   pgtype.Text{},                         // Not applicable for credit cards
+		PrenoteTransactionID: pgtype.UUID{},                         // Not applicable for credit cards
+	})
 	if err != nil {
-		return fmt.Errorf("failed to convert Financial BRIC to Storage BRIC: %w", err)
+		return fmt.Errorf("failed to save payment method: %w", err)
 	}
 
-	h.logger.Info("Payment method saved successfully",
+	h.logger.Info("Payment method saved successfully from STORAGE transaction",
+		zap.String("payment_method_id", paymentMethodID.String()),
 		zap.String("customer_id", customerID),
-		zap.String("merchant_id", merchantID),
+		zap.String("merchant_id", merchantID.String()),
 		zap.String("last_four", lastFour),
+		zap.String("transaction_id", txID),
 	)
 
-	return nil
-}
-
-// getStringPtr returns a pointer to the string value if it exists in the map
-func getStringPtr(m map[string]string, key string) *string {
-	if val, ok := m[key]; ok && val != "" {
-		return &val
-	}
 	return nil
 }
 

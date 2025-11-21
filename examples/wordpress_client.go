@@ -19,15 +19,15 @@ import (
 
 // WordPressPaymentClient handles payment API calls with JWT authentication
 type WordPressPaymentClient struct {
-	serviceID    string
-	privateKey   interface{}
-	apiEndpoint  string
-	logger       *zap.Logger
+	serviceID   string
+	privateKey  interface{}
+	apiEndpoint string
+	logger      *zap.Logger
 
 	// Token management
-	tokenCache   map[string]*cachedToken  // merchantID -> token
-	tokenMutex   sync.RWMutex
-	tokenExpiry  time.Duration
+	tokenCache  map[string]*cachedToken // merchantID -> token
+	tokenMutex  sync.RWMutex
+	tokenExpiry time.Duration
 }
 
 // cachedToken stores a token with its expiry
@@ -97,11 +97,11 @@ func (c *WordPressPaymentClient) generateToken(merchantID string, scopes []strin
 	expiresAt := now.Add(c.tokenExpiry)
 
 	claims := jwt.MapClaims{
-		"iss":         c.serviceID,        // Issuer (WordPress plugin)
-		"sub":         merchantID,         // Subject (merchant)
-		"merchant_id": merchantID,         // Merchant ID claim
-		"iat":         now.Unix(),         // Issued at
-		"exp":         expiresAt.Unix(),   // Expires at
+		"iss":         c.serviceID,         // Issuer (WordPress plugin)
+		"sub":         merchantID,          // Subject (merchant)
+		"merchant_id": merchantID,          // Merchant ID claim
+		"iat":         now.Unix(),          // Issued at
+		"exp":         expiresAt.Unix(),    // Expires at
 		"jti":         uuid.New().String(), // Unique token ID
 		"scopes":      scopes,              // Permissions
 	}

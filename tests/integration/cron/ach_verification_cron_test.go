@@ -32,15 +32,15 @@ func TestACHVerificationCron_Basic(t *testing.T) {
 	merchantID := "00000000-0000-0000-0000-000000000001"
 
 	// Save 3 ACH accounts
-	paymentMethodID1, err := testutil.TokenizeAndSaveACH(cfg, client, merchantID, customerID1, testutil.TestACHChecking)
+	paymentMethodID1, err := testutil.TokenizeAndSaveACH(cfg, client, "", merchantID, customerID1, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
-	paymentMethodID2, err := testutil.TokenizeAndSaveACH(cfg, client, merchantID, customerID2, testutil.TestACHChecking)
+	paymentMethodID2, err := testutil.TokenizeAndSaveACH(cfg, client, "", merchantID, customerID2, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
-	paymentMethodID3, err := testutil.TokenizeAndSaveACH(cfg, client, merchantID, customerID3, testutil.TestACHChecking)
+	paymentMethodID3, err := testutil.TokenizeAndSaveACH(cfg, client, "", merchantID, customerID3, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -119,11 +119,11 @@ func TestACHVerificationCron_VerificationDays(t *testing.T) {
 	customerID2 := "20000000-0000-0000-0000-000000000005" // 2 days old
 	merchantID := "00000000-0000-0000-0000-000000000001"
 
-	paymentMethodID1, err := testutil.TokenizeAndSaveACH(cfg, client, merchantID, customerID1, testutil.TestACHChecking)
+	paymentMethodID1, err := testutil.TokenizeAndSaveACH(cfg, client, "", merchantID, customerID1, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
-	paymentMethodID2, err := testutil.TokenizeAndSaveACH(cfg, client, merchantID, customerID2, testutil.TestACHChecking)
+	paymentMethodID2, err := testutil.TokenizeAndSaveACH(cfg, client, "", merchantID, customerID2, testutil.TestACHChecking)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -199,7 +199,7 @@ func TestACHVerificationCron_BatchSize(t *testing.T) {
 	var paymentMethodIDs []string
 
 	for _, customerID := range customerIDs {
-		pmID, err := testutil.TokenizeAndSaveACH(cfg, client, merchantID, customerID, testutil.TestACHChecking)
+		pmID, err := testutil.TokenizeAndSaveACH(cfg, client, "", merchantID, customerID, testutil.TestACHChecking)
 		require.NoError(t, err)
 		paymentMethodIDs = append(paymentMethodIDs, pmID)
 		time.Sleep(1 * time.Second)

@@ -8,10 +8,23 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
 )
+
+// QueryExecutor defines the interface for executing database queries
+type QueryExecutor interface {
+	GetChargebackByID(ctx context.Context, id uuid.UUID) (sqlc.Chargeback, error)
+	ListChargebacks(ctx context.Context, params sqlc.ListChargebacksParams) ([]sqlc.Chargeback, error)
+	CountChargebacks(ctx context.Context, params sqlc.CountChargebacksParams) (int64, error)
+}
+
+// DatabaseAdapter wraps database operations
+type DatabaseAdapter interface {
+	Queries() sqlc.Querier
+}
 
 // ConnectHandler implements the Connect RPC ChargebackServiceHandler interface
 type ConnectHandler struct {
@@ -123,14 +136,14 @@ func (h *ConnectHandler) ListChargebacks(
 		params.CustomerID = pgtype.Text{Valid: false}
 	}
 
-	if msg.GroupId != nil && *msg.GroupId != "" {
-		groupID, err := uuid.Parse(*msg.GroupId)
+	if msg.TransactionId != nil && *msg.TransactionId != "" {
+		transactionID, err := uuid.Parse(*msg.TransactionId)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid group_id format"))
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transaction_id format"))
 		}
-		params.GroupID = pgtype.UUID{Bytes: groupID, Valid: true}
+		params.TransactionID = pgtype.UUID{Bytes: transactionID, Valid: true}
 	} else {
-		params.GroupID = pgtype.UUID{Valid: false}
+		params.TransactionID = pgtype.UUID{Valid: false}
 	}
 
 	if msg.Status != nil && *msg.Status != chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_UNSPECIFIED {
@@ -168,7 +181,7 @@ func (h *ConnectHandler) ListChargebacks(
 	countParams := sqlc.CountChargebacksParams{
 		AgentID:         params.AgentID,
 		CustomerID:      params.CustomerID,
-		GroupID:         params.GroupID,
+		TransactionID:   params.TransactionID,
 		Status:          params.Status,
 		DisputeDateFrom: params.DisputeDateFrom,
 		DisputeDateTo:   params.DisputeDateTo,
@@ -198,4 +211,93 @@ func (h *ConnectHandler) ListChargebacks(
 	}
 
 	return connect.NewResponse(response), nil
+}
+
+// convertChargebackToProto converts database model to protobuf message
+func convertChargebackToProto(cb *sqlc.Chargeback) *chargebackv1.Chargeback {
+	proto := &chargebackv1.Chargeback{
+		Id:               cb.ID.String(),
+		TransactionId:    cb.TransactionID.String(), // Transaction ID is always set (NOT NULL)
+		AgentId:          cb.AgentID,
+		CaseNumber:       cb.CaseNumber,
+		DisputeDate:      timestamppb.New(cb.DisputeDate),
+		ChargebackDate:   timestamppb.New(cb.ChargebackDate),
+		ChargebackAmount: cb.ChargebackAmount,
+		Currency:         cb.Currency,
+		ReasonCode:       cb.ReasonCode,
+		Status:           mapDomainStatusToProto(cb.Status),
+		EvidenceFileUrls: cb.EvidenceFiles,
+		CreatedAt:        timestamppb.New(cb.CreatedAt),
+		UpdatedAt:        timestamppb.New(cb.UpdatedAt),
+	}
+
+	if cb.CustomerID.Valid {
+		proto.CustomerId = cb.CustomerID.String
+	}
+
+	if cb.ReasonDescription.Valid {
+		proto.ReasonDescription = cb.ReasonDescription.String
+	}
+
+	if cb.RespondByDate.Valid {
+		proto.RespondByDate = timestamppb.New(cb.RespondByDate.Time)
+	}
+
+	if cb.ResponseSubmittedAt.Valid {
+		proto.ResponseSubmittedAt = timestamppb.New(cb.ResponseSubmittedAt.Time)
+	}
+
+	if cb.ResolvedAt.Valid {
+		proto.ResolvedAt = timestamppb.New(cb.ResolvedAt.Time)
+	}
+
+	if cb.ResponseNotes.Valid {
+		proto.ResponseText = &cb.ResponseNotes.String
+	}
+
+	if cb.InternalNotes.Valid {
+		proto.InternalNotes = &cb.InternalNotes.String
+	}
+
+	return proto
+}
+
+// mapDomainStatusToProto converts database status to protobuf enum
+func mapDomainStatusToProto(domainStatus string) chargebackv1.ChargebackStatus {
+	switch domainStatus {
+	case "new":
+		return chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_NEW
+	case "pending":
+		return chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_PENDING
+	case "responded":
+		return chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_RESPONDED
+	case "won":
+		return chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_WON
+	case "lost":
+		return chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_LOST
+	case "accepted":
+		return chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_ACCEPTED
+	default:
+		return chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_UNSPECIFIED
+	}
+}
+
+// mapProtoStatusToDomain converts protobuf enum to database status
+func mapProtoStatusToDomain(protoStatus chargebackv1.ChargebackStatus) string {
+	switch protoStatus {
+	case chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_NEW:
+		return "new"
+	case chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_PENDING:
+		return "pending"
+	case chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_RESPONDED:
+		return "responded"
+	case chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_WON:
+		return "won"
+	case chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_LOST:
+		return "lost"
+	case chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_ACCEPTED:
+		return "accepted"
+	default:
+		return "new"
+	}
 }

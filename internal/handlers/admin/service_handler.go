@@ -7,19 +7,19 @@ import (
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	adminv1 "github.com/kevin07696/payment-service/proto/admin/v1"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/pkg/crypto"
+	adminv1 "github.com/kevin07696/payment-service/proto/admin/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // ServiceHandler handles admin service management operations.
 type ServiceHandler struct {
-	queries *sqlc.Queries
+	queries sqlc.Querier
 }
 
 // NewServiceHandler creates a new service handler.
-func NewServiceHandler(queries *sqlc.Queries) *ServiceHandler {
+func NewServiceHandler(queries sqlc.Querier) *ServiceHandler {
 	return &ServiceHandler{
 		queries: queries,
 	}
