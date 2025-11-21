@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
-	"github.com/kevin07696/payment-service/internal/auth"
 	"github.com/kevin07696/payment-service/internal/converters"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
@@ -29,6 +28,7 @@ type paymentService struct {
 	secretManager             adapterports.SecretManagerAdapter
 	merchantResolver          *authorization.MerchantResolver
 	merchantCredentialResolver *authorization.MerchantCredentialResolver
+	merchantAuthService       *authorization.MerchantAuthorizationService
 	logger                    *zap.Logger
 }
 
@@ -48,6 +48,9 @@ func NewPaymentService(
 		logger,
 	)
 
+	// Create merchant authorization service
+	merchantAuthService := authorization.NewMerchantAuthorizationService(logger)
+
 	return &paymentService{
 		queries:                   queries,
 		txManager:                 txManager,
@@ -55,76 +58,15 @@ func NewPaymentService(
 		secretManager:             secretManager,
 		merchantResolver:          merchantResolver,
 		merchantCredentialResolver: merchantCredentialResolver,
+		merchantAuthService:       merchantAuthService,
 		logger:                    logger,
 	}
-}
-
-// resolveMerchantID resolves the merchant_id from auth context and request
-func (s *paymentService) resolveMerchantID(ctx context.Context, requestedMerchantID string) (string, error) {
-	// Get auth info from context
-	authInfo := auth.GetAuthInfo(ctx)
-
-	// If no auth (development/testing mode)
-	if authInfo.Type == auth.AuthTypeNone {
-		if requestedMerchantID == "" {
-			return "", fmt.Errorf("merchant_id is required when auth is disabled")
-		}
-		return requestedMerchantID, nil
-	}
-
-	// If merchant ID is in context (API key auth or JWT with merchant_id)
-	if authInfo.MerchantID != "" {
-		// If a specific merchant was requested, verify it matches
-		if requestedMerchantID != "" && requestedMerchantID != authInfo.MerchantID {
-			return "", fmt.Errorf("merchant_id mismatch: requested %s but authenticated as %s",
-				requestedMerchantID, authInfo.MerchantID)
-		}
-		return authInfo.MerchantID, nil
-	}
-
-	// For service auth, use the requested merchant ID if provided
-	if authInfo.Type == auth.AuthTypeJWT && requestedMerchantID != "" {
-		return requestedMerchantID, nil
-	}
-
-	return "", fmt.Errorf("unable to determine merchant_id")
-}
-
-// validateTransactionAccess validates that the auth context has access to a transaction
-func (s *paymentService) validateTransactionAccess(ctx context.Context, tx *domain.Transaction) error {
-	// Get auth info from context
-	authInfo := auth.GetAuthInfo(ctx)
-
-	// If no auth (development/testing mode), allow access
-	if authInfo.Type == auth.AuthTypeNone {
-		s.logger.Debug("No authentication in context - allowing access (test mode or internal call)")
-		return nil
-	}
-
-	// Check if the authenticated entity has access to this transaction's merchant
-	if authInfo.MerchantID != "" {
-		// For direct merchant authentication (API key)
-		if authInfo.MerchantID != tx.MerchantID {
-			return fmt.Errorf("no access to transaction for merchant %s", tx.MerchantID)
-		}
-	} else if authInfo.Type == auth.AuthTypeJWT && authInfo.ServiceID != "" {
-		// For service authentication, we trust that the service verified merchant access
-		// The auth interceptor already validated service-to-merchant access
-		s.logger.Debug("Service authenticated access",
-			zap.String("service_id", authInfo.ServiceID),
-			zap.String("transaction_merchant", tx.MerchantID))
-	} else {
-		return fmt.Errorf("insufficient permissions to access transaction")
-	}
-
-	// Access granted
-	return nil
 }
 
 // Sale combines authorize and capture in one operation
 func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*domain.Transaction, error) {
 	// Resolve merchant_id from token context
-	resolvedMerchantID, err := s.resolveMerchantID(ctx, req.MerchantID)
+	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, req.MerchantID)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +254,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 // Authorize holds funds on a payment method without capturing
 func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequest) (*domain.Transaction, error) {
 	// Resolve merchant_id from token context
-	resolvedMerchantID, err := s.resolveMerchantID(ctx, req.MerchantID)
+	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, req.MerchantID)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +449,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 
 	// Validate transaction access
 	domainTx := sqlcToDomain(&originalTx)
-	if err := s.validateTransactionAccess(ctx, domainTx); err != nil {
+	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, domainTx); err != nil {
 		return nil, err
 	}
 
@@ -779,7 +721,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 
 	// Validate access using the parent transaction
 	firstTx := sqlcToDomain(&parentTx)
-	if err := s.validateTransactionAccess(ctx, firstTx); err != nil {
+	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, firstTx); err != nil {
 		return nil, err
 	}
 
@@ -1040,7 +982,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 
 	// Validate access using the parent transaction
 	firstTx := sqlcToDomain(&parentTx)
-	if err := s.validateTransactionAccess(ctx, firstTx); err != nil {
+	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, firstTx); err != nil {
 		return nil, err
 	}
 
