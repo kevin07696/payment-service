@@ -23,7 +23,7 @@ Browser Post enables **PCI-compliant credit card payments** where card data flow
 **Key Pattern:** PENDING→UPDATE lifecycle
 - Transaction created in PENDING state when form is generated
 - Transaction updated to COMPLETED/FAILED when callback arrives
-- Backend service stores `group_id` to link payment with order
+- Backend service stores `transaction_id` to link payment with order
 
 ### Architecture Diagram
 
@@ -37,12 +37,12 @@ Browser Post enables **PCI-compliant credit card payments** where card data flow
       ├────────────────>│                   │                │
       │                 │                   │                │
       │                 │ 2. CREATE PENDING TRANSACTION      │
-      │                 │    (transaction_id, group_id)      │
+      │                 │    (transaction_id, parent_transaction_id)      │
       │                 │                   │                │
-      │ 3. {transaction_id, group_id, form_config}          │
+      │ 3. {transaction_id, form_config}          │
       │<────────────────┤                   │                │
       │                 │                   │                │
-      │ 4. Store: order→group_id mapping    │                │
+      │ 4. Store: order→transaction_id mapping    │                │
       │                 │                   │                │
       │ 5. Send form config to frontend     │                │
       ├─────────────────────────────────────>│                │
@@ -70,7 +70,7 @@ Browser Post enables **PCI-compliant credit card payments** where card data flow
       │ 14. Browser lands at /complete      │                │
       │<────────────────────────────────────┤                │
       │                 │                   │                │
-      │ 15. Look up order by group_id       │                │
+      │ 15. Look up order by transaction_id       │                │
       │     Render receipt                  │                │
 ```
 
@@ -115,7 +115,7 @@ CreateTransaction(ctx, CreateTransactionParams{
 ```json
 {
   "transaction_id": "054edaac-3770-4222-ab50-e09b41051cc4",
-  "group_id": "9b3d3df9-e37b-47ca-83f8-106b51b0ff50",
+  "parent_transaction_id": null,
   "post_url": "https://secure.epxuap.com/browserpost",
   "amount": "99.99",
   "tran_nbr": "45062844883",
@@ -130,7 +130,7 @@ CreateTransaction(ctx, CreateTransactionParams{
 
 ```sql
 UPDATE orders
-SET payment_group_id = '9b3d3df9-e37b-47ca-83f8-106b51b0ff50',
+SET payment_transaction_id = '9b3d3df9-e37b-47ca-83f8-106b51b0ff50',
     payment_status = 'PENDING'
 WHERE order_id = 'ORDER-123';
 ```
@@ -184,13 +184,13 @@ UpdateTransaction(ctx, UpdateTransactionParams{
 #### Step 13-14: Redirect to Backend Service
 
 ```text
-https://app.example.com/complete?group_id=9b3d3df9-...&status=completed&amount=99.99&card_type=VISA
+https://app.example.com/complete?transaction_id=tx-uuid&status=completed&amount=99.99&card_type=VISA
 ```
 
 #### Step 15: Backend Service Renders Receipt
 
 ```sql
-SELECT * FROM orders WHERE payment_group_id = '9b3d3df9-...'
+SELECT * FROM orders WHERE payment_transaction_id = '9b3d3df9-...'
 ```
 
 Update order status and render complete receipt.
@@ -616,7 +616,7 @@ const token = jwt.sign({
 1. **Never store raw card data** - Use tokens only
 2. **Always use idempotency keys** - Prevent duplicates
 3. **Return 404, not 403** - Prevent enumeration
-4. **Store group_id with orders** - Enable refunds
+4. **Store transaction_id with orders** - Enable refunds
 5. **Use token-based auth** - Context in JWT
 
 ### Common Patterns
@@ -624,7 +624,7 @@ const token = jwt.sign({
 **Payment Lifecycle:**
 ```
 Auth → Capture → Partial Refund
-(All linked by group_id)
+(All linked by parent_transaction_id chain)
 ```
 
 **Saved Payment Method:**
