@@ -2,7 +2,6 @@ package authorization
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/kevin07696/payment-service/internal/auth"
 	"github.com/kevin07696/payment-service/internal/domain"
@@ -33,7 +32,7 @@ func (s *MerchantAuthorizationService) ResolveMerchantID(ctx context.Context, re
 	// If no auth (development/testing mode)
 	if authInfo.Type == auth.AuthTypeNone {
 		if requestedMerchantID == "" {
-			return "", fmt.Errorf("merchant_id is required when auth is disabled")
+			return "", domain.ErrMerchantRequired
 		}
 		s.logger.Debug("Resolved merchant ID in no-auth mode",
 			zap.String("merchant_id", requestedMerchantID))
@@ -47,8 +46,9 @@ func (s *MerchantAuthorizationService) ResolveMerchantID(ctx context.Context, re
 			s.logger.Warn("Merchant ID mismatch",
 				zap.String("requested", requestedMerchantID),
 				zap.String("authenticated", authInfo.MerchantID))
-			return "", fmt.Errorf("merchant_id mismatch: requested %s but authenticated as %s",
-				requestedMerchantID, authInfo.MerchantID)
+			return "", domain.ErrAuthMerchantMismatch.
+				WithDetail("requested", requestedMerchantID).
+				WithDetail("authenticated", authInfo.MerchantID)
 		}
 		s.logger.Debug("Resolved merchant ID from auth context",
 			zap.String("merchant_id", authInfo.MerchantID),
@@ -65,7 +65,7 @@ func (s *MerchantAuthorizationService) ResolveMerchantID(ctx context.Context, re
 		return requestedMerchantID, nil
 	}
 
-	return "", fmt.Errorf("unable to determine merchant_id: no merchant in auth context and no merchant requested")
+	return "", domain.ErrMerchantRequired.WithDetail("reason", "no merchant in auth context and no merchant requested")
 }
 
 // ValidateTransactionAccess validates that the auth context has access to a transaction
@@ -89,7 +89,11 @@ func (s *MerchantAuthorizationService) ValidateTransactionAccess(ctx context.Con
 				zap.String("transaction_merchant", tx.MerchantID),
 				zap.String("auth_merchant", authInfo.MerchantID),
 				zap.String("transaction_id", tx.ID))
-			return fmt.Errorf("access denied: transaction belongs to different merchant")
+			return domain.ErrAuthAccessDenied.
+				WithDetail("resource", "transaction").
+				WithDetail("transaction_id", tx.ID).
+				WithDetail("transaction_merchant", tx.MerchantID).
+				WithDetail("auth_merchant", authInfo.MerchantID)
 		}
 		return nil
 	}
@@ -104,7 +108,7 @@ func (s *MerchantAuthorizationService) ValidateTransactionAccess(ctx context.Con
 		return nil
 	}
 
-	return fmt.Errorf("unable to validate transaction access: unknown auth type")
+	return domain.ErrAuthInvalid.WithDetail("reason", "unknown auth type")
 }
 
 // ValidateCustomerAccess validates that the auth context has access to a customer's data
@@ -125,7 +129,11 @@ func (s *MerchantAuthorizationService) ValidateCustomerAccess(ctx context.Contex
 				zap.String("customer_merchant", merchantID),
 				zap.String("auth_merchant", authInfo.MerchantID),
 				zap.String("customer_id", customerID))
-			return fmt.Errorf("access denied: customer belongs to different merchant")
+			return domain.ErrAuthAccessDenied.
+				WithDetail("resource", "customer").
+				WithDetail("customer_id", customerID).
+				WithDetail("customer_merchant", merchantID).
+				WithDetail("auth_merchant", authInfo.MerchantID)
 		}
 		return nil
 	}
@@ -138,7 +146,7 @@ func (s *MerchantAuthorizationService) ValidateCustomerAccess(ctx context.Contex
 		return nil
 	}
 
-	return fmt.Errorf("unable to validate customer access: unknown auth type")
+	return domain.ErrAuthInvalid.WithDetail("reason", "unknown auth type")
 }
 
 // ValidatePaymentMethodAccess validates that the auth context has access to a payment method
@@ -159,7 +167,11 @@ func (s *MerchantAuthorizationService) ValidatePaymentMethodAccess(ctx context.C
 				zap.String("payment_method_merchant", merchantID),
 				zap.String("auth_merchant", authInfo.MerchantID),
 				zap.String("payment_method_id", paymentMethodID))
-			return fmt.Errorf("access denied: payment method belongs to different merchant")
+			return domain.ErrAuthAccessDenied.
+				WithDetail("resource", "payment_method").
+				WithDetail("payment_method_id", paymentMethodID).
+				WithDetail("payment_method_merchant", merchantID).
+				WithDetail("auth_merchant", authInfo.MerchantID)
 		}
 		return nil
 	}
@@ -172,5 +184,5 @@ func (s *MerchantAuthorizationService) ValidatePaymentMethodAccess(ctx context.C
 		return nil
 	}
 
-	return fmt.Errorf("unable to validate payment method access: unknown auth type")
+	return domain.ErrAuthInvalid.WithDetail("reason", "unknown auth type")
 }

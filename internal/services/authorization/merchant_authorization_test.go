@@ -39,7 +39,7 @@ func TestResolveMerchantID(t *testing.T) {
 			},
 			requestedMerchantID: "",
 			expectError:         true,
-			errorContains:       "merchant_id is required when auth is disabled",
+			errorContains:       "merchant_id is required",
 		},
 		{
 			name: "JWT auth with merchant in context, no request merchant",
@@ -69,7 +69,7 @@ func TestResolveMerchantID(t *testing.T) {
 			},
 			requestedMerchantID: "merchant-456",
 			expectError:         true,
-			errorContains:       "merchant_id mismatch",
+			errorContains:       "merchant ID mismatch",
 		},
 		{
 			name: "JWT service auth with requested merchant",
@@ -89,7 +89,7 @@ func TestResolveMerchantID(t *testing.T) {
 			},
 			requestedMerchantID: "",
 			expectError:         true,
-			errorContains:       "unable to determine merchant_id",
+			errorContains:       "merchant_id is required",
 		},
 		{
 			name: "API key auth with merchant in context",
@@ -111,6 +111,7 @@ func TestResolveMerchantID(t *testing.T) {
 
 			if tt.expectError {
 				assert.Error(t, err)
+				// For structured errors, check the error message contains the expected text
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
 				}
@@ -160,7 +161,7 @@ func TestValidateTransactionAccess(t *testing.T) {
 				MerchantID: "merchant-456",
 			},
 			expectError:   true,
-			errorContains: "access denied: transaction belongs to different merchant",
+			errorContains: "access denied",
 		},
 		{
 			name: "service auth allows access",
@@ -226,7 +227,7 @@ func TestValidateCustomerAccess(t *testing.T) {
 			},
 			merchantID:    "merchant-123",
 			expectError:   true,
-			errorContains: "access denied: customer belongs to different merchant",
+			errorContains: "access denied",
 		},
 		{
 			name: "service auth allows access",
@@ -293,7 +294,7 @@ func TestValidatePaymentMethodAccess(t *testing.T) {
 			},
 			merchantID:    "merchant-123",
 			expectError:   true,
-			errorContains: "access denied: payment method belongs to different merchant",
+			errorContains: "access denied",
 		},
 		{
 			name: "service auth allows access",
