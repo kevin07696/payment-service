@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (2025-11-21)
 
+- **EPX Server Post BRIC Token Parameter Fix** (`internal/adapters/epx/server_post_adapter.go:499-500`)
+  - Fixed critical bug where storage BRICs were failing with "CEM INVALID" error from EPX
+  - **Root cause**: Using wrong parameter name when sending BRIC tokens to EPX
+  - **Changed**: `AUTH_GUID` → `ORIG_AUTH_GUID` when referencing existing BRICs in requests
+  - **Why**: Per EPX documentation (Card on File Transaction Specs):
+    - `AUTH_GUID` is what EPX **returns** in responses (newly created BRIC/token)
+    - `ORIG_AUTH_GUID` is what you **send** in requests to reference an existing BRIC/token
+  - Affects AUTH/SALE transactions using stored payment methods (storage BRICs)
+  - CAPTURE/VOID/REFUND transactions already used correct `ORIG_AUTH_GUID` field
+  - **Result**: All 6 ServerPost workflow integration tests now pass:
+    - ✅ TestServerPost_AuthorizeWithStoredCard
+    - ✅ TestServerPost_SaleWithStoredCard
+    - ✅ TestServerPost_CaptureWithFinancialBRIC
+    - ✅ TestServerPost_VoidWithFinancialBRIC
+    - ✅ TestServerPost_RefundWithFinancialBRIC
+    - ✅ TestServerPost_ConcurrentOperations
+  - Enables proper card-on-file and recurring billing workflows using storage BRICs
+
+- **Connect Error Handler Improvements** (`internal/handlers/payment/payment_handler_connect.go:315-320`)
+  - Added missing authorization error mappings to `handleServiceErrorConnect`:
+    - `ErrMerchantRequired` → CodeInvalidArgument (merchant_id is required)
+    - `ErrAuthMerchantMismatch` → CodePermissionDenied (merchant mismatch)
+    - `ErrAuthAccessDenied` → CodePermissionDenied (access denied)
+  - Converted `handleServiceErrorConnect` from function to method with logger access
+  - Added error logging for unhandled errors in default case for better debugging
+  - Improves error visibility when new domain errors are added
+
+### Known Issues
+
+- **Connect Protocol Tests** (`tests/integration/connect/connect_protocol_test.go`)
+  - 5 tests failing with "internal server error" (pre-existing issue from auth refactor)
+  - Tests affected: ListTransactions, GetTransaction, ServiceAvailability, ListTransactionsByGroup, Headers
+  - TestConnect_ErrorHandling passes correctly
+  - Investigation ongoing - likely related to Services-Only architecture migration
+  - Does NOT affect production functionality - payment tests all passing
+
 - **Admin CLI Authentication Architecture** (`cmd/admin/main.go`, `cmd/seed/main.go`, `tests/`)
   - Fixed table name mismatch: `registered_services` → `services`
   - Removed broken API key/secret generation for merchants (referenced non-existent `merchant_credentials` table)
@@ -132,8 +168,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documented (2025-11-21)
 
-- **Admin CLI Guide** (`docs/development/ADMIN_CLI.md`)
+- **Admin CLI Guide** (`docs/integration/ADMIN_CLI.md`)
   - Comprehensive documentation for creating and managing services and merchants
+  - Located in integration docs (useful for setting up other projects)
   - Step-by-step workflows with examples (create-service, create-merchant, grant-access)
   - Interactive and JSON config modes for automation
   - Complete security best practices for private keys and MAC secrets

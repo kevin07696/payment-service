@@ -73,7 +73,7 @@ func (h *ConnectHandler) Authorize(
 	// Call service
 	tx, err := h.service.Authorize(ctx, serviceReq)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, h.handleServiceErrorConnect(err)
 	}
 
 	// Convert to proto response and wrap in Connect response
@@ -114,7 +114,7 @@ func (h *ConnectHandler) Capture(
 			zap.Error(err),
 			zap.String("transaction_id", msg.TransactionId),
 		)
-		return nil, handleServiceErrorConnect(err)
+		return nil, h.handleServiceErrorConnect(err)
 	}
 	h.logger.Info("Capture service succeeded", zap.String("transaction_id", msg.TransactionId))
 
@@ -166,7 +166,7 @@ func (h *ConnectHandler) Sale(
 	tx, err := h.service.Sale(ctx, serviceReq)
 	if err != nil {
 		h.logger.Error("Sale service error", zap.Error(err), zap.String("merchant_id", serviceReq.MerchantID))
-		return nil, handleServiceErrorConnect(err)
+		return nil, h.handleServiceErrorConnect(err)
 	}
 
 	return connect.NewResponse(transactionToPaymentResponse(tx)), nil
@@ -197,7 +197,7 @@ func (h *ConnectHandler) Void(
 
 	tx, err := h.service.Void(ctx, serviceReq)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, h.handleServiceErrorConnect(err)
 	}
 
 	return connect.NewResponse(transactionToPaymentResponse(tx)), nil
@@ -233,7 +233,7 @@ func (h *ConnectHandler) Refund(
 
 	tx, err := h.service.Refund(ctx, serviceReq)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, h.handleServiceErrorConnect(err)
 	}
 
 	return connect.NewResponse(transactionToPaymentResponse(tx)), nil
@@ -252,7 +252,7 @@ func (h *ConnectHandler) GetTransaction(
 
 	tx, err := h.service.GetTransaction(ctx, msg.TransactionId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, h.handleServiceErrorConnect(err)
 	}
 
 	return connect.NewResponse(transactionToProto(tx)), nil
@@ -290,7 +290,7 @@ func (h *ConnectHandler) ListTransactions(
 
 	txs, totalCount, err := h.service.ListTransactions(ctx, filters)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, h.handleServiceErrorConnect(err)
 	}
 
 	protoTxs := make([]*paymentv1.Transaction, len(txs))
@@ -307,11 +307,17 @@ func (h *ConnectHandler) ListTransactions(
 }
 
 // handleServiceErrorConnect maps domain errors to Connect error codes
-func handleServiceErrorConnect(err error) error {
+func (h *ConnectHandler) handleServiceErrorConnect(err error) error {
 	// Map domain errors to Connect status codes
 	switch {
 	case errors.Is(err, domain.ErrMerchantInactive):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("agent is inactive"))
+	case errors.Is(err, domain.ErrMerchantRequired):
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("merchant_id is required"))
+	case errors.Is(err, domain.ErrAuthMerchantMismatch):
+		return connect.NewError(connect.CodePermissionDenied, errors.New("access denied: merchant mismatch"))
+	case errors.Is(err, domain.ErrAuthAccessDenied):
+		return connect.NewError(connect.CodePermissionDenied, errors.New("access denied"))
 	case errors.Is(err, domain.ErrPaymentMethodNotFound):
 		return connect.NewError(connect.CodeNotFound, errors.New("payment method not found"))
 	case errors.Is(err, domain.ErrPaymentMethodNotVerified):
@@ -342,6 +348,10 @@ func handleServiceErrorConnect(err error) error {
 		return connect.NewError(connect.CodeCanceled, errors.New("request canceled"))
 	default:
 		// Log internal errors but don't expose details to client
+		h.logger.Error("Internal server error in Connect handler",
+			zap.Error(err),
+			zap.String("error_type", "unhandled_error"),
+		)
 		return connect.NewError(connect.CodeInternal, errors.New("internal server error"))
 	}
 }

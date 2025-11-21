@@ -489,11 +489,13 @@ func (a *serverPostAdapter) buildFormData(req *ports.ServerPostRequest) url.Valu
 	data.Set("LOCAL_TIME", localTime)
 
 	// Payment token (BRIC)
+	// Per EPX documentation: When using a BRIC for AUTH/SALE transactions, it should be sent as ORIG_AUTH_GUID
+	// AUTH_GUID is only returned in responses, never sent in requests for financial transactions
 	if req.AuthGUID != "" {
-		data.Set("AUTH_GUID", req.AuthGUID)
+		data.Set("ORIG_AUTH_GUID", req.AuthGUID)
 	}
 
-	// For capture/void/refund
+	// For capture/void/refund (use OriginalAuthGUID field to reference the original transaction)
 	if req.OriginalAuthGUID != "" {
 		data.Set("ORIG_AUTH_GUID", req.OriginalAuthGUID)
 	}
