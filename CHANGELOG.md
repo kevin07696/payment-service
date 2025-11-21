@@ -7,13 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-11-21)
+
+- **Admin CLI Authentication Architecture** (`cmd/admin/main.go`, `cmd/seed/main.go`, `tests/`)
+  - Fixed table name mismatch: `registered_services` → `services`
+  - Removed broken API key/secret generation for merchants (referenced non-existent `merchant_credentials` table)
+  - Deleted dead code: `internal/auth/api_key.go` (380 lines referencing non-existent table)
+  - Clarified authentication architecture: Merchants store EPX credentials ONLY
+  - Services (apps/integrations) use RSA keypairs for JWT-based authentication
+  - Updated merchant creation to guide users to create Services instead of generating API keys
+  - Removed `GenerateCredentials` field from merchant JSON config
+  - Updated output to show next steps: create-service → grant-access
+  - Fixes bug where merchant creation would fail silently trying to INSERT into missing table
+  - Created comprehensive integration tests (`tests/integration/admin/admin_cli_test.go`):
+    - TestAdminCLI_ServiceCreation: Verifies RSA keypair generation and storage
+    - TestAdminCLI_MerchantCreation: Verifies merchants store EPX credentials only
+    - TestAdminCLI_GrantAccess: Tests service-to-merchant access control with scopes
+    - TestAdminCLI_ArchitectureVerification: Validates database schema correctness
+  - All integration tests passing (4/4 test suites)
+
 ### Changed (2025-11-21)
 
+- **Merchant Authorization Service Extraction**
+  - Created `internal/services/authorization/merchant_authorization.go` with reusable authorization logic
+  - Extracted merchant ID resolution and access validation from payment service
+  - `ResolveMerchantID()`: Resolves merchant ID from auth context and request with validation
+    - Handles no-auth mode (development/testing)
+    - Validates merchant ID consistency between auth context and request
+    - Supports JWT service auth with requested merchant ID
+  - `ValidateTransactionAccess()`: Validates auth context has access to transaction
+  - `ValidateCustomerAccess()`: Validates auth context has access to customer data
+  - `ValidatePaymentMethodAccess()`: Validates auth context has payment method access
+  - Eliminates ~60 lines of duplicated auth logic from payment service
+  - Makes authorization logic reusable across all services
+  - Improves separation of concerns (auth vs business logic)
+  - Comprehensive test coverage for all authorization methods and edge cases
+  - Files: `internal/services/authorization/merchant_authorization.go`, `merchant_authorization_test.go`
+
+- **Structured Error Types with Error Codes**
+  - Added comprehensive structured error type system to domain layer
+  - `ErrorCode` enum with categorized error codes: AUTH_*, MERCHANT_*, TXN_*, PM_*, VALIDATION_*, GATEWAY_*
+  - `DomainError` struct with Code, Message, Details map, and wrapped error support
+  - Helper methods: `WithDetail()`, `NewDomainError()`, `WrapError()`
+  - Error classification functions: `IsNotFoundError()`, `IsAuthError()`, `IsValidationError()`, `IsGatewayError()`
+  - Pre-defined error instances for common scenarios (e.g., `ErrAuthAccessDenied`, `ErrMerchantRequired`)
+  - Updated `MerchantAuthorizationService` to use structured errors
+  - Benefits:
+    - Machine-readable error codes for client-side error handling
+    - Structured error details for debugging and logging
+    - Backward compatible with existing error handling (via errors.Is/As)
+    - Better API error responses with meaningful error codes
+    - Consistent error formatting across services
+  - Maintained backward compatibility with existing legacy error variables
+  - File: `internal/domain/errors.go`
+
 - **Context Keys Refactor: String-based → Struct-based** (Go Best Practice)
-  - Converted context keys from string-based to unexported struct types
+  - Fixed critical bug where all context keys were the same empty struct value, causing key collisions
+  - Updated to use struct with unique field values: `type contextKey struct{ name string }`
+  - Each key now has unique value: `contextKey{"auth_type"}`, `contextKey{"service_id"}`, etc.
   - Prevents potential key collisions across packages
   - Follows official Go blog recommendations for context key patterns
-  - Updated `internal/auth/context.go` to use `type contextKey struct{}`
+  - Updated `internal/auth/context.go` to use proper pattern
   - Removed duplicate key definitions from `internal/middleware/connect_auth.go`
   - Updated all usages in `internal/middleware/` to import from `internal/auth`
   - All tests passing, no behavioral changes
@@ -77,6 +131,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Returns empty string if metadata unavailable
 
 ### Documented (2025-11-21)
+
+- **Admin CLI Guide** (`docs/development/ADMIN_CLI.md`)
+  - Comprehensive documentation for creating and managing services and merchants
+  - Step-by-step workflows with examples (create-service, create-merchant, grant-access)
+  - Interactive and JSON config modes for automation
+  - Complete security best practices for private keys and MAC secrets
+  - Troubleshooting guide with common issues and solutions
+  - Database schema reference for services, merchants, service_merchants tables
+  - Architecture explanation: Services vs Merchants separation of concerns
+  - Secret manager integration examples (GCP, AWS, Vault, local files)
+
+- **Authentication Architecture Documentation** (`docs/development/AUTH.md`)
+  - Added "Architecture: Services vs Merchants" section at document start
+  - Documented database table structures (services, merchants, service_merchants)
+  - Explained admin CLI workflow (create-service → create-merchant → grant-access)
+  - Authentication flow diagram with JWT signature verification
+  - Security principles: separation of concerns, audit trails, flexibility
+  - Clarified: Public keys stored in DB, private keys kept by service owners
+  - JWT validation: Public key verifies token signatures (RSA-256)
+
+- **README.md Updates**
+  - Added link to Admin CLI Guide in Operations section
+  - Documentation now covers complete service/merchant management workflow
 
 - **React Integration Guide** (`docs/integration/REACT_INTEGRATION.md`)
   - Comprehensive React integration guide for ConnectRPC payment APIs
