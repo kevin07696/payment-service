@@ -455,7 +455,7 @@ GET /api/v1/payments/tx-uuid-here
 ```json
 {
   "id": "tx-uuid-here",
-  "group_id": "grp-uuid-here",
+  "parent_transaction_id": "parent-tx-uuid-here",
   "merchant_id": "merchant-123",
   "customer_id": "customer-456",
   "amount": "99.99",
@@ -492,7 +492,7 @@ Lists transactions with filtering options.
 |------|------|----------|-------------|
 | `merchant_id` | string | Yes* | Merchant identifier |
 | `customer_id` | string | No | Filter by customer |
-| `group_id` | string | No | Get all transactions in group |
+| `parent_transaction_id` | string | No | Get transaction and its children |
 | `status` | enum | No | Filter by status |
 | `limit` | int32 | No | Max results (default: 100) |
 | `offset` | int32 | No | Pagination offset |
@@ -504,9 +504,9 @@ Lists transactions with filtering options.
 GET /api/v1/payments?merchant_id=merchant-123&customer_id=customer-456&limit=50
 ```
 
-**Example - By Group (get sale + refunds):**
+**Example - By Transaction Chain (get auth → capture → refunds):**
 ```http
-GET /api/v1/payments?merchant_id=merchant-123&group_id=grp-uuid-here
+GET /api/v1/payments?merchant_id=merchant-123&parent_transaction_id=parent-tx-uuid
 ```
 
 **Response (200 OK):**
@@ -515,7 +515,7 @@ GET /api/v1/payments?merchant_id=merchant-123&group_id=grp-uuid-here
   "transactions": [
     {
       "id": "tx-1",
-      "group_id": "grp-uuid",
+      "parent_transaction_id": null,
       "type": "TRANSACTION_TYPE_CHARGE",
       "status": "TRANSACTION_STATUS_APPROVED",
       "amount": "100.00",
@@ -523,7 +523,7 @@ GET /api/v1/payments?merchant_id=merchant-123&group_id=grp-uuid-here
     },
     {
       "id": "tx-2",
-      "group_id": "grp-uuid",
+      "parent_transaction_id": "tx-1",
       "type": "TRANSACTION_TYPE_REFUND",
       "status": "TRANSACTION_STATUS_APPROVED",
       "amount": "30.00",
@@ -1275,7 +1275,7 @@ GET /api/v1/payments/browser-post/form?amount=99.99&return_url=https://app.examp
 ```json
 {
   "transaction_id": "tx-uuid-here",
-  "group_id": "grp-uuid-here",
+  "parent_transaction_id": null,
   "post_url": "https://secure.epxuap.com/browserpost",
   "amount": "99.99",
   "tran_nbr": "45062844883",
@@ -1392,7 +1392,7 @@ When EPX rejects a payment:
 ```json
 {
   "transaction_id": "tx-uuid",
-  "group_id": "grp-uuid",
+  "parent_transaction_id": null,
   "status": "TRANSACTION_STATUS_DECLINED",
   "is_approved": false,
   "message": "Insufficient funds"
@@ -1429,23 +1429,23 @@ Provide the specific transaction ID to refund or void:
 
 **Note:** The API uses `parent_transaction_id` internally to link refunds/voids to their original transactions.
 
-### 3. Store group_id with Orders
+### 3. Store transaction_id with Orders
 
-Link payments to orders using group_id for easier transaction history lookup:
+Link payments to orders using the root transaction_id for transaction history lookup:
 
 ```sql
 UPDATE orders
-SET payment_group_id = 'grp-uuid-here'
+SET payment_transaction_id = 'tx-uuid-here'
 WHERE order_id = 'ORDER-123';
 ```
 
-This allows you to query all related transactions (auth, capture, refunds) using the group_id.
+This allows you to query all related transactions (captures, refunds, voids) by traversing the `parent_transaction_id` chain.
 
 ### 4. Handle Async Callbacks
 
 Browser Post completes asynchronously:
-1. Accept `group_id` in return URL
-2. Look up order by `group_id`
+1. Accept `transaction_id` in return URL
+2. Look up order by `transaction_id`
 3. Update order status
 4. Render receipt
 
