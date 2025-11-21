@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-11-21)
+
+- **Admin Audit Logging** (`internal/handlers/admin/service_handler.go`)
+  - Implemented audit logging for service management operations
+  - Added `auditServiceCreation()` - Logs service creation with full metadata
+  - Added `auditKeyRotation()` - Logs key rotation with before/after fingerprints
+  - Added `auditServiceDeactivation()` - Logs deactivation with reason
+  - All audit logs include: action, entity_type, entity_id, changes, metadata
+  - Metadata includes service_name, environment, and optional reason fields
+  - TODOs added for extracting actor_id from JWT auth context
+  - Audit failures logged but don't block service operations
+
+- **Payment Metadata Extraction** (`internal/handlers/payment/payment_handler.go:377-397`)
+  - Implemented `extractLastFour()` helper function
+  - Extracts last 4 digits from EPX transaction metadata fields
+  - Checks multiple EPX field names: `last_four`, `AUTH_MASKED_ACCOUNT_NBR`, `CARD_NBR`
+  - Avoids N+1 queries by not fetching payment_method separately
+  - Returns empty string if metadata unavailable
+
+### Documented (2025-11-21)
+
+- **UpdatePaymentMethod Implementation Plan** (`internal/handlers/payment_method/payment_method_handler_connect.go:346-366`)
+  - Expanded from simple TODO to comprehensive documentation
+  - Documented schema migration requirement for billing fields
+  - Provided 4-step implementation plan
+  - Clarified use case: update billing address without re-tokenization
+  - Listed current schema limitations
+
+- **Security Test Implementation Plans** (`tests/integration/auth/epx_callback_auth_test.go`)
+  - **TestEPXCallbackAuthentication_ReplayAttack** (lines 235-248)
+    - Documented as covered by existing `browser_post_idempotency_test.go`
+    - Explained database ON CONFLICT DO NOTHING idempotency pattern
+    - Clarified no duplicate test needed
+  - **TestEPXCallbackAuthentication_IPWhitelist** (lines 250-281)
+    - Added detailed implementation plan (30 lines)
+    - Documented current security measures (MAC, idempotency, HTTPS)
+    - Provided 4-step implementation requirements
+    - Listed EPX IP whitelist considerations
+    - Included test implementation plan and production deployment notes
+    - Clarified IP whitelist not yet implemented (feature request for production)
+
 ### Fixed (2025-11-21)
 
 - **ACH Verification Cron Handler** (`internal/handlers/cron/ach_verification_handler.go`)

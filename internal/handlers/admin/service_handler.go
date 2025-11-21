@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -74,14 +75,18 @@ func (h *ServiceHandler) CreateService(
 			Valid: true,
 		},
 		IsActive: pgtype.Bool{Bool: true, Valid: true},
-		// TODO: Get admin ID from auth context
+		// TODO: Get admin ID from auth context (extract from JWT claims)
 		CreatedBy: pgtype.UUID{Valid: false},
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create service: %w", err))
 	}
 
-	// TODO: Audit log the service creation
+	// Audit log the service creation
+	if err := h.auditServiceCreation(ctx, service, req.Msg); err != nil {
+		// Log error but don't fail the request
+		fmt.Printf("Failed to create audit log: %v\n", err)
+	}
 
 	// Return service + private key (ONE-TIME ONLY)
 	return connect.NewResponse(&adminv1.CreateServiceResponse{
@@ -134,7 +139,11 @@ func (h *ServiceHandler) RotateServiceKey(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to rotate key: %w", err))
 	}
 
-	// TODO: Audit log the key rotation with reason
+	// Audit log the key rotation with reason
+	if err := h.auditKeyRotation(ctx, service, oldService.PublicKeyFingerprint, &req.Msg.Reason); err != nil {
+		// Log error but don't fail the request
+		fmt.Printf("Failed to create audit log: %v\n", err)
+	}
 
 	return connect.NewResponse(&adminv1.RotateServiceKeyResponse{
 		Service: &adminv1.Service{
@@ -262,7 +271,11 @@ func (h *ServiceHandler) DeactivateService(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to deactivate service: %w", err))
 	}
 
-	// TODO: Audit log deactivation with reason
+	// Audit log deactivation with reason
+	if err := h.auditServiceDeactivation(ctx, service, &req.Msg.Reason); err != nil {
+		// Log error but don't fail the request
+		fmt.Printf("Failed to create audit log: %v\n", err)
+	}
 
 	// Refetch to get updated service
 	updatedService, err := h.queries.GetServiceByServiceID(ctx, req.Msg.ServiceId)
@@ -326,4 +339,147 @@ func (h *ServiceHandler) ActivateService(
 			UpdatedAt:            timestamppb.New(updatedService.UpdatedAt.Time),
 		},
 	}), nil
+}
+
+// auditServiceCreation creates an audit log entry for service creation
+func (h *ServiceHandler) auditServiceCreation(
+	ctx context.Context,
+	service sqlc.Service,
+	req *adminv1.CreateServiceRequest,
+) error {
+	// Build metadata JSON
+	metadata := map[string]interface{}{
+		"service_name":        service.ServiceName,
+		"environment":         service.Environment,
+		"requests_per_second": service.RequestsPerSecond.Int32,
+		"burst_limit":         service.BurstLimit.Int32,
+		"public_key_fingerprint": service.PublicKeyFingerprint,
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	// Create audit log entry
+	return h.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
+		ID:         pgtype.UUID{Bytes: uuid.New(), Valid: true},
+		ActorType:  pgtype.Text{String: "admin", Valid: true},
+		ActorID:    pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
+		ActorName:  pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
+		Action:     "service.created",
+		EntityType: pgtype.Text{String: "service", Valid: true},
+		EntityID:   pgtype.Text{String: service.ID.String(), Valid: true},
+		Changes:    nil, // No previous state for creation
+		Metadata:   metadataJSON,
+		IpAddress:  nil, // TODO: Extract from request context
+		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from request headers
+		RequestID:  pgtype.Text{Valid: false}, // TODO: Extract from request context
+		Success:    pgtype.Bool{Bool: true, Valid: true},
+		ErrorMessage: pgtype.Text{Valid: false},
+	})
+}
+
+// auditKeyRotation creates an audit log entry for service key rotation
+func (h *ServiceHandler) auditKeyRotation(
+	ctx context.Context,
+	service sqlc.Service,
+	oldFingerprint string,
+	reason *string,
+) error {
+	// Build changes JSON (before/after)
+	changes := map[string]interface{}{
+		"before": map[string]string{
+			"public_key_fingerprint": oldFingerprint,
+		},
+		"after": map[string]string{
+			"public_key_fingerprint": service.PublicKeyFingerprint,
+		},
+	}
+	changesJSON, err := json.Marshal(changes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal changes: %w", err)
+	}
+
+	// Build metadata JSON
+	metadata := map[string]interface{}{
+		"service_name": service.ServiceName,
+		"environment":  service.Environment,
+	}
+	if reason != nil && *reason != "" {
+		metadata["reason"] = *reason
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	// Create audit log entry
+	return h.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
+		ID:         pgtype.UUID{Bytes: uuid.New(), Valid: true},
+		ActorType:  pgtype.Text{String: "admin", Valid: true},
+		ActorID:    pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
+		ActorName:  pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
+		Action:     "service.key_rotated",
+		EntityType: pgtype.Text{String: "service", Valid: true},
+		EntityID:   pgtype.Text{String: service.ID.String(), Valid: true},
+		Changes:    changesJSON,
+		Metadata:   metadataJSON,
+		IpAddress:  nil, // TODO: Extract from request context
+		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from request headers
+		RequestID:  pgtype.Text{Valid: false}, // TODO: Extract from request context
+		Success:    pgtype.Bool{Bool: true, Valid: true},
+		ErrorMessage: pgtype.Text{Valid: false},
+	})
+}
+
+// auditServiceDeactivation creates an audit log entry for service deactivation
+func (h *ServiceHandler) auditServiceDeactivation(
+	ctx context.Context,
+	service sqlc.Service,
+	reason *string,
+) error {
+	// Build changes JSON (before/after)
+	changes := map[string]interface{}{
+		"before": map[string]bool{
+			"is_active": true,
+		},
+		"after": map[string]bool{
+			"is_active": false,
+		},
+	}
+	changesJSON, err := json.Marshal(changes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal changes: %w", err)
+	}
+
+	// Build metadata JSON
+	metadata := map[string]interface{}{
+		"service_name": service.ServiceName,
+		"environment":  service.Environment,
+	}
+	if reason != nil && *reason != "" {
+		metadata["reason"] = *reason
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	// Create audit log entry
+	return h.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
+		ID:         pgtype.UUID{Bytes: uuid.New(), Valid: true},
+		ActorType:  pgtype.Text{String: "admin", Valid: true},
+		ActorID:    pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
+		ActorName:  pgtype.Text{Valid: false}, // TODO: Extract from request context
+		Action:     "service.deactivated",
+		EntityType: pgtype.Text{String: "service", Valid: true},
+		EntityID:   pgtype.Text{String: service.ID.String(), Valid: true},
+		Changes:    changesJSON,
+		Metadata:   metadataJSON,
+		IpAddress:  nil, // TODO: Extract from request context
+		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from request headers
+		RequestID:  pgtype.Text{Valid: false}, // TODO: Extract from request context
+		Success:    pgtype.Bool{Bool: true, Valid: true},
+		ErrorMessage: pgtype.Text{Valid: false},
+	})
 }
