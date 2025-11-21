@@ -121,13 +121,13 @@ func (cli *AdminCLI) createService(jsonFile string) {
 	}
 
 	var serviceData struct {
-		ServiceID           string `json:"service_id"`
-		ServiceName         string `json:"service_name"`
-		Environment         string `json:"environment"`
-		RequestsPerSecond   int    `json:"requests_per_second"`
-		BurstLimit          int    `json:"burst_limit"`
-		GenerateKeypair     bool   `json:"generate_keypair"`
-		PublicKey           string `json:"public_key,omitempty"`
+		ServiceID         string `json:"service_id"`
+		ServiceName       string `json:"service_name"`
+		Environment       string `json:"environment"`
+		RequestsPerSecond int    `json:"requests_per_second"`
+		BurstLimit        int    `json:"burst_limit"`
+		GenerateKeypair   bool   `json:"generate_keypair"`
+		PublicKey         string `json:"public_key,omitempty"`
 	}
 
 	if jsonFile != "" {
@@ -374,12 +374,12 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 	// Save merchant info
 	outputFile := fmt.Sprintf("merchant_%s_info.json", merchantData.Slug)
 	output := map[string]interface{}{
-		"merchant_id":   merchantID,
-		"slug":          merchantData.Slug,
-		"name":          merchantData.Name,
-		"environment":   merchantData.Environment,
-		"tier":          merchantData.Tier,
-		"rate_limit":    merchantData.RequestsPerSecond,
+		"merchant_id": merchantID,
+		"slug":        merchantData.Slug,
+		"name":        merchantData.Name,
+		"environment": merchantData.Environment,
+		"tier":        merchantData.Tier,
+		"rate_limit":  merchantData.RequestsPerSecond,
 		"epx_config": map[string]string{
 			"cust_nbr":     merchantData.CustNbr,
 			"merch_nbr":    merchantData.MerchNbr,
