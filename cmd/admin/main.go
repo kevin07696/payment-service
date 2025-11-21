@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -15,15 +14,17 @@ import (
 	"syscall"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/kevin07696/payment-service/internal/auth"
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
 )
 
 type AdminCLI struct {
-	db      *sql.DB
+	ctx     context.Context
+	queries sqlc.Querier
 	adminID string
 }
 
@@ -56,10 +57,11 @@ func main() {
 	}
 	defer pool.Close()
 
-	sqlDB := stdlib.OpenDBFromPool(pool)
-	defer sqlDB.Close()
-
-	cli := &AdminCLI{db: sqlDB}
+	queries := sqlc.New(pool)
+	cli := &AdminCLI{
+		ctx:     ctx,
+		queries: queries,
+	}
 
 	switch *action {
 	case "login":
@@ -95,21 +97,26 @@ func (cli *AdminCLI) login(email string) {
 	}
 	fmt.Println()
 
-	// Verify admin credentials
-	var passwordHash string
-	err = cli.db.QueryRow(`
-		SELECT id, password_hash FROM admins
-		WHERE email = $1 AND is_active = true
-	`, email).Scan(&cli.adminID, &passwordHash)
-
+	// Verify admin credentials using sqlc
+	admin, err := cli.queries.GetAdminByEmail(cli.ctx, email)
 	if err != nil {
+		cli.createAuditLog("admin.login.failed", "", "", false, "Admin not found: "+email)
 		log.Fatal("Admin not found or inactive")
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), password)
+	if !admin.IsActive.Bool {
+		cli.createAuditLog("admin.login.failed", "", admin.ID.String(), false, "Admin account is not active")
+		log.Fatal("Admin account is not active")
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), password)
 	if err != nil {
+		cli.createAuditLog("admin.login.failed", "", admin.ID.String(), false, "Invalid password")
 		log.Fatal("Invalid password")
 	}
+
+	cli.adminID = admin.ID.String()
+	cli.createAuditLog("admin.login", "", admin.ID.String(), true, "")
 
 	fmt.Printf("✅ Logged in as admin: %s (ID: %s)\n", email, cli.adminID)
 }
@@ -195,22 +202,35 @@ func (cli *AdminCLI) createService(jsonFile string) {
 		log.Fatal("Either generate_keypair must be true or public_key must be provided")
 	}
 
-	// Create service in database
-	serviceID := uuid.New().String()
-	_, err := cli.db.Exec(`
-		INSERT INTO services (
-			id, service_id, service_name, public_key,
-			public_key_fingerprint, environment,
-			requests_per_second, burst_limit, is_active, created_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, serviceID, serviceData.ServiceID, serviceData.ServiceName,
-		string(publicKeyPEM), generateFingerprint(publicKeyPEM),
-		serviceData.Environment, serviceData.RequestsPerSecond,
-		serviceData.BurstLimit, true, cli.adminID)
+	// Create service in database using sqlc
+	serviceUUID := uuid.New()
+	createdByUUID := pgtype.UUID{}
+	if cli.adminID != "" {
+		parsedUUID, err := uuid.Parse(cli.adminID)
+		if err == nil {
+			createdByUUID = pgtype.UUID{Bytes: parsedUUID, Valid: true}
+		}
+	}
+
+	service, err := cli.queries.CreateService(cli.ctx, sqlc.CreateServiceParams{
+		ID:                   serviceUUID,
+		ServiceID:            serviceData.ServiceID,
+		ServiceName:          serviceData.ServiceName,
+		PublicKey:            string(publicKeyPEM),
+		PublicKeyFingerprint: generateFingerprint(publicKeyPEM),
+		Environment:          serviceData.Environment,
+		RequestsPerSecond:    pgtype.Int4{Int32: int32(serviceData.RequestsPerSecond), Valid: true},
+		BurstLimit:           pgtype.Int4{Int32: int32(serviceData.BurstLimit), Valid: true},
+		IsActive:             pgtype.Bool{Bool: true, Valid: true},
+		CreatedBy:            createdByUUID,
+	})
 
 	if err != nil {
+		cli.createAuditLog("service.create.failed", "service", serviceData.ServiceID, false, "Failed to create service: "+err.Error())
 		log.Fatal("Failed to create service:", err)
 	}
+
+	cli.createAuditLog("service.create", "service", service.ID.String(), true, "")
 
 	// Save credentials
 	outputFile := fmt.Sprintf("service_%s_credentials.json", serviceData.ServiceID)
@@ -327,25 +347,28 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 		}
 	}
 
-	// Create merchant
-	merchantID := uuid.New().String()
-	err := cli.db.QueryRow(`
-		INSERT INTO merchants (
-			id, slug, name, cust_nbr, merch_nbr, dba_nbr,
-			terminal_nbr, mac_secret_path, environment,
-			is_active, status, tier, requests_per_second,
-			burst_limit, created_by, approved_by, approved_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
-		RETURNING id
-	`, merchantID, merchantData.Slug, merchantData.Name,
-		merchantData.CustNbr, merchantData.MerchNbr, merchantData.DbaNbr,
-		merchantData.TerminalNbr, merchantData.MacSecretPath, merchantData.Environment,
-		true, "active", merchantData.Tier, merchantData.RequestsPerSecond,
-		merchantData.RequestsPerSecond*2, cli.adminID, cli.adminID).Scan(&merchantID)
+	// Create merchant using sqlc
+	merchantUUID := uuid.New()
+	merchant, err := cli.queries.CreateMerchant(cli.ctx, sqlc.CreateMerchantParams{
+		ID:            merchantUUID,
+		Slug:          merchantData.Slug,
+		Name:          merchantData.Name,
+		CustNbr:       merchantData.CustNbr,
+		MerchNbr:      merchantData.MerchNbr,
+		DbaNbr:        merchantData.DbaNbr,
+		TerminalNbr:   merchantData.TerminalNbr,
+		MacSecretPath: merchantData.MacSecretPath,
+		Environment:   merchantData.Environment,
+		IsActive:      true,
+	})
 
 	if err != nil {
+		cli.createAuditLog("merchant.create.failed", "merchant", merchantData.Slug, false, "Failed to create merchant: "+err.Error())
 		log.Fatal("Failed to create merchant:", err)
 	}
+
+	merchantID := merchant.ID.String()
+	cli.createAuditLog("merchant.create", "merchant", merchantID, true, "")
 
 	// Note: Merchants don't get API keys directly.
 	// Create a Service to authenticate and link it to this merchant via grant-access command.
@@ -408,20 +431,16 @@ func (cli *AdminCLI) grantAccess() {
 	merchantSlug, _ := reader.ReadString('\n')
 	merchantSlug = strings.TrimSpace(merchantSlug)
 
-	// Get service and merchant IDs
-	var registeredServiceID string
-	err := cli.db.QueryRow(`
-		SELECT id FROM services WHERE service_id = $1
-	`, serviceID).Scan(&registeredServiceID)
+	// Get service and merchant IDs using sqlc
+	service, err := cli.queries.GetServiceByServiceID(cli.ctx, serviceID)
 	if err != nil {
+		cli.createAuditLog("service.grant_access.failed", "service", serviceID, false, "Service not found: "+serviceID)
 		log.Fatal("Service not found:", serviceID)
 	}
 
-	var merchantID string
-	err = cli.db.QueryRow(`
-		SELECT id FROM merchants WHERE slug = $1
-	`, merchantSlug).Scan(&merchantID)
+	merchant, err := cli.queries.GetMerchantBySlug(cli.ctx, merchantSlug)
 	if err != nil {
+		cli.createAuditLog("service.grant_access.failed", "merchant", merchantSlug, false, "Merchant not found: "+merchantSlug)
 		log.Fatal("Merchant not found:", merchantSlug)
 	}
 
@@ -437,90 +456,150 @@ func (cli *AdminCLI) grantAccess() {
 
 	fmt.Printf("\nGranting scopes: %v\n", scopes)
 
-	// Grant access
-	_, err = cli.db.Exec(`
-		INSERT INTO service_merchants (
-			service_id, merchant_id, scopes, granted_by
-		) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (service_id, merchant_id) DO UPDATE SET
-			scopes = EXCLUDED.scopes,
-			granted_at = NOW()
-	`, registeredServiceID, merchantID,
-		"{"+strings.Join(scopes, ",")+"}",
-		cli.adminID)
+	// Grant access using sqlc
+	grantedByUUID := pgtype.UUID{}
+	if cli.adminID != "" {
+		parsedUUID, err := uuid.Parse(cli.adminID)
+		if err == nil {
+			grantedByUUID = pgtype.UUID{Bytes: parsedUUID, Valid: true}
+		}
+	}
+
+	_, err = cli.queries.GrantServiceAccess(cli.ctx, sqlc.GrantServiceAccessParams{
+		ServiceID:  service.ID,
+		MerchantID: merchant.ID,
+		Scopes:     scopes,
+		GrantedBy:  grantedByUUID,
+		ExpiresAt:  pgtype.Timestamp{}, // No expiration
+	})
 
 	if err != nil {
+		cli.createAuditLog("service.grant_access.failed", "service_merchant", service.ID.String()+":"+merchant.ID.String(), false, "Failed to grant access: "+err.Error())
 		log.Fatal("Failed to grant access:", err)
 	}
+
+	cli.createAuditLog("service.grant_access", "service_merchant", service.ID.String()+":"+merchant.ID.String(), true, "")
 
 	fmt.Println("\n✅ Access granted successfully!")
 	fmt.Printf("Service '%s' now has access to merchant '%s'\n", serviceID, merchantSlug)
 }
 
 func (cli *AdminCLI) listServices() {
-	rows, err := cli.db.Query(`
-		SELECT service_id, service_name, environment, is_active, created_at
-		FROM services
-		ORDER BY created_at DESC
-	`)
+	// List services using sqlc
+	services, err := cli.queries.ListServices(cli.ctx, sqlc.ListServicesParams{
+		Environment: pgtype.Text{}, // NULL to get all
+		IsActive:    pgtype.Bool{},  // NULL to get all
+		LimitVal:    100,
+		OffsetVal:   0,
+	})
 	if err != nil {
 		log.Fatal("Failed to query services:", err)
 	}
-	defer rows.Close()
 
 	fmt.Println("\n=== REGISTERED SERVICES ===")
 	fmt.Printf("%-30s %-40s %-15s %-10s %-20s\n", "Service ID", "Name", "Environment", "Active", "Created")
 	fmt.Println(strings.Repeat("-", 120))
 
-	for rows.Next() {
-		var serviceID, name, env string
-		var isActive bool
-		var createdAt sql.NullTime
-
-		rows.Scan(&serviceID, &name, &env, &isActive, &createdAt)
-
+	for _, service := range services {
 		fmt.Printf("%-30s %-40s %-15s %-10v %-20s\n",
-			serviceID, name, env, isActive,
-			createdAt.Time.Format("2006-01-02 15:04"))
+			service.ServiceID, service.ServiceName, service.Environment, service.IsActive,
+			service.CreatedAt.Time.Format("2006-01-02 15:04"))
 	}
 }
 
 func (cli *AdminCLI) listMerchants() {
-	rows, err := cli.db.Query(`
-		SELECT slug, name, environment, status, tier, created_at
-		FROM merchants
-		WHERE deleted_at IS NULL
-		ORDER BY created_at DESC
-	`)
+	// List merchants using sqlc
+	merchants, err := cli.queries.ListMerchants(cli.ctx, sqlc.ListMerchantsParams{
+		Environment: pgtype.Text{}, // NULL to get all
+		IsActive:    pgtype.Bool{},  // NULL to get all
+		LimitVal:    100,
+		OffsetVal:   0,
+	})
 	if err != nil {
 		log.Fatal("Failed to query merchants:", err)
 	}
-	defer rows.Close()
 
 	fmt.Println("\n=== REGISTERED MERCHANTS ===")
-	fmt.Printf("%-30s %-40s %-15s %-15s %-15s %-20s\n", "Slug", "Name", "Environment", "Status", "Tier", "Created")
-	fmt.Println(strings.Repeat("-", 140))
+	fmt.Printf("%-30s %-40s %-15s %-15s %-20s\n", "Slug", "Name", "Environment", "Active", "Created")
+	fmt.Println(strings.Repeat("-", 125))
 
-	for rows.Next() {
-		var slug, name, env, status, tier string
-		var createdAt sql.NullTime
-
-		rows.Scan(&slug, &name, &env, &status, &tier, &createdAt)
-
-		fmt.Printf("%-30s %-40s %-15s %-15s %-15s %-20s\n",
-			slug, name, env, status, tier,
-			createdAt.Time.Format("2006-01-02 15:04"))
+	for _, merchant := range merchants {
+		fmt.Printf("%-30s %-40s %-15s %-15v %-20s\n",
+			merchant.Slug, merchant.Name, merchant.Environment, merchant.IsActive,
+			merchant.CreatedAt.Time.Format("2006-01-02 15:04"))
 	}
 }
 
 func (cli *AdminCLI) autoLogin() {
-	// Try to auto-login with first admin account
-	err := cli.db.QueryRow(`
-		SELECT id FROM admins WHERE is_active = true LIMIT 1
-	`).Scan(&cli.adminID)
+	// Try to auto-login with first admin account using sqlc
+	admins, err := cli.queries.ListAdmins(cli.ctx, sqlc.ListAdminsParams{
+		Role:      pgtype.Text{},                        // NULL to get all roles
+		IsActive:  pgtype.Bool{Bool: true, Valid: true}, // Only active admins
+		LimitVal:  1,
+		OffsetVal: 0,
+	})
+
+	if err != nil || len(admins) == 0 {
+		log.Fatal("No admin account found. Please login first with -action=login")
+	}
+
+	cli.adminID = admins[0].ID.String()
+	cli.createAuditLog("admin.auto_login", "", cli.adminID, true, "")
+}
+
+// createAuditLog creates an audit log entry for admin operations
+func (cli *AdminCLI) createAuditLog(action, entityType, entityID string, success bool, errorMsg string) {
+	auditUUID := uuid.New()
+
+	actorID := pgtype.Text{}
+	actorName := pgtype.Text{}
+	if cli.adminID != "" {
+		actorID = pgtype.Text{String: cli.adminID, Valid: true}
+		// Get admin info for actor name
+		parsedAdminID, err := uuid.Parse(cli.adminID)
+		if err == nil {
+			admin, err := cli.queries.GetAdminByID(cli.ctx, parsedAdminID)
+			if err == nil {
+				actorName = pgtype.Text{String: admin.Email, Valid: true}
+			}
+		}
+	}
+
+	entityTypeText := pgtype.Text{}
+	if entityType != "" {
+		entityTypeText = pgtype.Text{String: entityType, Valid: true}
+	}
+
+	entityIDText := pgtype.Text{}
+	if entityID != "" {
+		entityIDText = pgtype.Text{String: entityID, Valid: true}
+	}
+
+	errorMsgText := pgtype.Text{}
+	if errorMsg != "" {
+		errorMsgText = pgtype.Text{String: errorMsg, Valid: true}
+	}
+
+	err := cli.queries.CreateAuditLog(cli.ctx, sqlc.CreateAuditLogParams{
+		ID:           pgtype.UUID{Bytes: auditUUID, Valid: true},
+		ActorType:    pgtype.Text{String: "admin", Valid: true},
+		ActorID:      actorID,
+		ActorName:    actorName,
+		Action:       action,
+		EntityType:   entityTypeText,
+		EntityID:     entityIDText,
+		Changes:      []byte{}, // No changes tracking for CLI operations
+		Metadata:     []byte{}, // No metadata for CLI operations
+		IpAddress:    nil,
+		UserAgent:    pgtype.Text{},
+		RequestID:    pgtype.Text{},
+		Success:      pgtype.Bool{Bool: success, Valid: true},
+		ErrorMessage: errorMsgText,
+	})
 
 	if err != nil {
-		log.Fatal("No admin account found. Please login first with -action=login")
+		// Don't fail operations if audit logging fails, just log the error
+		log.Printf("Warning: Failed to create audit log: %v", err)
 	}
 }
 
