@@ -20,7 +20,7 @@ func NewPaymentMethod() *PaymentMethodBuilder {
 		paymentMethod: &sqlc.CustomerPaymentMethod{
 			ID:           uuid.New(),
 			MerchantID:   uuid.New(),
-			CustomerID:   uuid.New(),
+			CustomerID:   "cust_test_" + uuid.New().String()[:8],
 			Bric:         "bric_test_" + uuid.New().String()[:8],
 			PaymentType:  "credit_card",
 			LastFour:     "4242",
@@ -46,7 +46,7 @@ func (b *PaymentMethodBuilder) WithMerchantID(merchantID uuid.UUID) *PaymentMeth
 	return b
 }
 
-func (b *PaymentMethodBuilder) WithCustomerID(customerID uuid.UUID) *PaymentMethodBuilder {
+func (b *PaymentMethodBuilder) WithCustomerID(customerID string) *PaymentMethodBuilder {
 	b.paymentMethod.CustomerID = customerID
 	return b
 }
@@ -146,7 +146,7 @@ func (b *PaymentMethodBuilder) Build() sqlc.CustomerPaymentMethod {
 // Convenience functions for common payment method scenarios
 
 // VisaCard creates a verified Visa credit card payment method.
-func VisaCard(merchantID, customerID uuid.UUID, bric string) sqlc.CustomerPaymentMethod {
+func VisaCard(merchantID uuid.UUID, customerID string, bric string) sqlc.CustomerPaymentMethod {
 	return NewPaymentMethod().
 		WithMerchantID(merchantID).
 		WithCustomerID(customerID).
@@ -160,7 +160,7 @@ func VisaCard(merchantID, customerID uuid.UUID, bric string) sqlc.CustomerPaymen
 }
 
 // DefaultVisaCard creates a default Visa credit card payment method.
-func DefaultVisaCard(merchantID, customerID uuid.UUID, bric string) sqlc.CustomerPaymentMethod {
+func DefaultVisaCard(merchantID uuid.UUID, customerID string, bric string) sqlc.CustomerPaymentMethod {
 	return NewPaymentMethod().
 		WithMerchantID(merchantID).
 		WithCustomerID(customerID).
@@ -175,7 +175,7 @@ func DefaultVisaCard(merchantID, customerID uuid.UUID, bric string) sqlc.Custome
 }
 
 // CheckingAccount creates a verified checking account payment method.
-func CheckingAccount(merchantID, customerID uuid.UUID, bric string) sqlc.CustomerPaymentMethod {
+func CheckingAccount(merchantID uuid.UUID, customerID string, bric string) sqlc.CustomerPaymentMethod {
 	return NewPaymentMethod().
 		WithMerchantID(merchantID).
 		WithCustomerID(customerID).

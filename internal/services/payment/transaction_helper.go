@@ -51,7 +51,7 @@ func (s *paymentService) CreatePendingTransaction(ctx context.Context, params Cr
 			ID:                  txID,
 			ParentTransactionID: toNullableUUIDFromUUID(params.ParentTransactionID),
 			MerchantID:          params.MerchantID,
-			CustomerID:          toNullableUUID(params.CustomerID),
+			CustomerID:          toNullableText(params.CustomerID),
 			AmountCents:         params.Amount, // Amount is already in cents
 			Currency:            params.Currency,
 			Type:                string(params.Type),
@@ -101,7 +101,7 @@ func (s *paymentService) UpdateTransactionWithEPXResponse(ctx context.Context, t
 
 	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		_, err := q.UpdateTransactionFromEPXResponse(ctx, sqlc.UpdateTransactionFromEPXResponseParams{
-			CustomerID: toNullableUUID(customerID),
+			CustomerID: toNullableText(customerID),
 			TranNbr: pgtype.Text{
 				String: tranNbr,
 				Valid:  true,

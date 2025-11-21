@@ -91,7 +91,7 @@ INSERT INTO subscriptions (
 type CreateSubscriptionParams struct {
 	ID                    uuid.UUID   `json:"id"`
 	MerchantID            uuid.UUID   `json:"merchant_id"`
-	CustomerID            uuid.UUID   `json:"customer_id"`
+	CustomerID            string      `json:"customer_id"`
 	AmountCents           int64       `json:"amount_cents"`
 	Currency              string      `json:"currency"`
 	IntervalValue         int32       `json:"interval_value"`
@@ -352,7 +352,7 @@ ORDER BY created_at DESC
 
 type ListSubscriptionsByCustomerParams struct {
 	MerchantID uuid.UUID `json:"merchant_id"`
-	CustomerID uuid.UUID `json:"customer_id"`
+	CustomerID string    `json:"customer_id"`
 }
 
 func (q *Queries) ListSubscriptionsByCustomer(ctx context.Context, arg ListSubscriptionsByCustomerParams) ([]Subscription, error) {

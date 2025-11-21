@@ -46,8 +46,8 @@ func (b *TransactionBuilder) WithMerchantID(merchantID uuid.UUID) *TransactionBu
 	return b
 }
 
-func (b *TransactionBuilder) WithCustomerID(customerID uuid.UUID) *TransactionBuilder {
-	b.transaction.CustomerID = pgtype.UUID{Bytes: customerID, Valid: true}
+func (b *TransactionBuilder) WithCustomerID(customerID string) *TransactionBuilder {
+	b.transaction.CustomerID = pgtype.Text{String: customerID, Valid: true}
 	return b
 }
 

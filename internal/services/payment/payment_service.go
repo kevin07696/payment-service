@@ -262,14 +262,10 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		// Amount is already in cents - use directly
 		amountCents := req.AmountCents
 
-		// Parse customer ID to UUID if provided
-		var customerIDUUID pgtype.UUID
+		// Convert customer ID to pgtype.Text if provided
+		var customerIDText pgtype.Text
 		if req.CustomerID != nil && *req.CustomerID != "" {
-			cid, err := uuid.Parse(*req.CustomerID)
-			if err != nil {
-				return fmt.Errorf("invalid customer_id format: %w", err)
-			}
-			customerIDUUID = pgtype.UUID{Bytes: cid, Valid: true}
+			customerIDText = pgtype.Text{String: *req.CustomerID, Valid: true}
 		}
 
 		// Merge request metadata with EPX response fields
@@ -295,7 +291,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		params := sqlc.CreateTransactionParams{
 			ID:                  txID,
 			MerchantID:          merchantID,
-			CustomerID:          customerIDUUID,
+			CustomerID:          customerIDText,
 			AmountCents:         amountCents,
 			Currency:            req.Currency,
 			Type:                string(domain.TransactionTypeSale), // SALE for all purchases (credit, ACH, PIN-less debit)
@@ -454,14 +450,10 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		// Amount is already in cents - use directly
 		amountCents := req.AmountCents
 
-		// Parse customer ID to UUID if provided
-		var customerIDUUID pgtype.UUID
+		// Convert customer ID to pgtype.Text if provided
+		var customerIDText pgtype.Text
 		if req.CustomerID != nil && *req.CustomerID != "" {
-			cid, err := uuid.Parse(*req.CustomerID)
-			if err != nil {
-				return fmt.Errorf("invalid customer_id format: %w", err)
-			}
-			customerIDUUID = pgtype.UUID{Bytes: cid, Valid: true}
+			customerIDText = pgtype.Text{String: *req.CustomerID, Valid: true}
 		}
 
 		// Merge request metadata with EPX response fields
@@ -486,7 +478,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		params := sqlc.CreateTransactionParams{
 			ID:                  txID,
 			MerchantID:          merchantID,
-			CustomerID:          customerIDUUID,
+			CustomerID:          customerIDText,
 			AmountCents:         amountCents,
 			Currency:            "USD",
 			Type:                string(domain.TransactionTypeAuth),
@@ -1468,8 +1460,7 @@ func sqlcToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
 
 	var customerID *string
 	if dbTx.CustomerID.Valid {
-		id := uuid.UUID(dbTx.CustomerID.Bytes).String()
-		customerID = &id
+		customerID = &dbTx.CustomerID.String
 	}
 
 	var pmID *string
@@ -1620,7 +1611,7 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 	pm := &domain.PaymentMethod{
 		ID:           dbPM.ID.String(),
 		MerchantID:   dbPM.MerchantID.String(),
-		CustomerID:   dbPM.CustomerID.String(),
+		CustomerID:   dbPM.CustomerID,
 		PaymentType:  domain.PaymentMethodType(dbPM.PaymentType),
 		PaymentToken: dbPM.Bric,
 		LastFour:     dbPM.LastFour,

@@ -75,13 +75,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	// Parse customer ID to UUID for comparison
-	reqCustomerID, err := uuid.Parse(req.CustomerID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid customer_id format: %w", err)
-	}
-
-	if pm.MerchantID.String() != req.MerchantID || pm.CustomerID != reqCustomerID {
+	if pm.MerchantID.String() != req.MerchantID || pm.CustomerID != req.CustomerID {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -103,12 +97,6 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
-	// Parse customer ID
-	customerID, err := uuid.Parse(req.CustomerID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid customer_id format: %w", err)
-	}
-
 	// Create subscription in database
 	var subscription *domain.Subscription
 	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
@@ -122,7 +110,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		params := sqlc.CreateSubscriptionParams{
 			ID:                    uuid.New(),
 			MerchantID:            merchantID,
-			CustomerID:            customerID,
+			CustomerID:            req.CustomerID,
 			AmountCents:           req.AmountCents,
 			Currency:              req.Currency,
 			IntervalValue:         int32(req.IntervalValue),
@@ -471,7 +459,7 @@ func (s *subscriptionService) ListCustomerSubscriptions(ctx context.Context, mer
 
 	params := sqlc.ListSubscriptionsByCustomerParams{
 		MerchantID: merchantUUID,
-		CustomerID: uuid.MustParse(customerID),
+		CustomerID: customerID,
 	}
 
 	dbSubs, err := s.queries.ListSubscriptionsByCustomer(ctx, params)
@@ -612,7 +600,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		OriginalAuthGUID: pm.Bric, // Use OriginalAuthGUID for stored BRIC
 		TranNbr:          tranNbr,
 		TranGroup:        uuid.New().String(),
-		CustomerID:       sub.CustomerID.String(),
+		CustomerID:       sub.CustomerID,
 		ACIExt:           &aciExt,          // "RB" = Recurring Billing
 		CardEntryMethod:  &cardEntryMethod, // "Z" = stored credential
 		IndustryType:     &industryType,    // "E" = E-commerce
@@ -652,7 +640,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		txParams := sqlc.CreateTransactionParams{
 			ID:                  txID, // Use deterministic ID for idempotency
 			MerchantID:          sub.MerchantID,
-			CustomerID:          pgtype.UUID{Bytes: sub.CustomerID, Valid: true},
+			CustomerID:          pgtype.Text{String: sub.CustomerID, Valid: true},
 			AmountCents:         sub.AmountCents,
 			Currency:            sub.Currency,
 			Type:                string(domain.TransactionTypeSale),
@@ -793,7 +781,7 @@ func sqlcSubscriptionToDomain(dbSub *sqlc.Subscription) *domain.Subscription {
 	sub := &domain.Subscription{
 		ID:                dbSub.ID.String(),
 		MerchantID:        dbSub.MerchantID.String(),
-		CustomerID:        dbSub.CustomerID.String(),
+		CustomerID:        dbSub.CustomerID,
 		AmountCents:       dbSub.AmountCents,
 		Currency:          dbSub.Currency,
 		IntervalValue:     int(dbSub.IntervalValue),

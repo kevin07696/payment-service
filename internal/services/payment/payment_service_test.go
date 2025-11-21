@@ -138,7 +138,7 @@ func TestSqlcToDomain_ValidTransaction(t *testing.T) {
 	txID := uuid.New()
 	parentTxID := uuid.New()
 	merchantID := uuid.New()
-	customerID := uuid.New()
+	customerID := "cust_test_12345"
 	authGUID := "bric-abc123"
 	authResp := "00"
 	authCode := "999999"
@@ -147,7 +147,7 @@ func TestSqlcToDomain_ValidTransaction(t *testing.T) {
 		ID:                  txID,
 		ParentTransactionID: pgtype.UUID{Bytes: parentTxID, Valid: true},
 		MerchantID:          merchantID,
-		CustomerID:          pgtype.UUID{Bytes: customerID, Valid: true},
+		CustomerID:          pgtype.Text{String: customerID, Valid: true},
 		AmountCents:         10050, // $100.50
 		Currency:            "USD",
 		Type:                "sale",
@@ -166,7 +166,7 @@ func TestSqlcToDomain_ValidTransaction(t *testing.T) {
 	assert.Equal(t, parentTxID.String(), *domainTx.ParentTransactionID)
 	assert.Equal(t, merchantID.String(), domainTx.MerchantID)
 	require.NotNil(t, domainTx.CustomerID)
-	assert.Equal(t, customerID.String(), *domainTx.CustomerID)
+	assert.Equal(t, customerID, *domainTx.CustomerID)
 	assert.Equal(t, int64(10050), domainTx.AmountCents) // $100.50 = 10050 cents
 	assert.Equal(t, "USD", domainTx.Currency)
 	assert.Equal(t, domain.TransactionType("sale"), domainTx.Type)
@@ -324,7 +324,7 @@ func TestListTransactions_Success(t *testing.T) {
 		{
 			ID:                uuid.New(),
 			MerchantID:        merchantID,
-			CustomerID:        pgtype.UUID{Bytes: customerID, Valid: true},
+			CustomerID:        pgtype.Text{String: customerIDStr, Valid: true},
 			SubscriptionID:    pgtype.UUID{Bytes: subscriptionID, Valid: true},
 			AmountCents:       10000,
 			Currency:          "USD",

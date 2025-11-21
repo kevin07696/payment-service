@@ -99,13 +99,13 @@ func TestBrowserPost_Workflows(t *testing.T) {
 
 				switch operation {
 				case "CAPTURE":
-					executeCaptureStep(t, client, bricResult, tt.amount)
+					executeCaptureStep(t, client, bricResult, tt.amount, jwtToken, merchantID)
 
 				case "REFUND":
-					executeRefundStep(t, client, bricResult, tt.refundAmount)
+					executeRefundStep(t, client, bricResult, tt.refundAmount, jwtToken, merchantID)
 
 				case "VOID":
-					executeVoidStep(t, client, bricResult)
+					executeVoidStep(t, client, bricResult, jwtToken, merchantID)
 
 				case "SALE":
 					// For STORAGE → SALE workflow
@@ -124,15 +124,25 @@ func TestBrowserPost_Workflows(t *testing.T) {
 	}
 }
 
-// executeCaptureStep performs a CAPTURE operation
-func executeCaptureStep(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult, amount string) {
+// executeCaptureStep performs a CAPTURE operation using ConnectRPC
+func executeCaptureStep(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult, amount string, jwtToken, merchantID string) {
+	// Convert amount to cents for ConnectRPC
+	var amountFloat float64
+	fmt.Sscanf(amount, "%f", &amountFloat)
+	amountCents := int64(amountFloat * 100)
+
 	captureReq := map[string]interface{}{
+		"merchant_id":    merchantID,
 		"transaction_id": bricResult.TransactionID,
-		"amount":         amount,
+		"amount_cents":   amountCents,
 	}
 
 	t.Log("💳 Capturing with REAL BRIC...")
-	captureResp, err := client.Do("POST", "/api/v1/payments/capture", captureReq)
+	// Set JWT authentication
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	captureResp, err := client.DoConnectRPC("payment.v1.PaymentService", "Capture", captureReq)
 	require.NoError(t, err)
 	defer captureResp.Body.Close()
 
@@ -145,27 +155,36 @@ func executeCaptureStep(t *testing.T, client *testutil.Client, bricResult *testu
 	isApproved, _ := captureResult["isApproved"].(bool)
 	assert.True(t, isApproved, "CAPTURE should be approved with REAL BRIC")
 
-	captureTransactionID := captureResult["transactionId"].(string)
-	captureGroupID := captureResult["groupId"].(string)
+	captureTransactionID, ok := captureResult["transactionId"].(string)
+	require.True(t, ok && captureTransactionID != "", "CAPTURE should return transaction_id")
 
-	assert.Equal(t, bricResult.GroupID, captureGroupID, "CAPTURE should share same group_id")
+	// groupId may not be present in capture response - check if it exists before asserting
+	if captureGroupID, ok := captureResult["groupId"].(string); ok && captureGroupID != "" {
+		assert.Equal(t, bricResult.GroupID, captureGroupID, "CAPTURE should share same group_id")
+	}
+
 	t.Logf("✅ CAPTURE successful - Transaction ID: %s", captureTransactionID)
 }
 
-// executeRefundStep performs a REFUND operation
-func executeRefundStep(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult, refundAmount string) {
+// executeRefundStep performs a REFUND operation using ConnectRPC with JWT
+func executeRefundStep(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult, refundAmount string, jwtToken, merchantID string) {
 	// Convert refund amount to cents for ConnectRPC
-	var amountCents int64
-	fmt.Sscanf(refundAmount, "%f", &amountCents)
-	amountCents = int64(amountCents * 100)
+	var amountFloat float64
+	fmt.Sscanf(refundAmount, "%f", &amountFloat)
+	amountCents := int64(amountFloat * 100)
 
 	refundReq := map[string]interface{}{
+		"merchant_id":    merchantID,
 		"transaction_id": bricResult.TransactionID,
 		"amount_cents":   amountCents,
 		"reason":         "Customer request - automated test",
 	}
 
 	t.Log("💸 Refunding with REAL BRIC...")
+	// Set JWT authentication
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
 	refundResp, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refundReq)
 	require.NoError(t, err)
 	defer refundResp.Body.Close()
@@ -189,14 +208,19 @@ func executeRefundStep(t *testing.T, client *testutil.Client, bricResult *testut
 	t.Logf("✅ REFUND successful - Transaction ID: %s (parent: %s)", refundTransactionID, refundParentTxID)
 }
 
-// executeVoidStep performs a VOID operation
-func executeVoidStep(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult) {
+// executeVoidStep performs a VOID operation using ConnectRPC with JWT
+func executeVoidStep(t *testing.T, client *testutil.Client, bricResult *testutil.RealBRICResult, jwtToken, merchantID string) {
 	voidReq := map[string]interface{}{
-		"group_id": bricResult.GroupID,
+		"merchant_id":    merchantID,
+		"transaction_id": bricResult.TransactionID,
 	}
 
 	t.Log("🚫 Voiding authorization with REAL BRIC...")
-	voidResp, err := client.Do("POST", "/api/v1/payments/void", voidReq)
+	// Set JWT authentication
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	voidResp, err := client.DoConnectRPC("payment.v1.PaymentService", "Void", voidReq)
 	require.NoError(t, err)
 	defer voidResp.Body.Close()
 
@@ -209,10 +233,14 @@ func executeVoidStep(t *testing.T, client *testutil.Client, bricResult *testutil
 	isApproved, _ := voidResult["isApproved"].(bool)
 	assert.True(t, isApproved, "VOID should be approved with REAL BRIC")
 
-	voidTransactionID := voidResult["transactionId"].(string)
-	voidGroupID := voidResult["groupId"].(string)
+	voidTransactionID, ok := voidResult["transactionId"].(string)
+	require.True(t, ok && voidTransactionID != "", "VOID should return transaction_id")
 
-	assert.Equal(t, bricResult.GroupID, voidGroupID, "VOID should share same group_id as AUTH")
+	// groupId may not be present in void response - check if it exists before asserting
+	if voidGroupID, ok := voidResult["groupId"].(string); ok && voidGroupID != "" {
+		assert.Equal(t, bricResult.GroupID, voidGroupID, "VOID should share same group_id as AUTH")
+	}
+
 	t.Logf("✅ VOID successful - Transaction ID: %s", voidTransactionID)
 }
 

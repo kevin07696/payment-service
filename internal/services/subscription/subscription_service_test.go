@@ -140,12 +140,12 @@ func TestCreateSubscription_Success(t *testing.T) {
 	ctx := context.Background()
 
 	merchantID := uuid.New()
-	customerID := uuid.New()
+	customerID := "cust_test_" + uuid.New().String()[:8]
 	paymentMethodID := uuid.New()
 
 	req := &ports.CreateSubscriptionRequest{
 		MerchantID:      merchantID.String(),
-		CustomerID:      customerID.String(),
+		CustomerID:      customerID,
 		PaymentMethodID: paymentMethodID.String(),
 		AmountCents:     9999, // $99.99
 		Currency:        "USD",
@@ -192,7 +192,7 @@ func TestCreateSubscription_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, merchantID.String(), result.MerchantID)
-	assert.Equal(t, customerID.String(), result.CustomerID)
+	assert.Equal(t, customerID, result.CustomerID)
 	assert.Equal(t, int64(9999), result.AmountCents)
 	assert.Equal(t, "USD", result.Currency)
 	assert.Equal(t, 1, result.IntervalValue)
@@ -259,13 +259,13 @@ func TestCreateSubscription_PaymentMethodBelongsToWrongCustomer(t *testing.T) {
 	ctx := context.Background()
 
 	merchantID := uuid.New()
-	customerID := uuid.New()
-	wrongCustomerID := uuid.New()
+	customerID := "cust_test_" + uuid.New().String()[:8]
+	wrongCustomerID := "cust_wrong_" + uuid.New().String()[:8]
 	paymentMethodID := uuid.New()
 
 	req := &ports.CreateSubscriptionRequest{
 		MerchantID:      merchantID.String(),
-		CustomerID:      customerID.String(),
+		CustomerID:      customerID,
 		PaymentMethodID: paymentMethodID.String(),
 		AmountCents:     9999, // $99.99
 		Currency:        "USD",
@@ -299,7 +299,7 @@ func TestCreateSubscription_InvalidAmount(t *testing.T) {
 	ctx := context.Background()
 
 	merchantID := uuid.New()
-	customerID := uuid.New()
+	customerID := "cust_test_" + uuid.New().String()[:8]
 	paymentMethodID := uuid.New()
 
 	dbPaymentMethod := fixtures.NewPaymentMethod().
@@ -325,7 +325,7 @@ func TestCreateSubscription_InvalidAmount(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := &ports.CreateSubscriptionRequest{
 				MerchantID:      merchantID.String(),
-				CustomerID:      customerID.String(),
+				CustomerID:      customerID,
 				PaymentMethodID: paymentMethodID.String(),
 				AmountCents:     tc.amountCents,
 				Currency:        "USD",
@@ -349,7 +349,7 @@ func TestUpdateSubscription_Success(t *testing.T) {
 
 	subscriptionID := uuid.New()
 	merchantID := uuid.New()
-	customerID := uuid.New()
+	customerID := "cust_test_" + uuid.New().String()[:8]
 
 	newAmount := int64(14999) // $149.99
 	req := &ports.UpdateSubscriptionRequest{
@@ -397,7 +397,7 @@ func TestUpdateSubscription_ChangePaymentMethod(t *testing.T) {
 
 	subscriptionID := uuid.New()
 	merchantID := uuid.New()
-	customerID := uuid.New()
+	customerID := "cust_test_" + uuid.New().String()[:8]
 	oldPaymentMethodID := uuid.New()
 	newPaymentMethodID := uuid.New()
 
@@ -461,8 +461,8 @@ func TestUpdateSubscription_PaymentMethodBelongsToWrongCustomer(t *testing.T) {
 
 	subscriptionID := uuid.New()
 	merchantID := uuid.New()
-	customerID := uuid.New()
-	wrongCustomerID := uuid.New()
+	customerID := "cust_test_" + uuid.New().String()[:8]
+	wrongCustomerID := "cust_wrong_" + uuid.New().String()[:8]
 	newPaymentMethodID := uuid.New()
 
 	// Existing subscription
@@ -513,7 +513,7 @@ func TestUpdateSubscription_PaymentMethodNotActive(t *testing.T) {
 
 	subscriptionID := uuid.New()
 	merchantID := uuid.New()
-	customerID := uuid.New()
+	customerID := "cust_test_" + uuid.New().String()[:8]
 	newPaymentMethodID := uuid.New()
 
 	// Existing subscription
@@ -930,7 +930,7 @@ func TestListCustomerSubscriptions_Success(t *testing.T) {
 	ctx := context.Background()
 
 	merchantID := uuid.New()
-	customerID := uuid.New()
+	customerID := "cust_test_" + uuid.New().String()[:8]
 
 	dbSubs := []sqlc.Subscription{
 		fixtures.NewSubscription().WithMerchantID(merchantID).WithCustomerID(customerID).Active().Build(),
@@ -941,7 +941,7 @@ func TestListCustomerSubscriptions_Success(t *testing.T) {
 		return params.MerchantID == merchantID && params.CustomerID == customerID
 	})).Return(dbSubs, nil)
 
-	result, err := service.ListCustomerSubscriptions(ctx, merchantID.String(), customerID.String())
+	result, err := service.ListCustomerSubscriptions(ctx, merchantID.String(), customerID)
 
 	require.NoError(t, err)
 	assert.Len(t, result, 2)
@@ -999,7 +999,7 @@ func TestCalculateNextBillingDate(t *testing.T) {
 func TestSqlcSubscriptionToDomain(t *testing.T) {
 	subscriptionID := uuid.New()
 	merchantID := uuid.New()
-	customerID := uuid.New()
+	customerID := "cust_test_" + uuid.New().String()[:8]
 	paymentMethodID := uuid.New()
 
 	metadata := map[string]interface{}{
@@ -1032,7 +1032,7 @@ func TestSqlcSubscriptionToDomain(t *testing.T) {
 
 	assert.Equal(t, subscriptionID.String(), result.ID)
 	assert.Equal(t, merchantID.String(), result.MerchantID)
-	assert.Equal(t, customerID.String(), result.CustomerID)
+	assert.Equal(t, customerID, result.CustomerID)
 	assert.Equal(t, int64(9999), result.AmountCents)
 	assert.Equal(t, "USD", result.Currency)
 	assert.Equal(t, 1, result.IntervalValue)

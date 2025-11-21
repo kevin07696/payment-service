@@ -71,7 +71,7 @@ RETURNING id, parent_transaction_id, merchant_id, customer_id, amount_cents, cur
 type CreateTransactionParams struct {
 	ID                  uuid.UUID          `json:"id"`
 	MerchantID          uuid.UUID          `json:"merchant_id"`
-	CustomerID          pgtype.UUID        `json:"customer_id"`
+	CustomerID          pgtype.Text        `json:"customer_id"`
 	AmountCents         int64              `json:"amount_cents"`
 	Currency            string             `json:"currency"`
 	Type                string             `json:"type"`
@@ -247,7 +247,7 @@ type GetTransactionTreeRow struct {
 	ID                  uuid.UUID          `json:"id"`
 	ParentTransactionID pgtype.UUID        `json:"parent_transaction_id"`
 	MerchantID          uuid.UUID          `json:"merchant_id"`
-	CustomerID          pgtype.UUID        `json:"customer_id"`
+	CustomerID          pgtype.Text        `json:"customer_id"`
 	AmountCents         int64              `json:"amount_cents"`
 	Currency            string             `json:"currency"`
 	Type                string             `json:"type"`
@@ -411,7 +411,7 @@ RETURNING id, parent_transaction_id, merchant_id, customer_id, amount_cents, cur
 `
 
 type UpdateTransactionFromEPXResponseParams struct {
-	CustomerID   pgtype.UUID        `json:"customer_id"`
+	CustomerID   pgtype.Text        `json:"customer_id"`
 	AuthGuid     pgtype.Text        `json:"auth_guid"`
 	AuthResp     pgtype.Text        `json:"auth_resp"`
 	AuthCode     pgtype.Text        `json:"auth_code"`

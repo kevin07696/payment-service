@@ -75,15 +75,9 @@ func (s *paymentMethodService) ListPaymentMethods(ctx context.Context, merchantI
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
-	// Parse customer ID
-	cid, err := uuid.Parse(customerID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid customer_id format: %w", err)
-	}
-
 	params := sqlc.ListPaymentMethodsByCustomerParams{
 		MerchantID: mid,
-		CustomerID: cid,
+		CustomerID: customerID,
 	}
 
 	dbPMs, err := s.queries.ListPaymentMethodsByCustomer(ctx, params)
@@ -123,19 +117,13 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
-	// Parse customer ID
-	cid, err := uuid.Parse(customerID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid customer_id format: %w", err)
-	}
-
 	// Verify payment method exists and belongs to customer
 	pm, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	if pm.MerchantID != mid || pm.CustomerID != cid {
+	if pm.MerchantID != mid || pm.CustomerID != customerID {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -206,19 +194,13 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
-	// Parse customer ID
-	cid, err := uuid.Parse(customerID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid customer_id format: %w", err)
-	}
-
 	// Verify payment method exists and belongs to customer
 	pm, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	if pm.MerchantID != mid || pm.CustomerID != cid {
+	if pm.MerchantID != mid || pm.CustomerID != customerID {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -231,7 +213,7 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 		// Unset all defaults for this customer
 		err := q.SetPaymentMethodAsDefault(ctx, sqlc.SetPaymentMethodAsDefaultParams{
 			MerchantID: mid,
-			CustomerID: cid,
+			CustomerID: customerID,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to unset existing defaults: %w", err)
@@ -277,12 +259,6 @@ func (s *paymentMethodService) StoreACHAccount(ctx context.Context, req *ports.S
 	merchantID, err := uuid.Parse(req.MerchantID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
-	}
-
-	// Validate customer ID
-	customerID, err := uuid.Parse(req.CustomerID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid customer_id format: %w", err)
 	}
 
 	// Validate account type
@@ -386,7 +362,7 @@ func (s *paymentMethodService) StoreACHAccount(ctx context.Context, req *ports.S
 		params := sqlc.CreatePaymentMethodParams{
 			ID:                 pmID,
 			MerchantID:         merchantID,
-			CustomerID:         customerID,
+			CustomerID:         req.CustomerID,
 			PaymentType:        string(domain.PaymentMethodTypeACH),
 			Bric:               epxResp.AuthGUID,
 			LastFour:           lastFour,
@@ -448,14 +424,8 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 		return fmt.Errorf("invalid merchant_id format: %w", err)
 	}
 
-	// Parse customer ID
-	cid, err := uuid.Parse(req.CustomerID)
-	if err != nil {
-		return fmt.Errorf("invalid customer_id format: %w", err)
-	}
-
 	// Verify ownership
-	if pm.MerchantID != merchantID || pm.CustomerID != cid {
+	if pm.MerchantID != merchantID || pm.CustomerID != req.CustomerID {
 		return fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -547,7 +517,7 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 	pm := &domain.PaymentMethod{
 		ID:           dbPM.ID.String(),
 		MerchantID:   dbPM.MerchantID.String(),
-		CustomerID:   dbPM.CustomerID.String(),
+		CustomerID:   dbPM.CustomerID,
 		PaymentType:  domain.PaymentMethodType(dbPM.PaymentType),
 		PaymentToken: dbPM.Bric,
 		LastFour:     dbPM.LastFour,

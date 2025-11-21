@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2025-11-21)
+
+- **Customer ID Migration: UUID → VARCHAR(100)**
+  - Migrated `customer_id` from UUID to VARCHAR(100) to support external service identifiers
+  - Affected tables: `customer_payment_methods`, `transactions`, `subscriptions`
+  - Matches existing `chargebacks` table which already used VARCHAR(100)
+  - Database migration: `013_customer_id_to_varchar.sql`
+  - Updated all service layer, handler, and test code
+  - Proto definitions already used string type, so no API contract changes
+  - All tests passing, backwards compatible with existing UUID string values
+  - Supports external customer IDs from Stripe, WordPress, etc.
+
 ### Added (2025-11-21)
 
 - **JWT Context Extraction for Audit Logging** (`internal/middleware/auth_context.go`)
@@ -34,14 +46,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed (2025-11-21)
 
-- **Cleaned up completed summary documents from docs/development/**
-  - Deleted `CRITICAL_FIXES_IMPLEMENTED.md` - Summary of 6 P0 fixes completed 2025-11-20
-  - Deleted `INTEGRATION_TEST_FIXES_SUMMARY.md` - Test suite fixes summary (work complete)
-  - Deleted `TODO_GROUP_ID_CLEANUP.md` - Group ID cleanup completed 2025-11-21
-  - Deleted `CONNECTRPC_DEPLOYMENT_READY.md` - ConnectRPC migration completion report
-  - Deleted `ACH_SAFE_VERIFICATION_DEPLOYMENT.md` - ACH verification deployment summary
-  - Deleted `E2E_TEST_SUMMARY.md` - Test classification summary
-  - **Result:** Removed 6 completed summaries/reports to keep docs focused on active work
+- **Cleaned up completed summary and plan documents**
+  - **First pass:** Deleted 6 completed summaries from `docs/development/`
+    - `CRITICAL_FIXES_IMPLEMENTED.md` - Summary of 6 P0 fixes completed 2025-11-20
+    - `INTEGRATION_TEST_FIXES_SUMMARY.md` - Test suite fixes summary (work complete)
+    - `TODO_GROUP_ID_CLEANUP.md` - Group ID cleanup completed 2025-11-21
+    - `CONNECTRPC_DEPLOYMENT_READY.md` - ConnectRPC migration completion report
+    - `ACH_SAFE_VERIFICATION_DEPLOYMENT.md` - ACH verification deployment summary
+    - `E2E_TEST_SUMMARY.md` - Test classification summary
+  - **Second pass:** Deleted 6 completed implementation plans from `docs/development/`
+    - `AUTH-IMPLEMENTATION-PLAN.md` - JWT auth now implemented and active
+    - `AUTH-IMPROVEMENT-PLAN.md` - Auth now enabled in production
+    - `TODO_P0_CRITICAL_FIXES.md` - P0-001 TranGroup fix completed
+    - `ACH_SAFE_VERIFICATION_IMPLEMENTATION.md` - ACH verification schema and logic implemented
+    - `DEPLOYMENT_PLAN.md` - ConnectRPC successfully deployed to production
+    - `DOCUMENTATION_AUDIT.md` - Documentation reorganization executed (integration/ and development/ split)
+  - **Result:** Removed 12 completed documents, keeping docs focused on active work
+
+### Reorganized (2025-11-21)
+
+- **Moved active refactor plans to docs/refactor/**
+  - Moved `REFACTOR_PLAN.md` → `docs/refactor/REFACTOR_PLAN.md` (endpoint consolidation 43→40, not yet complete)
+  - Moved `TDD_REFACTOR_PLAN.md` → `docs/refactor/TDD_REFACTOR_PLAN.md` (TDD approach for consolidation)
+  - Moved `INTEGRATION_TEST_PLAN.md` → `docs/refactor/INTEGRATION_TEST_PLAN.md` (5 ACH tests, partially complete)
+  - **docs/development/:** 18 reference docs (down from 31)
+  - **docs/refactor/:** 4 active plans (3 new + 1 existing CODE_CLEANLINESS_PLAN.md)
 
 ### Documented (2025-11-21)
 

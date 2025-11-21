@@ -337,7 +337,7 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 	_, err = h.dbAdapter.Queries().CreateTransaction(r.Context(), sqlc.CreateTransactionParams{
 		ID:                transactionID,
 		MerchantID:        merchantID,
-		CustomerID:        pgtype.UUID{}, // Unknown until callback (from USER_DATA_2)
+		CustomerID:        pgtype.Text{}, // Unknown until callback (from USER_DATA_2)
 		AmountCents:       amountCents,
 		Currency:          "USD",
 		Type:              internalTxType,
@@ -570,14 +570,11 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 	// Transaction was created as pending in GetPaymentForm, now update with EPX results
 	// Uses tran_nbr from EPX response to find the transaction record
 	tx, err := h.dbAdapter.Queries().UpdateTransactionFromEPXResponse(r.Context(), sqlc.UpdateTransactionFromEPXResponseParams{
-		CustomerID: func() pgtype.UUID {
+		CustomerID: func() pgtype.Text {
 			if customerID != "" {
-				cid, parseErr := uuid.Parse(customerID)
-				if parseErr == nil {
-					return pgtype.UUID{Bytes: cid, Valid: true}
-				}
+				return pgtype.Text{String: customerID, Valid: true}
 			}
-			return pgtype.UUID{}
+			return pgtype.Text{}
 		}(),
 		TranNbr: pgtype.Text{
 			String: response.TranNbr,
@@ -810,11 +807,6 @@ func (h *BrowserPostCallbackHandler) saveStorageBRICToPaymentMethod(ctx context.
 		return fmt.Errorf("customer_id not provided in REDIRECT_URL query parameters")
 	}
 
-	customerUUID, err := uuid.Parse(customerID)
-	if err != nil {
-		return fmt.Errorf("invalid customer_id: %w", err)
-	}
-
 	// Determine payment type
 	paymentType := "credit_card" // Browser Post is typically credit card
 	// Note: If we support ACH through Browser Post, we'd need to detect it here
@@ -857,10 +849,10 @@ func (h *BrowserPostCallbackHandler) saveStorageBRICToPaymentMethod(ctx context.
 	// Save storage BRIC directly to payment_methods table
 	// For STORAGE transactions, AUTH_GUID is already a storage BRIC - no conversion needed
 	paymentMethodID := uuid.New()
-	_, err = h.dbAdapter.Queries().CreatePaymentMethod(ctx, sqlc.CreatePaymentMethodParams{
+	_, err := h.dbAdapter.Queries().CreatePaymentMethod(ctx, sqlc.CreatePaymentMethodParams{
 		ID:          paymentMethodID,
 		MerchantID:  merchantID,
-		CustomerID:  customerUUID,
+		CustomerID:  customerID,
 		Bric:        response.AuthGUID, // Storage BRIC from EPX
 		PaymentType: paymentType,
 		LastFour:    lastFour,

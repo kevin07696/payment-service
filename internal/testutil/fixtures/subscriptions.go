@@ -20,7 +20,7 @@ func NewSubscription() *SubscriptionBuilder {
 		subscription: &sqlc.Subscription{
 			ID:                uuid.New(),
 			MerchantID:        uuid.New(),
-			CustomerID:        uuid.New(),
+			CustomerID:        "cust_test_" + uuid.New().String()[:8],
 			AmountCents:       2999, // $29.99
 			Currency:          "USD",
 			IntervalValue:     1,
@@ -47,7 +47,7 @@ func (b *SubscriptionBuilder) WithMerchantID(merchantID uuid.UUID) *Subscription
 	return b
 }
 
-func (b *SubscriptionBuilder) WithCustomerID(customerID uuid.UUID) *SubscriptionBuilder {
+func (b *SubscriptionBuilder) WithCustomerID(customerID string) *SubscriptionBuilder {
 	b.subscription.CustomerID = customerID
 	return b
 }
@@ -121,7 +121,7 @@ func (b *SubscriptionBuilder) Build() sqlc.Subscription {
 // Convenience functions for common subscription scenarios
 
 // ActiveSubscription creates an active subscription.
-func ActiveSubscription(merchantID, customerID, paymentMethodID uuid.UUID) sqlc.Subscription {
+func ActiveSubscription(merchantID uuid.UUID, customerID string, paymentMethodID uuid.UUID) sqlc.Subscription {
 	return NewSubscription().
 		WithMerchantID(merchantID).
 		WithCustomerID(customerID).
@@ -131,7 +131,7 @@ func ActiveSubscription(merchantID, customerID, paymentMethodID uuid.UUID) sqlc.
 }
 
 // CancelledSubscription creates a cancelled subscription.
-func CancelledSubscription(merchantID, customerID, paymentMethodID uuid.UUID) sqlc.Subscription {
+func CancelledSubscription(merchantID uuid.UUID, customerID string, paymentMethodID uuid.UUID) sqlc.Subscription {
 	return NewSubscription().
 		WithMerchantID(merchantID).
 		WithCustomerID(customerID).
@@ -141,7 +141,7 @@ func CancelledSubscription(merchantID, customerID, paymentMethodID uuid.UUID) sq
 }
 
 // PastDueSubscription creates a past due subscription with failure count.
-func PastDueSubscription(merchantID, customerID, paymentMethodID uuid.UUID, failureCount int32) sqlc.Subscription {
+func PastDueSubscription(merchantID uuid.UUID, customerID string, paymentMethodID uuid.UUID, failureCount int32) sqlc.Subscription {
 	return NewSubscription().
 		WithMerchantID(merchantID).
 		WithCustomerID(customerID).

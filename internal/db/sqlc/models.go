@@ -79,7 +79,7 @@ type Chargeback struct {
 type CustomerPaymentMethod struct {
 	ID           uuid.UUID          `json:"id"`
 	MerchantID   uuid.UUID          `json:"merchant_id"`
-	CustomerID   uuid.UUID          `json:"customer_id"`
+	CustomerID   string             `json:"customer_id"`
 	Bric         string             `json:"bric"`
 	PaymentType  string             `json:"payment_type"`
 	LastFour     string             `json:"last_four"`
@@ -194,7 +194,7 @@ type ServiceMerchant struct {
 type Subscription struct {
 	ID                    uuid.UUID          `json:"id"`
 	MerchantID            uuid.UUID          `json:"merchant_id"`
-	CustomerID            uuid.UUID          `json:"customer_id"`
+	CustomerID            string             `json:"customer_id"`
 	AmountCents           int64              `json:"amount_cents"`
 	Currency              string             `json:"currency"`
 	IntervalValue         int32              `json:"interval_value"`
@@ -217,7 +217,7 @@ type Transaction struct {
 	// Foreign key to parent transaction. CAPTURE→AUTH, REFUND→SALE/CAPTURE, VOID→AUTH/SALE. NULL for standalone transactions (SALE, AUTH, STORAGE, DEBIT). Detailed validation in application layer.
 	ParentTransactionID pgtype.UUID `json:"parent_transaction_id"`
 	MerchantID          uuid.UUID   `json:"merchant_id"`
-	CustomerID          pgtype.UUID `json:"customer_id"`
+	CustomerID          pgtype.Text `json:"customer_id"`
 	// Amount in cents (e.g., $10.50 = 1050). Using BIGINT avoids floating point precision issues.
 	AmountCents       int64       `json:"amount_cents"`
 	Currency          string      `json:"currency"`

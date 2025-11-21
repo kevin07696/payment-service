@@ -45,7 +45,7 @@ INSERT INTO customer_payment_methods (
 type CreatePaymentMethodParams struct {
 	ID                   uuid.UUID   `json:"id"`
 	MerchantID           uuid.UUID   `json:"merchant_id"`
-	CustomerID           uuid.UUID   `json:"customer_id"`
+	CustomerID           string      `json:"customer_id"`
 	PaymentType          string      `json:"payment_type"`
 	Bric                 string      `json:"bric"`
 	LastFour             string      `json:"last_four"`
@@ -160,7 +160,7 @@ LIMIT 1
 
 type GetDefaultPaymentMethodParams struct {
 	MerchantID uuid.UUID `json:"merchant_id"`
-	CustomerID uuid.UUID `json:"customer_id"`
+	CustomerID string    `json:"customer_id"`
 }
 
 func (q *Queries) GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPaymentMethodParams) (CustomerPaymentMethod, error) {
@@ -450,7 +450,7 @@ ORDER BY is_default DESC, created_at DESC
 
 type ListPaymentMethodsByCustomerParams struct {
 	MerchantID uuid.UUID `json:"merchant_id"`
-	CustomerID uuid.UUID `json:"customer_id"`
+	CustomerID string    `json:"customer_id"`
 }
 
 func (q *Queries) ListPaymentMethodsByCustomer(ctx context.Context, arg ListPaymentMethodsByCustomerParams) ([]CustomerPaymentMethod, error) {
@@ -567,7 +567,7 @@ WHERE merchant_id = $1 AND customer_id = $2 AND deleted_at IS NULL
 
 type SetPaymentMethodAsDefaultParams struct {
 	MerchantID uuid.UUID `json:"merchant_id"`
-	CustomerID uuid.UUID `json:"customer_id"`
+	CustomerID string    `json:"customer_id"`
 }
 
 // First unset all defaults for this customer
