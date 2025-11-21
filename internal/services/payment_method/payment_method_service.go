@@ -587,16 +587,3 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 	return pm
 }
 
-func toNullableText(s *string) pgtype.Text {
-	if s == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: *s, Valid: true}
-}
-
-func toNullableInt32(i *int) pgtype.Int4 {
-	if i == nil {
-		return pgtype.Int4{Valid: false}
-	}
-	return pgtype.Int4{Int32: int32(*i), Valid: true}
-}

@@ -58,6 +58,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **React Integration Guide** (`docs/integration/REACT_INTEGRATION.md`)
   - Comprehensive React integration guide for ConnectRPC payment APIs
+  - **Critical Warnings Section:** Added prominent warnings (⚠️) at document start
+    - Browser Post callback: Always return HTTP 200 (prevents EPX infinite retries)
+    - Unique idempotency keys (prevents duplicate charges)
+    - BigInt for amounts (prevents precision loss)
+    - Required database constraints (UNIQUE on epx_tran_nbr and idempotency_key)
+  - **Quick Reference Section:** Copy-paste examples for common operations
+    - One-time payment (Sale)
+    - Tokenize card with Browser Post
+    - Create subscription
+    - List saved payment methods
+    - Refund payment
+    - Handle Browser Post callback (backend)
+    - Generate idempotency keys
   - **Setup & Configuration:** ConnectRPC client setup with TypeScript
   - **Authentication:** JWT token management with caching and auto-refresh
   - **React Hooks:** Complete hooks for all endpoints
@@ -65,12 +78,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `usePaymentMethods` - List, Delete, SetDefault, StoreACHAccount
     - `useSubscription` - Create, Update, Cancel, List subscriptions
   - **Browser Post Integration:** Complete React component for PCI-compliant card tokenization
+  - **Idempotency Implementation:** Comprehensive section on preventing duplicate charges
+    - Frontend idempotency (double-click prevention with useIdempotentRequest hook)
+    - Backend idempotency for Browser Post callbacks (INSERT...ON CONFLICT pattern)
+    - Backend idempotency for ConnectRPC (in-flight request cache)
+    - Patterns by endpoint type (Authorize/Sale, Capture, Refund, Subscription)
+    - Testing strategies (3 complete test examples)
+    - Comprehensive checklist (frontend, backend, database, testing)
   - **Components:** PaymentForm, PaymentMethodList, BrowserPost, PaymentCallback, ErrorDisplay
   - **Error Handling:** ConnectRPC error parsing with retry logic and user-friendly messages
   - **TypeScript Types:** Amount helpers (dollars↔cents), currency formatting, idempotency keys
   - **Complete Examples:** E-commerce checkout flow, subscription management
   - **Best Practices:** Idempotency, BigInt handling, input validation, environment variables, loading states
   - All code examples use TypeScript with proper type safety
+  - Updated Table of Contents to include Critical Warnings, Idempotency, and Quick Reference sections
+  - Enhanced for implementation readability: developers can now quickly find critical information and copy-paste working code
 
 ### Removed (2025-11-21)
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/kevin07696/payment-service/internal/converters"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/util"
@@ -49,22 +50,22 @@ func (s *paymentService) CreatePendingTransaction(ctx context.Context, params Cr
 	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		createParams := sqlc.CreateTransactionParams{
 			ID:                  txID,
-			ParentTransactionID: toNullableUUIDFromUUID(params.ParentTransactionID),
+			ParentTransactionID: converters.ToNullableUUIDFromUUID(params.ParentTransactionID),
 			MerchantID:          params.MerchantID,
-			CustomerID:          toNullableText(params.CustomerID),
+			CustomerID:          converters.ToNullableText(params.CustomerID),
 			AmountCents:         params.Amount, // Amount is already in cents
 			Currency:            params.Currency,
 			Type:                string(params.Type),
 			PaymentMethodType:   string(params.PaymentMethodType),
-			PaymentMethodID:     toNullableUUIDFromUUID(params.PaymentMethodID),
+			PaymentMethodID:     converters.ToNullableUUIDFromUUID(params.PaymentMethodID),
 			TranNbr: pgtype.Text{
 				String: tranNbr,
 				Valid:  true,
 			},
-			AuthGuid:     toNullableText(nil), // Will be set after EPX response
+			AuthGuid:     converters.ToNullableText(nil), // Will be set after EPX response
 			AuthResp:     pgtype.Text{},       // Empty initially, updated after EPX
-			AuthCode:     toNullableText(nil),
-			AuthCardType: toNullableText(nil),
+			AuthCode:     converters.ToNullableText(nil),
+			AuthCardType: converters.ToNullableText(nil),
 			Metadata:     metadataJSON,
 			ProcessedAt:  pgtype.Timestamptz{},
 		}
@@ -101,15 +102,15 @@ func (s *paymentService) UpdateTransactionWithEPXResponse(ctx context.Context, t
 
 	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		_, err := q.UpdateTransactionFromEPXResponse(ctx, sqlc.UpdateTransactionFromEPXResponseParams{
-			CustomerID: toNullableText(customerID),
+			CustomerID: converters.ToNullableText(customerID),
 			TranNbr: pgtype.Text{
 				String: tranNbr,
 				Valid:  true,
 			},
-			AuthGuid:     toNullableText(authGUID),
+			AuthGuid:     converters.ToNullableText(authGUID),
 			AuthResp:     pgtype.Text{String: *authResp, Valid: true}, // Required
-			AuthCode:     toNullableText(authCode),
-			AuthCardType: toNullableText(authCardType),
+			AuthCode:     converters.ToNullableText(authCode),
+			AuthCardType: converters.ToNullableText(authCardType),
 			Metadata:     metadataJSON,
 		})
 		return err

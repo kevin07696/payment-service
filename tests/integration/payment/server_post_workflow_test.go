@@ -25,7 +25,7 @@ func TestServerPost_AuthorizeWithStoredCard(t *testing.T) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	client := paymentv1connect.NewPaymentServiceClient(httpClient, cfg.ServiceURL)
 	merchantID := "00000000-0000-0000-0000-000000000001"
-	customerID := "test-customer-serverpost-auth"
+	customerID := "00000000-0000-0000-0000-000000001001" // UUID format required
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -73,7 +73,7 @@ func TestServerPost_SaleWithStoredCard(t *testing.T) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	client := paymentv1connect.NewPaymentServiceClient(httpClient, cfg.ServiceURL)
 	merchantID := "00000000-0000-0000-0000-000000000001"
-	customerID := "test-customer-serverpost-sale"
+	customerID := "00000000-0000-0000-0000-000000001002" // UUID format required
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -126,7 +126,7 @@ func TestServerPost_CaptureWithFinancialBRIC(t *testing.T) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	client := paymentv1connect.NewPaymentServiceClient(httpClient, cfg.ServiceURL)
 	merchantID := "00000000-0000-0000-0000-000000000001"
-	customerID := "test-customer-serverpost-capture"
+	customerID := "00000000-0000-0000-0000-000000001003" // UUID format required
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -187,7 +187,7 @@ func TestServerPost_VoidWithFinancialBRIC(t *testing.T) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	client := paymentv1connect.NewPaymentServiceClient(httpClient, cfg.ServiceURL)
 	merchantID := "00000000-0000-0000-0000-000000000001"
-	customerID := "test-customer-serverpost-void"
+	customerID := "00000000-0000-0000-0000-000000001004" // UUID format required
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -246,7 +246,7 @@ func TestServerPost_RefundWithFinancialBRIC(t *testing.T) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	client := paymentv1connect.NewPaymentServiceClient(httpClient, cfg.ServiceURL)
 	merchantID := "00000000-0000-0000-0000-000000000001"
-	customerID := "test-customer-serverpost-refund"
+	customerID := "00000000-0000-0000-0000-000000001005" // UUID format required
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -308,7 +308,7 @@ func TestServerPost_ConcurrentOperations(t *testing.T) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	client := paymentv1connect.NewPaymentServiceClient(httpClient, cfg.ServiceURL)
 	merchantID := "00000000-0000-0000-0000-000000000001"
-	customerID := "test-customer-serverpost-concurrent"
+	customerID := "00000000-0000-0000-0000-000000001006" // UUID format required
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

@@ -9,16 +9,92 @@
 
 ## Table of Contents
 
-1. [Quick Start](#quick-start)
-2. [Setup and Configuration](#setup-and-configuration)
-3. [Authentication](#authentication)
-4. [Payment Operations](#payment-operations)
-5. [Payment Methods](#payment-methods)
-6. [Subscriptions](#subscriptions)
-7. [Browser Post Integration](#browser-post-integration)
-8. [Error Handling](#error-handling)
-9. [TypeScript Types](#typescript-types)
-10. [Complete Examples](#complete-examples)
+1. [Critical Warnings](#critical-warnings) ⚠️
+2. [Quick Start](#quick-start)
+3. [Setup and Configuration](#setup-and-configuration)
+4. [Authentication](#authentication)
+5. [Payment Operations](#payment-operations)
+6. [Payment Methods](#payment-methods)
+7. [Subscriptions](#subscriptions)
+8. [Browser Post Integration](#browser-post-integration)
+9. [Idempotency Implementation](#idempotency-implementation) ⭐
+10. [Error Handling](#error-handling)
+11. [TypeScript Types](#typescript-types)
+12. [Complete Examples](#complete-examples)
+13. [Best Practices](#best-practices)
+14. [Quick Reference](#quick-reference)
+
+---
+
+## Critical Warnings
+
+### ⚠️ Browser Post Callback: Always Return HTTP 200
+
+**CRITICAL:** When handling Browser Post callbacks from EPX, ALWAYS return HTTP 200, even for errors.
+
+```typescript
+// ✅ CORRECT: Always return 200
+export async function handleBrowserPostCallback(req, res) {
+  try {
+    // Process callback...
+    return res.status(200).redirect("/payment/success");
+  } catch (error) {
+    // STILL return 200 to prevent EPX infinite retries
+    return res.status(200).redirect("/payment/error");
+  }
+}
+
+// ❌ WRONG: Returning non-200 causes EPX to retry infinitely
+export async function handleBrowserPostCallback(req, res) {
+  try {
+    // Process callback...
+  } catch (error) {
+    return res.status(500).send("Error"); // EPX will retry forever!
+  }
+}
+```
+
+**Why:** EPX retries failed callbacks on network failures, non-200 responses, and timeouts. Returning non-200 creates an infinite retry loop.
+
+### ⚠️ Use Unique Idempotency Keys
+
+Every payment operation MUST have a unique idempotency key to prevent duplicate charges:
+
+```typescript
+// ✅ CORRECT: Unique key per operation
+const idempotencyKey = `sale_${orderId}_${Date.now()}_${Math.random()}`;
+
+// ❌ WRONG: Reusing the same key prevents all payments
+const idempotencyKey = "sale_key";
+```
+
+### ⚠️ Use BigInt for Amounts
+
+Always use `bigint` type for amounts to avoid precision loss:
+
+```typescript
+// ✅ CORRECT: Use bigint for cents
+const amountCents = BigInt(9999); // $99.99
+
+// ❌ WRONG: Numbers lose precision
+const amountCents = 9999.99; // Type error + precision loss
+```
+
+### ⚠️ Database Constraints Required
+
+Implement database UNIQUE constraints to handle race conditions:
+
+```sql
+-- Required for Browser Post idempotency
+CREATE UNIQUE INDEX idx_transactions_epx_tran_nbr
+ON transactions(epx_tran_nbr)
+WHERE epx_tran_nbr IS NOT NULL;
+
+-- Required for ConnectRPC idempotency
+CREATE UNIQUE INDEX idx_transactions_idempotency_key
+ON transactions(merchant_id, idempotency_key)
+WHERE idempotency_key IS NOT NULL;
+```
 
 ---
 
@@ -1149,6 +1225,458 @@ export function PaymentCallback() {
 
 ---
 
+## Idempotency Implementation
+
+### Understanding Idempotency
+
+**Idempotency** ensures that making the same request multiple times has the same effect as making it once. This is critical for payment operations to prevent duplicate charges.
+
+### Idempotency Key Strategy
+
+**Key Format:** `{operation}_{timestamp}_{random}`
+
+```typescript
+// Generate unique idempotency key
+function generateIdempotencyKey(operation: string): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substr(2, 9);
+  return `${operation}_${timestamp}_${random}`;
+}
+
+// Examples
+const authKey = generateIdempotencyKey("auth");     // "auth_1706123456789_k3j9d2x7q"
+const captureKey = generateIdempotencyKey("capture"); // "capture_1706123456790_m8n4p1z5w"
+```
+
+### Frontend Idempotency: Preventing Double-Clicks
+
+**File:** `src/hooks/useIdempotentRequest.ts`
+
+```typescript
+import { useState, useRef } from "react";
+
+interface IdempotentRequest<T> {
+  execute: () => Promise<T>;
+  loading: boolean;
+  error: Error | null;
+}
+
+/**
+ * Hook to prevent duplicate requests from double-clicks
+ */
+export function useIdempotentRequest<T>(
+  requestFn: () => Promise<T>
+): IdempotentRequest<T> {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const requestInProgress = useRef(false);
+
+  const execute = async (): Promise<T> => {
+    // Prevent duplicate execution
+    if (requestInProgress.current) {
+      throw new Error("Request already in progress");
+    }
+
+    requestInProgress.current = true;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await requestFn();
+      return result;
+    } catch (err) {
+      setError(err as Error);
+      throw err;
+    } finally {
+      setLoading(false);
+      requestInProgress.current = false;
+    }
+  };
+
+  return { execute, loading, error };
+}
+```
+
+**Usage in Components:**
+
+```typescript
+import { useIdempotentRequest } from "../hooks/useIdempotentRequest";
+
+function CheckoutButton({ onPay }: { onPay: () => Promise<void> }) {
+  const { execute, loading } = useIdempotentRequest(onPay);
+
+  return (
+    <button onClick={execute} disabled={loading}>
+      {loading ? "Processing..." : "Pay Now"}
+    </button>
+  );
+}
+```
+
+### Backend Idempotency: Browser Post Callback
+
+The Browser Post callback is the most critical place for idempotency because **EPX will retry failed callbacks**.
+
+**Problem:** EPX retries callbacks on:
+- Network failures
+- Non-200 HTTP responses
+- Timeouts (> 30 seconds)
+
+**Solution:** Store transaction ID and return cached response for duplicates.
+
+**File:** `src/api/browser-post-callback.ts` (Backend/BFF)
+
+```typescript
+import { Request, Response } from "express";
+
+interface CallbackData {
+  AUTH_RESP: string;
+  AUTH_GUID?: string;
+  GUID?: string;
+  TRAN_NBR: string;
+  AUTH_CODE?: string;
+  AUTH_AMOUNT: string;
+  AUTH_CARD_TYPE?: string;
+  AUTH_CARD_NBR?: string;
+}
+
+/**
+ * Idempotent Browser Post callback handler
+ */
+export async function handleBrowserPostCallback(req: Request, res: Response) {
+  const data: CallbackData = req.body;
+  const transactionId = data.TRAN_NBR;
+
+  // STEP 1: Check if we've already processed this callback
+  const existing = await db.query(
+    "SELECT * FROM transactions WHERE epx_tran_nbr = $1",
+    [transactionId]
+  );
+
+  if (existing.rows.length > 0) {
+    // Already processed - return same response
+    console.log(`Duplicate callback for transaction ${transactionId}`);
+    return res.redirect(
+      `/payment/success?transaction_id=${transactionId}&duplicate=true`
+    );
+  }
+
+  // STEP 2: Use database transaction with INSERT ... ON CONFLICT
+  try {
+    const result = await db.query(`
+      INSERT INTO transactions (
+        id,
+        epx_tran_nbr,
+        merchant_id,
+        customer_id,
+        amount_cents,
+        currency,
+        status,
+        epx_auth_guid,
+        epx_storage_guid,
+        auth_code,
+        card_brand,
+        card_last_four,
+        created_at
+      ) VALUES (
+        gen_random_uuid(),
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()
+      )
+      ON CONFLICT (epx_tran_nbr) DO NOTHING
+      RETURNING id
+    `, [
+      transactionId,
+      req.query.merchant_id,
+      req.query.customer_id,
+      parseFloat(data.AUTH_AMOUNT) * 100,
+      "USD",
+      data.AUTH_RESP === "00" ? "approved" : "declined",
+      data.AUTH_GUID,
+      data.GUID,
+      data.AUTH_CODE,
+      data.AUTH_CARD_TYPE,
+      data.AUTH_CARD_NBR?.slice(-4),
+    ]);
+
+    // If ON CONFLICT triggered, this was a race condition
+    if (result.rows.length === 0) {
+      console.log(`Race condition detected for ${transactionId}`);
+      return res.redirect(
+        `/payment/success?transaction_id=${transactionId}&duplicate=true`
+      );
+    }
+
+    // STEP 3: Return success (always 200, even for declined transactions)
+    if (data.AUTH_RESP === "00") {
+      return res.redirect(
+        `/payment/success?transaction_id=${transactionId}`
+      );
+    } else {
+      return res.redirect(
+        `/payment/failed?transaction_id=${transactionId}&code=${data.AUTH_RESP}`
+      );
+    }
+  } catch (error) {
+    console.error("Callback processing error:", error);
+
+    // IMPORTANT: Still return 200 to prevent EPX retries
+    // Log the error for investigation
+    return res.redirect(
+      `/payment/error?transaction_id=${transactionId}`
+    );
+  }
+}
+```
+
+**Database Schema for Idempotency:**
+
+```sql
+-- Unique constraint on EPX transaction number
+CREATE UNIQUE INDEX idx_transactions_epx_tran_nbr
+ON transactions(epx_tran_nbr)
+WHERE epx_tran_nbr IS NOT NULL;
+```
+
+### Backend Idempotency: ConnectRPC Endpoints
+
+The payment service handles idempotency for ConnectRPC requests automatically, but your frontend/BFF layer should implement request deduplication.
+
+**File:** `src/api/payment-proxy.ts` (Backend/BFF)
+
+```typescript
+import { paymentClient } from "../lib/payment-client";
+
+// Cache for tracking in-flight requests
+const requestCache = new Map<string, Promise<any>>();
+
+/**
+ * Idempotent payment request wrapper
+ */
+export async function idempotentPaymentRequest<T>(
+  idempotencyKey: string,
+  requestFn: () => Promise<T>
+): Promise<T> {
+  // Check if this exact request is already in-flight
+  const inFlight = requestCache.get(idempotencyKey);
+  if (inFlight) {
+    console.log(`Returning in-flight request for key: ${idempotencyKey}`);
+    return inFlight;
+  }
+
+  // Execute request and cache the promise
+  const promise = requestFn()
+    .finally(() => {
+      // Remove from cache after completion (success or failure)
+      requestCache.delete(idempotencyKey);
+    });
+
+  requestCache.set(idempotencyKey, promise);
+  return promise;
+}
+
+/**
+ * Example: Idempotent authorize endpoint
+ */
+export async function authorizePayment(
+  merchantId: string,
+  customerId: string,
+  amountCents: bigint,
+  paymentMethodId: string,
+  idempotencyKey: string
+) {
+  return idempotentPaymentRequest(idempotencyKey, async () => {
+    return await paymentClient.authorize({
+      merchantId,
+      customerId,
+      amountCents,
+      currency: "USD",
+      paymentMethodId,
+      idempotencyKey,
+    });
+  });
+}
+```
+
+### Idempotency Patterns by Endpoint Type
+
+#### 1. Authorize/Sale (Initial Payment)
+
+```typescript
+// Frontend generates unique key per payment attempt
+const idempotencyKey = `sale_${orderId}_${Date.now()}_${random}`;
+
+// If user clicks "Pay" multiple times, same key = same transaction
+const response = await paymentClient.sale({
+  merchantId,
+  customerId,
+  amountCents,
+  currency: "USD",
+  paymentMethodId,
+  idempotencyKey, // CRITICAL: Must be unique per order, stable across retries
+});
+```
+
+**Key Strategy:**
+- Include `orderId` in key to link to business entity
+- Safe to retry with same key = returns existing transaction
+- Different `orderId` = different key = new transaction
+
+#### 2. Capture (Following Authorization)
+
+```typescript
+// Generate capture key based on auth transaction
+const idempotencyKey = `capture_${authTransactionId}_${Date.now()}_${random}`;
+
+const response = await paymentClient.capture({
+  merchantId,
+  transactionId: authTransactionId,
+  amountCents, // Can be less than auth for partial capture
+  idempotencyKey,
+});
+```
+
+**Key Strategy:**
+- Include parent `authTransactionId` to link capture to auth
+- Can have multiple partial captures with different keys
+- Same key = same capture (prevents double-capture)
+
+#### 3. Refund (Following Capture)
+
+```typescript
+// Generate refund key based on captured transaction
+const idempotencyKey = `refund_${captureTransactionId}_${Date.now()}_${random}`;
+
+const response = await paymentClient.refund({
+  merchantId,
+  transactionId: captureTransactionId,
+  amountCents,
+  reason: "Customer requested refund",
+  idempotencyKey,
+});
+```
+
+**Key Strategy:**
+- Include parent `captureTransactionId`
+- Can have multiple partial refunds with different keys
+- Same key = same refund (prevents double-refund)
+
+#### 4. Subscription Creation
+
+```typescript
+// Generate subscription key based on customer + plan
+const idempotencyKey = `sub_${customerId}_${planId}_${Date.now()}_${random}`;
+
+const response = await subscriptionClient.createSubscription({
+  merchantId,
+  customerId,
+  paymentMethodId,
+  amountCents,
+  intervalUnit: "MONTH",
+  intervalCount: 1,
+  planName: "Pro Plan",
+  idempotencyKey, // CRITICAL: Prevents duplicate subscriptions
+});
+```
+
+**Key Strategy:**
+- Include `customerId` and `planId` to identify unique subscription
+- Safe to retry = returns existing subscription
+- Prevents user from accidentally creating duplicate subscriptions
+
+### Testing Idempotency
+
+**Test 1: Double-Click Prevention**
+
+```typescript
+// Simulate rapid double-click
+test("prevents double payment submission", async () => {
+  const { getByText } = render(<PaymentForm {...props} />);
+  const payButton = getByText("Pay Now");
+
+  // Click twice rapidly
+  fireEvent.click(payButton);
+  fireEvent.click(payButton); // Second click should be ignored
+
+  // Should only make ONE API call
+  await waitFor(() => {
+    expect(mockPaymentClient.sale).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+**Test 2: Browser Post Callback Retry**
+
+```bash
+# Simulate EPX retry by sending same callback twice
+curl -X POST http://localhost:3000/api/browser-post/callback \
+  -d "TRAN_NBR=1234567890&AUTH_RESP=00&AUTH_AMOUNT=99.99"
+
+# Send again (simulating EPX retry after timeout)
+curl -X POST http://localhost:3000/api/browser-post/callback \
+  -d "TRAN_NBR=1234567890&AUTH_RESP=00&AUTH_AMOUNT=99.99"
+
+# Should return same result, create only ONE database record
+```
+
+**Test 3: ConnectRPC Idempotency**
+
+```typescript
+test("returns same transaction for duplicate idempotency key", async () => {
+  const idempotencyKey = "test_12345";
+
+  // Make first request
+  const response1 = await paymentClient.sale({
+    merchantId: "merchant-1",
+    customerId: "customer-1",
+    amountCents: 9999n,
+    currency: "USD",
+    paymentMethodId: "pm-1",
+    idempotencyKey,
+  });
+
+  // Make second request with SAME idempotency key
+  const response2 = await paymentClient.sale({
+    merchantId: "merchant-1",
+    customerId: "customer-1",
+    amountCents: 9999n,
+    currency: "USD",
+    paymentMethodId: "pm-1",
+    idempotencyKey, // Same key
+  });
+
+  // Should return SAME transaction
+  expect(response1.transactionId).toBe(response2.transactionId);
+});
+```
+
+### Idempotency Checklist
+
+**Frontend:**
+- [ ] Generate unique idempotency keys per request
+- [ ] Disable buttons while request is in-flight
+- [ ] Cache in-flight requests to prevent concurrent duplicates
+- [ ] Include business entity ID (orderId, subscriptionId) in key
+
+**Backend/BFF:**
+- [ ] Validate idempotency keys before calling payment service
+- [ ] Use database constraints (UNIQUE on epx_tran_nbr)
+- [ ] Use INSERT ... ON CONFLICT for Browser Post callbacks
+- [ ] Always return 200 to EPX (even for errors) to prevent retries
+- [ ] Cache in-flight requests by idempotency key
+
+**Database:**
+- [ ] UNIQUE constraint on epx_tran_nbr
+- [ ] UNIQUE constraint on idempotency_key per merchant
+- [ ] Consider TTL for old idempotency keys (e.g., 24 hours)
+
+**Testing:**
+- [ ] Test double-click prevention
+- [ ] Test duplicate Browser Post callbacks
+- [ ] Test same idempotency key returns same transaction
+- [ ] Test different idempotency keys create different transactions
+
+---
+
 ## Error Handling
 
 ### Error Handling Utility
@@ -1560,6 +2088,184 @@ export function SubscriptionManager({
     </div>
   );
 }
+```
+
+---
+
+## Quick Reference
+
+### Common Operations Cheat Sheet
+
+#### 1. Process a One-Time Payment (Sale)
+
+```typescript
+import { usePayment } from './hooks/usePayment';
+import { dollarsToCents } from './lib/types';
+
+function MyComponent() {
+  const { sale, loading, error } = usePayment();
+
+  const handlePayment = async () => {
+    const response = await sale(
+      "merchant-id",
+      "customer-id",
+      dollarsToCents(99.99),      // $99.99
+      "payment-method-id",
+      { order_id: "ORDER-123" }   // Optional metadata
+    );
+
+    if (response?.isApproved) {
+      // Payment successful
+      console.log("Transaction ID:", response.transactionId);
+    }
+  };
+
+  return <button onClick={handlePayment} disabled={loading}>Pay Now</button>;
+}
+```
+
+#### 2. Tokenize Card with Browser Post
+
+```typescript
+import { BrowserPost } from './components/BrowserPost';
+
+function SaveCardForm() {
+  return (
+    <BrowserPost
+      merchantId="merchant-id"
+      amount="0.00"
+      transactionType="STORAGE"  // Just tokenize, no charge
+      customerId="customer-id"
+      returnUrl="https://yourapp.com/payment/callback"
+    />
+  );
+}
+```
+
+#### 3. Create a Subscription
+
+```typescript
+import { useSubscription } from './hooks/useSubscription';
+import { SubscriptionInterval } from './gen/subscription/v1/subscription_pb';
+import { dollarsToCents } from './lib/types';
+
+function SubscribeButton() {
+  const { createSubscription, loading } = useSubscription();
+
+  const handleSubscribe = async () => {
+    const subscription = await createSubscription(
+      "merchant-id",
+      "customer-id",
+      "payment-method-id",
+      dollarsToCents(9.99),                // $9.99/month
+      SubscriptionInterval.MONTH,
+      1,                                   // Every 1 month
+      "Pro Plan"
+    );
+
+    if (subscription) {
+      console.log("Subscription created:", subscription.id);
+    }
+  };
+
+  return <button onClick={handleSubscribe} disabled={loading}>Subscribe</button>;
+}
+```
+
+#### 4. List Saved Payment Methods
+
+```typescript
+import { usePaymentMethods } from './hooks/usePaymentMethods';
+
+function SavedCards() {
+  const { paymentMethods, loading, deletePaymentMethod } =
+    usePaymentMethods("merchant-id", "customer-id");
+
+  if (loading) return <div>Loading...</div>;
+
+  return (
+    <ul>
+      {paymentMethods.map(pm => (
+        <li key={pm.id}>
+          {pm.brand} ending in {pm.lastFour}
+          {pm.isDefault && <span>Default</span>}
+          <button onClick={() => deletePaymentMethod(pm.id)}>Delete</button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
+
+#### 5. Refund a Payment
+
+```typescript
+const { refund } = usePayment();
+
+const handleRefund = async () => {
+  const response = await refund(
+    "merchant-id",
+    "transaction-id",
+    dollarsToCents(99.99),         // Full refund
+    "Customer requested refund"
+  );
+
+  if (response?.isApproved) {
+    console.log("Refund successful");
+  }
+};
+```
+
+#### 6. Handle Browser Post Callback (Backend)
+
+```typescript
+// Express.js route
+app.post('/payment/callback', async (req, res) => {
+  const { AUTH_RESP, AUTH_GUID, TRAN_NBR, AUTH_AMOUNT } = req.body;
+
+  // Check if already processed
+  const existing = await db.query(
+    "SELECT * FROM transactions WHERE epx_tran_nbr = $1",
+    [TRAN_NBR]
+  );
+
+  if (existing.rows.length > 0) {
+    // Already processed, return success
+    return res.status(200).redirect(`/payment/success?transaction_id=${TRAN_NBR}`);
+  }
+
+  // Save transaction with ON CONFLICT protection
+  try {
+    await db.query(`
+      INSERT INTO transactions (epx_tran_nbr, bric_token, amount_cents, status)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (epx_tran_nbr) DO NOTHING
+    `, [TRAN_NBR, AUTH_GUID, AUTH_AMOUNT, AUTH_RESP === '00' ? 'approved' : 'declined']);
+
+    // CRITICAL: Always return 200 to prevent EPX retries
+    return res.status(200).redirect(
+      AUTH_RESP === '00'
+        ? `/payment/success?transaction_id=${TRAN_NBR}`
+        : `/payment/failed?transaction_id=${TRAN_NBR}`
+    );
+  } catch (error) {
+    // STILL return 200 even on error
+    return res.status(200).redirect(`/payment/error?transaction_id=${TRAN_NBR}`);
+  }
+});
+```
+
+#### 7. Generate Idempotency Keys
+
+```typescript
+// For payment operations
+const idempotencyKey = `sale_${orderId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+// For captures
+const idempotencyKey = `capture_${authTransactionId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+// For refunds
+const idempotencyKey = `refund_${captureTransactionId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 ```
 
 ---

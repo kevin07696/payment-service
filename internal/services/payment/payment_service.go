@@ -11,6 +11,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/auth"
+	"github.com/kevin07696/payment-service/internal/converters"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
@@ -296,12 +297,12 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 			Currency:            req.Currency,
 			Type:                string(domain.TransactionTypeSale), // SALE for all purchases (credit, ACH, PIN-less debit)
 			PaymentMethodType:   string(paymentMethodType),          // Use actual type: credit_card, ach, or pinless_debit
-			PaymentMethodID:     toNullableUUID(req.PaymentMethodID),
+			PaymentMethodID:     converters.ToNullableUUID(req.PaymentMethodID),
 			TranNbr:             pgtype.Text{String: epxTranNbr, Valid: true},
-			AuthGuid:            toNullableText(&epxResp.AuthGUID), // Store transaction's BRIC
+			AuthGuid:            converters.ToNullableText(&epxResp.AuthGUID), // Store transaction's BRIC
 			AuthResp:            pgtype.Text{String: epxResp.AuthResp, Valid: true},
-			AuthCode:            toNullableText(&epxResp.AuthCode),
-			AuthCardType:        toNullableText(&epxResp.AuthCardType),
+			AuthCode:            converters.ToNullableText(&epxResp.AuthCode),
+			AuthCardType:        converters.ToNullableText(&epxResp.AuthCardType),
 			Metadata:            metadataJSON,
 			ParentTransactionID: pgtype.UUID{}, // NULL for first transaction
 			ProcessedAt:         pgtype.Timestamptz{},
@@ -483,12 +484,12 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 			Currency:            "USD",
 			Type:                string(domain.TransactionTypeAuth),
 			PaymentMethodType:   string(domain.PaymentMethodTypeCreditCard),
-			PaymentMethodID:     toNullableUUID(req.PaymentMethodID),
+			PaymentMethodID:     converters.ToNullableUUID(req.PaymentMethodID),
 			TranNbr:             pgtype.Text{String: epxTranNbr, Valid: true},
-			AuthGuid:            toNullableText(&epxResp.AuthGUID), // Store AUTH's BRIC
+			AuthGuid:            converters.ToNullableText(&epxResp.AuthGUID), // Store AUTH's BRIC
 			AuthResp:            pgtype.Text{String: epxResp.AuthResp, Valid: true},
-			AuthCode:            toNullableText(&epxResp.AuthCode),
-			AuthCardType:        toNullableText(&epxResp.AuthCardType),
+			AuthCode:            converters.ToNullableText(&epxResp.AuthCode),
+			AuthCardType:        converters.ToNullableText(&epxResp.AuthCardType),
 			Metadata:            metadataJSON,
 			ParentTransactionID: pgtype.UUID{}, // NULL for first transaction
 			ProcessedAt:         pgtype.Timestamptz{},
@@ -1376,10 +1377,10 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 
 	params := sqlc.ListTransactionsParams{
 		MerchantID:          merchantID,
-		CustomerID:          toNullableUUID(filters.CustomerID),
-		SubscriptionID:      toNullableUUID(filters.SubscriptionID),
-		ParentTransactionID: toNullableUUID(filters.ParentTransactionID),
-		Status:              toNullableText(filters.Status),
+		CustomerID:          converters.ToNullableUUID(filters.CustomerID),
+		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
+		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
+		Status:              converters.ToNullableText(filters.Status),
 		Type:                toNullableText(filters.Type),
 		PaymentMethodID:     toNullableUUID(filters.PaymentMethodID),
 		LimitVal:            int32(limit),
@@ -1393,10 +1394,10 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 
 	countParams := sqlc.CountTransactionsParams{
 		MerchantID:          merchantID,
-		CustomerID:          toNullableUUID(filters.CustomerID),
-		SubscriptionID:      toNullableUUID(filters.SubscriptionID),
-		ParentTransactionID: toNullableUUID(filters.ParentTransactionID),
-		Status:              toNullableText(filters.Status),
+		CustomerID:          converters.ToNullableUUID(filters.CustomerID),
+		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
+		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
+		Status:              converters.ToNullableText(filters.Status),
 		Type:                toNullableText(filters.Type),
 		PaymentMethodID:     toNullableUUID(filters.PaymentMethodID),
 	}
@@ -1538,32 +1539,6 @@ func sqlcToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
 	return tx
 }
 
-func toNullableText(s *string) pgtype.Text {
-	if s == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: *s, Valid: true}
-}
-
-func toNullableUUID(s *string) pgtype.UUID {
-	if s == nil {
-		return pgtype.UUID{Valid: false}
-	}
-	id, err := uuid.Parse(*s)
-	if err != nil {
-		// Invalid UUID format - return invalid pgtype.UUID
-		return pgtype.UUID{Valid: false}
-	}
-	return pgtype.UUID{Bytes: id, Valid: true}
-}
-
-// toNullableUUIDFromUUID converts *uuid.UUID to pgtype.UUID
-func toNullableUUIDFromUUID(id *uuid.UUID) pgtype.UUID {
-	if id == nil {
-		return pgtype.UUID{Valid: false}
-	}
-	return pgtype.UUID{Bytes: *id, Valid: true}
-}
 
 func toNumeric(d decimal.Decimal) pgtype.Numeric {
 	return pgtype.Numeric{
