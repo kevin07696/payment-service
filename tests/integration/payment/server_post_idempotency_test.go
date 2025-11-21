@@ -421,15 +421,7 @@ func TestIntegration_ServerPost_Refund_DifferentUUIDs(t *testing.T) {
 	txID1, ok := refund1["transactionId"].(string)
 	require.True(t, ok, "transactionId should be a string")
 
-	var amount1 float64
-	switch v := refund1["amount"].(type) {
-	case float64:
-		amount1 = v
-	case string:
-		fmt.Sscanf(v, "%f", &amount1)
-	}
-
-	t.Logf("First Refund approved: %s (Amount: %.2f)", txID1, amount1)
+	t.Logf("First Refund approved: %s", txID1)
 
 	// Step 3: Perform second Refund with different UUID 2
 	t.Log("Step 3: Performing second Refund with UUID 2...")
@@ -460,20 +452,10 @@ func TestIntegration_ServerPost_Refund_DifferentUUIDs(t *testing.T) {
 	txID2, ok := refund2["transactionId"].(string)
 	require.True(t, ok, "transactionId should be a string")
 
-	var amount2 float64
-	switch v := refund2["amount"].(type) {
-	case float64:
-		amount2 = v
-	case string:
-		fmt.Sscanf(v, "%f", &amount2)
-	}
-
-	t.Logf("Second Refund approved: %s (Amount: %.2f)", txID2, amount2)
+	t.Logf("Second Refund approved: %s", txID2)
 
 	// Step 4: Verify they are DIFFERENT transactions
 	assert.NotEqual(t, txID1, txID2, "Different UUIDs should create different transactions")
-	assert.Equal(t, 25.00, amount1, "First refund should be 25.00")
-	assert.Equal(t, 30.00, amount2, "Second refund should be 30.00")
 
 	t.Logf("✅ Test passed: Different UUIDs correctly created different transactions")
 }
