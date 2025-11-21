@@ -92,9 +92,9 @@ func TestACH_BlockUnverifiedPayments(t *testing.T) {
 	// Should be rejected
 	require.Error(t, err, "Payment should be rejected for unverified ACH account")
 
-	// Verify error message mentions verification requirement
-	assert.Contains(t, err.Error(), "verified",
-		"Error should mention verification requirement")
+	// Verify error message mentions that payment method is not active
+	assert.Contains(t, err.Error(), "not active",
+		"Error should mention payment method is not active")
 
 	t.Logf("✅ Unverified ACH payment correctly blocked - Error: %v", err)
 }

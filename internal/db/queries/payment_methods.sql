@@ -29,7 +29,7 @@ SELECT * FROM customer_payment_methods
 WHERE
     deleted_at IS NULL AND
     (sqlc.narg(merchant_id)::uuid IS NULL OR merchant_id = sqlc.narg(merchant_id)) AND
-    (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)) AND
+    (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(payment_type)::varchar IS NULL OR payment_type = sqlc.narg(payment_type)) AND
     (sqlc.narg(is_active)::boolean IS NULL OR is_active = sqlc.narg(is_active)) AND
     (sqlc.narg(is_default)::boolean IS NULL OR is_default = sqlc.narg(is_default))

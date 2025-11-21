@@ -375,7 +375,7 @@ SELECT id, merchant_id, customer_id, bric, payment_type, last_four, card_brand, 
 WHERE
     deleted_at IS NULL AND
     ($1::uuid IS NULL OR merchant_id = $1) AND
-    ($2::uuid IS NULL OR customer_id = $2) AND
+    ($2::varchar IS NULL OR customer_id = $2) AND
     ($3::varchar IS NULL OR payment_type = $3) AND
     ($4::boolean IS NULL OR is_active = $4) AND
     ($5::boolean IS NULL OR is_default = $5)
@@ -384,7 +384,7 @@ ORDER BY is_default DESC, created_at DESC
 
 type ListPaymentMethodsParams struct {
 	MerchantID  pgtype.UUID `json:"merchant_id"`
-	CustomerID  pgtype.UUID `json:"customer_id"`
+	CustomerID  pgtype.Text `json:"customer_id"`
 	PaymentType pgtype.Text `json:"payment_type"`
 	IsActive    pgtype.Bool `json:"is_active"`
 	IsDefault   pgtype.Bool `json:"is_default"`

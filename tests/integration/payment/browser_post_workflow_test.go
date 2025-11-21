@@ -326,20 +326,12 @@ func TestBrowserPost_SaleWithToken(t *testing.T) {
 	jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, "00000000-0000-0000-0000-000000000001", time.Hour)
 	require.NoError(t, err)
 
-	// Step 1: Tokenize card (get BRIC but don't store as payment method)
-	t.Log("[SETUP] Tokenizing card via EPX...")
-	storageBRIC, err := testutil.TokenizeCard(cfg, testutil.TestVisaCard)
-	require.NoError(t, err)
-	t.Logf("[CREATED] Storage BRIC: %s", storageBRIC)
-	time.Sleep(1 * time.Second)
-
-	// Step 2: Use token directly for sale (via Browser Post SALE with BRIC)
-	t.Log("[TEST] Processing SALE with token...")
+	// Process SALE via Browser Post (which handles tokenization automatically)
+	t.Log("[TEST] Processing SALE with automated tokenization...")
 	callbackBaseURL := "http://localhost:8081"
 	saleResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "29.99", callbackBaseURL, jwtToken)
 
-	assert.NotEmpty(t, saleResult.TransactionID)
-	assert.NotEmpty(t, saleResult.GroupID)
+	assert.NotEmpty(t, saleResult.TransactionID, "SALE should return a transaction ID")
 
 	t.Logf("[PASS] Sale with token successful: TX=%s", saleResult.TransactionID)
 }

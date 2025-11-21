@@ -23,6 +23,162 @@ The payment service uses **token-based authentication** with **role-based author
 
 ---
 
+## Architecture: Services vs Merchants
+
+### Core Concepts
+
+The payment service separates **business entities (merchants)** from **API access (services)**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ SERVICES (Apps/Integrations)                                │
+│ - POS systems, e-commerce backends, mobile apps             │
+│ - Authenticate using RSA keypairs (JWT tokens)              │
+│ - Public key stored in database                             │
+│ - Private key returned ONCE, stored by service owner        │
+│ - Granted access to specific merchants via scopes           │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              │ service_merchants junction table
+                              │ (scopes: payment:create, payment:read, etc.)
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ MERCHANTS (Business Entities)                               │
+│ - Restaurants, stores, organizations                        │
+│ - Store EPX credentials ONLY (gateway access)               │
+│ - NO API keys or authentication credentials                 │
+│ - Pure business data (name, tier, rate limits)              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Database Tables
+
+**services table:**
+```sql
+CREATE TABLE services (
+    id UUID PRIMARY KEY,
+    service_id VARCHAR(100) UNIQUE NOT NULL,  -- 'acme-pos-system'
+    service_name VARCHAR(200) NOT NULL,       -- 'ACME POS System'
+    public_key TEXT NOT NULL,                 -- RSA public key (PEM)
+    public_key_fingerprint VARCHAR(64) NOT NULL,
+    environment VARCHAR(20) NOT NULL,         -- 'production', 'staging'
+    requests_per_second INTEGER,
+    burst_limit INTEGER,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+**merchants table:**
+```sql
+CREATE TABLE merchants (
+    id UUID PRIMARY KEY,
+    slug VARCHAR(100) UNIQUE NOT NULL,        -- 'downtown-pizza'
+    name VARCHAR(200) NOT NULL,               -- 'Downtown Pizza LLC'
+    cust_nbr VARCHAR(50) NOT NULL,            -- EPX credentials
+    merch_nbr VARCHAR(50) NOT NULL,
+    dba_nbr VARCHAR(50) NOT NULL,
+    terminal_nbr VARCHAR(50) NOT NULL,
+    mac_secret_path VARCHAR(500) NOT NULL,    -- Path to MAC secret file
+    environment VARCHAR(20) NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    status VARCHAR(20) DEFAULT 'active',
+    tier VARCHAR(20) DEFAULT 'standard'
+);
+```
+
+**service_merchants junction table:**
+```sql
+CREATE TABLE service_merchants (
+    service_id UUID REFERENCES services(id),
+    merchant_id UUID REFERENCES merchants(id),
+    scopes TEXT[] NOT NULL,                   -- ['payment:create', 'payment:read']
+    granted_at TIMESTAMP DEFAULT NOW(),
+    granted_by UUID,                          -- Admin who granted access
+    PRIMARY KEY (service_id, merchant_id)
+);
+```
+
+### Admin CLI Workflow
+
+**1. Create a Service (POS system, e-commerce backend, etc.):**
+```bash
+./admin -action=create-service
+```
+
+This generates:
+- RSA keypair (2048-bit)
+- Stores public key in database
+- Returns private key **ONCE** (save it!)
+- Service uses private key to sign JWT tokens
+
+**2. Create a Merchant (business entity):**
+```bash
+./admin -action=create-merchant
+```
+
+This creates:
+- Merchant record with EPX credentials
+- NO API keys generated (merchants don't authenticate)
+- Merchant is pure business data
+
+**3. Grant Service Access to Merchant:**
+```bash
+./admin -action=grant-access
+```
+
+This creates:
+- Link between service and merchant
+- Scopes defining what service can do
+- Service can now create payments for this merchant
+
+### Authentication Flow
+
+```
+┌──────────────┐
+│ POS App      │
+│ (Service)    │
+└──────┬───────┘
+       │
+       │ 1. Sign JWT with RSA private key
+       │    Claims: { service_id, merchant_id, scopes }
+       │
+       ↓
+┌──────────────────────────────────────────────────────┐
+│ Payment Service API                                  │
+│                                                      │
+│ 2. Verify JWT signature using public key            │
+│ 3. Check service_merchants for access               │
+│ 4. Validate scopes                                   │
+│ 5. Fetch merchant's EPX credentials                 │
+│ 6. Process payment via EPX gateway                  │
+└──────────────────────────────────────────────────────┘
+```
+
+### Why This Architecture?
+
+**Separation of Concerns:**
+- Merchants = Business entities (what you charge)
+- Services = Technical integrations (how you charge)
+
+**Security:**
+- Service compromise doesn't expose merchant EPX credentials
+- Each service has limited scopes (principle of least privilege)
+- Private keys never stored in database
+- Easy to rotate service keys without touching merchants
+
+**Flexibility:**
+- One service can access multiple merchants (franchise POS)
+- One merchant can be accessed by multiple services (POS + web)
+- Grant/revoke access without recreating entities
+
+**Audit:**
+- Track which service performed which action
+- service_merchants table logs access grants
+- Easy to trace payment operations to specific services
+
+---
+
 ## Quick Start
 
 ### Issuing Tokens (Client Application)

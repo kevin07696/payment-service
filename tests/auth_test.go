@@ -58,35 +58,12 @@ func TestAuthenticationFlow(t *testing.T) {
 		assert.Equal(t, scopes, claims.Scopes)
 	})
 
-	t.Run("API Key Generation and Validation", func(t *testing.T) {
-		// Create API key generator
-		apiKeyGen := auth.NewAPIKeyGenerator(sqlDB, "test_salt_")
-
-		// First, insert a test merchant
-		merchantID := "550e8400-e29b-41d4-a716-446655440000"
-		_, err = sqlDB.Exec(`
-			INSERT INTO merchants (id, slug, name, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, status)
-			VALUES ($1, 'test-merchant', 'Test Business', '9001', '900300', '2', '77', '/tmp/test', 'staging', 'active')
-			ON CONFLICT (id) DO NOTHING
-		`, merchantID)
-		require.NoError(t, err)
-
-		// Generate credentials
-		creds, err := apiKeyGen.GenerateCredentials(merchantID, "development", "Test API Key", 30)
-		require.NoError(t, err)
-		assert.NotEmpty(t, creds.APIKey)
-		assert.NotEmpty(t, creds.APISecret)
-		assert.Contains(t, creds.APIKey, "pk_dev_")
-
-		// Validate credentials
-		merchantInfo, err := apiKeyGen.ValidateCredentials(creds.APIKey, creds.APISecret)
-		require.NoError(t, err)
-		assert.Equal(t, merchantID, merchantInfo.MerchantID)
-		assert.Equal(t, "test-merchant", merchantInfo.MerchantCode)
-
-		// Test invalid credentials
-		_, err = apiKeyGen.ValidateCredentials("invalid_key", "invalid_secret")
-		assert.Error(t, err)
+	// NOTE: API Key authentication has been removed.
+	// The system now uses RSA keypair-based JWT authentication for services.
+	// Merchants store EPX credentials only, not API keys.
+	// See migration 008_auth_tables.sql for the correct architecture.
+	t.Run("Service RSA Authentication", func(t *testing.T) {
+		t.Skip("TODO: Add service authentication tests using RSA keypairs")
 	})
 
 	t.Run("Auth Context Operations", func(t *testing.T) {

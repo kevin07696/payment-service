@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rsa"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net"
@@ -365,7 +364,8 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 	return nil
 }
 
-// logAuth logs authentication attempts to the audit log
+// logAuth logs authentication attempts using the logger
+// TODO: Implement database audit_log table and replace with DB logging
 func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg string, procedure string) {
 	// Extract context values (JWT auth only)
 	authType, _ := ctx.Value(auth.AuthTypeKey).(string)
@@ -373,33 +373,24 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 
 	// Extract service info
 	actorID, _ := ctx.Value(auth.ServiceIDKey).(string)
-	actorName := fmt.Sprintf("service:%s", actorID)
 
-	// Log to audit table asynchronously
-	go func() {
-		metadata := map[string]interface{}{
-			"procedure":  procedure,
-			"request_id": requestID,
-		}
-
-		metadataJSON, _ := json.Marshal(metadata)
-
-		_, err := ai.db.Exec(`
-			INSERT INTO audit_log (
-				actor_type, actor_id, actor_name, action,
-				metadata, success, error_message,
-				ip_address, request_id, performed_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-		`, authType, actorID, actorName, "auth.attempt",
-			metadataJSON, success, errorMsg,
-			getClientIPFromContext(ctx), requestID)
-
-		if err != nil {
-			ai.logger.Error("Failed to log auth attempt",
-				zap.String("actor_id", actorID),
-				zap.Error(err))
-		}
-	}()
+	// Use regular logging instead of database audit_log table
+	if success {
+		ai.logger.Info("Auth attempt succeeded",
+			zap.String("actor_id", actorID),
+			zap.String("auth_type", authType),
+			zap.String("procedure", procedure),
+			zap.String("request_id", requestID),
+			zap.String("ip_address", getClientIPFromContext(ctx)))
+	} else {
+		ai.logger.Warn("Auth attempt failed",
+			zap.String("actor_id", actorID),
+			zap.String("auth_type", authType),
+			zap.String("procedure", procedure),
+			zap.String("request_id", requestID),
+			zap.String("error", errorMsg),
+			zap.String("ip_address", getClientIPFromContext(ctx)))
+	}
 }
 
 // Helper functions

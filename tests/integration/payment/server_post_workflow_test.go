@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
 	"github.com/kevin07696/payment-service/proto/payment/v1/paymentv1connect"
 	"github.com/kevin07696/payment-service/tests/integration/testutil"
@@ -43,10 +44,11 @@ func TestServerPost_AuthorizeWithStoredCard(t *testing.T) {
 	// Test: Authorize using ConnectRPC with stored payment method
 	t.Log("[TEST] Authorizing payment with stored card via ConnectRPC...")
 	authReq := connect.NewRequest(&paymentv1.AuthorizeRequest{
-		MerchantId:  merchantID,
-		CustomerId:  customerID,
-		AmountCents: 15000, // $150.00
-		Currency:    "USD",
+		MerchantId:     merchantID,
+		CustomerId:     customerID,
+		AmountCents:    15000, // $150.00
+		Currency:       "USD",
+		IdempotencyKey: uuid.NewString(),
 		PaymentMethod: &paymentv1.AuthorizeRequest_PaymentMethodId{
 			PaymentMethodId: paymentMethodID,
 		},
@@ -55,6 +57,11 @@ func TestServerPost_AuthorizeWithStoredCard(t *testing.T) {
 
 	authResp, err := client.Authorize(ctx, authReq)
 	require.NoError(t, err)
+
+	// Log response details for debugging
+	t.Logf("[DEBUG] AUTH Response - TX: %s, IsApproved: %v, AuthCode: %s, Message: %s",
+		authResp.Msg.TransactionId, authResp.Msg.IsApproved,
+		authResp.Msg.AuthorizationCode, authResp.Msg.Message)
 
 	// Verify response
 	assert.NotEmpty(t, authResp.Msg.TransactionId)
@@ -91,10 +98,11 @@ func TestServerPost_SaleWithStoredCard(t *testing.T) {
 	// Test: Sale using ConnectRPC with stored payment method
 	t.Log("[TEST] Processing SALE with stored card via ConnectRPC...")
 	saleReq := connect.NewRequest(&paymentv1.SaleRequest{
-		MerchantId:  merchantID,
-		CustomerId:  customerID,
-		AmountCents: 2999, // $29.99
-		Currency:    "USD",
+		MerchantId:     merchantID,
+		CustomerId:     customerID,
+		AmountCents:    2999, // $29.99
+		Currency:       "USD",
+		IdempotencyKey: uuid.NewString(),
 		PaymentMethod: &paymentv1.SaleRequest_PaymentMethodId{
 			PaymentMethodId: paymentMethodID,
 		},
@@ -143,10 +151,11 @@ func TestServerPost_CaptureWithFinancialBRIC(t *testing.T) {
 
 	// Authorize first
 	authReq := connect.NewRequest(&paymentv1.AuthorizeRequest{
-		MerchantId:  merchantID,
-		CustomerId:  customerID,
-		AmountCents: 10000, // $100.00
-		Currency:    "USD",
+		MerchantId:     merchantID,
+		CustomerId:     customerID,
+		AmountCents:    10000, // $100.00
+		Currency:       "USD",
+		IdempotencyKey: uuid.NewString(),
 		PaymentMethod: &paymentv1.AuthorizeRequest_PaymentMethodId{
 			PaymentMethodId: paymentMethodID,
 		},
@@ -204,10 +213,11 @@ func TestServerPost_VoidWithFinancialBRIC(t *testing.T) {
 
 	// Authorize first
 	authReq := connect.NewRequest(&paymentv1.AuthorizeRequest{
-		MerchantId:  merchantID,
-		CustomerId:  customerID,
-		AmountCents: 7500, // $75.00
-		Currency:    "USD",
+		MerchantId:     merchantID,
+		CustomerId:     customerID,
+		AmountCents:    7500, // $75.00
+		Currency:       "USD",
+		IdempotencyKey: uuid.NewString(),
 		PaymentMethod: &paymentv1.AuthorizeRequest_PaymentMethodId{
 			PaymentMethodId: paymentMethodID,
 		},
@@ -263,10 +273,11 @@ func TestServerPost_RefundWithFinancialBRIC(t *testing.T) {
 
 	// Process sale first
 	saleReq := connect.NewRequest(&paymentv1.SaleRequest{
-		MerchantId:  merchantID,
-		CustomerId:  customerID,
-		AmountCents: 20000, // $200.00
-		Currency:    "USD",
+		MerchantId:     merchantID,
+		CustomerId:     customerID,
+		AmountCents:    20000, // $200.00
+		Currency:       "USD",
+		IdempotencyKey: uuid.NewString(),
 		PaymentMethod: &paymentv1.SaleRequest_PaymentMethodId{
 			PaymentMethodId: paymentMethodID,
 		},
@@ -325,10 +336,11 @@ func TestServerPost_ConcurrentOperations(t *testing.T) {
 
 	// Authorize
 	authReq := connect.NewRequest(&paymentv1.AuthorizeRequest{
-		MerchantId:  merchantID,
-		CustomerId:  customerID,
-		AmountCents: 10000, // $100.00
-		Currency:    "USD",
+		MerchantId:     merchantID,
+		CustomerId:     customerID,
+		AmountCents:    10000, // $100.00
+		Currency:       "USD",
+		IdempotencyKey: uuid.NewString(),
 		PaymentMethod: &paymentv1.AuthorizeRequest_PaymentMethodId{
 			PaymentMethodId: paymentMethodID,
 		},

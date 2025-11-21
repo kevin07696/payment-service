@@ -67,7 +67,7 @@ ORDER BY created_at ASC;
 SELECT * FROM transactions
 WHERE
     merchant_id = sqlc.arg(merchant_id) AND
-    (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)) AND
+    (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(subscription_id)::uuid IS NULL OR subscription_id = sqlc.narg(subscription_id)) AND
     (sqlc.narg(parent_transaction_id)::uuid IS NULL OR parent_transaction_id = sqlc.narg(parent_transaction_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status)) AND
@@ -80,7 +80,7 @@ LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 SELECT COUNT(*) FROM transactions
 WHERE
     merchant_id = sqlc.arg(merchant_id) AND
-    (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)) AND
+    (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(subscription_id)::uuid IS NULL OR subscription_id = sqlc.narg(subscription_id)) AND
     (sqlc.narg(parent_transaction_id)::uuid IS NULL OR parent_transaction_id = sqlc.narg(parent_transaction_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status)) AND

@@ -325,6 +325,11 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
 	epxTranNbr := util.UUIDToEPXTranNbr(txID)
 
+	s.logger.Info("[DEBUG] Generated EPX TRAN_NBR",
+		zap.String("transaction_id", txID.String()),
+		zap.String("tran_nbr", epxTranNbr),
+	)
+
 	// Call EPX Server Post API for authorization only
 	epxReq := &adapterports.ServerPostRequest{
 		CustNbr:         merchant.CustNbr,
@@ -338,13 +343,29 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		TranNbr:         epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:       "AUTH",     // Transaction class: AUTH = authorization-only, requires capture
 		CustomerID:      stringOrEmpty(req.CustomerID),
+		// Don't send CardEntryMethod for BRIC-based AUTH transactions
 	}
+
+	s.logger.Info("[DEBUG] Calling EPX ServerPost",
+		zap.String("tran_nbr", epxTranNbr),
+		zap.String("auth_guid", authGUID),
+		zap.String("amount", centsToDecimalString(req.AmountCents)),
+		zap.String("transaction_type", string(adapterports.TransactionTypeAuthOnly)),
+		zap.String("tran_group", "AUTH"),
+	)
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX authorization failed", zap.Error(err))
 		return nil, fmt.Errorf("gateway error: %w", err)
 	}
+
+	s.logger.Info("[DEBUG] EPX ServerPost Response",
+		zap.String("auth_resp", epxResp.AuthResp),
+		zap.String("auth_code", epxResp.AuthCode),
+		zap.String("auth_resp_text", epxResp.AuthRespText),
+		zap.String("auth_guid", epxResp.AuthGUID),
+	)
 
 	// Save transaction to database
 	var transaction *domain.Transaction
@@ -1261,6 +1282,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 	if filters.MerchantID == nil {
 		return nil, 0, fmt.Errorf("merchant_id is required")
 	}
+
 	merchantID, err := uuid.Parse(*filters.MerchantID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("invalid merchant_id format: %w", err)
@@ -1278,7 +1300,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 
 	params := sqlc.ListTransactionsParams{
 		MerchantID:          merchantID,
-		CustomerID:          converters.ToNullableUUID(filters.CustomerID),
+		CustomerID:          converters.ToNullableText(filters.CustomerID),
 		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
 		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
 		Status:              converters.ToNullableText(filters.Status),
@@ -1295,7 +1317,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 
 	countParams := sqlc.CountTransactionsParams{
 		MerchantID:          merchantID,
-		CustomerID:          converters.ToNullableUUID(filters.CustomerID),
+		CustomerID:          converters.ToNullableText(filters.CustomerID),
 		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
 		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
 		Status:              converters.ToNullableText(filters.Status),

@@ -55,13 +55,13 @@ const countSubscriptions = `-- name: CountSubscriptions :one
 SELECT COUNT(*) FROM subscriptions
 WHERE
     ($1::uuid IS NULL OR merchant_id = $1) AND
-    ($2::uuid IS NULL OR customer_id = $2) AND
+    ($2::varchar IS NULL OR customer_id = $2) AND
     ($3::varchar IS NULL OR status = $3)
 `
 
 type CountSubscriptionsParams struct {
 	MerchantID pgtype.UUID `json:"merchant_id"`
-	CustomerID pgtype.UUID `json:"customer_id"`
+	CustomerID pgtype.Text `json:"customer_id"`
 	Status     pgtype.Text `json:"status"`
 }
 
@@ -285,7 +285,7 @@ const listSubscriptions = `-- name: ListSubscriptions :many
 SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
 WHERE
     ($1::uuid IS NULL OR merchant_id = $1) AND
-    ($2::uuid IS NULL OR customer_id = $2) AND
+    ($2::varchar IS NULL OR customer_id = $2) AND
     ($3::varchar IS NULL OR status = $3)
 ORDER BY created_at DESC
 LIMIT $5 OFFSET $4
@@ -293,7 +293,7 @@ LIMIT $5 OFFSET $4
 
 type ListSubscriptionsParams struct {
 	MerchantID pgtype.UUID `json:"merchant_id"`
-	CustomerID pgtype.UUID `json:"customer_id"`
+	CustomerID pgtype.Text `json:"customer_id"`
 	Status     pgtype.Text `json:"status"`
 	OffsetVal  int32       `json:"offset_val"`
 	LimitVal   int32       `json:"limit_val"`

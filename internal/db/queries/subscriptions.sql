@@ -26,7 +26,7 @@ ORDER BY created_at DESC;
 SELECT * FROM subscriptions
 WHERE
     (sqlc.narg(merchant_id)::uuid IS NULL OR merchant_id = sqlc.narg(merchant_id)) AND
-    (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)) AND
+    (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status))
 ORDER BY created_at DESC
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
@@ -35,7 +35,7 @@ LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 SELECT COUNT(*) FROM subscriptions
 WHERE
     (sqlc.narg(merchant_id)::uuid IS NULL OR merchant_id = sqlc.narg(merchant_id)) AND
-    (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)) AND
+    (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status));
 
 -- name: ListDueSubscriptions :many

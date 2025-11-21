@@ -109,6 +109,7 @@ Comprehensive documentation is available in the **[GitHub Wiki](../../wiki)**:
 - **[CI/CD Pipeline](../../wiki/CICD)** - Automated deployments
 
 ### Operations
+- **[Admin CLI Guide](docs/integration/ADMIN_CLI.md)** - Creating services and merchants
 - **[FAQ](../../wiki/FAQ)** - Common questions (Browser Post callbacks, EPX setup, etc.)
 - **[Troubleshooting](../../wiki/Troubleshooting)** - Common issues & solutions
 

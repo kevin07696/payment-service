@@ -198,7 +198,7 @@ func (cli *AdminCLI) createService(jsonFile string) {
 	// Create service in database
 	serviceID := uuid.New().String()
 	_, err := cli.db.Exec(`
-		INSERT INTO registered_services (
+		INSERT INTO services (
 			id, service_id, service_name, public_key,
 			public_key_fingerprint, environment,
 			requests_per_second, burst_limit, is_active, created_by
@@ -254,14 +254,13 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 		Slug                string `json:"slug"`
 		Name                string `json:"name"`
 		CustNbr             string `json:"cust_nbr"`
-		MerchNbr            string `json:"merch_nbr"`
-		DbaNbr              string `json:"dba_nbr"`
-		TerminalNbr         string `json:"terminal_nbr"`
-		MacSecretPath       string `json:"mac_secret_path"`
-		Environment         string `json:"environment"`
-		Tier                string `json:"tier"`
-		RequestsPerSecond   int    `json:"requests_per_second"`
-		GenerateCredentials bool   `json:"generate_credentials"`
+		MerchNbr          string `json:"merch_nbr"`
+		DbaNbr            string `json:"dba_nbr"`
+		TerminalNbr       string `json:"terminal_nbr"`
+		MacSecretPath     string `json:"mac_secret_path"`
+		Environment       string `json:"environment"`
+		Tier              string `json:"tier"`
+		RequestsPerSecond int    `json:"requests_per_second"`
 	}
 
 	if jsonFile != "" {
@@ -326,10 +325,6 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 		if merchantData.RequestsPerSecond == 0 {
 			merchantData.RequestsPerSecond = 100
 		}
-
-		fmt.Print("Generate API credentials? (y/n) [y]: ")
-		response, _ := reader.ReadString('\n')
-		merchantData.GenerateCredentials = !strings.HasPrefix(strings.ToLower(strings.TrimSpace(response)), "n")
 	}
 
 	// Create merchant
@@ -352,24 +347,9 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 		log.Fatal("Failed to create merchant:", err)
 	}
 
-	var apiKey, apiSecret string
-
-	// Generate API credentials if requested
-	if merchantData.GenerateCredentials {
-		apiKeyGen := auth.NewAPIKeyGenerator(cli.db, "payment_service_")
-		creds, err := apiKeyGen.GenerateCredentials(
-			merchantID,
-			merchantData.Environment,
-			fmt.Sprintf("API Key for %s", merchantData.Name),
-			0, // No expiry
-		)
-		if err != nil {
-			log.Printf("Warning: Failed to generate API credentials: %v", err)
-		} else {
-			apiKey = creds.APIKey
-			apiSecret = creds.APISecret
-		}
-	}
+	// Note: Merchants don't get API keys directly.
+	// Create a Service to authenticate and link it to this merchant via grant-access command.
+	// This follows the service-based authentication architecture.
 
 	// Save merchant info
 	outputFile := fmt.Sprintf("merchant_%s_info.json", merchantData.Slug)
@@ -388,13 +368,8 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 		},
 	}
 
-	if apiKey != "" {
-		output["api_credentials"] = map[string]string{
-			"api_key":    apiKey,
-			"api_secret": apiSecret,
-			"note":       "Keep these credentials secure!",
-		}
-	}
+	// Note about authentication
+	output["authentication_note"] = "To authenticate API requests for this merchant, create a Service (./admin -action=create-service) and grant it access (./admin -action=grant-access)"
 
 	data, _ := json.MarshalIndent(output, "", "  ")
 	if err := os.WriteFile(outputFile, data, 0600); err != nil {
@@ -410,12 +385,10 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 	fmt.Printf("Environment: %s\n", merchantData.Environment)
 	fmt.Printf("Tier: %s\n", merchantData.Tier)
 	fmt.Printf("Rate Limit: %d req/s\n", merchantData.RequestsPerSecond)
-	if apiKey != "" {
-		fmt.Printf("\n🔑 API Credentials:\n")
-		fmt.Printf("  API Key: %s\n", apiKey)
-		fmt.Printf("  API Secret: %s\n", apiSecret)
-		fmt.Println("  ⚠️  Save these credentials - they cannot be recovered!")
-	}
+	fmt.Printf("\n📝 Next Steps:\n")
+	fmt.Printf("  1. Create a Service: ./admin -action=create-service\n")
+	fmt.Printf("  2. Grant access: ./admin -action=grant-access\n")
+	fmt.Printf("  3. Service uses RSA private key to sign JWT tokens\n")
 	fmt.Printf("\n📁 Info saved to: %s\n", outputFile)
 	fmt.Println("========================================")
 }
@@ -438,7 +411,7 @@ func (cli *AdminCLI) grantAccess() {
 	// Get service and merchant IDs
 	var registeredServiceID string
 	err := cli.db.QueryRow(`
-		SELECT id FROM registered_services WHERE service_id = $1
+		SELECT id FROM services WHERE service_id = $1
 	`, serviceID).Scan(&registeredServiceID)
 	if err != nil {
 		log.Fatal("Service not found:", serviceID)
@@ -487,7 +460,7 @@ func (cli *AdminCLI) grantAccess() {
 func (cli *AdminCLI) listServices() {
 	rows, err := cli.db.Query(`
 		SELECT service_id, service_name, environment, is_active, created_at
-		FROM registered_services
+		FROM services
 		ORDER BY created_at DESC
 	`)
 	if err != nil {

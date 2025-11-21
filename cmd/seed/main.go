@@ -72,7 +72,7 @@ func main() {
 
 	// Insert test service
 	_, err = sqlDB.Exec(`
-		INSERT INTO registered_services (
+		INSERT INTO services (
 			id, service_id, service_name, public_key,
 			public_key_fingerprint, environment,
 			requests_per_second, burst_limit, is_active, created_by
@@ -116,10 +116,10 @@ func main() {
 		}
 	}
 
-	// Grant service access to merchant (use the registered_services.id, not service_id)
+	// Grant service access to merchant (use the services.id, not service_id)
 	var registeredServiceID string
 	err = sqlDB.QueryRow(`
-		SELECT id FROM registered_services WHERE service_id = 'test-pos-system'
+		SELECT id FROM services WHERE service_id = 'test-pos-system'
 	`).Scan(&registeredServiceID)
 
 	if err != nil {
@@ -141,12 +141,9 @@ func main() {
 		log.Fatal("Failed to grant service access:", err)
 	}
 
-	// Generate API credentials for merchant
-	apiKeyGen := auth.NewAPIKeyGenerator(sqlDB, "payment_service_")
-	creds, err := apiKeyGen.GenerateCredentials(merchantID, "staging", "Development API Key (Seeded)", 0)
-	if err != nil {
-		log.Fatal("Failed to generate API credentials:", err)
-	}
+	// NOTE: API key/secret authentication has been removed.
+	// Services authenticate using RSA keypairs (JWT tokens).
+	// The private key was output when creating the service above.
 
 	// Add EPX IPs for development
 	epxIPs := []struct {
@@ -185,9 +182,7 @@ func main() {
 		fmt.Fprintf(file, "  ID: %s\n\n", adminID)
 		fmt.Fprintf(file, "Test Merchant:\n")
 		fmt.Fprintf(file, "  ID: %s\n", merchantID)
-		fmt.Fprintf(file, "  Slug: test-merchant-dev\n")
-		fmt.Fprintf(file, "  API Key: %s\n", creds.APIKey)
-		fmt.Fprintf(file, "  API Secret: %s\n\n", creds.APISecret)
+		fmt.Fprintf(file, "  Slug: test-merchant-dev\n\n")
 		fmt.Fprintf(file, "Test Service:\n")
 		fmt.Fprintf(file, "  ID: %s\n", serviceID)
 		fmt.Fprintf(file, "  Service ID: test-pos-system\n")
@@ -205,11 +200,13 @@ func main() {
 	fmt.Printf("  Password: %s\n", adminPassword)
 	fmt.Printf("  ⚠️  SAVE THIS PASSWORD - IT CANNOT BE RECOVERED!\n")
 	fmt.Println()
-	fmt.Println("Test Merchant API Credentials:")
-	fmt.Printf("  API Key: %s\n", creds.APIKey)
-	fmt.Printf("  API Secret: %s\n", creds.APISecret)
+	fmt.Println("Test Merchant:")
 	fmt.Printf("  Merchant ID: %s\n", merchantID)
+	fmt.Printf("  Slug: test-merchant-dev\n")
 	fmt.Println()
+	fmt.Println("Service Authentication:")
+	fmt.Println("  Services use RSA keypairs for JWT-based authentication")
+	fmt.Println("  The private key for 'test-pos-system' is saved above")
 	fmt.Println("Test Service:")
 	fmt.Printf("  Service ID: test-pos-system\n")
 	fmt.Printf("  Has access to test merchant\n")

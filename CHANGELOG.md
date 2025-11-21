@@ -36,14 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added error logging for unhandled errors in default case for better debugging
   - Improves error visibility when new domain errors are added
 
-### Known Issues
-
-- **Connect Protocol Tests** (`tests/integration/connect/connect_protocol_test.go`)
-  - 5 tests failing with "internal server error" (pre-existing issue from auth refactor)
-  - Tests affected: ListTransactions, GetTransaction, ServiceAvailability, ListTransactionsByGroup, Headers
-  - TestConnect_ErrorHandling passes correctly
-  - Investigation ongoing - likely related to Services-Only architecture migration
-  - Does NOT affect production functionality - payment tests all passing
+- **Connect Protocol Test Failures Fixed** (`tests/integration/connect/`)
+  - **Root causes identified and resolved**:
+    1. **Audit logging issue**: Removed database audit_log dependency, replaced with regular logging (`internal/middleware/connect_auth.go:368-395`)
+    2. **Migration mismatch**: Applied pending migration 013 (customer_id: UUID → VARCHAR(100))
+    3. **SQL type casts**: Fixed customer_id type casts in queries from `::uuid` to `::varchar` (`internal/db/queries/transactions.sql:70,83`)
+    4. **Go converters**: Changed from `ToNullableUUID` to `ToNullableText` for customer_id (`internal/services/payment/payment_service.go:1303,1320`)
+  - **Result**: All 6 Connect protocol tests now passing:
+    - ✅ TestConnect_ListTransactions
+    - ✅ TestConnect_GetTransaction
+    - ✅ TestConnect_ServiceAvailability
+    - ✅ TestConnect_ErrorHandling
+    - ✅ TestConnect_ListTransactionsByGroup
+    - ✅ TestConnect_Headers
+  - **Full integration suite**: All 8 test packages passing (520s total)
 
 - **Admin CLI Authentication Architecture** (`cmd/admin/main.go`, `cmd/seed/main.go`, `tests/`)
   - Fixed table name mismatch: `registered_services` → `services`

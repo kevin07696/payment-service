@@ -1,3 +1,4 @@
+-- +goose Up
 -- =====================================================
 -- Migration: Convert customer_id from UUID to VARCHAR
 -- =====================================================
@@ -45,6 +46,47 @@ ALTER TABLE subscriptions
 -- 3. Recreate indexes with same definitions
 -- ========================================
 
+CREATE INDEX idx_customer_payment_methods_customer_id
+  ON customer_payment_methods(customer_id);
+
+CREATE INDEX idx_customer_payment_methods_merchant_customer
+  ON customer_payment_methods(merchant_id, customer_id);
+
+CREATE INDEX idx_customer_payment_methods_is_default
+  ON customer_payment_methods(merchant_id, customer_id, is_default)
+  WHERE is_default = true;
+
+CREATE INDEX idx_transactions_customer_id
+  ON transactions(customer_id) WHERE customer_id IS NOT NULL;
+
+CREATE INDEX idx_transactions_merchant_customer
+  ON transactions(merchant_id, customer_id) WHERE customer_id IS NOT NULL;
+
+CREATE INDEX idx_subscriptions_merchant_customer
+  ON subscriptions(merchant_id, customer_id);
+
+-- +goose Down
+-- Rollback: Convert customer_id back from VARCHAR to UUID
+
+-- Drop indexes
+DROP INDEX IF EXISTS idx_customer_payment_methods_customer_id;
+DROP INDEX IF EXISTS idx_customer_payment_methods_merchant_customer;
+DROP INDEX IF EXISTS idx_customer_payment_methods_is_default;
+DROP INDEX IF EXISTS idx_transactions_customer_id;
+DROP INDEX IF EXISTS idx_transactions_merchant_customer;
+DROP INDEX IF EXISTS idx_subscriptions_merchant_customer;
+
+-- Convert back to UUID
+ALTER TABLE customer_payment_methods
+  ALTER COLUMN customer_id TYPE UUID USING customer_id::UUID;
+
+ALTER TABLE transactions
+  ALTER COLUMN customer_id TYPE UUID USING customer_id::UUID;
+
+ALTER TABLE subscriptions
+  ALTER COLUMN customer_id TYPE UUID USING customer_id::UUID;
+
+-- Recreate indexes
 CREATE INDEX idx_customer_payment_methods_customer_id
   ON customer_payment_methods(customer_id);
 

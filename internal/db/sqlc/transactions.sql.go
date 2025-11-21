@@ -17,7 +17,7 @@ const countTransactions = `-- name: CountTransactions :one
 SELECT COUNT(*) FROM transactions
 WHERE
     merchant_id = $1 AND
-    ($2::uuid IS NULL OR customer_id = $2) AND
+    ($2::varchar IS NULL OR customer_id = $2) AND
     ($3::uuid IS NULL OR subscription_id = $3) AND
     ($4::uuid IS NULL OR parent_transaction_id = $4) AND
     ($5::varchar IS NULL OR status = $5) AND
@@ -27,7 +27,7 @@ WHERE
 
 type CountTransactionsParams struct {
 	MerchantID          uuid.UUID   `json:"merchant_id"`
-	CustomerID          pgtype.UUID `json:"customer_id"`
+	CustomerID          pgtype.Text `json:"customer_id"`
 	SubscriptionID      pgtype.UUID `json:"subscription_id"`
 	ParentTransactionID pgtype.UUID `json:"parent_transaction_id"`
 	Status              pgtype.Text `json:"status"`
@@ -322,7 +322,7 @@ const listTransactions = `-- name: ListTransactions :many
 SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM transactions
 WHERE
     merchant_id = $1 AND
-    ($2::uuid IS NULL OR customer_id = $2) AND
+    ($2::varchar IS NULL OR customer_id = $2) AND
     ($3::uuid IS NULL OR subscription_id = $3) AND
     ($4::uuid IS NULL OR parent_transaction_id = $4) AND
     ($5::varchar IS NULL OR status = $5) AND
@@ -334,7 +334,7 @@ LIMIT $9 OFFSET $8
 
 type ListTransactionsParams struct {
 	MerchantID          uuid.UUID   `json:"merchant_id"`
-	CustomerID          pgtype.UUID `json:"customer_id"`
+	CustomerID          pgtype.Text `json:"customer_id"`
 	SubscriptionID      pgtype.UUID `json:"subscription_id"`
 	ParentTransactionID pgtype.UUID `json:"parent_transaction_id"`
 	Status              pgtype.Text `json:"status"`

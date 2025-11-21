@@ -340,7 +340,7 @@ func TestListTransactions_Success(t *testing.T) {
 	// Expect ListTransactions call
 	mockQuerier.On("ListTransactions", context.Background(), mock.MatchedBy(func(params sqlc.ListTransactionsParams) bool {
 		return params.MerchantID == merchantID &&
-			params.CustomerID.Valid && params.CustomerID.Bytes == customerID &&
+			params.CustomerID.Valid && params.CustomerID.String == customerIDStr &&
 			params.SubscriptionID.Valid && params.SubscriptionID.Bytes == subscriptionID &&
 			params.LimitVal == 10 &&
 			params.OffsetVal == 0
@@ -349,7 +349,7 @@ func TestListTransactions_Success(t *testing.T) {
 	// Expect CountTransactions call
 	mockQuerier.On("CountTransactions", context.Background(), mock.MatchedBy(func(params sqlc.CountTransactionsParams) bool {
 		return params.MerchantID == merchantID &&
-			params.CustomerID.Valid && params.CustomerID.Bytes == customerID &&
+			params.CustomerID.Valid && params.CustomerID.String == customerIDStr &&
 			params.SubscriptionID.Valid && params.SubscriptionID.Bytes == subscriptionID
 	})).Return(int64(1), nil)
 
