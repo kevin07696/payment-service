@@ -12,9 +12,36 @@ permissions:
   id-token: write
 
 jobs:
+  # ===== STEP 0: BUILD VERIFICATION =====
+  # Catches compilation errors like duplicate main() declarations before running tests
+  build-check:
+    name: 0. Build Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Verify all packages build
+        run: |
+          echo "🔨 Building all packages..."
+          go build ./...
+          echo "✅ All packages build successfully"
+
+      - name: Run go vet
+        run: |
+          echo "🔍 Running go vet..."
+          go vet ./...
+          echo "✅ go vet passed"
+
   # ===== STEP 1: UNIT TESTS =====
   unit-tests:
     name: 1. Unit Tests
+    needs: build-check
     uses: kevin07696/deployment-workflows/.github/workflows/go-test.yml@main
     with:
       go-version: '1.24'
@@ -38,7 +65,7 @@ jobs:
     name: Provision Staging Infrastructure (DB + Compute)
     needs: build-docker-image
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@fix/ssh-connectivity-debugging
     secrets: inherit
     with:
       action: create
@@ -51,7 +78,7 @@ jobs:
     name: 3. Database Migrations + 4. Deploy Application
     needs: ensure-staging-infrastructure
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@main
+    uses: kevin07696/deployment-workflows/.github/workflows/deploy-oracle-staging.yml@fix/ssh-connectivity-debugging
     secrets: inherit
     with:
       service-name: payment-service
@@ -124,7 +151,7 @@ jobs:
       (needs.ensure-staging-infrastructure.result == 'failure' ||
        needs.deploy-staging.result == 'failure' ||
        needs.integration-tests.result == 'failure')
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@fix/ssh-connectivity-debugging
     secrets: inherit
     with:
       action: destroy
@@ -185,7 +212,7 @@ jobs:
     name: Cleanup Staging Infrastructure
     needs: [production-smoke-tests]
     if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@main
+    uses: kevin07696/deployment-workflows/.github/workflows/infrastructure-lifecycle.yml@fix/ssh-connectivity-debugging
     secrets: inherit
     with:
       action: destroy
