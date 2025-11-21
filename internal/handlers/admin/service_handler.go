@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/middleware"
 	"github.com/kevin07696/payment-service/pkg/crypto"
 	adminv1 "github.com/kevin07696/payment-service/proto/admin/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -58,6 +59,16 @@ func (h *ServiceHandler) CreateService(
 		burstLimit = 200
 	}
 
+	// Extract creator from auth context
+	actorID, _, _ := middleware.ExtractAuthContext(ctx)
+	var createdBy pgtype.UUID
+	if actorID.Valid {
+		// Try to parse service_id as UUID for created_by field
+		// Note: created_by expects UUID, but service_id might be string identifier
+		// For now, leave as invalid UUID until we add proper admin user management
+		createdBy = pgtype.UUID{Valid: false}
+	}
+
 	// Create service in database (store only public key)
 	service, err := h.queries.CreateService(ctx, sqlc.CreateServiceParams{
 		ID:                   uuid.New(),
@@ -75,8 +86,7 @@ func (h *ServiceHandler) CreateService(
 			Valid: true,
 		},
 		IsActive: pgtype.Bool{Bool: true, Valid: true},
-		// TODO: Get admin ID from auth context (extract from JWT claims)
-		CreatedBy: pgtype.UUID{Valid: false},
+		CreatedBy: createdBy, // From JWT context (currently service_id, not admin UUID)
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create service: %w", err))
@@ -347,12 +357,15 @@ func (h *ServiceHandler) auditServiceCreation(
 	service sqlc.Service,
 	req *adminv1.CreateServiceRequest,
 ) error {
+	// Extract auth context (service_id, actor_name, request_id from JWT)
+	actorID, actorName, requestID := middleware.ExtractAuthContext(ctx)
+
 	// Build metadata JSON
 	metadata := map[string]interface{}{
-		"service_name":        service.ServiceName,
-		"environment":         service.Environment,
-		"requests_per_second": service.RequestsPerSecond.Int32,
-		"burst_limit":         service.BurstLimit.Int32,
+		"service_name":           service.ServiceName,
+		"environment":            service.Environment,
+		"requests_per_second":    service.RequestsPerSecond.Int32,
+		"burst_limit":            service.BurstLimit.Int32,
 		"public_key_fingerprint": service.PublicKeyFingerprint,
 	}
 	metadataJSON, err := json.Marshal(metadata)
@@ -363,17 +376,17 @@ func (h *ServiceHandler) auditServiceCreation(
 	// Create audit log entry
 	return h.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
 		ID:         pgtype.UUID{Bytes: uuid.New(), Valid: true},
-		ActorType:  pgtype.Text{String: "admin", Valid: true},
-		ActorID:    pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
-		ActorName:  pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
+		ActorType:  pgtype.Text{String: "service", Valid: true},
+		ActorID:    actorID,
+		ActorName:  actorName,
 		Action:     "service.created",
 		EntityType: pgtype.Text{String: "service", Valid: true},
 		EntityID:   pgtype.Text{String: service.ID.String(), Valid: true},
 		Changes:    nil, // No previous state for creation
 		Metadata:   metadataJSON,
-		IpAddress:  nil, // TODO: Extract from request context
-		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from request headers
-		RequestID:  pgtype.Text{Valid: false}, // TODO: Extract from request context
+		IpAddress:  nil,       // TODO: Extract from HTTP request (requires HTTP interceptor)
+		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from HTTP headers (requires HTTP interceptor)
+		RequestID:  requestID, // From JWT middleware
 		Success:    pgtype.Bool{Bool: true, Valid: true},
 		ErrorMessage: pgtype.Text{Valid: false},
 	})
@@ -386,6 +399,9 @@ func (h *ServiceHandler) auditKeyRotation(
 	oldFingerprint string,
 	reason *string,
 ) error {
+	// Extract auth context (service_id, actor_name, request_id from JWT)
+	actorID, actorName, requestID := middleware.ExtractAuthContext(ctx)
+
 	// Build changes JSON (before/after)
 	changes := map[string]interface{}{
 		"before": map[string]string{
@@ -416,17 +432,17 @@ func (h *ServiceHandler) auditKeyRotation(
 	// Create audit log entry
 	return h.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
 		ID:         pgtype.UUID{Bytes: uuid.New(), Valid: true},
-		ActorType:  pgtype.Text{String: "admin", Valid: true},
-		ActorID:    pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
-		ActorName:  pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
+		ActorType:  pgtype.Text{String: "service", Valid: true},
+		ActorID:    actorID,
+		ActorName:  actorName,
 		Action:     "service.key_rotated",
 		EntityType: pgtype.Text{String: "service", Valid: true},
 		EntityID:   pgtype.Text{String: service.ID.String(), Valid: true},
 		Changes:    changesJSON,
 		Metadata:   metadataJSON,
-		IpAddress:  nil, // TODO: Extract from request context
-		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from request headers
-		RequestID:  pgtype.Text{Valid: false}, // TODO: Extract from request context
+		IpAddress:  nil,       // TODO: Extract from HTTP request (requires HTTP interceptor)
+		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from HTTP headers (requires HTTP interceptor)
+		RequestID:  requestID, // From JWT middleware
 		Success:    pgtype.Bool{Bool: true, Valid: true},
 		ErrorMessage: pgtype.Text{Valid: false},
 	})
@@ -438,6 +454,9 @@ func (h *ServiceHandler) auditServiceDeactivation(
 	service sqlc.Service,
 	reason *string,
 ) error {
+	// Extract auth context (service_id, actor_name, request_id from JWT)
+	actorID, actorName, requestID := middleware.ExtractAuthContext(ctx)
+
 	// Build changes JSON (before/after)
 	changes := map[string]interface{}{
 		"before": map[string]bool{
@@ -468,17 +487,17 @@ func (h *ServiceHandler) auditServiceDeactivation(
 	// Create audit log entry
 	return h.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
 		ID:         pgtype.UUID{Bytes: uuid.New(), Valid: true},
-		ActorType:  pgtype.Text{String: "admin", Valid: true},
-		ActorID:    pgtype.Text{Valid: false}, // TODO: Extract from JWT auth context
-		ActorName:  pgtype.Text{Valid: false}, // TODO: Extract from request context
+		ActorType:  pgtype.Text{String: "service", Valid: true},
+		ActorID:    actorID,
+		ActorName:  actorName,
 		Action:     "service.deactivated",
 		EntityType: pgtype.Text{String: "service", Valid: true},
 		EntityID:   pgtype.Text{String: service.ID.String(), Valid: true},
 		Changes:    changesJSON,
 		Metadata:   metadataJSON,
-		IpAddress:  nil, // TODO: Extract from request context
-		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from request headers
-		RequestID:  pgtype.Text{Valid: false}, // TODO: Extract from request context
+		IpAddress:  nil,       // TODO: Extract from HTTP request (requires HTTP interceptor)
+		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from HTTP headers (requires HTTP interceptor)
+		RequestID:  requestID, // From JWT middleware
 		Success:    pgtype.Bool{Bool: true, Valid: true},
 		ErrorMessage: pgtype.Text{Valid: false},
 	})

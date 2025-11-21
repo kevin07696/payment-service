@@ -9,14 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added (2025-11-21)
 
+- **JWT Context Extraction for Audit Logging** (`internal/middleware/auth_context.go`)
+  - Created `ExtractAuthContext()` helper to extract actor_id, actor_name, request_id from JWT
+  - Created `ExtractAuthType()` to get authentication type from context
+  - Created `ExtractMerchantID()` to get merchant ID from JWT claims
+  - Audit logs now track which service performed admin operations
+  - Request IDs enable correlation across distributed logs
+
 - **Admin Audit Logging** (`internal/handlers/admin/service_handler.go`)
   - Implemented audit logging for service management operations
   - Added `auditServiceCreation()` - Logs service creation with full metadata
   - Added `auditKeyRotation()` - Logs key rotation with before/after fingerprints
   - Added `auditServiceDeactivation()` - Logs deactivation with reason
   - All audit logs include: action, entity_type, entity_id, changes, metadata
-  - Metadata includes service_name, environment, and optional reason fields
-  - TODOs added for extracting actor_id from JWT auth context
+  - Now extracts actor_id, actor_name, request_id from JWT auth context
   - Audit failures logged but don't block service operations
 
 - **Payment Metadata Extraction** (`internal/handlers/payment/payment_handler.go:377-397`)
@@ -26,7 +32,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Avoids N+1 queries by not fetching payment_method separately
   - Returns empty string if metadata unavailable
 
+### Removed (2025-11-21)
+
+- **Cleaned up completed summary documents from docs/development/**
+  - Deleted `CRITICAL_FIXES_IMPLEMENTED.md` - Summary of 6 P0 fixes completed 2025-11-20
+  - Deleted `INTEGRATION_TEST_FIXES_SUMMARY.md` - Test suite fixes summary (work complete)
+  - Deleted `TODO_GROUP_ID_CLEANUP.md` - Group ID cleanup completed 2025-11-21
+  - Deleted `CONNECTRPC_DEPLOYMENT_READY.md` - ConnectRPC migration completion report
+  - Deleted `ACH_SAFE_VERIFICATION_DEPLOYMENT.md` - ACH verification deployment summary
+  - Deleted `E2E_TEST_SUMMARY.md` - Test classification summary
+  - **Result:** Removed 6 completed summaries/reports to keep docs focused on active work
+
 ### Documented (2025-11-21)
+
+- **Documentation Clarification: SETUP.md vs INTEGRATION_GUIDE.md**
+  - **SETUP.md** (`docs/integration/SETUP.md`)
+    - Clarified target audience: DevOps engineers, infrastructure operators, service maintainers
+    - Purpose: Set up and run the payment service infrastructure
+    - Added clear link to INTEGRATION_GUIDE.md for API integration
+    - Organized "Next Steps" into two sections: Client Developers vs Service Operators
+  - **INTEGRATION_GUIDE.md** (`docs/integration/INTEGRATION_GUIDE.md`)
+    - Clarified target audience: Client developers integrating with the payment service
+    - Removed duplicate EPX test card details, now references SETUP.md
+    - Updated Prerequisites to link to SETUP.md for infrastructure setup
+    - Simplified troubleshooting to focus on integration issues, links to SETUP.md for infrastructure
+    - Changed authentication troubleshooting from EPX Code 58 to JWT token issues (client-focused)
+  - **Result:** Clear separation of concerns - SETUP.md for operators, INTEGRATION_GUIDE.md for developers
 
 - **UpdatePaymentMethod Implementation Plan** (`internal/handlers/payment_method/payment_method_handler_connect.go:346-366`)
   - Expanded from simple TODO to comprehensive documentation

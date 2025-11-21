@@ -18,8 +18,8 @@ func TestStorePaymentMethod_CreditCard(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	merchantID := "test-merchant-staging"
-	customerID := "test-customer-001"
+	merchantID := "00000000-0000-0000-0000-000000000001" // Use seeded merchant from Setup()
+	customerID := "00000000-0000-0000-0000-000000000101" // UUID format required
 	time.Sleep(2 * time.Second) // EPX rate limiting
 
 	// Generate JWT token for authentication
@@ -50,8 +50,8 @@ func TestGetPaymentMethod(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	merchantID := "test-merchant-staging"
-	customerID := "test-customer-003"
+	merchantID := "00000000-0000-0000-0000-000000000001" // Use seeded merchant from Setup()
+	customerID := "00000000-0000-0000-0000-000000000103" // UUID format required
 	time.Sleep(2 * time.Second)
 
 	// Generate JWT and store a payment method using Browser Post STORAGE
@@ -78,8 +78,8 @@ func TestListPaymentMethods(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	merchantID := "test-merchant-staging"
-	customerID := "test-customer-list-001"
+	merchantID := "00000000-0000-0000-0000-000000000001" // Use seeded merchant from Setup()
+	customerID := "00000000-0000-0000-0000-000000000201" // UUID format required
 	time.Sleep(2 * time.Second)
 
 	// Generate JWT for authentication
@@ -104,8 +104,8 @@ func TestDeletePaymentMethod(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	merchantID := "test-merchant-staging"
-	customerID := "test-customer-delete-001"
+	merchantID := "00000000-0000-0000-0000-000000000001" // Use seeded merchant from Setup()
+	customerID := "00000000-0000-0000-0000-000000000301" // UUID format required
 	time.Sleep(2 * time.Second)
 
 	// Generate JWT and store a payment method
@@ -132,8 +132,8 @@ func TestStoreMultipleCardsForCustomer(t *testing.T) {
 	testutil.SkipIfBRICStorageUnavailable(t)
 
 	cfg, client := testutil.Setup(t)
-	merchantID := "test-merchant-staging"
-	customerID := "test-customer-multi-001"
+	merchantID := "00000000-0000-0000-0000-000000000001" // Use seeded merchant from Setup()
+	customerID := "00000000-0000-0000-0000-000000000401" // UUID format required
 	time.Sleep(2 * time.Second)
 
 	// Generate JWT for authentication

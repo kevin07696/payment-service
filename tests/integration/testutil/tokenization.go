@@ -367,10 +367,10 @@ func TokenizeAndSaveCardViaBrowserPost(t *testing.T, cfg *Config, client *Client
 		return "", fmt.Errorf("no payment methods found for customer after STORAGE transaction")
 	}
 
-	// Return the most recently created payment method (last in list)
-	// The callback handler creates the payment method with the storage BRIC
-	lastPM := paymentMethods[len(paymentMethods)-1].(map[string]interface{})
-	paymentMethodID, ok := lastPM["id"].(string)
+	// Return the most recently created payment method (first in list)
+	// SQL query orders by created_at DESC, so first item is most recent
+	firstPM := paymentMethods[0].(map[string]interface{})
+	paymentMethodID, ok := firstPM["id"].(string)
 	if !ok || paymentMethodID == "" {
 		return "", fmt.Errorf("payment method ID not found in response")
 	}

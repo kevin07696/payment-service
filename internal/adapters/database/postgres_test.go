@@ -380,8 +380,11 @@ func TestGetTransactionTree(t *testing.T) {
 		//   GetTransactionTree(C) returns [C, R]
 		//   GetTransactionTree(R) returns [R]
 
-		// TODO: Add full integration test with actual transaction creation
-		// This requires test fixtures for merchants, customers, and payment methods
+		// Full integration test deferred: Requires comprehensive test fixtures
+		// (merchants, customers, payment methods) and transaction creation flow.
+		// Current coverage: Basic query validation (empty tree test above)
+		// Additional coverage: End-to-end integration tests in tests/integration/payment/
+		// verify transaction hierarchies work correctly in real workflows.
 		t.Skip("Full integration test requires test data fixtures - see docs/UNIT_TEST_REFACTORING_ANALYSIS.md")
 	})
 }

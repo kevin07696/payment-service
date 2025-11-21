@@ -72,6 +72,9 @@ func TestCreateService_Success(t *testing.T) {
 			params.IsActive.Bool == true
 	})).Return(createdService, nil)
 
+	// Mock audit log creation
+	mockQuerier.On("CreateAuditLog", ctx, mock.AnythingOfType("sqlc.CreateAuditLogParams")).Return(nil)
+
 	// Execute
 	resp, err := handler.CreateService(ctx, req)
 
@@ -118,6 +121,9 @@ func TestCreateService_DefaultRateLimits(t *testing.T) {
 		// Verify defaults are applied
 		return params.RequestsPerSecond.Int32 == 100 && params.BurstLimit.Int32 == 200
 	})).Return(createdService, nil)
+
+	// Mock audit log creation
+	mockQuerier.On("CreateAuditLog", ctx, mock.AnythingOfType("sqlc.CreateAuditLogParams")).Return(nil)
 
 	// Execute
 	resp, err := handler.CreateService(ctx, req)
@@ -260,6 +266,9 @@ func TestRotateServiceKey_Success(t *testing.T) {
 			params.PublicKey != "" &&
 			params.PublicKeyFingerprint != ""
 	})).Return(rotatedService, nil)
+
+	// Mock audit log creation
+	mockQuerier.On("CreateAuditLog", ctx, mock.AnythingOfType("sqlc.CreateAuditLogParams")).Return(nil)
 
 	// Execute
 	resp, err := handler.RotateServiceKey(ctx, req)
@@ -581,6 +590,9 @@ func TestDeactivateService_Success(t *testing.T) {
 
 	mockQuerier.On("DeactivateService", ctx, serviceID).
 		Return(nil)
+
+	// Mock audit log creation
+	mockQuerier.On("CreateAuditLog", ctx, mock.AnythingOfType("sqlc.CreateAuditLogParams")).Return(nil)
 
 	mockQuerier.On("GetServiceByServiceID", ctx, "test-service").
 		Return(deactivatedService, nil).Once()

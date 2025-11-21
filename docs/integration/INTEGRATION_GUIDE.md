@@ -38,8 +38,8 @@ This guide walks you through:
 
 Before you begin, ensure you have:
 
-- ✅ **EPX Merchant Account** - See [EPX Credentials Guide](EPX-Credentials.md)
-- ✅ **Payment Service Running** - See [Quick Start](../docs/wiki-templates/Quick-Start.md)
+- ✅ **Payment Service Running** - See [SETUP.md](SETUP.md) for infrastructure setup
+- ✅ **EPX Merchant Account** - Admin will register your merchant (see Step 1 below)
 - ✅ **Development Environment** - Node.js/Python/Go/etc. for your application
 - ✅ **HTTPS/TLS** - Required for production (use ngrok for local dev)
 
@@ -353,25 +353,11 @@ See [API_SPECS.md](API_SPECS.md) for complete API reference.
 
 ### 6.1: Use EPX Sandbox Test Cards
 
-**Approval Card:**
-```
-Card: 4111111111111111
-CVV: 123
-Exp: 12/25
-ZIP: 12345
-```
+See [SETUP.md - Test Credentials](SETUP.md#3-test-credentials-setup) for complete test card details.
 
-**Decline Card (triggers error codes):**
-```
-Card: 4000000000000002
-CVV: 123
-Exp: 12/25
-
-Amount triggers:
-- $1.05 → Code 05 (Do Not Honor)
-- $1.20 → Code 51 (Insufficient Funds)
-- $1.54 → Code 54 (Expired Card)
-```
+**Quick Reference:**
+- **Approval:** 4111111111111111, CVV 123, Exp 12/25
+- **Decline:** 4000000000000002, amount last 3 digits determine error code
 
 ### 6.2: Test Idempotency
 
@@ -464,17 +450,16 @@ See [GCP_PRODUCTION_SETUP.md](GCP_PRODUCTION_SETUP.md) for deployment guide.
 
 **Solution:**
 - Verify `return_url` is publicly accessible (use ngrok for local dev)
-- Check firewall allows EPX IPs
-- Verify HTTPS/TLS certificate is valid
 - Check server logs for incoming POST requests
+- See [SETUP.md - Troubleshooting](SETUP.md#troubleshooting) for infrastructure issues
 
-### Issue: "Authentication failed" (EPX Code 58)
+### Issue: "Authentication failed" (JWT token)
 
 **Solution:**
-- Verify EPX credentials (CUST_NBR, MERCH_NBR, etc.)
-- Check MAC_SECRET matches EPX account
-- Ensure TAC token hasn't expired (15 min lifetime)
-- Verify signature calculation is correct
+- Verify your JWT token hasn't expired (check `expires_at`)
+- Ensure `merchant_id` in token matches request
+- Check Authorization header format: `Bearer <token>`
+- Regenerate token if invalid
 
 ### Issue: "Idempotency key already used"
 
@@ -490,7 +475,7 @@ See [GCP_PRODUCTION_SETUP.md](GCP_PRODUCTION_SETUP.md) for deployment guide.
 - Partial refunds are supported (just use smaller amount)
 - Can't refund more than was captured (validation error)
 
-See [FAQ](wiki-templates/FAQ.md) for more troubleshooting.
+**For infrastructure/EPX credential issues:** See [SETUP.md - Troubleshooting](SETUP.md#troubleshooting)
 
 ---
 
