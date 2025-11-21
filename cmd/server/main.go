@@ -201,13 +201,16 @@ func main() {
 		}
 	}
 
+	// Cron endpoints requiring authentication
 	httpMux.HandleFunc("/cron/process-billing", cronAuthMiddleware(deps.billingCronHandler.ProcessBilling))
 	httpMux.HandleFunc("/cron/sync-disputes", cronAuthMiddleware(deps.disputeSyncCronHandler.SyncDisputes))
 	httpMux.HandleFunc("/cron/verify-ach", cronAuthMiddleware(deps.achVerificationCronHandler.VerifyACH))
-	httpMux.HandleFunc("/cron/health", cronAuthMiddleware(deps.billingCronHandler.HealthCheck))
 	httpMux.HandleFunc("/cron/stats", cronAuthMiddleware(deps.billingCronHandler.Stats))
-	httpMux.HandleFunc("/cron/ach/health", cronAuthMiddleware(deps.achVerificationCronHandler.HealthCheck))
 	httpMux.HandleFunc("/cron/ach/stats", cronAuthMiddleware(deps.achVerificationCronHandler.Stats))
+
+	// Health endpoints (no auth required for monitoring/load balancers)
+	httpMux.HandleFunc("/cron/health", deps.billingCronHandler.HealthCheck)
+	httpMux.HandleFunc("/cron/ach/health", deps.achVerificationCronHandler.HealthCheck)
 
 	// Browser Post endpoints (with rate limiting and EPX auth for callbacks)
 	httpMux.HandleFunc("/api/v1/payments/browser-post/form",
@@ -318,9 +321,9 @@ type Config struct {
 	CronSecret string
 
 	// Authentication
-	AuthSaltPrefix   string // Salt prefix for hashing API keys/secrets
-	EPXMacSecret     string // MAC secret for EPX callback signature verification
-	DisableAuth      bool   // Disable auth for development/testing
+	AuthSaltPrefix string // Salt prefix for hashing API keys/secrets
+	EPXMacSecret   string // MAC secret for EPX callback signature verification
+	DisableAuth    bool   // Disable auth for development/testing
 }
 
 // Dependencies holds all initialized services and handlers
@@ -548,7 +551,6 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, cfg *Config, logger *
 		browserPost,
 		keyExchange,
 		secretManager, // Secret manager for fetching merchant-specific MACs
-		paymentMethodSvc,
 		logger,
 		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
 		cfg.CallbackBaseURL,    // Base URL for callbacks

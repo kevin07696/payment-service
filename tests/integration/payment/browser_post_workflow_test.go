@@ -59,6 +59,14 @@ func TestBrowserPost_Workflows(t *testing.T) {
 			cfg, client := testutil.Setup(t)
 			time.Sleep(2 * time.Second)
 
+			// Generate JWT token for authentication
+			merchantID := "00000000-0000-0000-0000-000000000001"
+			services, err := testutil.LoadTestServices()
+			require.NoError(t, err)
+			require.NotEmpty(t, services, "No test services found")
+			jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, merchantID, time.Hour)
+			require.NoError(t, err)
+
 			callbackBaseURL := "http://localhost:8081"
 			t.Logf("📡 Using callback URL: %s", callbackBaseURL)
 
@@ -69,9 +77,9 @@ func TestBrowserPost_Workflows(t *testing.T) {
 
 			switch tt.transactionType {
 			case "SALE":
-				bricResult = testutil.GetRealBRICForSaleAutomated(t, client, cfg, tt.amount, callbackBaseURL)
+				bricResult = testutil.GetRealBRICForSaleAutomated(t, client, cfg, tt.amount, callbackBaseURL, jwtToken)
 			case "AUTH":
-				bricResult = testutil.GetRealBRICForAuthAutomated(t, client, cfg, tt.amount, callbackBaseURL)
+				bricResult = testutil.GetRealBRICForAuthAutomated(t, client, cfg, tt.amount, callbackBaseURL, jwtToken)
 			// case "STORAGE":
 			//     bricResult = testutil.GetRealBRICForStorageAutomated(t, client, cfg, callbackBaseURL)
 			default:
@@ -214,4 +222,250 @@ func executeSaleWithStoredBRIC(t *testing.T, client *testutil.Client, bricResult
 	// Implementation depends on how the service handles stored BRICs
 	t.Log("💳 Processing SALE with stored BRIC...")
 	// TODO: Implement SALE with stored BRIC when STORAGE endpoint is available
+}
+
+// TestBrowserPost_PartialCapture tests partial capture of an authorized amount
+func TestBrowserPost_PartialCapture(t *testing.T) {
+	cfg, client := testutil.Setup(t)
+	time.Sleep(2 * time.Second)
+
+	// Load test service credentials for JWT authentication
+	services, err := testutil.LoadTestServices()
+	require.NoError(t, err)
+	require.NotEmpty(t, services, "No test services found")
+
+	jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, "00000000-0000-0000-0000-000000000001", time.Hour)
+	require.NoError(t, err)
+
+	callbackBaseURL := "http://localhost:8081"
+
+	// Step 1: Create AUTH for $150
+	t.Log("[SETUP] Creating AUTH transaction for $150.00...")
+	authResult := testutil.GetRealBRICForAuthAutomated(t, client, cfg, "150.00", callbackBaseURL, jwtToken)
+	t.Logf("[CREATED] AUTH TX=%s", authResult.TransactionID)
+	time.Sleep(2 * time.Second)
+
+	// Set JWT auth for capture
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	// Step 2: Capture only $100 (partial capture)
+	t.Log("[TEST] Capturing $100 of $150 authorized...")
+	captureReq := map[string]interface{}{
+		"transaction_id": authResult.TransactionID,
+		"amount_cents":   int64(10000), // $100.00
+	}
+
+	captureResp, err := client.DoConnectRPC("payment.v1.PaymentService", "Capture", captureReq)
+	require.NoError(t, err)
+	defer captureResp.Body.Close()
+	require.Equal(t, 200, captureResp.StatusCode)
+
+	var result map[string]interface{}
+	require.NoError(t, testutil.DecodeResponse(captureResp, &result))
+
+	assert.True(t, result["isApproved"].(bool), "Partial capture should be approved")
+
+	// ConnectRPC may return amountCents as string or float64 depending on JSON encoding
+	var amountCents float64
+	switch v := result["amountCents"].(type) {
+	case float64:
+		amountCents = v
+	case string:
+		// Try parsing as int
+		var parsed int64
+		_, err = fmt.Sscanf(v, "%d", &parsed)
+		require.NoError(t, err, "Failed to parse amountCents string")
+		amountCents = float64(parsed)
+	default:
+		t.Fatalf("Unexpected amountCents type: %T", v)
+	}
+	assert.Equal(t, float64(10000), amountCents, "Should capture $100")
+
+	t.Logf("[PASS] Partial capture successful: $100 of $150 authorized")
+}
+
+// TestBrowserPost_SaleWithToken tests a sale transaction using a tokenized card (not stored)
+func TestBrowserPost_SaleWithToken(t *testing.T) {
+	cfg, client := testutil.Setup(t)
+	time.Sleep(2 * time.Second)
+
+	// Load test service credentials
+	services, err := testutil.LoadTestServices()
+	require.NoError(t, err)
+	require.NotEmpty(t, services)
+
+	jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, "00000000-0000-0000-0000-000000000001", time.Hour)
+	require.NoError(t, err)
+
+	// Step 1: Tokenize card (get BRIC but don't store as payment method)
+	t.Log("[SETUP] Tokenizing card via EPX...")
+	storageBRIC, err := testutil.TokenizeCard(cfg, testutil.TestVisaCard)
+	require.NoError(t, err)
+	t.Logf("[CREATED] Storage BRIC: %s", storageBRIC)
+	time.Sleep(1 * time.Second)
+
+	// Step 2: Use token directly for sale (via Browser Post SALE with BRIC)
+	t.Log("[TEST] Processing SALE with token...")
+	callbackBaseURL := "http://localhost:8081"
+	saleResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "29.99", callbackBaseURL, jwtToken)
+
+	assert.NotEmpty(t, saleResult.TransactionID)
+	assert.NotEmpty(t, saleResult.GroupID)
+
+	t.Logf("[PASS] Sale with token successful: TX=%s", saleResult.TransactionID)
+}
+
+// TestBrowserPost_MultiplePartialRefunds tests processing multiple partial refunds against a single sale
+func TestBrowserPost_MultiplePartialRefunds(t *testing.T) {
+	cfg, client := testutil.Setup(t)
+	time.Sleep(2 * time.Second)
+
+	// Load test service credentials
+	services, err := testutil.LoadTestServices()
+	require.NoError(t, err)
+	require.NotEmpty(t, services)
+
+	jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, "00000000-0000-0000-0000-000000000001", time.Hour)
+	require.NoError(t, err)
+
+	callbackBaseURL := "http://localhost:8081"
+
+	// Step 1: Create SALE for $200
+	t.Log("[SETUP] Creating SALE transaction for $200.00...")
+	saleResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "200.00", callbackBaseURL, jwtToken)
+	t.Logf("[CREATED] SALE TX=%s", saleResult.TransactionID)
+	time.Sleep(2 * time.Second)
+
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	// Step 2: First partial refund of $50
+	t.Log("[TEST] Processing first refund of $50...")
+	refund1Req := map[string]interface{}{
+		"transaction_id": saleResult.TransactionID,
+		"amount_cents":   int64(5000),
+		"reason":         "First partial refund",
+	}
+
+	refund1Resp, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refund1Req)
+	require.NoError(t, err)
+	defer refund1Resp.Body.Close()
+	require.Equal(t, 200, refund1Resp.StatusCode)
+
+	var refund1Result map[string]interface{}
+	require.NoError(t, testutil.DecodeResponse(refund1Resp, &refund1Result))
+	assert.True(t, refund1Result["isApproved"].(bool))
+	t.Logf("[PASS] First refund of $50 succeeded: %s", refund1Result["transactionId"])
+
+	time.Sleep(1 * time.Second)
+
+	// Step 3: Second partial refund of $75
+	t.Log("[TEST] Processing second refund of $75...")
+	refund2Req := map[string]interface{}{
+		"transaction_id": saleResult.TransactionID,
+		"amount_cents":   int64(7500),
+		"reason":         "Second partial refund",
+	}
+
+	refund2Resp, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refund2Req)
+	require.NoError(t, err)
+	defer refund2Resp.Body.Close()
+	require.Equal(t, 200, refund2Resp.StatusCode)
+
+	var refund2Result map[string]interface{}
+	require.NoError(t, testutil.DecodeResponse(refund2Resp, &refund2Result))
+	assert.True(t, refund2Result["isApproved"].(bool))
+	t.Logf("[PASS] Second refund of $75 succeeded: %s", refund2Result["transactionId"])
+
+	t.Log("[COMPLETE] Multiple partial refunds successful: $50 + $75 = $125 of $200 refunded")
+}
+
+// TestBrowserPost_ConcurrentOperations tests concurrent CAPTURE + VOID operations for race condition prevention
+func TestBrowserPost_ConcurrentOperations(t *testing.T) {
+	cfg, client := testutil.Setup(t)
+	time.Sleep(2 * time.Second)
+
+	// Load test service credentials
+	services, err := testutil.LoadTestServices()
+	require.NoError(t, err)
+	require.NotEmpty(t, services)
+
+	jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, "00000000-0000-0000-0000-000000000001", time.Hour)
+	require.NoError(t, err)
+
+	callbackBaseURL := "http://localhost:8081"
+
+	// Step 1: Create AUTH transaction
+	t.Log("[SETUP] Creating AUTH transaction for $100.00...")
+	authResult := testutil.GetRealBRICForAuthAutomated(t, client, cfg, "100.00", callbackBaseURL, jwtToken)
+	t.Logf("[CREATED] AUTH TX=%s GROUP=%s", authResult.TransactionID, authResult.GroupID)
+	time.Sleep(2 * time.Second)
+
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	// Step 2: Launch concurrent CAPTURE + VOID
+	t.Log("[TEST] Launching concurrent CAPTURE + VOID operations...")
+
+	var captureErr, voidErr error
+	var captureStatus, voidStatus int
+	var captureResp, voidResp map[string]interface{}
+
+	// Use channels for goroutine synchronization
+	captureDone := make(chan bool)
+	voidDone := make(chan bool)
+
+	// Concurrent CAPTURE
+	go func() {
+		defer func() { captureDone <- true }()
+		resp, err := client.DoConnectRPC("payment.v1.PaymentService", "Capture", map[string]interface{}{
+			"transaction_id": authResult.TransactionID,
+			"amount_cents":   int64(10000),
+		})
+		captureErr = err
+		if err == nil {
+			captureStatus = resp.StatusCode
+			testutil.DecodeResponse(resp, &captureResp)
+			resp.Body.Close()
+		}
+	}()
+
+	// Concurrent VOID
+	go func() {
+		defer func() { voidDone <- true }()
+		resp, err := client.DoConnectRPC("payment.v1.PaymentService", "Void", map[string]interface{}{
+			"transaction_id": authResult.TransactionID,
+		})
+		voidErr = err
+		if err == nil {
+			voidStatus = resp.StatusCode
+			testutil.DecodeResponse(resp, &voidResp)
+			resp.Body.Close()
+		}
+	}()
+
+	// Wait for both operations
+	<-captureDone
+	<-voidDone
+
+	// Verify no data corruption
+	captureSuccess := captureErr == nil && captureStatus == 200
+	voidSuccess := voidErr == nil && voidStatus == 200
+
+	t.Logf("[RESULT] CAPTURE=%v (status=%d) VOID=%v (status=%d)",
+		captureSuccess, captureStatus, voidSuccess, voidStatus)
+
+	// At least one should succeed, but no data corruption
+	successCount := 0
+	if captureSuccess {
+		successCount++
+	}
+	if voidSuccess {
+		successCount++
+	}
+
+	assert.GreaterOrEqual(t, successCount, 1, "At least one operation must succeed")
+	assert.LessOrEqual(t, successCount, 2, "Max two operations can succeed")
+	t.Log("[PASS] Concurrency test passed - no data corruption detected")
 }

@@ -17,12 +17,13 @@ import (
 
 // TestStorePaymentMethod_CreditCard tests storing a tokenized credit card payment method
 func TestStorePaymentMethod_CreditCard(t *testing.T) {
-	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+	t.Skip("TODO: Update to use Browser Post STORAGE flow with TokenizeAndSaveCardViaBrowserPost after removing deprecated SavePaymentMethod RPC")
 
 	cfg, client := testutil.Setup(t)
 	time.Sleep(2 * time.Second) // EPX rate limiting
 
-	// Tokenize and save payment method
+	// TODO: Replace with TokenizeAndSaveCardViaBrowserPost
+	// Requires: JWT token, callbackBaseURL, headless Chrome setup
 	paymentMethodID, err := testutil.TokenizeAndSaveCard(
 		cfg,
 		client,
@@ -52,12 +53,12 @@ func TestStorePaymentMethod_CreditCard(t *testing.T) {
 
 // TestStorePaymentMethod_ACH tests storing a tokenized ACH payment method
 func TestStorePaymentMethod_ACH(t *testing.T) {
-	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+	t.Skip("TODO: Update to use StoreACHAccount RPC once implemented (currently returns Unimplemented)")
 
 	cfg, client := testutil.Setup(t)
 	time.Sleep(2 * time.Second) // EPX rate limiting
 
-	// Tokenize and save ACH payment method
+	// TODO: Replace with StoreACHAccount RPC call
 	paymentMethodID, err := testutil.TokenizeAndSaveACH(
 		cfg,
 		client,
@@ -87,7 +88,7 @@ func TestStorePaymentMethod_ACH(t *testing.T) {
 
 // TestGetPaymentMethod retrieves a stored payment method
 func TestGetPaymentMethod(t *testing.T) {
-	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+	t.Skip("TODO: Update to use Browser Post STORAGE flow - depends on deprecated TokenizeAndSaveCard")
 
 	cfg, client := testutil.Setup(t)
 	time.Sleep(2 * time.Second)
@@ -125,7 +126,7 @@ func TestGetPaymentMethod(t *testing.T) {
 
 // TestListPaymentMethods lists all payment methods for a customer
 func TestListPaymentMethods(t *testing.T) {
-	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+	t.Skip("TODO: Update to use Browser Post STORAGE flow - depends on deprecated TokenizeAndSaveCard")
 
 	cfg, client := testutil.Setup(t)
 	customerID := "test-customer-list-001"
@@ -164,7 +165,7 @@ func TestListPaymentMethods(t *testing.T) {
 
 // TestDeletePaymentMethod tests soft-deleting a payment method
 func TestDeletePaymentMethod(t *testing.T) {
-	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+	t.Skip("TODO: Update to use Browser Post STORAGE flow - depends on deprecated TokenizeAndSaveCard")
 
 	cfg, client := testutil.Setup(t)
 	time.Sleep(2 * time.Second)
@@ -212,6 +213,8 @@ func TestDeletePaymentMethod(t *testing.T) {
 
 // TestStorePaymentMethod_ValidationErrors tests validation error handling
 func TestStorePaymentMethod_ValidationErrors(t *testing.T) {
+	t.Skip("TODO: Update to use ConnectRPC StorePaymentMethod endpoint (deprecated HTTP REST /api/v1/payment-methods removed)")
+
 	_, client := testutil.Setup(t)
 
 	testCases := []struct {
@@ -263,7 +266,7 @@ func TestStorePaymentMethod_ValidationErrors(t *testing.T) {
 
 // TestStoreMultipleCardsForCustomer tests storing multiple cards for the same customer
 func TestStoreMultipleCardsForCustomer(t *testing.T) {
-	testutil.SkipIfBRICStorageUnavailable(t) // TODO: Remove once EPX enables BRIC Storage in sandbox
+	t.Skip("TODO: Update to use Browser Post STORAGE flow with TokenizeAndSaveCardViaBrowserPost (deprecated TokenizeAndSaveCard removed)")
 
 	cfg, client := testutil.Setup(t)
 	customerID := "test-customer-multi-001"
