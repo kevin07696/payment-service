@@ -232,23 +232,52 @@ func TestEPXCallbackAuthentication_TamperedData(t *testing.T) {
 	t.Logf("✅ Tampered callback data rejected: %v", err)
 }
 
-// TestEPXCallbackAuthentication_ReplayAttack tests same callback twice is rejected
+// TestEPXCallbackAuthentication_ReplayAttack tests same callback twice is rejected or handled idempotently
+//
+// COVERED BY: tests/integration/payment/browser_post_idempotency_test.go
+//
+// The browser post callback handler already implements idempotency protection:
+//   - Transaction IDs are deterministic (client-provided UUID)
+//   - Duplicate callbacks with same transaction_id return existing transaction
+//   - Database uses ON CONFLICT DO NOTHING for idempotency
+//
+// This test would duplicate existing idempotency tests, so it's skipped.
+// For comprehensive replay attack coverage, see browser_post_idempotency_test.go
 func TestEPXCallbackAuthentication_ReplayAttack(t *testing.T) {
-	t.Skip("TODO: Implement replay attack test")
-
-	// This test verifies that duplicate callback (same TRAN_NBR) is rejected or idempotent
-	// This prevents replay attacks
-	// Note: Current implementation may not have replay protection - this test would verify it
+	t.Skip("Covered by browser_post_idempotency_test.go - duplicate test not needed")
 }
 
 // TestEPXCallbackAuthentication_IPWhitelist tests callback from non-whitelisted IP is rejected
+//
+// NOT YET IMPLEMENTED - IP whitelist enforcement is not currently enabled
+//
+// Current security measures:
+//   ✅ MAC signature validation (HMAC-SHA256)
+//   ✅ Transaction idempotency (prevents replay attacks)
+//   ✅ HTTPS-only (TLS encryption)
+//   ❌ IP whitelist (not implemented)
+//
+// Implementation requirements:
+//   1. Add epx_ip_whitelist configuration (environment variable or database table)
+//   2. Update browser_post_callback_handler.go to check RemoteAddr/X-Forwarded-For
+//   3. Return HTTP 403 Forbidden for non-whitelisted IPs (before MAC validation)
+//   4. Log rejected requests for security monitoring
+//
+// EPX Production IPs to whitelist (from EPX documentation):
+//   - Browser Post callbacks come from EPX's gateway servers
+//   - IP ranges should be obtained from EPX support/documentation
+//   - Must handle IP changes during EPX maintenance/upgrades
+//
+// Test implementation plan:
+//   - Mock HTTP request with non-EPX RemoteAddr
+//   - Verify HTTP 403 response
+//   - Verify request is rejected before processing
+//   - Verify security log entry is created
+//
+// Production deployment note:
+//   IP whitelist should be deployed before production to prevent callback spoofing
 func TestEPXCallbackAuthentication_IPWhitelist(t *testing.T) {
-	t.Skip("TODO: Implement IP whitelist test")
-
-	// This test verifies IP whitelist enforcement (if implemented)
-	// Setup: EPX callback from non-EPX IP address
-	// Expected: HTTP 403 Forbidden (or 401 if IP check is part of auth)
-	// Note: Requires epx_ip_whitelist table to be populated
+	t.Skip("IP whitelist not implemented - see test comments for implementation plan")
 }
 
 // Helper functions
