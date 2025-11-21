@@ -1,10 +1,11 @@
+// +build integration
+
 package testutil
 
 import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -35,11 +36,12 @@ type TestACH struct {
 }
 
 // Test cards (EPX sandbox)
+// Note: Expiration dates are set dynamically to current year + 1 to ensure they're always valid
 var (
 	TestVisaCard = TestCard{
 		Number:   "4111111111111111",
-		ExpMonth: "12",
-		ExpYear:  "2025",
+		ExpMonth: "06",
+		ExpYear:  fmt.Sprintf("%d", time.Now().Year()+1),
 		CVV:      "123",
 		ZipCode:  "12345",
 		CardType: "visa",
@@ -49,7 +51,7 @@ var (
 	TestMastercardCard = TestCard{
 		Number:   "5555555555554444",
 		ExpMonth: "12",
-		ExpYear:  "2025",
+		ExpYear:  fmt.Sprintf("%d", time.Now().Year()+1),
 		CVV:      "123",
 		ZipCode:  "12345",
 		CardType: "mastercard",
@@ -59,7 +61,7 @@ var (
 	TestAmexCard = TestCard{
 		Number:   "378282246310005",
 		ExpMonth: "12",
-		ExpYear:  "2025",
+		ExpYear:  fmt.Sprintf("%d", time.Now().Year()+1),
 		CVV:      "1234",
 		ZipCode:  "12345",
 		CardType: "amex",
@@ -69,7 +71,7 @@ var (
 	TestDiscoverCard = TestCard{
 		Number:   "6011111111111117",
 		ExpMonth: "12",
-		ExpYear:  "2025",
+		ExpYear:  fmt.Sprintf("%d", time.Now().Year()+1),
 		CVV:      "123",
 		ZipCode:  "12345",
 		CardType: "discover",
@@ -95,7 +97,7 @@ var (
 	TestVisaDebitCard = TestCard{
 		Number:   "4111111111111111",
 		ExpMonth: "12",
-		ExpYear:  "2025",
+		ExpYear:  fmt.Sprintf("%d", time.Now().Year()+1),
 		CVV:      "123",
 		ZipCode:  "12345",
 		CardType: "visa",
@@ -105,7 +107,7 @@ var (
 	TestMastercardDebitCard = TestCard{
 		Number:   "5555555555554444",
 		ExpMonth: "12",
-		ExpYear:  "2025",
+		ExpYear:  fmt.Sprintf("%d", time.Now().Year()+1),
 		CVV:      "123",
 		ZipCode:  "12345",
 		CardType: "mastercard",
@@ -291,96 +293,81 @@ func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
 	return authGuid, nil
 }
 
-// SavePaymentMethod saves a tokenized payment method via the API
-// jwtToken is required for authentication
-func SavePaymentMethod(client *Client, jwtToken, merchantID, customerID, token string, card *TestCard, ach *TestACH) (string, error) {
-	req := map[string]interface{}{
-		"merchant_id":   merchantID,
-		"customer_id":   customerID,
-		"payment_token": token,
-		"is_default":    true,
+// TokenizeAndSaveCardViaBrowserPost uses Browser Post API to tokenize and save a credit card
+// This is the preferred method for merchants using Browser Post API
+// Flow:
+//  1. Uses Browser Post STORAGE transaction to tokenize the card
+//  2. Browser Post callback handler automatically saves the storage BRIC to payment_methods table
+//  3. Queries for the payment method that was created
+//  4. Returns the payment method ID
+//
+// jwtToken is required for authentication when querying payment methods
+// t is required for Browser Post automation (uses headless Chrome)
+// callbackBaseURL is the public URL where EPX can callback (e.g., ngrok URL or localhost:8081)
+func TokenizeAndSaveCardViaBrowserPost(t *testing.T, cfg *Config, client *Client, jwtToken, merchantID, customerID string, card TestCard, callbackBaseURL string) (string, error) {
+	t.Helper()
+
+	// Step 1: Use Browser Post STORAGE transaction to tokenize the card
+	// STORAGE transaction creates a storage BRIC without charging
+	// The callback handler will automatically save it to payment_methods table
+	cardDetails := &CardDetails{
+		Number:  card.Number,
+		CVV:     card.CVV,
+		ExpDate: card.ExpYear[2:] + card.ExpMonth, // Format: YYMM (EPX Browser Post format)
+		Zip:     card.ZipCode,
 	}
 
-	if card != nil {
-		req["payment_type"] = "PAYMENT_METHOD_TYPE_CREDIT_CARD"
-		req["last_four"] = card.LastFour
-		req["card_brand"] = card.CardType
-		req["card_exp_month"] = parseMonth(card.ExpMonth)
-		req["card_exp_year"] = parseYear(card.ExpYear)
-	} else if ach != nil {
-		req["payment_type"] = "PAYMENT_METHOD_TYPE_ACH"
-		req["last_four"] = ach.LastFour
-		req["account_type"] = ach.AccountType
-		req["bank_name"] = "Test Bank"
+	bricResult := GetRealBRICAutomated(t, client, cfg, "0.00", "STORAGE", callbackBaseURL, cardDetails, customerID, jwtToken)
+	if bricResult == nil {
+		return "", fmt.Errorf("Browser Post STORAGE transaction failed: no BRIC returned")
 	}
 
-	// Set JWT authorization header
+	// Step 2: The Browser Post callback handler automatically saves STORAGE transactions to payment_methods
+	// We just need to query for the payment method that was created
+	// Wait a moment for the payment method to be saved
+	time.Sleep(500 * time.Millisecond)
+
+	// Step 3: Query for the payment method that was auto-saved by the callback handler
+	// The callback handler automatically saves STORAGE transactions to payment_methods table
+	transactionID := bricResult.TransactionID
+	if transactionID == "" {
+		return "", fmt.Errorf("Browser Post returned empty transaction ID")
+	}
+
+	// List payment methods for this customer to find the one we just created
 	client.SetHeader("Authorization", "Bearer "+jwtToken)
 	defer client.ClearHeaders()
 
-	// ConnectRPC endpoint for SavePaymentMethod
-	resp, err := client.Do("POST", "/payment_method.v1.PaymentMethodService/SavePaymentMethod", req)
+	resp, err := client.DoConnectRPC("payment_method.v1.PaymentMethodService", "ListPaymentMethods", map[string]interface{}{
+		"merchant_id": merchantID,
+		"customer_id": customerID,
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to list payment methods: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("failed to save payment method: status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("list payment methods failed: status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := DecodeResponse(resp, &result); err != nil {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// ConnectRPC response structure uses camelCase: {"paymentMethodId": "...", "merchantId": "...", ...}
-	paymentMethodID, ok := result["paymentMethodId"].(string)
+	paymentMethods, ok := result["paymentMethods"].([]interface{})
+	if !ok || len(paymentMethods) == 0 {
+		return "", fmt.Errorf("no payment methods found for customer after STORAGE transaction")
+	}
+
+	// Return the most recently created payment method (last in list)
+	// The callback handler creates the payment method with the storage BRIC
+	lastPM := paymentMethods[len(paymentMethods)-1].(map[string]interface{})
+	paymentMethodID, ok := lastPM["id"].(string)
 	if !ok || paymentMethodID == "" {
-		return "", fmt.Errorf("paymentMethodId not found in response: %+v", result)
-	}
-
-	return paymentMethodID, nil
-}
-
-// TokenizeAndSaveCard is a convenience function that tokenizes a card and saves it
-// jwtToken is required for authentication when saving the payment method
-func TokenizeAndSaveCard(cfg *Config, client *Client, jwtToken, merchantID, customerID string, card TestCard) (string, error) {
-	// Tokenize card
-	token, err := TokenizeCard(cfg, card)
-	if err != nil {
-		return "", fmt.Errorf("tokenization failed: %w", err)
-	}
-
-	// Small delay to respect rate limits
-	time.Sleep(100 * time.Millisecond)
-
-	// Save payment method
-	paymentMethodID, err := SavePaymentMethod(client, jwtToken, merchantID, customerID, token, &card, nil)
-	if err != nil {
-		return "", fmt.Errorf("save payment method failed: %w", err)
-	}
-
-	return paymentMethodID, nil
-}
-
-// TokenizeAndSaveACH is a convenience function that tokenizes an ACH account and saves it
-// jwtToken is required for authentication when saving the payment method
-func TokenizeAndSaveACH(cfg *Config, client *Client, jwtToken, merchantID, customerID string, ach TestACH) (string, error) {
-	// Tokenize ACH
-	token, err := TokenizeACH(cfg, ach)
-	if err != nil {
-		return "", fmt.Errorf("tokenization failed: %w", err)
-	}
-
-	// Small delay to respect rate limits
-	time.Sleep(100 * time.Millisecond)
-
-	// Save payment method
-	paymentMethodID, err := SavePaymentMethod(client, jwtToken, merchantID, customerID, token, nil, &ach)
-	if err != nil {
-		return "", fmt.Errorf("save payment method failed: %w", err)
+		return "", fmt.Errorf("payment method ID not found in response")
 	}
 
 	return paymentMethodID, nil
@@ -390,6 +377,18 @@ func parseMonth(month string) int {
 	var m int
 	fmt.Sscanf(month, "%d", &m)
 	return m
+}
+
+// TokenizeAndSaveACH is a stub for ACH account tokenization
+// TODO: Implement when StoreACHAccount RPC is available
+func TokenizeAndSaveACH(cfg *Config, client *Client, merchantID, customerID string, achAccount TestACH) (string, error) {
+	return "", fmt.Errorf("TokenizeAndSaveACH not yet implemented - waiting for StoreACHAccount RPC")
+}
+
+// TokenizeAndSaveCard is a stub for saving tokenized cards
+// TODO: Update to use Browser Post STORAGE flow
+func TokenizeAndSaveCard(cfg *Config, client *Client, merchantID, customerID string, card TestCard) (string, error) {
+	return "", fmt.Errorf("TokenizeAndSaveCard deprecated - use TokenizeAndSaveCardViaBrowserPost instead")
 }
 
 func parseYear(year string) int {

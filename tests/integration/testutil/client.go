@@ -15,6 +15,7 @@ import (
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	Headers    map[string]string // Custom headers to add to all requests
 }
 
 // NewClient creates a new test API client for ConnectRPC
@@ -22,10 +23,28 @@ func NewClient(baseURL string) *Client {
 	// Use standard HTTP/1.1 transport for Connect protocol
 	// The h2c server supports both HTTP/1.1 and HTTP/2
 	return &Client{
-		BaseURL: baseURL,
+		BaseURL:    baseURL,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		Headers: make(map[string]string),
+	}
+}
+
+// SetHeader sets a custom header for all subsequent requests
+func (c *Client) SetHeader(key, value string) {
+	c.Headers[key] = value
+}
+
+// ClearHeaders removes all custom headers
+func (c *Client) ClearHeaders() {
+	c.Headers = make(map[string]string)
+}
+
+// applyHeaders adds all custom headers to the request
+func (c *Client) applyHeaders(req *http.Request) {
+	for key, value := range c.Headers {
+		req.Header.Set(key, value)
 	}
 }
 
@@ -49,6 +68,9 @@ func (c *Client) Do(method, path string, body interface{}) (*http.Response, erro
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	// Apply custom headers
+	c.applyHeaders(req)
+
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
@@ -65,6 +87,9 @@ func (c *Client) DoForm(method, path string, formData url.Values) (*http.Respons
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// Apply custom headers
+	c.applyHeaders(req)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -102,6 +127,9 @@ func (c *Client) DoConnectRPC(serviceName, method string, body interface{}) (*ht
 	}
 	// Use Connect protocol (works with HTTP/1.1 and HTTP/2)
 	req.Header.Set("Connect-Protocol-Version", "1")
+
+	// Apply custom headers (e.g., Authorization)
+	c.applyHeaders(req)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

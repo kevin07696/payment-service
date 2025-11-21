@@ -31,7 +31,7 @@ func DefaultApprovalCard() *CardDetails {
 	return &CardDetails{
 		Number:  "4111111111111111", // Standard Visa approval test card
 		CVV:     "123",
-		ExpDate: "2512",
+		ExpDate: "2512", // Format: YYMM (December 2025)
 		Zip:     "12345",
 	}
 }
@@ -43,7 +43,7 @@ func VisaDeclineCard() *CardDetails {
 	return &CardDetails{
 		Number:  "4000000000000002", // EPX Visa decline test card
 		CVV:     "123",
-		ExpDate: "2512",
+		ExpDate: "2512", // Format: YYMM (December 2025)
 		Zip:     "12345",
 		Address: "123 N CENTRAL",
 	}
@@ -60,7 +60,9 @@ func VisaDeclineCard() *CardDetails {
 // 5. Return BRIC for use in subsequent operations
 //
 // cardDetails: optional card details for testing. If nil, uses DefaultApprovalCard()
-func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount string, transactionType string, callbackBaseURL string, cardDetails *CardDetails) *RealBRICResult {
+// customerID: customer UUID for STORAGE transactions (put in USER_DATA_2). If empty, uses "test-customer".
+// jwtToken: optional JWT token for authentication when querying transaction. If empty, no auth header is set.
+func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount string, transactionType string, callbackBaseURL string, cardDetails *CardDetails, customerID string, jwtToken string) *RealBRICResult {
 	t.Helper()
 
 	// Use default approval card if not specified
@@ -78,11 +80,27 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	}
 	returnURL := callbackBaseURL + "/api/v1/payments/browser-post/callback"
 
+	// Browser Post form endpoint is on HTTP server (port 8081), not ConnectRPC server (port 8080)
+	// Create a separate client for HTTP endpoints
+	httpClient := NewClient("http://localhost:8081")
+
+	// Set JWT auth header for form generation endpoint
+	if jwtToken != "" {
+		httpClient.SetHeader("Authorization", "Bearer "+jwtToken)
+		defer httpClient.ClearHeaders()
+	}
+
+	// Build form request with customer_id for STORAGE transactions
 	formReq := fmt.Sprintf("/api/v1/payments/browser-post/form?transaction_id=%s&merchant_id=%s&amount=%s&transaction_type=%s&return_url=%s",
 		transactionID, merchantID, amount, transactionType, url.QueryEscape(returnURL))
 
+	// Add customer_id for STORAGE transactions (required for payment method save)
+	if customerID != "" {
+		formReq += "&customer_id=" + url.QueryEscape(customerID)
+	}
+
 	t.Logf("🔧 Getting Browser Post form config for %s transaction...", transactionType)
-	formResp, err := client.Do("GET", formReq, nil)
+	formResp, err := httpClient.Do("GET", formReq, nil)
 	require.NoError(t, err, "Failed to get Browser Post form")
 	defer formResp.Body.Close()
 
@@ -131,15 +149,18 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	defer cancel()
 
 	// EPX Browser Post form uses TRAN_CODE (not TRAN_GROUP)
-	// Per EPX Data Dictionary:
+	// Per EPX Data Dictionary (TRAN_GROUP Values table):
 	// - TRAN_CODE="SALE" for sale transactions (auth + capture)
 	// - TRAN_CODE="AUTH" for authorization-only transactions
+	// - TRAN_CODE="STORAGE" for storage-only transactions (tokenization without charge, TRAN_TYPE=CCX8)
 	var epxTranCode string
 	switch transactionType {
 	case "AUTH":
 		epxTranCode = "AUTH"
 	case "SALE":
 		epxTranCode = "SALE"
+	case "STORAGE":
+		epxTranCode = "STORAGE"
 	default:
 		epxTranCode = "SALE" // Default to sale
 	}
@@ -170,8 +191,10 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
     <input type="hidden" name="ACCOUNT_NBR" value="%s">
     <input type="hidden" name="EXP_DATE" value="%s">
     <input type="hidden" name="CVV" value="%s">
+    <input type="hidden" name="ADDRESS" value="%s">
+    <input type="hidden" name="ZIP_CODE" value="%s">
     <input type="hidden" name="USER_DATA_1" value="%s">
-    <input type="hidden" name="USER_DATA_2" value="test-customer">
+    <input type="hidden" name="USER_DATA_2" value="%s">
     <input type="hidden" name="USER_DATA_3" value="%s">
     <input type="hidden" name="INDUSTRY_TYPE" value="E">
 </form>
@@ -181,7 +204,8 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 		postURL, tac, custNbr, merchNbr, dbaName, terminalNbr,
 		epxTranNbr, epxTranCode, amount,
 		cardDetails.Number, cardDetails.ExpDate, cardDetails.CVV, // Use parameterized card details
-		transactionID, merchantID)
+		getAddressOrDefault(cardDetails), getZipOrDefault(cardDetails), // AVS fields for Account Verification
+		transactionID, getCustomerIDOrDefault(customerID), merchantID)
 
 	// Use data URL to load the form
 	dataURL := "data:text/html;base64," + base64Encode(formHTML)
@@ -210,7 +234,17 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 
 	// Step 4: Verify transaction was created with real BRIC
 	t.Logf("🔍 Querying database for transaction...")
-	getTxResp, err := client.Do("GET", fmt.Sprintf("/api/v1/payments/%s", transactionID), nil)
+
+	// Set JWT auth if provided
+	if jwtToken != "" {
+		client.SetHeader("Authorization", "Bearer "+jwtToken)
+		defer client.ClearHeaders()
+	}
+
+	// Use ConnectRPC protocol (not REST) - ConnectRPC requires POST with service/method path
+	getTxResp, err := client.DoConnectRPC("payment.v1.PaymentService", "GetTransaction", map[string]interface{}{
+		"transaction_id": transactionID,
+	})
 	require.NoError(t, err, "Failed to get transaction")
 	defer getTxResp.Body.Close()
 
@@ -220,24 +254,50 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	err = DecodeResponse(getTxResp, &transaction)
 	require.NoError(t, err, "Failed to decode transaction")
 
-	// Extract group_id from transaction
-	groupID, ok := transaction["groupId"].(string)
-	require.True(t, ok && groupID != "", "Transaction should have group_id")
+	// Extract transaction details
+	txID, ok := transaction["id"].(string)
+	require.True(t, ok && txID != "", "Transaction should have id")
 
-	status, ok := transaction["status"].(string)
-	require.True(t, ok, "Transaction should have status")
+	// Extract BRIC (authorization_code) - this is the EPX AUTH_GUID that can be reused
+	authCode, ok := transaction["authorizationCode"].(string)
+	if !ok || authCode == "" {
+		t.Logf("⚠️  Warning: No authorization_code in transaction response, using transaction ID as fallback")
+		authCode = txID
+	}
 
-	t.Logf("✅ Transaction created with REAL BRIC (via automated browser):")
-	t.Logf("   Transaction ID: %s", transactionID)
-	t.Logf("   Group ID: %s", groupID)
-	t.Logf("   Status: %s", status)
+	// For SALE/AUTH transactions, parent_transaction_id is NULL (root transactions)
+	// For CAPTURE/REFUND transactions, parent_transaction_id points to the parent
+	parentTxID, _ := transaction["parentTransactionId"].(string)
+
+	// Status can be a string or number depending on JSON serialization
+	var statusStr string
+	switch v := transaction["status"].(type) {
+	case string:
+		statusStr = v
+	case float64:
+		// Enum value as number
+		statusStr = fmt.Sprintf("%d", int(v))
+	default:
+		statusStr = "unknown"
+	}
+
+	t.Logf("✅ Transaction created via automated browser:")
+	t.Logf("   Transaction ID: %s", txID)
+	t.Logf("   Authorization Code (BRIC): %s", authCode)
 	t.Logf("   Type: %s", transactionType)
+	t.Logf("   Status: %s", statusStr)
+	if parentTxID != "" {
+		t.Logf("   Parent Transaction ID: %s", parentTxID)
+	}
 
 	// Return the result for use in subsequent operations
+	// For SALE/AUTH: TransactionID is the root transaction that can be used for REFUND
+	// For CAPTURE: ParentTransactionId is the AUTH that was captured
+	// BRIC is the authorization_code (EPX AUTH_GUID) that can be stored and reused
 	return &RealBRICResult{
-		TransactionID: transactionID,
-		GroupID:       groupID,
-		BRIC:          groupID, // BRIC is stored in transaction_groups table, referenced by group_id
+		TransactionID: txID,
+		GroupID:       parentTxID, // Empty for SALE/AUTH, populated for CAPTURE/REFUND
+		BRIC:          authCode,   // EPX AUTH_GUID for reuse in future transactions
 		Amount:        amount,
 		MerchantID:    merchantID,
 	}
@@ -245,21 +305,24 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 
 // GetRealBRICForAuthAutomated is a convenience wrapper for AUTH transactions using automated browser with default approval card
 // callbackBaseURL: optional public URL for EPX to call back (e.g., ngrok URL). If empty, uses cfg.ServiceURL
-func GetRealBRICForAuthAutomated(t *testing.T, client *Client, cfg *Config, amount string, callbackBaseURL string) *RealBRICResult {
-	return GetRealBRICAutomated(t, client, cfg, amount, "AUTH", callbackBaseURL, nil) // nil = use default approval card
+// jwtToken: optional JWT token for authentication. If empty, no auth header is set.
+func GetRealBRICForAuthAutomated(t *testing.T, client *Client, cfg *Config, amount string, callbackBaseURL string, jwtToken string) *RealBRICResult {
+	return GetRealBRICAutomated(t, client, cfg, amount, "AUTH", callbackBaseURL, nil, "", jwtToken) // nil = use default approval card, "" = no customer ID for AUTH
 }
 
 // GetRealBRICForSaleAutomated is a convenience wrapper for SALE transactions using automated browser with default approval card
 // callbackBaseURL: optional public URL for EPX to call back (e.g., ngrok URL). If empty, uses cfg.ServiceURL
-func GetRealBRICForSaleAutomated(t *testing.T, client *Client, cfg *Config, amount string, callbackBaseURL string) *RealBRICResult {
-	return GetRealBRICAutomated(t, client, cfg, amount, "SALE", callbackBaseURL, nil) // nil = use default approval card
+// jwtToken: optional JWT token for authentication. If empty, no auth header is set.
+func GetRealBRICForSaleAutomated(t *testing.T, client *Client, cfg *Config, amount string, callbackBaseURL string, jwtToken string) *RealBRICResult {
+	return GetRealBRICAutomated(t, client, cfg, amount, "SALE", callbackBaseURL, nil, "", jwtToken) // nil = use default approval card, "" = no customer ID for SALE
 }
 
 // GetRealBRICForSaleAutomatedWithCard is a convenience wrapper for SALE transactions with custom card details
 // Useful for testing decline codes, different card types, etc.
 // callbackBaseURL: optional public URL for EPX to call back (e.g., ngrok URL). If empty, uses cfg.ServiceURL
-func GetRealBRICForSaleAutomatedWithCard(t *testing.T, client *Client, cfg *Config, amount string, callbackBaseURL string, cardDetails *CardDetails) *RealBRICResult {
-	return GetRealBRICAutomated(t, client, cfg, amount, "SALE", callbackBaseURL, cardDetails)
+// jwtToken: optional JWT token for authentication. If empty, no auth header is set.
+func GetRealBRICForSaleAutomatedWithCard(t *testing.T, client *Client, cfg *Config, amount string, callbackBaseURL string, cardDetails *CardDetails, jwtToken string) *RealBRICResult {
+	return GetRealBRICAutomated(t, client, cfg, amount, "SALE", callbackBaseURL, cardDetails, "", jwtToken) // "" = no customer ID for SALE
 }
 
 // base64Encode encodes a string to base64
@@ -293,4 +356,28 @@ func base64Encode(s string) string {
 	}
 
 	return string(result)
+}
+
+// getAddressOrDefault returns the address from CardDetails or a default value
+func getAddressOrDefault(card *CardDetails) string {
+	if card.Address != "" {
+		return card.Address
+	}
+	return "123 Main St"
+}
+
+// getZipOrDefault returns the zip code from CardDetails or a default value
+func getZipOrDefault(card *CardDetails) string {
+	if card.Zip != "" {
+		return card.Zip
+	}
+	return "12345"
+}
+
+// getCustomerIDOrDefault returns the customerID or a default value for non-STORAGE transactions
+func getCustomerIDOrDefault(customerID string) string {
+	if customerID != "" {
+		return customerID
+	}
+	return "test-customer"
 }
