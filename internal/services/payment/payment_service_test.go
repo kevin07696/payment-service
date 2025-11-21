@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/converters"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/services/ports"
@@ -180,21 +181,21 @@ func TestSqlcToDomain_ValidTransaction(t *testing.T) {
 
 // TestToNullableText_NilValue tests nullable text conversion
 func TestToNullableText_NilValue(t *testing.T) {
-	result := toNullableText(nil)
+	result := converters.ToNullableText(nil)
 	assert.False(t, result.Valid)
 }
 
 // TestToNullableText_ValidValue tests nullable text conversion with value
 func TestToNullableText_ValidValue(t *testing.T) {
 	str := "test-value"
-	result := toNullableText(&str)
+	result := converters.ToNullableText(&str)
 	assert.True(t, result.Valid)
 	assert.Equal(t, "test-value", result.String)
 }
 
 // TestToNullableUUID_NilValue tests nullable UUID conversion
 func TestToNullableUUID_NilValue(t *testing.T) {
-	result := toNullableUUID(nil)
+	result := converters.ToNullableUUID(nil)
 	assert.False(t, result.Valid)
 }
 
@@ -202,7 +203,7 @@ func TestToNullableUUID_NilValue(t *testing.T) {
 func TestToNullableUUID_ValidValue(t *testing.T) {
 	id := uuid.New()
 	str := id.String()
-	result := toNullableUUID(&str)
+	result := converters.ToNullableUUID(&str)
 	assert.True(t, result.Valid)
 	assert.Equal(t, id, uuid.UUID(result.Bytes))
 }
@@ -210,7 +211,7 @@ func TestToNullableUUID_ValidValue(t *testing.T) {
 // TestToNullableUUID_InvalidFormat tests nullable UUID conversion with invalid format
 func TestToNullableUUID_InvalidFormat(t *testing.T) {
 	str := "not-a-uuid"
-	result := toNullableUUID(&str)
+	result := converters.ToNullableUUID(&str)
 	assert.False(t, result.Valid)
 }
 

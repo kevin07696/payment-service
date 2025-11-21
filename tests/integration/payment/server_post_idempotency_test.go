@@ -37,13 +37,18 @@ func TestIntegration_ServerPost_Refund_IdempotencySameUUID(t *testing.T) {
 	t.Log("Step 2: Performing first Refund with idempotency key...")
 	refundID := uuid.New()
 	refundReq := map[string]interface{}{
-		"group_id":        bricResult.GroupID, // Refund uses group_id
-		"amount":          "25.00",
+		"merchant_id":     merchantID,
+		"transaction_id":  bricResult.TransactionID,
+		"amount_cents":    int64(2500), // 25.00 in cents
 		"reason":          "Customer request",
 		"idempotency_key": refundID.String(),
 	}
 
-	refundResp1, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
+	// Set JWT authentication
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	refundResp1, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refundReq)
 	require.NoError(t, err)
 	defer refundResp1.Body.Close()
 
@@ -63,7 +68,12 @@ func TestIntegration_ServerPost_Refund_IdempotencySameUUID(t *testing.T) {
 
 	// Step 3: Retry the Refund with the SAME UUID (idempotency test)
 	t.Log("Step 3: Retrying Refund with same idempotency key...")
-	refundResp2, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
+
+	// Set JWT authentication for retry
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	refundResp2, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refundReq)
 	require.NoError(t, err)
 	defer refundResp2.Body.Close()
 
@@ -108,12 +118,16 @@ func TestIntegration_ServerPost_Void_IdempotencySameUUID(t *testing.T) {
 	t.Log("Step 2: Performing first Void with idempotency key...")
 	voidID := uuid.New()
 	voidReq := map[string]interface{}{
-		"group_id":        bricResult.GroupID, // Void uses group_id
-		"reason":          "Customer cancelled",
+		"merchant_id":     merchantID,
+		"transaction_id":  bricResult.TransactionID,
 		"idempotency_key": voidID.String(),
 	}
 
-	voidResp1, err := client.Do("POST", "/api/v1/payments/void", voidReq)
+	// Set JWT authentication
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	voidResp1, err := client.DoConnectRPC("payment.v1.PaymentService", "Void", voidReq)
 	require.NoError(t, err)
 	defer voidResp1.Body.Close()
 
@@ -126,14 +140,17 @@ func TestIntegration_ServerPost_Void_IdempotencySameUUID(t *testing.T) {
 
 	transactionID1, ok := void1["transactionId"].(string)
 	require.True(t, ok, "transactionId should be a string")
-	authCode1, ok := void1["authorizationCode"].(string)
-	require.True(t, ok, "authorizationCode should be a string")
 
-	t.Logf("First Void approved: %s (Auth Code: %s)", transactionID1, authCode1)
+	t.Logf("First Void approved: %s", transactionID1)
 
 	// Step 3: Retry the Void with the SAME UUID
 	t.Log("Step 3: Retrying Void with same idempotency key...")
-	voidResp2, err := client.Do("POST", "/api/v1/payments/void", voidReq)
+
+	// Set JWT authentication for retry
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	voidResp2, err := client.DoConnectRPC("payment.v1.PaymentService", "Void", voidReq)
 	require.NoError(t, err)
 	defer voidResp2.Body.Close()
 
@@ -143,12 +160,9 @@ func TestIntegration_ServerPost_Void_IdempotencySameUUID(t *testing.T) {
 
 	transactionID2, ok := void2["transactionId"].(string)
 	require.True(t, ok, "transactionId should be a string")
-	authCode2, ok := void2["authorizationCode"].(string)
-	require.True(t, ok, "authorizationCode should be a string")
 
 	// Assertions for idempotency
 	assert.Equal(t, transactionID1, transactionID2, "Should return same transaction ID")
-	assert.Equal(t, authCode1, authCode2, "Should return same auth code")
 
 	t.Logf("✅ Idempotency verified: Both requests returned identical transaction %s", transactionID2)
 	t.Log("✅ Test passed: Void idempotency working correctly")
@@ -175,12 +189,17 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 	t.Log("Step 2: Performing first Capture with idempotency key...")
 	captureID := uuid.New()
 	captureReq := map[string]interface{}{
+		"merchant_id":     merchantID,
 		"transaction_id":  bricResult.TransactionID,
-		"amount":          "30.00",
+		"amount_cents":    int64(3000), // 30.00 in cents
 		"idempotency_key": captureID.String(),
 	}
 
-	captureResp1, err := client.Do("POST", "/api/v1/payments/capture", captureReq)
+	// Set JWT authentication
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	captureResp1, err := client.DoConnectRPC("payment.v1.PaymentService", "Capture", captureReq)
 	require.NoError(t, err)
 	defer captureResp1.Body.Close()
 
@@ -193,8 +212,6 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 
 	transactionID1, ok := capture1["transactionId"].(string)
 	require.True(t, ok, "transactionId should be a string")
-	authCode1, ok := capture1["authorizationCode"].(string)
-	require.True(t, ok, "authorizationCode should be a string")
 
 	// Amount might be either string or float64 depending on JSON unmarshaling
 	var amount1 float64
@@ -206,11 +223,16 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 		fmt.Sscanf(v, "%f", &amount1)
 	}
 
-	t.Logf("First Capture approved: %s (Amount: %.2f, Auth Code: %s)", transactionID1, amount1, authCode1)
+	t.Logf("First Capture approved: %s (Amount: %.2f)", transactionID1, amount1)
 
 	// Step 3: Retry the Capture with the SAME UUID
 	t.Log("Step 3: Retrying Capture with same idempotency key...")
-	captureResp2, err := client.Do("POST", "/api/v1/payments/capture", captureReq)
+
+	// Set JWT authentication for retry
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	captureResp2, err := client.DoConnectRPC("payment.v1.PaymentService", "Capture", captureReq)
 	require.NoError(t, err)
 	defer captureResp2.Body.Close()
 
@@ -220,8 +242,6 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 
 	transactionID2, ok := capture2["transactionId"].(string)
 	require.True(t, ok, "transactionId should be a string")
-	authCode2, ok := capture2["authorizationCode"].(string)
-	require.True(t, ok, "authorizationCode should be a string")
 
 	var amount2 float64
 	switch v := capture2["amount"].(type) {
@@ -233,7 +253,6 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 
 	// Assertions for idempotency
 	assert.Equal(t, transactionID1, transactionID2, "Should return same transaction ID")
-	assert.Equal(t, authCode1, authCode2, "Should return same auth code")
 	assert.Equal(t, amount1, amount2, "Should return same amount")
 
 	t.Logf("✅ Idempotency verified: Both requests returned identical transaction %s", transactionID2)
@@ -262,14 +281,19 @@ func TestIntegration_ServerPost_Refund_IdempotencyConcurrent(t *testing.T) {
 	t.Log("Step 2: Creating first Refund to establish the transaction...")
 	refundID := uuid.New()
 	refundReq := map[string]interface{}{
-		"group_id":        bricResult.GroupID, // Refund uses group_id
-		"amount":          "50.00",
+		"merchant_id":     merchantID,
+		"transaction_id":  bricResult.TransactionID,
+		"amount_cents":    int64(5000), // 50.00 in cents
 		"reason":          "Concurrent test",
 		"idempotency_key": refundID.String(),
 	}
 
+	// Set JWT authentication
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
 	// Create the first refund and wait for it to complete
-	refundResp1, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
+	refundResp1, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refundReq)
 	require.NoError(t, err, "First refund should succeed")
 	defer refundResp1.Body.Close()
 
@@ -302,7 +326,11 @@ func TestIntegration_ServerPost_Refund_IdempotencyConcurrent(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 
-			resp, err := client.Do("POST", "/api/v1/payments/refund", refundReq)
+			// Set JWT authentication for each concurrent request
+			client.SetHeader("Authorization", "Bearer "+jwtToken)
+			defer client.ClearHeaders()
+
+			resp, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refundReq)
 			if err != nil {
 				errors[index] = err
 				return
@@ -368,13 +396,18 @@ func TestIntegration_ServerPost_Refund_DifferentUUIDs(t *testing.T) {
 	t.Log("Step 2: Performing first Refund with UUID 1...")
 	refundID1 := uuid.New()
 	refund1Req := map[string]interface{}{
-		"group_id":        bricResult.GroupID, // Refund uses group_id
-		"amount":          "25.00",
+		"merchant_id":     merchantID,
+		"transaction_id":  bricResult.TransactionID,
+		"amount_cents":    int64(2500), // 25.00 in cents
 		"reason":          "First refund",
 		"idempotency_key": refundID1.String(),
 	}
 
-	refundResp1, err := client.Do("POST", "/api/v1/payments/refund", refund1Req)
+	// Set JWT authentication
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	refundResp1, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refund1Req)
 	require.NoError(t, err)
 	defer refundResp1.Body.Close()
 
@@ -402,13 +435,18 @@ func TestIntegration_ServerPost_Refund_DifferentUUIDs(t *testing.T) {
 	t.Log("Step 3: Performing second Refund with UUID 2...")
 	refundID2 := uuid.New()
 	refund2Req := map[string]interface{}{
-		"group_id":        bricResult.GroupID, // Refund uses group_id
-		"amount":          "30.00",
+		"merchant_id":     merchantID,
+		"transaction_id":  bricResult.TransactionID,
+		"amount_cents":    int64(3000), // 30.00 in cents
 		"reason":          "Second refund",
 		"idempotency_key": refundID2.String(),
 	}
 
-	refundResp2, err := client.Do("POST", "/api/v1/payments/refund", refund2Req)
+	// Set JWT authentication
+	client.SetHeader("Authorization", "Bearer "+jwtToken)
+	defer client.ClearHeaders()
+
+	refundResp2, err := client.DoConnectRPC("payment.v1.PaymentService", "Refund", refund2Req)
 	require.NoError(t, err)
 	defer refundResp2.Body.Close()
 

@@ -165,53 +165,15 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
 	}
 
-	// Determine payment method type and auth credentials
-	var authGUID string
-	var paymentMethodUUID *uuid.UUID                                                    // Reuse parsed UUID
-	var paymentMethodType domain.PaymentMethodType = domain.PaymentMethodTypeCreditCard // Default
-
-	if req.PaymentMethodID != nil {
-		// Using saved payment method - parse UUID once
-		pmID, err := uuid.Parse(*req.PaymentMethodID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
-		}
-		paymentMethodUUID = &pmID
-
-		dbPM, err := s.queries.GetPaymentMethodByID(ctx, pmID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get payment method: %w", err)
-		}
-
-		// Convert to domain model to use grace period logic
-		domainPM := sqlcPaymentMethodToDomain(&dbPM)
-		paymentMethodType = domainPM.PaymentType
-
-		// Check if payment method can be used for this amount (ACH must be verified)
-		canUse, reason := domainPM.CanUseForAmount(req.AmountCents)
-		if !canUse {
-			// Map reason strings to domain errors
-			switch reason {
-			case "payment method is not active":
-				return nil, domain.ErrPaymentMethodInactive
-			case "credit card is expired":
-				return nil, domain.ErrPaymentMethodExpired
-			case "ACH account must be verified before use":
-				return nil, domain.ErrPaymentMethodNotVerified
-			default:
-				return nil, fmt.Errorf("payment method cannot be used: %s", reason)
-			}
-		}
-
-		authGUID = dbPM.Bric
-
-	} else if req.PaymentToken != nil {
-		// Using one-time token
-		authGUID = *req.PaymentToken
-
-	} else {
-		return nil, fmt.Errorf("payment method required: provide payment_method_id or payment_token")
+	// Resolve payment token (validates payment method if needed)
+	tokenInfo, err := s.resolvePaymentToken(ctx, req.PaymentMethodID, req.PaymentToken, &req.AmountCents)
+	if err != nil {
+		return nil, err
 	}
+
+	authGUID := tokenInfo.Token
+	paymentMethodUUID := tokenInfo.PaymentMethodID
+	paymentMethodType := tokenInfo.PaymentMethodType
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID (parsed from idempotency key above)
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
@@ -399,26 +361,14 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
 	}
 
-	// Determine auth_guid (payment token)
-	var authGUID string
-	var paymentMethodUUID *uuid.UUID
-	if req.PaymentMethodID != nil {
-		pmID, err := uuid.Parse(*req.PaymentMethodID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
-		}
-		paymentMethodUUID = &pmID
-
-		pm, err := s.queries.GetPaymentMethodByID(ctx, pmID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get payment method: %w", err)
-		}
-		authGUID = pm.Bric
-	} else if req.PaymentToken != nil {
-		authGUID = *req.PaymentToken
-	} else {
-		return nil, fmt.Errorf("either payment_method_id or payment_token is required")
+	// Resolve payment token (no validation needed for authorize)
+	tokenInfo, err := s.resolvePaymentToken(ctx, req.PaymentMethodID, req.PaymentToken, nil)
+	if err != nil {
+		return nil, err
 	}
+
+	authGUID := tokenInfo.Token
+	paymentMethodUUID := tokenInfo.PaymentMethodID
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID (parsed from idempotency key above)
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
@@ -1381,8 +1331,8 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
 		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
 		Status:              converters.ToNullableText(filters.Status),
-		Type:                toNullableText(filters.Type),
-		PaymentMethodID:     toNullableUUID(filters.PaymentMethodID),
+		Type:                converters.ToNullableText(filters.Type),
+		PaymentMethodID:     converters.ToNullableUUID(filters.PaymentMethodID),
 		LimitVal:            int32(limit),
 		OffsetVal:           int32(offset),
 	}
@@ -1398,8 +1348,8 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
 		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
 		Status:              converters.ToNullableText(filters.Status),
-		Type:                toNullableText(filters.Type),
-		PaymentMethodID:     toNullableUUID(filters.PaymentMethodID),
+		Type:                converters.ToNullableText(filters.Type),
+		PaymentMethodID:     converters.ToNullableUUID(filters.PaymentMethodID),
 	}
 
 	count, err := s.queries.CountTransactions(ctx, countParams)
@@ -1539,6 +1489,70 @@ func sqlcToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
 	return tx
 }
 
+// PaymentTokenInfo contains resolved payment token information
+type PaymentTokenInfo struct {
+	Token            string                      // BRIC token (auth_guid)
+	PaymentMethodID  *uuid.UUID                  // Parsed payment method UUID (if using saved method)
+	PaymentMethodType domain.PaymentMethodType    // Type of payment method
+	PaymentMethod    *sqlc.CustomerPaymentMethod // Full payment method record (if needed)
+}
+
+// resolvePaymentToken resolves payment_method_id or payment_token from request
+// Returns the BRIC token and payment method information
+func (s *paymentService) resolvePaymentToken(ctx context.Context, paymentMethodID *string, paymentToken *string, validateForAmount *int64) (*PaymentTokenInfo, error) {
+	if paymentMethodID != nil {
+		// Using saved payment method
+		pmID, err := uuid.Parse(*paymentMethodID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
+		}
+
+		dbPM, err := s.queries.GetPaymentMethodByID(ctx, pmID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get payment method: %w", err)
+		}
+
+		info := &PaymentTokenInfo{
+			Token:            dbPM.Bric,
+			PaymentMethodID:  &pmID,
+			PaymentMethodType: domain.PaymentMethodType(dbPM.PaymentType),
+			PaymentMethod:    &dbPM,
+		}
+
+		// Optionally validate payment method can be used for amount
+		if validateForAmount != nil {
+			domainPM := sqlcPaymentMethodToDomain(&dbPM)
+			canUse, reason := domainPM.CanUseForAmount(*validateForAmount)
+			if !canUse {
+				// Map reason strings to domain errors
+				switch reason {
+				case "payment method is not active":
+					return nil, domain.ErrPaymentMethodInactive
+				case "credit card is expired":
+					return nil, domain.ErrPaymentMethodExpired
+				case "ACH account must be verified before use":
+					return nil, domain.ErrPaymentMethodNotVerified
+				default:
+					return nil, fmt.Errorf("payment method cannot be used: %s", reason)
+				}
+			}
+		}
+
+		return info, nil
+	}
+
+	if paymentToken != nil {
+		// Using one-time token
+		return &PaymentTokenInfo{
+			Token:            *paymentToken,
+			PaymentMethodID:  nil,
+			PaymentMethodType: domain.PaymentMethodTypeCreditCard, // Default for one-time tokens
+			PaymentMethod:    nil,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("payment method required: provide payment_method_id or payment_token")
+}
 
 func toNumeric(d decimal.Decimal) pgtype.Numeric {
 	return pgtype.Numeric{
