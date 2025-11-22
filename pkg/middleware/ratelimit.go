@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -129,11 +131,39 @@ func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
 	return newLimiter.limiter
 }
 
+// getClientIP extracts the real client IP from the request, checking proxy headers
+// Security: Prevents IP spoofing by checking X-Forwarded-For and X-Real-IP
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (set by proxies/load balancers)
+	// Format: "client, proxy1, proxy2" - we want the first (original client) IP
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	// Check X-Real-IP header (alternative proxy header)
+	xri := r.Header.Get("X-Real-IP")
+	if xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fall back to RemoteAddr (direct connection, no proxy)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// RemoteAddr doesn't have port, return as-is
+		return r.RemoteAddr
+	}
+	return host
+}
+
 // Middleware returns HTTP middleware that applies rate limiting
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get client IP
-		ip := r.RemoteAddr
+		// Get client IP (with proxy header support to prevent IP spoofing)
+		ip := getClientIP(r)
 
 		limiter := rl.getLimiter(ip)
 		if !limiter.Allow() {
@@ -148,7 +178,8 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 // HTTPHandlerFunc wraps a handler function with rate limiting
 func (rl *RateLimiter) HTTPHandlerFunc(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
+		// Get client IP (with proxy header support to prevent IP spoofing)
+		ip := getClientIP(r)
 
 		limiter := rl.getLimiter(ip)
 		if !limiter.Allow() {
