@@ -161,6 +161,7 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 	a.logger.Info("Successfully obtained TAC",
 		zap.String("merchant_id", req.MerchantID),
 		zap.String("tran_nbr", response.TranNbr),
+		zap.String("tac", response.TAC),
 		zap.Time("expires_at", response.ExpiresAt),
 	)
 
@@ -205,27 +206,27 @@ func (a *keyExchangeAdapter) validateRequest(req *ports.KeyExchangeRequest) erro
 func (a *keyExchangeAdapter) buildFormData(req *ports.KeyExchangeRequest) url.Values {
 	data := url.Values{}
 
-	// TRAN_GROUP values per EPX Data Dictionary:
-	// - "SALE" for sale transactions (auth + capture)
-	// - "AUTH" for authorization-only transactions
-	// - "STORAGE" for card storage/tokenization (Browser Post uses TRAN_CODE=STORAGE, TRAN_TYPE=CCX8)
-	// NOTE: Do NOT use single-letter codes (U/A) - those are for TRAN_CODE, not TRAN_GROUP
+	// TRAN_GROUP values per WORKING integration test code:
+	// EPX Key Exchange expects full transaction type strings, not single-letter codes
+	// TRAN_GROUP values: "SALE", "AUTH", or "STORAGE"
+	// Note: Browser Post form uses TRAN_CODE with full strings (SALE/AUTH/STORAGE)
+	// Key Exchange uses TRAN_GROUP with the same full strings
 	tranGroup := req.TranGroup
-	if tranGroup != "SALE" && tranGroup != "AUTH" && tranGroup != "STORAGE" {
-		// If not already in correct format, normalize it
-		if req.TranGroup == "U" {
-			tranGroup = "SALE"
-		} else if req.TranGroup == "A" {
-			tranGroup = "AUTH"
-		}
-		// STORAGE is a valid TRAN_GROUP, pass through as-is
+
+	// Normalize legacy single-letter codes to full strings for EPX compatibility
+	if tranGroup == "U" {
+		tranGroup = "SALE"
+	} else if tranGroup == "A" {
+		tranGroup = "AUTH"
+	} else if tranGroup == "S" {
+		tranGroup = "STORAGE"
 	}
 
 	// Required fields per EPX Browser Post documentation (page 3)
 	data.Set("TRAN_NBR", req.TranNbr)
 	data.Set("AMOUNT", req.Amount)
 	data.Set("MAC", req.MAC)
-	data.Set("TRAN_GROUP", tranGroup)
+	data.Set("TRAN_GROUP", tranGroup) // Must be full string: SALE, AUTH, or STORAGE
 	data.Set("REDIRECT_URL", req.RedirectURL)
 
 	// Optional fields
