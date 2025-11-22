@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/pkg/pool"
 	"github.com/kevin07696/payment-service/pkg/resilience"
 	"go.uber.org/zap"
 )
@@ -324,15 +325,17 @@ func (a *serverPostAdapter) ProcessTransactionViaSocket(ctx context.Context, req
 func (a *serverPostAdapter) ValidateToken(ctx context.Context, authGUID string) error {
 	a.logger.Info("Validating BRIC token", zap.String("auth_guid", authGUID))
 
+	// Get request from pool for reduced allocations
+	req := pool.GetServerPostRequest()
+	defer pool.PutServerPostRequest(req)
+
 	// Perform a $0.00 authorization to verify token
-	req := &ports.ServerPostRequest{
-		TransactionType: ports.TransactionTypeAuthOnly,
-		Amount:          "0.00",
-		PaymentType:     ports.PaymentMethodTypeCreditCard,
-		AuthGUID:        authGUID,
-		TranNbr:         fmt.Sprintf("validate-%d", time.Now().Unix()),
-		TranGroup:       fmt.Sprintf("validate-%d", time.Now().Unix()),
-	}
+	req.TransactionType = ports.TransactionTypeAuthOnly
+	req.Amount = "0.00"
+	req.PaymentType = ports.PaymentMethodTypeCreditCard
+	req.AuthGUID = authGUID
+	req.TranNbr = fmt.Sprintf("validate-%d", time.Now().Unix())
+	req.TranGroup = fmt.Sprintf("validate-%d", time.Now().Unix())
 
 	response, err := a.ProcessTransaction(ctx, req)
 	if err != nil {

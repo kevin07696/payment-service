@@ -23,11 +23,14 @@ import (
 func TestAutomatedCheckoutAndVerify(t *testing.T) {
 	client := createPaymentClient()
 
-	// Create browser context
+	// Create browser context with proper viewport for headless mode
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-cache", true),
+		chromedp.Flag("disable-gpu", false),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.WindowSize(1920, 1080), // Critical: WooCommerce AJAX may fail with small viewport
 	)
 
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -70,6 +73,10 @@ func TestBulkCaptureWorkflow(t *testing.T) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
 		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-cache", true),
+		chromedp.Flag("disable-gpu", false),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.WindowSize(1920, 1080),
 	)
 
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -149,19 +156,22 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 		chromedp.SendKeys(`#billing_address_1`, "123 Test St", chromedp.ByID),
 		chromedp.SendKeys(`#billing_city`, "Test City", chromedp.ByID),
 		chromedp.SendKeys(`#billing_postcode`, "12345", chromedp.ByID),
+		chromedp.Sleep(2*time.Second), // Allow WooCommerce AJAX to trigger and complete
 	)
 	require.NoError(t, err, "Should fill billing details")
 
-	// Wait for WooCommerce AJAX to load payment methods
+	// Wait for payment methods to load
+	// Note: The radio input itself has display:none (normal for WooCommerce)
+	// We just need to ensure the element exists and is ready to interact with
 	err = chromedp.Run(ctx,
-		chromedp.WaitVisible(`#payment_method_north_payments`, chromedp.ByID),
+		chromedp.WaitReady(`#payment_method_north_payments`, chromedp.ByID),
 		chromedp.Sleep(1*time.Second),
 	)
 	require.NoError(t, err, "Should wait for payment methods to load")
 
-	// Select North Payments
+	// Select North Payments by clicking its label (the radio input itself is hidden)
 	err = chromedp.Run(ctx,
-		chromedp.Click(`#payment_method_north_payments`, chromedp.ByID),
+		chromedp.Click(`label[for="payment_method_north_payments"]`, chromedp.ByQuery),
 		chromedp.Sleep(2*time.Second),
 	)
 	require.NoError(t, err, "Should select payment method")
@@ -185,13 +195,38 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 	}
 
 	// Submit order
-	var orderURL string
+	t.Log("Submitting order...")
 	err = chromedp.Run(ctx,
 		chromedp.Click(`#place_order`, chromedp.ByID),
-		chromedp.Sleep(15*time.Second), // Wait for EPX processing
+		chromedp.Sleep(3*time.Second),
+	)
+	require.NoError(t, err, "Should click place order button")
+
+	// Debug: Check current URL and any validation errors
+	var currentURL string
+	var errorMessages string
+	chromedp.Run(ctx,
+		chromedp.Location(&currentURL),
+		chromedp.Evaluate(`
+			(function() {
+				const errors = document.querySelector('.woocommerce-error, .woocommerce-notice--error');
+				return errors ? errors.innerText : 'No errors';
+			})()
+		`, &errorMessages),
+	)
+	t.Logf("Current URL after click: %s", currentURL)
+	t.Logf("Error messages: %s", errorMessages)
+
+	// Wait for EPX processing and redirect to order received page
+	// The page should redirect to /checkout/order-received/
+	var orderURL string
+	err = chromedp.Run(ctx,
+		chromedp.Poll(`
+			window.location.href.includes('order-received')
+		`, nil, chromedp.WithPollingTimeout(30*time.Second)),
 		chromedp.Location(&orderURL),
 	)
-	require.NoError(t, err, "Should submit order")
+	require.NoError(t, err, "Should redirect to order received page")
 
 	// Extract transaction ID from order received page or URL
 	var txID string
