@@ -12,10 +12,35 @@ permissions:
   id-token: write
 
 jobs:
-  # ===== STEP 0: BUILD VERIFICATION =====
+  # ===== STEP 0A: DOCUMENTATION VALIDATION =====
+  # Validates documentation quality and consistency
+  docs-validation:
+    name: 0a. Documentation Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate documentation
+        run: |
+          echo "📚 Validating documentation..."
+          chmod +x scripts/validate_docs.sh
+          ./scripts/validate_docs.sh
+
+      - name: Check for generated docs in commit
+        run: |
+          echo "🔍 Checking for committed auto-generated docs..."
+          if git ls-files | grep -E '(DATABASE_SCHEMA\.md|API_SPECS_GENERATED\.md)'; then
+            echo "❌ Auto-generated docs should not be committed!"
+            echo "   These files are in .gitignore and regenerated automatically."
+            exit 1
+          fi
+          echo "✅ No auto-generated docs in commit"
+
+  # ===== STEP 0B: BUILD VERIFICATION =====
   # Catches compilation errors like duplicate main() declarations before running tests
   build-check:
-    name: 0. Build Verification
+    name: 0b. Build Verification
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -41,7 +66,7 @@ jobs:
   # ===== STEP 1: UNIT TESTS =====
   unit-tests:
     name: 1. Unit Tests
-    needs: build-check
+    needs: [docs-validation, build-check]
     uses: kevin07696/deployment-workflows/.github/workflows/go-test.yml@main
     with:
       go-version: '1.24'

@@ -1,4 +1,4 @@
-.PHONY: help build test run docker-build docker-up docker-down docker-logs proto clean
+.PHONY: help build test run docker-build docker-up docker-down docker-logs proto clean docs docs-validate docs-api docs-schema
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -141,3 +141,23 @@ tidy: ## Tidy go modules
 	@echo "Tidying modules..."
 	@go mod tidy
 	@echo "✓ Modules tidied"
+
+# Documentation targets
+docs: docs-api docs-schema ## Generate all documentation
+	@echo "✓ All documentation generated"
+
+docs-validate: ## Validate documentation (check for broken links, TODOs, required headers)
+	@echo "Validating documentation..."
+	@./scripts/validate_docs.sh
+
+docs-api: ## Generate API documentation from proto files
+	@echo "Generating API documentation from proto files..."
+	@./scripts/generate_api_docs.sh
+
+docs-schema: ## Generate database schema documentation
+	@echo "Generating database schema documentation..."
+	@./scripts/generate_schema_docs.sh
+
+docs-sync-wiki: ## Sync documentation to GitHub wiki
+	@echo "Syncing documentation to GitHub wiki..."
+	@./scripts/sync_to_wiki.sh
