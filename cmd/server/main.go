@@ -301,6 +301,29 @@ func main() {
 		logger.Error("HTTP server shutdown error", zap.Error(err))
 	}
 
+	// Shutdown background goroutines
+	logger.Info("Shutting down background services...")
+
+	// Stop AuthInterceptor public key refresh goroutine
+	if authInterceptor != nil {
+		authInterceptor.Shutdown()
+	}
+
+	// Stop DisputeSyncHandler webhook workers
+	if disputeSyncCronHdlr != nil {
+		disputeSyncCronHdlr.Shutdown()
+	}
+
+	// Stop RateLimiter cleanup goroutine
+	if rateLimiter != nil {
+		rateLimiter.Shutdown()
+	}
+
+	// Stop PostgreSQL adapter pool monitoring and close connections
+	if dbAdapter != nil {
+		dbAdapter.Close() // This calls Shutdown() internally
+	}
+
 	logger.Info("Servers stopped")
 }
 
@@ -573,6 +596,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		browserPost,
 		keyExchange,
 		secretManager,      // Secret manager for fetching merchant-specific MACs
+		paymentMethodSvc,   // Payment method service for saving payment methods
 		logger,
 		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
 		cfg.CallbackBaseURL,    // Base URL for callbacks
