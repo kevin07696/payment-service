@@ -125,45 +125,12 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 	)
 	require.NoError(t, err, "Should login to WordPress")
 
-	// Navigate to product page
+	// Add product to cart using direct URL (product ID 12)
 	err = chromedp.Run(ctx,
-		chromedp.Navigate(wordpressURL+"/product/test-product"),
-		chromedp.Sleep(2*time.Second),
-		chromedp.WaitVisible(`body`, chromedp.ByQuery),
-	)
-	require.NoError(t, err, "Should navigate to product page")
-
-	// Click add to cart button (try multiple possible selectors)
-	err = chromedp.Run(ctx,
-		chromedp.Click(`button[name="add-to-cart"]`, chromedp.ByQuery),
-	)
-	if err != nil {
-		// Try alternative selector
-		err = chromedp.Run(ctx,
-			chromedp.Click(`.single_add_to_cart_button`, chromedp.ByQuery),
-		)
-	}
-	if err != nil {
-		// Try another alternative
-		err = chromedp.Run(ctx,
-			chromedp.Click(`a.add_to_cart_button`, chromedp.ByQuery),
-		)
-	}
-	require.NoError(t, err, "Should click add to cart button")
-
-	// Wait for add to cart to complete
-	err = chromedp.Run(ctx,
+		chromedp.Navigate(wordpressURL+"/?add-to-cart=12"),
 		chromedp.Sleep(3*time.Second),
 	)
-	require.NoError(t, err, "Should wait for add to cart")
-
-	// Navigate to cart page
-	err = chromedp.Run(ctx,
-		chromedp.Navigate(wordpressURL+"/cart"),
-		chromedp.Sleep(2*time.Second),
-		chromedp.WaitVisible(`body`, chromedp.ByQuery),
-	)
-	require.NoError(t, err, "Should navigate to cart page")
+	require.NoError(t, err, "Should add product to cart")
 
 	// Navigate to checkout
 	err = chromedp.Run(ctx,
@@ -184,6 +151,13 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 		chromedp.SendKeys(`#billing_postcode`, "12345", chromedp.ByID),
 	)
 	require.NoError(t, err, "Should fill billing details")
+
+	// Wait for WooCommerce AJAX to load payment methods
+	err = chromedp.Run(ctx,
+		chromedp.WaitVisible(`#payment_method_north_payments`, chromedp.ByID),
+		chromedp.Sleep(1*time.Second),
+	)
+	require.NoError(t, err, "Should wait for payment methods to load")
 
 	// Select North Payments
 	err = chromedp.Run(ctx,
