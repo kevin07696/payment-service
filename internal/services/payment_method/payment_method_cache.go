@@ -16,10 +16,12 @@ import (
 
 var (
 	// Cache metrics
-	paymentMethodCacheHits = promauto.NewCounterVec(prometheus.CounterOpts{
+	// Note: paymentMethodCacheHits uses no labels to avoid allocation overhead
+	// At 1000 TPS with 95% hit rate and 80% saved cards, labels would cause 760 allocations/sec
+	paymentMethodCacheHits = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "payment_method_cache_hits_total",
 		Help: "Total number of payment method cache hits",
-	}, []string{"merchant_id"})
+	})
 
 	paymentMethodCacheMisses = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "payment_method_cache_misses_total",
@@ -40,6 +42,13 @@ var (
 // PaymentMethodCache caches payment method data to reduce database queries
 // Expected cache hit rate: 90-95% (saved payment methods reused frequently)
 // At 1000 TPS with 80% saved PM: saves 720-760 DB queries/sec
+//
+// LRU Eviction: This cache uses "approximate LRU" eviction.
+// The eviction algorithm iterates through sync.Map to find the oldest entry,
+// but sync.Map.Range() does not guarantee consistent iteration order.
+// This is acceptable for caching use cases - we still evict old entries,
+// just not necessarily THE oldest. The performance benefit of sync.Map's
+// lock-free reads outweighs the imprecision in eviction order.
 type PaymentMethodCache struct {
 	cache   sync.Map // map[uuid.UUID]*CachedPaymentMethod
 	queries sqlc.Querier
@@ -83,22 +92,30 @@ func (c *PaymentMethodCache) Get(ctx context.Context, pmID uuid.UUID) (*domain.P
 	// Fast path: check cache
 	if val, ok := c.cache.Load(pmID); ok {
 		cached := val.(*CachedPaymentMethod)
-		cached.mu.RLock()
-		defer cached.mu.RUnlock()
 
-		// Check if still valid
-		if time.Now().Before(cached.expiresAt) {
-			// Update access time for LRU
+		// Check validity and get payment method while holding lock
+		var pm *domain.PaymentMethod
+		var isValid bool
+		cached.mu.RLock()
+		isValid = time.Now().Before(cached.expiresAt)
+		if isValid {
+			pm = cached.pm
+		}
+		cached.mu.RUnlock()
+
+		// If valid, update access time and return (no lock held)
+		if isValid {
+			// Update access time for LRU (after releasing lock to avoid contention)
 			c.accessTimes.Store(pmID, time.Now())
 
-			// Record cache hit metric (extract merchant_id from payment method)
-			paymentMethodCacheHits.WithLabelValues(cached.pm.MerchantID).Inc()
+			// Record cache hit metric (no labels to avoid allocations)
+			paymentMethodCacheHits.Inc()
 
 			c.logger.Debug("Payment method cache hit",
 				zap.String("payment_method_id", pmID.String()),
 			)
 
-			return cached.pm, nil
+			return pm, nil
 		}
 
 		// Cache entry expired
@@ -126,6 +143,14 @@ func (c *PaymentMethodCache) fetchAndCache(ctx context.Context, pmID uuid.UUID) 
 	if err != nil {
 		paymentMethodCacheMisses.WithLabelValues("error").Inc()
 		return nil, fmt.Errorf("failed to fetch payment method: %w", err)
+	}
+
+	// Check if context was cancelled after DB operation
+	select {
+	case <-ctx.Done():
+		paymentMethodCacheMisses.WithLabelValues("cancelled").Inc()
+		return nil, ctx.Err()
+	default:
 	}
 
 	// Convert sqlc model to domain model

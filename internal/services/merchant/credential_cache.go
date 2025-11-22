@@ -16,10 +16,12 @@ import (
 
 var (
 	// Cache metrics
-	merchantCacheHits = promauto.NewCounterVec(prometheus.CounterOpts{
+	// Note: merchantCacheHits uses no labels to avoid allocation overhead
+	// At 1000 TPS with 95% hit rate, labels would cause 950 allocations/sec
+	merchantCacheHits = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "merchant_cache_hits_total",
 		Help: "Total number of merchant credential cache hits",
-	}, []string{"merchant_id"})
+	})
 
 	merchantCacheMisses = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "merchant_cache_misses_total",
@@ -40,6 +42,13 @@ var (
 // MerchantCredentialCache caches merchant configuration and credentials
 // Reduces database queries and secret manager API calls by 70%
 // Expected cache hit rate: 90-95%
+//
+// LRU Eviction: This cache uses "approximate LRU" eviction.
+// The eviction algorithm iterates through sync.Map to find the oldest entry,
+// but sync.Map.Range() does not guarantee consistent iteration order.
+// This is acceptable for caching use cases - we still evict old entries,
+// just not necessarily THE oldest. The performance benefit of sync.Map's
+// lock-free reads outweighs the imprecision in eviction order.
 type MerchantCredentialCache struct {
 	cache     sync.Map // map[uuid.UUID]*CachedCredential
 	queries   sqlc.Querier
@@ -95,8 +104,8 @@ func (c *MerchantCredentialCache) Get(ctx context.Context, merchantID uuid.UUID)
 			// Update access time for LRU
 			c.accessTimes.Store(merchantID, time.Now())
 
-			// Record cache hit metric
-			merchantCacheHits.WithLabelValues(merchantID.String()).Inc()
+			// Record cache hit metric (no labels to avoid allocations)
+			merchantCacheHits.Inc()
 
 			c.logger.Debug("Merchant credential cache hit",
 				zap.String("merchant_id", merchantID.String()),
@@ -130,6 +139,14 @@ func (c *MerchantCredentialCache) fetchAndCache(ctx context.Context, merchantID 
 	if err != nil {
 		merchantCacheMisses.WithLabelValues("error").Inc()
 		return nil, fmt.Errorf("failed to fetch merchant: %w", err)
+	}
+
+	// Check if context was cancelled after DB operation
+	select {
+	case <-ctx.Done():
+		merchantCacheMisses.WithLabelValues("cancelled").Inc()
+		return nil, ctx.Err()
+	default:
 	}
 
 	// Fetch MAC secret from secret manager

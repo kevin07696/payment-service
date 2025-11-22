@@ -279,34 +279,14 @@ func main() {
 		MaxHeaderBytes:    1 << 20, // 1 MB max header size
 	}
 
-	// Start ConnectRPC server in goroutine
-	go func() {
-		logger.Info("ConnectRPC server listening",
-			zap.Int("port", cfg.Port),
-			zap.String("protocols", "gRPC, Connect, gRPC-Web, HTTP/JSON"),
-		)
-		if err := connectServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Failed to serve ConnectRPC", zap.Error(err))
-		}
-	}()
-
-	// Start HTTP server for cron and browser post in goroutine
-	go func() {
-		logger.Info("HTTP cron server listening",
-			zap.Int("port", cfg.HTTPPort),
-		)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Failed to serve HTTP", zap.Error(err))
-		}
-	}()
-
 	// Initialize graceful shutdown manager (P2-5) - Zero-downtime deployments
+	// CRITICAL: Create shutdown manager BEFORE starting servers to handle early SIGTERM
 	shutdownMgr := shutdown.NewManager(logger, 30*time.Second)
 
-	// Start goroutine leak monitoring (P2-6)
+	// Prepare goroutine leak monitoring (P2-6) - will start after registering shutdown handlers
+	// This prevents race condition where early SIGTERM could arrive before handlers are registered
 	monitorCtx, cancelMonitor := context.WithCancel(context.Background())
-	go deps.goroutineTracker.StartMonitoring(monitorCtx)
-	logger.Info("Goroutine leak monitoring started")
+	monitorStarted := make(chan struct{})
 
 	// Register shutdown components in proper LIFO order
 	// Components registered first shut down LAST
@@ -348,6 +328,39 @@ func main() {
 	// 3. HTTP servers (shut down first - stop accepting new requests)
 	shutdownMgr.RegisterHTTPServer("http_server", httpServer)
 	shutdownMgr.RegisterHTTPServer("connect_server", connectServer)
+
+	logger.Info("Shutdown manager initialized - all components registered")
+
+	// NOW start goroutine monitoring (after shutdown handler is registered)
+	// This ensures clean shutdown even if SIGTERM arrives during startup
+	go func() {
+		close(monitorStarted) // Signal that goroutine has started
+		deps.goroutineTracker.StartMonitoring(monitorCtx)
+	}()
+	<-monitorStarted // Wait for monitoring to start
+	logger.Info("Goroutine leak monitoring started")
+
+	// NOW start servers (after shutdown manager is ready)
+	// Start ConnectRPC server in goroutine
+	go func() {
+		logger.Info("ConnectRPC server listening",
+			zap.Int("port", cfg.Port),
+			zap.String("protocols", "gRPC, Connect, gRPC-Web, HTTP/JSON"),
+		)
+		if err := connectServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Failed to serve ConnectRPC", zap.Error(err))
+		}
+	}()
+
+	// Start HTTP server for cron and browser post in goroutine
+	go func() {
+		logger.Info("HTTP cron server listening",
+			zap.Int("port", cfg.HTTPPort),
+		)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Failed to serve HTTP", zap.Error(err))
+		}
+	}()
 
 	// Wait for shutdown signal and execute graceful shutdown
 	shutdownMgr.WaitForShutdown()

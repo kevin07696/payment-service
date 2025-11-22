@@ -83,8 +83,43 @@ func (h *AuditCleanupHandler) CleanupAuditLogs(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	// Validate retention period to prevent accidental or malicious deletion
+	const (
+		minRetentionDays = 7    // Minimum 7 days (prevents deletion of all logs)
+		maxRetentionDays = 3650 // Maximum 10 years (reasonable upper bound)
+	)
+
+	if retentionDays < minRetentionDays {
+		h.logger.Error("Retention days below minimum",
+			zap.Int("requested", retentionDays),
+			zap.Int("minimum", minRetentionDays),
+		)
+		h.respondError(w, http.StatusBadRequest, "retention must be at least 7 days")
+		return
+	}
+
+	if retentionDays > maxRetentionDays {
+		h.logger.Warn("Retention days exceeds maximum, capping to max",
+			zap.Int("requested", retentionDays),
+			zap.Int("maximum", maxRetentionDays),
+		)
+		retentionDays = maxRetentionDays
+	}
+
 	// Calculate cutoff date (retention period ago from now)
-	cutoffDate := timeutil.Now().AddDate(0, 0, -retentionDays)
+	now := timeutil.Now()
+	cutoffDate := now.AddDate(0, 0, -retentionDays)
+
+	// Validate cutoff date is in the past (prevent future dates from deleting all logs)
+	if cutoffDate.After(now) {
+		h.logger.Error("Invalid cutoff date - cannot be in the future",
+			zap.Time("cutoff_date", cutoffDate),
+			zap.Time("now", now),
+			zap.Int("retention_days", retentionDays),
+		)
+		h.respondError(w, http.StatusBadRequest, "cutoff date cannot be in the future")
+		return
+	}
 
 	h.logger.Info("Starting audit log cleanup",
 		zap.Int("retention_days", retentionDays),
@@ -177,14 +212,9 @@ func (h *AuditCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) {
 // Helper methods
 
 func (h *AuditCleanupHandler) authenticateRequest(r *http.Request) bool {
-	// Check Authorization header for Bearer token
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return false
-	}
-
-	expectedToken := "Bearer " + h.cronSecret
-	return authHeader == expectedToken
+	// Check X-Cron-Secret header (consistent with other cron endpoints)
+	secret := r.Header.Get("X-Cron-Secret")
+	return secret == h.cronSecret
 }
 
 func (h *AuditCleanupHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
