@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kevin07696/payment-service/internal/auth"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"go.uber.org/zap"
 )
 
@@ -23,6 +24,7 @@ type AuthInterceptor struct {
 	queries    sqlc.Querier
 	publicKeys map[string]*rsa.PublicKey // service_id -> public key
 	logger     *zap.Logger
+	stopCh     chan struct{} // Channel to signal goroutine shutdown
 }
 
 // NewAuthInterceptor creates a new authentication interceptor
@@ -31,6 +33,7 @@ func NewAuthInterceptor(queries sqlc.Querier, logger *zap.Logger) (*AuthIntercep
 		queries:    queries,
 		publicKeys: make(map[string]*rsa.PublicKey),
 		logger:     logger,
+		stopCh:     make(chan struct{}),
 	}
 
 	// Load public keys from database
@@ -78,11 +81,22 @@ func (ai *AuthInterceptor) startPublicKeyRefresh() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		if err := ai.loadPublicKeys(); err != nil {
-			ai.logger.Error("Failed to refresh public keys", zap.Error(err))
+	for {
+		select {
+		case <-ticker.C:
+			if err := ai.loadPublicKeys(); err != nil {
+				ai.logger.Error("Failed to refresh public keys", zap.Error(err))
+			}
+		case <-ai.stopCh:
+			ai.logger.Info("Stopping public key refresh goroutine")
+			return
 		}
 	}
+}
+
+// Shutdown gracefully stops the public key refresh goroutine
+func (ai *AuthInterceptor) Shutdown() {
+	close(ai.stopCh)
 }
 
 // WrapUnary provides authentication for unary RPC calls
@@ -222,7 +236,7 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 
 	// Check token expiration (should be handled by jwt.Parse but double-check)
 	if exp, ok := claims["exp"].(float64); ok {
-		if time.Now().Unix() > int64(exp) {
+		if timeutil.Now().Unix() > int64(exp) {
 			return ctx, fmt.Errorf("token expired")
 		}
 	}
@@ -290,10 +304,12 @@ func (ai *AuthInterceptor) isTokenBlacklisted(jti string) bool {
 	isBlacklisted, err := ai.queries.IsJWTBlacklisted(ctx, jti)
 
 	if err != nil {
-		ai.logger.Error("Failed to check JWT blacklist",
+		// SECURITY: Fail closed - treat as blacklisted if we can't verify
+		// This prevents revoked tokens from being accepted during DB outages
+		ai.logger.Error("Failed to check JWT blacklist - treating as blacklisted for security",
 			zap.String("jti", jti),
 			zap.Error(err))
-		return false // Fail open for availability
+		return true // Fail closed for security
 	}
 
 	return isBlacklisted
@@ -316,7 +332,7 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 	bucketKey := fmt.Sprintf("%s:%s:%s",
 		entityType,
 		entityID,
-		time.Now().Format("2006-01-02-15:04"))
+		timeutil.Now().Format("2006-01-02-15:04"))
 
 	// Token bucket algorithm with database storage using sqlc
 	tokens, err := ai.queries.ConsumeRateLimitToken(ctx, sqlc.ConsumeRateLimitTokenParams{
@@ -325,10 +341,15 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 	})
 
 	if err != nil {
-		ai.logger.Error("Rate limit check failed",
+		// SECURITY: Fail closed - deny request if we can't verify rate limit
+		// This prevents unlimited requests during DB outages
+		// TODO: Implement circuit breaker pattern or in-memory fallback for better availability
+		ai.logger.Error("Rate limit check failed - denying request for security",
 			zap.String("bucket_key", bucketKey),
+			zap.String("entity_type", entityType),
+			zap.String("entity_id", entityID),
 			zap.Error(err))
-		return nil // Fail open for availability
+		return fmt.Errorf("rate limit check unavailable: %w", err)
 	}
 
 	if tokens <= 0 {
@@ -370,7 +391,7 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 // Helper functions
 
 func generateRequestID() string {
-	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), rand.Int63())
+	return fmt.Sprintf("%d-%d", timeutil.Now().UnixNano(), rand.Int63())
 }
 
 func getClientIPFromContext(ctx context.Context) string {

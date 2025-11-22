@@ -740,6 +740,7 @@ SET verification_status = 'verified',
 WHERE id = $1
   AND verification_status = 'pending'
   AND payment_type = 'ach'
+  AND deleted_at IS NULL
 `
 
 // Mark an ACH payment method as verified and activate it

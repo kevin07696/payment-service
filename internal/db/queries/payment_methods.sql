@@ -212,4 +212,5 @@ SET verification_status = 'verified',
     updated_at = NOW()
 WHERE id = sqlc.arg(id)
   AND verification_status = 'pending'
-  AND payment_type = 'ach';
+  AND payment_type = 'ach'
+  AND deleted_at IS NULL;

@@ -7,6 +7,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation (2025-11-22)
+
+- **Comprehensive Go Architecture Review** (`docs/GO_ARCHITECTURE_REVIEW.md`)
+  - **Scope**: Payment service architecture review focusing on Go idioms, performance, and best practices
+  - **Overall Grade**: B+ (Very Good, with optimization opportunities)
+  - **Areas Analyzed**:
+    1. Interface Design & Dependency Injection - Excellent port/adapter separation
+    2. Error Handling Patterns - Good domain errors, recommended structured error types
+    3. Memory Allocations & Performance - Identified 20-30% allocation reduction potential
+    4. Database Patterns & Connection Pooling - Found N+1 query pattern, recommended optimizations
+    5. HTTP Handler Patterns - Clean Connect RPC handlers, suggested interceptors
+    6. EPX Adapter Patterns - Good resilience patterns, identified buffer optimizations
+    7. Testing Patterns & Coverage - Missing benchmarks and property-based tests
+    8. Struct Layout & Memory Efficiency - Recommended field ordering optimizations
+    9. Concurrency Patterns - Good basics, suggested worker pools and rate limiting
+    10. Code Organization - Excellent hexagonal architecture
+  - **Key Strengths**:
+    - Clean hexagonal architecture with well-defined ports/adapters
+    - Excellent use of sqlc for type-safe database operations
+    - Strong idempotency and state management patterns
+    - Good error handling with custom domain errors
+    - Proper context propagation throughout
+  - **High Priority Recommendations** (2-3 weeks, 20-30% performance gain):
+    1. Add comprehensive benchmarks (establish performance baseline)
+    2. Create repository interfaces (enable proper unit testing)
+    3. Optimize EPX form building (20-30% allocation reduction)
+    4. Add structured error types (improve debugging)
+    5. Eliminate redundant GetTransactionTree call (reduce DB load)
+    6. Add EPX response size limits (security fix)
+    7. Add EPX rate limiting (protect external API)
+    8. Add request/response logging interceptor (observability)
+    9. Add fuzz tests for critical paths
+  - **Performance Targets Recommended**:
+    - Sale operation: < 500ms p95 latency, < 100 allocs/op
+    - GetTransaction: < 50ms p95 latency
+    - GroupStateComputation: < 10µs/op, < 10 allocs/op
+    - Throughput: 100+ concurrent transactions/s
+  - **Medium Priority** (3-4 weeks): Split request/response models, add error budgets, tiered query timeouts
+  - **Low Priority** (1-2 weeks): Functional options pattern, integer enums, struct layout optimization
+
+### Security & Stability (2025-11-22)
+
+- **Comprehensive Concurrency Review Completed** (`docs/CONCURRENCY_REVIEW.md`)
+  - **Scope**: Full codebase analysis of goroutines, channels, mutexes, and context handling
+  - **Assessment**: B+ (Good, with room for improvement)
+  - **Findings**:
+    - ✅ 35/47 goroutines properly managed (74%)
+    - ✅ Excellent context propagation and timeout hierarchy
+    - ✅ Proper RWMutex usage for read-heavy caches
+    - ✅ No channel misuse or deadlocks detected
+    - ❌ 5 critical issues identified requiring immediate fixes
+  - **Critical Issues Identified**:
+    1. **CRITICAL-1**: Goroutine leak in `AuthInterceptor.startPublicKeyRefresh()` - no shutdown mechanism
+    2. **CRITICAL-2**: Goroutine leak in `PostgreSQLAdapter.StartPoolMonitoring()` - uses non-cancellable context
+    3. **CRITICAL-3**: Unbounded goroutine spawning in webhook delivery - DOS vulnerability
+    4. **CRITICAL-4**: Missing context propagation in EPX callback audit logging
+    5. **CRITICAL-5**: Race condition in rate limiter map growth - memory leak
+  - **Moderate Issues**: 12 additional improvements recommended
+  - **Strengths Identified**:
+    - Excellent transaction handling with panic recovery
+    - Proper circuit breaker implementation
+    - Well-designed timeout hierarchy (HTTP → Service → External API → DB)
+    - Good connection pool configuration (25 max, 5 min)
+  - **Immediate Actions Required** (before next production deployment):
+    1. Add shutdown mechanisms to long-running goroutines
+    2. Implement worker pool pattern for webhook delivery
+    3. Fix context propagation in audit logging
+    4. Add LRU eviction to rate limiter
+  - **Testing Recommendations**:
+    - Enable race detector in CI: `go test -race ./...`
+    - Add goroutine leak detection tests
+    - Stress test concurrent operations
+  - **Documentation**: Includes detailed code examples, testing strategies, and production monitoring guidance
+
+- **Critical Security Fixes Implemented** (Multiple files)
+  - **Scope**: Addressed critical and high-severity issues identified in security and concurrency audits
+  - **Fixes Applied**:
+    1. **Context Key Collision Fix** (`internal/middleware/epx_callback_auth.go:23-29`)
+       - Created custom `contextKey` type to prevent context value collisions
+       - Changed from string literals to typed constants for `authTypeKey` and `clientIPKey`
+       - **Impact**: Prevents malicious code from overwriting authentication context
+    2. **JWT Blacklist Fail-Closed Pattern** (`internal/middleware/connect_auth.go:301-316`)
+       - Changed from fail-open (return false) to fail-closed (return true) when database check fails
+       - Added security-focused error logging explaining the fail-closed decision
+       - **Impact**: Prevents revoked tokens from being accepted during database outages
+    3. **Rate Limiting Fail-Closed Pattern** (`internal/middleware/connect_auth.go:342-353`)
+       - Changed from fail-open (return nil) to fail-closed (return error) when rate limit check fails
+       - Added comprehensive logging with bucket key, entity type, and entity ID
+       - Added TODO for circuit breaker pattern or in-memory fallback
+       - **Impact**: Prevents unlimited requests during database outages
+    4. **Goroutine Leak Fix** (`internal/middleware/connect_auth.go:27,36,84-100`)
+       - Added `stopCh chan struct{}` to AuthInterceptor for graceful shutdown
+       - Implemented select statement in `startPublicKeyRefresh()` to listen for shutdown signal
+       - Added `Shutdown()` method to cleanly stop the goroutine
+       - **Impact**: Prevents goroutine accumulation and memory leaks on server restart
+    5. **Context Timeout Fixes** (`internal/middleware/epx_callback_auth.go:48-56,246-255`)
+       - Added 10-second timeout to `loadIPWhitelist` database call
+       - Added 5-second timeout to async `logCallbackAttempt` audit logging
+       - Added missing `time` package import
+       - **Impact**: Prevents connection leaks and hanging operations
+    6. **SQL Soft-Delete Fix** (`internal/db/queries/payment_methods.sql:216`)
+       - Added `AND deleted_at IS NULL` to `VerifyACHPaymentMethod` WHERE clause
+       - Regenerated sqlc code (`internal/db/sqlc/payment_methods.sql.go`)
+       - **Impact**: Prevents verification of soft-deleted payment methods
+    7. **Time Consistency Fix** (`internal/middleware/connect_auth.go:18,239,335,394`)
+       - Replaced 3 instances of `time.Now()` with `timeutil.Now()` for timezone consistency
+       - Affects JWT expiration checks, rate limit bucket keys, and request ID generation
+       - **Impact**: Ensures consistent UTC time handling across the application
+  - **Quality Checks**: ✅ go vet ✅ go build ✅ go test -short ./...
+  - **Security Posture**: Addressed 7 critical/high security issues with fail-closed patterns and proper resource cleanup
+
 ### Refactored (2025-11-21)
 
 - **Admin CLI Refactored to Use SQLC and Add Audit Trail** (`cmd/admin/main.go`)

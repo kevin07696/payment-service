@@ -13,11 +13,20 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"go.uber.org/zap"
+)
+
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+const (
+	authTypeKey contextKey = "auth_type"
+	clientIPKey contextKey = "client_ip"
 )
 
 // EPXCallbackAuth provides authentication for EPX payment gateway callbacks
@@ -37,8 +46,10 @@ func NewEPXCallbackAuth(queries sqlc.Querier, macSecret string, logger *zap.Logg
 		ipWhitelistMap: make(map[string]bool),
 	}
 
-	// Load IP whitelist
-	if err := auth.loadIPWhitelist(); err != nil {
+	// Load IP whitelist with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := auth.loadIPWhitelist(ctx); err != nil {
 		return nil, fmt.Errorf("failed to load IP whitelist: %w", err)
 	}
 
@@ -46,8 +57,7 @@ func NewEPXCallbackAuth(queries sqlc.Querier, macSecret string, logger *zap.Logg
 }
 
 // loadIPWhitelist loads the EPX IP whitelist from the database
-func (e *EPXCallbackAuth) loadIPWhitelist() error {
-	ctx := context.Background()
+func (e *EPXCallbackAuth) loadIPWhitelist(ctx context.Context) error {
 	ipAddresses, err := e.queries.ListActiveIPWhitelist(ctx)
 	if err != nil {
 		return err
@@ -68,7 +78,9 @@ func (e *EPXCallbackAuth) loadIPWhitelist() error {
 
 // RefreshIPWhitelist refreshes the IP whitelist from the database
 func (e *EPXCallbackAuth) RefreshIPWhitelist() error {
-	return e.loadIPWhitelist()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return e.loadIPWhitelist(ctx)
 }
 
 // Middleware wraps an HTTP handler with EPX callback authentication
@@ -135,8 +147,8 @@ func (e *EPXCallbackAuth) Middleware(next http.HandlerFunc) http.HandlerFunc {
 
 		// Step 3: Add authentication context to request
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, "auth_type", "epx_callback")
-		ctx = context.WithValue(ctx, "client_ip", clientIP)
+		ctx = context.WithValue(ctx, authTypeKey, "epx_callback")
+		ctx = context.WithValue(ctx, clientIPKey, clientIP)
 		r = r.WithContext(ctx)
 
 		// Log successful callback auth
@@ -238,7 +250,10 @@ func (e *EPXCallbackAuth) getClientIP(r *http.Request) string {
 // logCallbackAttempt logs EPX callback authentication attempts
 func (e *EPXCallbackAuth) logCallbackAttempt(clientIP, path string, success bool, errorMsg string) {
 	go func() {
-		ctx := context.Background()
+		// Create a new context with timeout for async logging
+		// Don't use the request context as it may be cancelled before logging completes
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
 		metadata := map[string]interface{}{
 			"path":      path,
