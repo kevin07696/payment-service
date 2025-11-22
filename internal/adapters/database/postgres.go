@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/pkg/observability"
 	"go.uber.org/zap"
 )
 
@@ -128,13 +129,18 @@ func NewPostgreSQLAdapter(ctx context.Context, cfg *PostgreSQLConfig, logger *za
 	// Create sqlc queries instance
 	queries := sqlc.New(pool)
 
-	return &PostgreSQLAdapter{
+	adapter := &PostgreSQLAdapter{
 		pool:    pool,
 		queries: queries,
 		logger:  logger,
 		config:  cfg,
 		stopCh:  make(chan struct{}),
-	}, nil
+	}
+
+	// Start pool monitoring goroutine
+	go adapter.monitorConnectionPool()
+
+	return adapter, nil
 }
 
 // Queries returns the sqlc queries instance for database operations
@@ -308,4 +314,79 @@ func (a *PostgreSQLAdapter) ComplexQueryContext(parent context.Context) (context
 // Use for: Large scans, complex aggregations, analytics, reports
 func (a *PostgreSQLAdapter) ReportQueryContext(parent context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(parent, a.config.ReportQueryTimeout)
+}
+
+// monitorConnectionPool periodically collects pool statistics and updates Prometheus metrics
+// This goroutine runs continuously until the adapter is closed
+// CRITICAL: Enables detection of connection exhaustion before production outages
+func (a *PostgreSQLAdapter) monitorConnectionPool() {
+	// Monitor every 15 seconds (balance between freshness and overhead)
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	a.logger.Info("Database connection pool monitoring started",
+		zap.Duration("interval", 15*time.Second),
+		zap.Int32("max_connections", a.config.MaxConns),
+	)
+
+	for {
+		select {
+		case <-a.stopCh:
+			a.logger.Info("Stopping connection pool monitoring (shutdown requested)")
+			return
+
+		case <-ticker.C:
+			// Collect pool statistics
+			stat := a.pool.Stat()
+
+			totalConns := stat.TotalConns()
+			idleConns := stat.IdleConns()
+			maxConns := stat.MaxConns()
+			acquiredConns := stat.AcquiredConns()
+
+			// Update Prometheus metrics
+			observability.UpdateDatabasePoolMetrics(
+				totalConns,
+				idleConns,
+				maxConns,
+				0, // waitCount - not directly available from pgxpool stats
+				0, // waitDuration - not directly available
+			)
+
+			// Calculate utilization for logging
+			utilization := float64(acquiredConns) / float64(maxConns)
+
+			// Log at different levels based on utilization
+			if utilization >= 0.95 {
+				// CRITICAL: 95%+ utilization
+				a.logger.Error("Database connection pool near exhaustion",
+					zap.Int32("total_connections", totalConns),
+					zap.Int32("acquired_connections", acquiredConns),
+					zap.Int32("idle_connections", idleConns),
+					zap.Int32("max_connections", maxConns),
+					zap.Float64("utilization", utilization),
+					zap.String("action_required", "CRITICAL: Increase pool size or fix connection leaks immediately"),
+				)
+			} else if utilization >= 0.80 {
+				// WARNING: 80-94% utilization
+				a.logger.Warn("Database connection pool highly utilized",
+					zap.Int32("total_connections", totalConns),
+					zap.Int32("acquired_connections", acquiredConns),
+					zap.Int32("idle_connections", idleConns),
+					zap.Int32("max_connections", maxConns),
+					zap.Float64("utilization", utilization),
+					zap.String("recommendation", "Consider increasing MaxConns or investigating slow queries"),
+				)
+			} else {
+				// INFO: Normal operation (< 80% utilization)
+				a.logger.Debug("Database connection pool status",
+					zap.Int32("total_connections", totalConns),
+					zap.Int32("acquired_connections", acquiredConns),
+					zap.Int32("idle_connections", idleConns),
+					zap.Int32("max_connections", maxConns),
+					zap.Float64("utilization", utilization),
+				)
+			}
+		}
+	}
 }

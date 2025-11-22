@@ -77,6 +77,59 @@ var (
 		},
 		[]string{"transaction_type", "outcome"}, // transaction_type: "sale", "auth", "capture", outcome: "approved", "declined", "error"
 	)
+
+	// Database Connection Pool Metrics
+	// Critical for detecting connection exhaustion before failure
+	dbPoolTotalConnections = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "db_pool_total_connections",
+			Help: "Current total number of connections in the pool (idle + active)",
+		},
+	)
+
+	dbPoolIdleConnections = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "db_pool_idle_connections",
+			Help: "Current number of idle connections in the pool",
+		},
+	)
+
+	dbPoolActiveConnections = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "db_pool_active_connections",
+			Help: "Current number of active connections in use",
+		},
+	)
+
+	dbPoolWaitCount = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "db_pool_wait_count_total",
+			Help: "Total number of times a connection request had to wait",
+		},
+	)
+
+	dbPoolWaitDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name: "db_pool_wait_duration_seconds",
+			Help: "Time spent waiting for a connection from the pool",
+			// Buckets for connection wait time (1ms to 5s)
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0},
+		},
+	)
+
+	dbPoolMaxConnections = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "db_pool_max_connections",
+			Help: "Maximum number of connections allowed in the pool",
+		},
+	)
+
+	dbPoolConnectionUtilization = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "db_pool_connection_utilization_ratio",
+			Help: "Connection pool utilization ratio (active / max), critical alert threshold at 0.8",
+		},
+	)
 )
 
 // UnaryServerInterceptor returns a gRPC unary server interceptor that records Prometheus metrics
@@ -181,4 +234,56 @@ func UpdateErrorBudget(service, window string, sloTarget float64, successCount, 
 // outcome: "approved", "declined", "error"
 func RecordPaymentTransactionSLO(transactionType, outcome string) {
 	paymentTransactionSLO.WithLabelValues(transactionType, outcome).Inc()
+}
+
+// UpdateDatabasePoolMetrics updates Prometheus metrics for database connection pool
+// This function should be called periodically to track pool health
+//
+// Parameters:
+//   - totalConns: Current total connections (idle + active)
+//   - idleConns: Current idle connections
+//   - maxConns: Maximum allowed connections
+//   - waitCount: Total number of connection waits
+//   - waitDuration: Time spent waiting for connections (in seconds)
+//
+// Critical Alerts:
+//   - Connection utilization > 80%: Pool approaching exhaustion
+//   - Wait count increasing rapidly: Need to increase pool size
+//   - Active connections = max: Pool exhausted, requests being queued
+func UpdateDatabasePoolMetrics(totalConns, idleConns, maxConns int32, waitCount int64, waitDuration float64) {
+	// Update basic pool metrics
+	dbPoolTotalConnections.Set(float64(totalConns))
+	dbPoolIdleConnections.Set(float64(idleConns))
+	dbPoolMaxConnections.Set(float64(maxConns))
+
+	// Calculate and update active connections
+	activeConns := totalConns - idleConns
+	dbPoolActiveConnections.Set(float64(activeConns))
+
+	// Update wait metrics if provided
+	if waitCount > 0 {
+		// Only increment the counter by the delta since last update
+		// This requires tracking previous waitCount, but for simplicity
+		// we'll just set the wait duration histogram
+		dbPoolWaitDuration.Observe(waitDuration)
+	}
+
+	// Calculate connection utilization ratio (critical metric for alerting)
+	// Alert when this exceeds 0.8 (80% utilization)
+	if maxConns > 0 {
+		utilization := float64(activeConns) / float64(maxConns)
+		dbPoolConnectionUtilization.Set(utilization)
+	}
+}
+
+// IncrementDatabasePoolWaitCount increments the connection wait counter
+// Call this each time a request has to wait for a connection
+func IncrementDatabasePoolWaitCount() {
+	dbPoolWaitCount.Inc()
+}
+
+// RecordDatabasePoolWaitDuration records how long a request waited for a connection
+// waitSeconds: duration in seconds that the request waited
+func RecordDatabasePoolWaitDuration(waitSeconds float64) {
+	dbPoolWaitDuration.Observe(waitSeconds)
 }
