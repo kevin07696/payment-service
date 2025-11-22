@@ -6,7 +6,7 @@ set -e
 
 echo "📡 Generating API documentation from proto files..."
 
-OUTPUT_FILE="docs/integration/API_SPECS_GENERATED.md"
+OUTPUT_FILE="docs/integration/API_SPECS.md"
 PROTO_DIR="proto"
 
 # Check if protoc-gen-doc is installed
@@ -30,9 +30,9 @@ cat > "$OUTPUT_FILE" <<EOF
 ## Overview
 
 This document is auto-generated from Protocol Buffer (proto) definitions. For hand-written integration guides and examples, see:
-- **[ADMIN_CLI.md](./ADMIN_CLI.md)** - Service and merchant management
+- **[PAYMENT_CLI.md](./PAYMENT_CLI.md)** - Service and merchant management
 - **[REACT_INTEGRATION.md](./REACT_INTEGRATION.md)** - React/TypeScript integration
-- **[BROWSER_POST_REFERENCE.md](./BROWSER_POST_REFERENCE.md)** - PCI-compliant tokenization
+- **[BROWSER_POST_FORM_SETUP.md](./BROWSER_POST_FORM_SETUP.md)** - PCI-compliant tokenization
 
 ---
 
@@ -182,7 +182,7 @@ go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
 ## Related Documentation
 
 - **[Authentication](../development/AUTH.md)** - JWT token authentication
-- **[ADMIN_CLI.md](./ADMIN_CLI.md)** - Creating services and obtaining credentials
+- **[PAYMENT_CLI.md](./PAYMENT_CLI.md)** - Creating services and obtaining credentials
 - **[REACT_INTEGRATION.md](./REACT_INTEGRATION.md)** - Frontend integration guide
 EOF
 

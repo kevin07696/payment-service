@@ -97,10 +97,10 @@ cat > "$WIKI_DIR/_Sidebar.md" <<EOF
 - [Quick Start](Home#quick-start)
 
 ## 📖 Integration Guides
-- [Admin CLI](ADMIN_CLI)
+- [Payment CLI](PAYMENT_CLI)
 - [React Integration](REACT_INTEGRATION)
 - [API Specifications](API_SPECS)
-- [Browser Post](BROWSER_POST_REFERENCE)
+- [Browser Post Form Setup](BROWSER_POST_FORM_SETUP)
 - [Token Generation](TOKEN_GENERATION)
 
 ## 🛠️ Development

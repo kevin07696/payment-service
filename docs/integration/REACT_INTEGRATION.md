@@ -2348,7 +2348,7 @@ if (cachedToken && Date.now() < Number(tokenExpiry)) {
 
 - **[API Reference](API_SPECS.md)** - Complete endpoint documentation
 - **[Authentication Guide](AUTH.md)** - JWT token generation
-- **[Browser Post Reference](BROWSER_POST_REFERENCE.md)** - Detailed Browser Post integration
+- **[Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md)** - Detailed Browser Post integration
 - **[Error Codes](API_SPECS.md#error-handling)** - Complete error code reference
 
 ---

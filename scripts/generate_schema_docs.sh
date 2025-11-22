@@ -6,7 +6,7 @@ set -e
 
 echo "📊 Generating database schema documentation..."
 
-OUTPUT_FILE="docs/development/DATABASE_SCHEMA.md"
+OUTPUT_FILE="docs/development/DATABASE.md"
 MIGRATIONS_DIR="internal/db/migrations"
 
 # Create output file

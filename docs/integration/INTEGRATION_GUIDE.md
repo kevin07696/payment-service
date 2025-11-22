@@ -198,7 +198,7 @@ document.body.appendChild(form);
 3. EPX processes payment
 4. EPX redirects browser to your callback URL with results
 
-**See [Browser Post Reference](BROWSER_POST_REFERENCE.md) for:**
+**See [Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md) for:**
 - Complete HTML form examples
 - JavaScript implementation examples
 - Field reference and validation

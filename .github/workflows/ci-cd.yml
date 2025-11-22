@@ -30,7 +30,7 @@ jobs:
       - name: Check for generated docs in commit
         run: |
           echo "🔍 Checking for committed auto-generated docs..."
-          if git ls-files | grep -E '(DATABASE_SCHEMA\.md|API_SPECS_GENERATED\.md)'; then
+          if git ls-files | grep -E '(development/DATABASE\.md|integration/API_SPECS\.md)'; then
             echo "❌ Auto-generated docs should not be committed!"
             echo "   These files are in .gitignore and regenerated automatically."
             exit 1
