@@ -91,7 +91,7 @@ func Benchmark_BRICPool(b *testing.B) {
 			req := pool.GetBRICStorageRequest()
 			// Simulate usage
 			req.CustNbr = "12345"
-			req.CardNumber = "4111111111111111"
+			req.TranNbr = "test-tran"
 			pool.PutBRICStorageRequest(req)
 		}
 	})
@@ -102,8 +102,30 @@ func Benchmark_BRICPool(b *testing.B) {
 			req := &ports.BRICStorageRequest{}
 			// Simulate usage
 			req.CustNbr = "12345"
-			req.CardNumber = "4111111111111111"
+			req.TranNbr = "test-tran"
 			_ = req
+		}
+	})
+
+	b.Run("response_with_pool", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			resp := pool.GetBRICStorageResponse()
+			// Simulate usage
+			resp.StorageBRIC = "test-bric"
+			resp.AuthResp = "00"
+			pool.PutBRICStorageResponse(resp)
+		}
+	})
+
+	b.Run("response_without_pool", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			resp := &ports.BRICStorageResponse{}
+			// Simulate usage
+			resp.StorageBRIC = "test-bric"
+			resp.AuthResp = "00"
+			_ = resp
 		}
 	})
 }
