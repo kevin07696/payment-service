@@ -152,6 +152,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Quality Checks**: ✅ go vet ✅ go build
   - **Concurrency Posture**: Eliminated all critical goroutine leaks and unbounded spawning patterns
 
+- **High Priority Security Enhancements** (Multiple files)
+  - **Scope**: Addressed remaining high-priority security issues from audit
+  - **Fixes Applied**:
+    1. **HMAC Signature Logging Vulnerability** (`internal/middleware/epx_callback_auth.go:135-140`)
+       - Removed logging of actual HMAC signature values
+       - Now logs only signature length instead of values
+       - Added security comment explaining offline attack prevention
+       - **Impact**: Prevents signature values in logs from being used for offline attacks
+    2. **Weak Cron Secret Enforcement** (`cmd/server/main.go:416-429`)
+       - Added validation requiring CRON_SECRET environment variable
+       - Enforced minimum 32-character length for sufficient entropy
+       - Rejects default "change-me-in-production" value
+       - Provides helpful error with generation command: `openssl rand -base64 32`
+       - **Impact**: Prevents unauthorized cron job execution via weak secrets
+    3. **Browser Post Security Documentation** (`internal/handlers/payment/browser_post_callback_handler.go:491-514`)
+       - Enhanced documentation explaining TAC-based security model
+       - Clarified why HMAC signatures are NOT used (EPX design)
+       - Documented Browser Post security: TAC validation, transaction ID checks, merchant validation
+       - Added reference to EPX Browser Post Integration Guide
+       - **Impact**: Clear security model documentation prevents misunderstanding of callback security
+  - **Security Clarifications**:
+    - Browser Post uses TAC (Temporary Access Code), not HMAC signatures
+    - TAC tokens are time-limited (4 hours) and validated by EPX before callback
+    - Security audit recommendation for HMAC doesn't apply to Browser Post
+  - **Deployment Requirements**:
+    - CRON_SECRET must be set with ≥32 characters before server start
+    - Generate with: `export CRON_SECRET=$(openssl rand -base64 32)`
+  - **Security Posture**: Eliminated signature leakage, enforced strong cron authentication
+
 ### Refactored (2025-11-21)
 
 - **Admin CLI Refactored to Use SQLC and Add Audit Trail** (`cmd/admin/main.go`)

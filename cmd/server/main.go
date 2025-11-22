@@ -413,6 +413,21 @@ func loadConfig(logger *zap.Logger) *Config {
 		DisableAuth:               getEnvBool("DISABLE_AUTH", false),
 	}
 
+	// Validate cron secret entropy for production security
+	if cfg.CronSecret == "" {
+		logger.Fatal("CRON_SECRET environment variable is required")
+	}
+	if cfg.CronSecret == "change-me-in-production" {
+		logger.Fatal("CRON_SECRET must be changed from default value")
+	}
+	if len(cfg.CronSecret) < 32 {
+		logger.Fatal("CRON_SECRET must be at least 32 characters for sufficient entropy",
+			zap.Int("current_length", len(cfg.CronSecret)),
+			zap.Int("required_length", 32),
+			zap.String("suggestion", "Generate with: openssl rand -base64 32"),
+		)
+	}
+
 	logger.Info("Configuration loaded",
 		zap.Int("port", cfg.Port),
 		zap.String("db_host", cfg.DBHost),

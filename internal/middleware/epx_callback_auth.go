@@ -135,8 +135,9 @@ func (e *EPXCallbackAuth) Middleware(next http.HandlerFunc) http.HandlerFunc {
 				e.logger.Warn("EPX callback HMAC verification failed",
 					zap.String("ip", clientIP),
 					zap.String("path", r.URL.Path),
-					zap.String("provided_sig", signature),
-					zap.String("expected_sig", expectedSig))
+					zap.Int("sig_length", len(signature)),
+					// SECURITY: Do not log actual signature values to prevent offline attacks
+				)
 
 				e.logCallbackAttempt(clientIP, r.URL.Path, false, "Invalid HMAC signature")
 
