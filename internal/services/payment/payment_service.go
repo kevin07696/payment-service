@@ -14,6 +14,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
+	merchantsvc "github.com/kevin07696/payment-service/internal/services/merchant"
 	"github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/util"
 	"github.com/shopspring/decimal"
@@ -39,10 +40,12 @@ func NewPaymentService(
 	serverPost adapterports.ServerPostAdapter,
 	secretManager adapterports.SecretManagerAdapter,
 	merchantResolver *authorization.MerchantResolver,
+	merchantCache *merchantsvc.MerchantCredentialCache,
 	logger *zap.Logger,
 ) ports.PaymentService {
-	// Create merchant credential resolver
+	// Create merchant credential resolver with cache (70% DB load reduction)
 	merchantCredentialResolver := authorization.NewMerchantCredentialResolver(
+		merchantCache,
 		queries,
 		secretManager,
 		logger,

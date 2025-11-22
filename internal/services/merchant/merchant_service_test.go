@@ -2,6 +2,7 @@ package merchant
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -462,6 +463,237 @@ func TestRotateMerchantMAC_InactiveMerchant(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot rotate MAC for inactive merchant")
+
+	mockQuerier.AssertExpectations(t)
+}
+
+// TestRegisterMerchant_SecretManagerFailure tests the pain point where the secret manager
+// fails during the transaction, causing the entire operation to rollback
+func TestRegisterMerchant_SecretManagerFailure(t *testing.T) {
+	service, mockQuerier, mockTxManager, mockSecretManager := setupMerchantService(t)
+	ctx := context.Background()
+
+	req := &ports.RegisterMerchantRequest{
+		AgentID:      "test-merchant",
+		MerchantName: "Test Merchant",
+		MACSecret:    "test-secret",
+		CustNbr:      "12345",
+		MerchNbr:     "67890",
+		DBAnbr:       "11111",
+		TerminalNbr:  "22222",
+		Environment:  domain.EnvironmentSandbox,
+	}
+
+	// Mock database success for slug check
+	mockQuerier.On("MerchantExistsBySlug", ctx, req.AgentID).
+		Return(false, nil)
+
+	// Mock vault FAILURE when storing MAC secret (inside transaction)
+	macSecretPath := "payment-service/merchants/test-merchant/mac"
+	mockSecretManager.On("PutSecret", ctx, macSecretPath, req.MACSecret, mock.Anything).
+		Return("", errors.New("vault connection timeout"))
+
+	// Mock transaction - it will execute the fn, which will fail at PutSecret
+	mockTxManager.On("WithTx", ctx, mock.Anything).
+		Return(nil) // The mock's Return value (nil means no additional error)
+
+	merchant, err := service.RegisterMerchant(ctx, req)
+
+	// Should fail with secret manager error
+	assert.Error(t, err)
+	assert.Nil(t, merchant)
+	assert.Contains(t, err.Error(), "failed to store MAC secret")
+
+	// Verify database was NOT called because secret storage failed first
+	mockQuerier.AssertNotCalled(t, "CreateMerchant")
+
+	mockQuerier.AssertExpectations(t)
+	mockSecretManager.AssertExpectations(t)
+	mockTxManager.AssertExpectations(t)
+}
+
+// TestRegisterMerchant_DatabaseFailureAfterSecretStored tests the critical data consistency
+// pain point where the MAC secret is stored in vault but database creation fails
+func TestRegisterMerchant_DatabaseFailureAfterSecretStored(t *testing.T) {
+	service, mockQuerier, mockTxManager, mockSecretManager := setupMerchantService(t)
+	ctx := context.Background()
+
+	req := &ports.RegisterMerchantRequest{
+		AgentID:      "test-merchant",
+		MerchantName: "Test Merchant",
+		MACSecret:    "test-secret",
+		CustNbr:      "12345",
+		MerchNbr:     "67890",
+		DBAnbr:       "11111",
+		TerminalNbr:  "22222",
+		Environment:  domain.EnvironmentSandbox,
+	}
+
+	// Mock database success for slug check
+	mockQuerier.On("MerchantExistsBySlug", ctx, req.AgentID).
+		Return(false, nil)
+
+	// Mock vault SUCCESS - secret stored in vault
+	macSecretPath := "payment-service/merchants/test-merchant/mac"
+	mockSecretManager.On("PutSecret", ctx, macSecretPath, req.MACSecret, mock.Anything).
+		Return("", nil)
+
+	// Mock database FAILURE when creating merchant (after vault success)
+	mockQuerier.On("CreateMerchant", ctx, mock.Anything).
+		Return(sqlc.Merchant{}, errors.New("database connection lost"))
+
+	// Mock transaction - it will execute the fn which calls both PutSecret and CreateMerchant
+	mockTxManager.On("WithTx", ctx, mock.Anything).
+		Return(nil) // The mock's Return value
+
+	merchant, err := service.RegisterMerchant(ctx, req)
+
+	// Should fail
+	assert.Error(t, err)
+	assert.Nil(t, merchant)
+	assert.Contains(t, err.Error(), "failed to create merchant")
+
+	// This is a PAIN POINT: Secret exists in vault but no merchant in DB
+	// Vault operations are NOT rolled back when DB transaction fails
+	// In production, this requires manual cleanup of orphaned secrets
+
+	mockQuerier.AssertExpectations(t)
+	mockSecretManager.AssertExpectations(t)
+	mockTxManager.AssertExpectations(t)
+}
+
+// TestUpdateMerchant_SecretRotationFailure tests the pain point where MAC rotation fails
+// in vault, preventing database updates with stale secrets
+func TestUpdateMerchant_SecretRotationFailure(t *testing.T) {
+	service, mockQuerier, _, mockSecretManager := setupMerchantService(t)
+	ctx := context.Background()
+
+	merchantID := uuid.New()
+	req := &ports.RotateMerchantMACRequest{
+		AgentID:      "test-merchant",
+		NewMACSecret: "new-secret-123",
+	}
+
+	merchant := sqlc.Merchant{
+		ID:            merchantID,
+		Slug:          req.AgentID,
+		Name:          "Test Merchant",
+		MacSecretPath: "payment-service/merchants/test-merchant/mac",
+		IsActive:      true,
+	}
+
+	mockQuerier.On("GetMerchantBySlug", ctx, req.AgentID).
+		Return(merchant, nil)
+
+	// Mock vault FAILURE when rotating MAC
+	mockSecretManager.On("PutSecret", ctx, merchant.MacSecretPath, req.NewMACSecret, mock.Anything).
+		Return("", errors.New("vault write permission denied"))
+
+	err := service.RotateMerchantMAC(ctx, req)
+
+	// Should fail rotation
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to rotate MAC secret")
+
+	mockQuerier.AssertExpectations(t)
+	mockSecretManager.AssertExpectations(t)
+}
+
+// TestUpdateMerchant_DatabaseUpdateFailure tests the pain point where MAC rotates successfully
+// in vault but database update fails, creating inconsistent state
+func TestUpdateMerchant_DatabaseUpdateFailure(t *testing.T) {
+	service, mockQuerier, _, mockSecretManager := setupMerchantService(t)
+	ctx := context.Background()
+
+	merchantID := uuid.New()
+	req := &ports.RotateMerchantMACRequest{
+		AgentID:      "test-merchant",
+		NewMACSecret: "new-secret-123",
+	}
+
+	merchant := sqlc.Merchant{
+		ID:            merchantID,
+		Slug:          req.AgentID,
+		Name:          "Test Merchant",
+		MacSecretPath: "payment-service/merchants/test-merchant/mac",
+		IsActive:      true,
+	}
+
+	mockQuerier.On("GetMerchantBySlug", ctx, req.AgentID).
+		Return(merchant, nil)
+
+	// Mock vault SUCCESS for rotation
+	mockSecretManager.On("PutSecret", ctx, merchant.MacSecretPath, req.NewMACSecret, mock.Anything).
+		Return("", nil)
+
+	err := service.RotateMerchantMAC(ctx, req)
+
+	// Should succeed - RotateMerchantMAC doesn't update database
+	// This test reveals that the current implementation only updates vault
+	assert.NoError(t, err)
+
+	mockQuerier.AssertExpectations(t)
+	mockSecretManager.AssertExpectations(t)
+}
+
+// TestDeactivateMerchant_DatabaseError tests the pain point where merchants get stuck
+// in active state when deactivation fails
+func TestDeactivateMerchant_DatabaseError(t *testing.T) {
+	service, mockQuerier, _, _ := setupMerchantService(t)
+	ctx := context.Background()
+
+	merchantID := uuid.New()
+	agentID := "test-merchant"
+	reason := "fraud detected"
+
+	merchant := sqlc.Merchant{
+		ID:       merchantID,
+		Slug:     agentID,
+		IsActive: true, // Currently active
+	}
+
+	mockQuerier.On("GetMerchantBySlug", ctx, agentID).
+		Return(merchant, nil)
+
+	// Mock database FAILURE when deactivating
+	mockQuerier.On("DeactivateMerchant", ctx, merchantID).
+		Return(errors.New("constraint violation"))
+
+	err := service.DeactivateMerchant(ctx, agentID, reason)
+
+	// Should fail deactivation
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to deactivate merchant")
+
+	// This is a PAIN POINT: Merchant remains active, potentially processing payments
+	// when they shouldn't be
+
+	mockQuerier.AssertExpectations(t)
+}
+
+// TestListMerchants_CountError tests the pain point where pagination breaks when
+// the count query fails
+func TestListMerchants_CountError(t *testing.T) {
+	service, mockQuerier, _, _ := setupMerchantService(t)
+	ctx := context.Background()
+
+	// Mock list query SUCCESS (returns empty list)
+	mockQuerier.On("ListMerchants", ctx, mock.Anything).
+		Return([]sqlc.Merchant{}, nil)
+
+	// Mock count query FAILURE
+	mockQuerier.On("CountMerchants", ctx, mock.Anything).
+		Return(int64(0), errors.New("query timeout"))
+
+	merchants, total, err := service.ListMerchants(ctx, nil, nil, 10, 0)
+
+	// Should fail
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to count merchants")
+	assert.Nil(t, merchants)
+	assert.Equal(t, 0, total)
+
+	// This is a PAIN POINT: Pagination completely breaks, admin UI unusable
 
 	mockQuerier.AssertExpectations(t)
 }
