@@ -92,6 +92,13 @@ func NewPostgreSQLAdapter(ctx context.Context, cfg *PostgreSQLConfig, logger *za
 	// Set health check period to detect and replace broken connections
 	poolConfig.HealthCheckPeriod = 1 * time.Minute
 
+	// CRITICAL: Set default statement timeout as safety net
+	// This prevents runaway queries from consuming resources indefinitely
+	// Individual queries can override with context.WithTimeout()
+	// Uses ComplexQueryTimeout (5s) as conservative default
+	poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf("%dms",
+		int(cfg.ComplexQueryTimeout.Milliseconds()))
+
 	// Create connection pool
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -138,6 +145,27 @@ func (a *PostgreSQLAdapter) Queries() sqlc.Querier {
 // Pool returns the underlying connection pool for advanced operations
 func (a *PostgreSQLAdapter) Pool() *pgxpool.Pool {
 	return a.pool
+}
+
+// WithSimpleQueryTimeout creates a context with timeout for simple queries
+// Use for: ID lookups, single row SELECTs, simple UPDATEs/INSERTs
+// Timeout: 2 seconds
+func (a *PostgreSQLAdapter) WithSimpleQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, a.config.SimpleQueryTimeout)
+}
+
+// WithComplexQueryTimeout creates a context with timeout for complex queries
+// Use for: JOINs, WHERE clauses with multiple conditions, aggregations
+// Timeout: 5 seconds
+func (a *PostgreSQLAdapter) WithComplexQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, a.config.ComplexQueryTimeout)
+}
+
+// WithReportQueryTimeout creates a context with timeout for report/analytics queries
+// Use for: Large result sets, complex aggregations, historical data queries
+// Timeout: 30 seconds
+func (a *PostgreSQLAdapter) WithReportQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, a.config.ReportQueryTimeout)
 }
 
 // Shutdown gracefully stops the pool monitoring goroutine
