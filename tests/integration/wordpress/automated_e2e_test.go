@@ -125,18 +125,50 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 	)
 	require.NoError(t, err, "Should login to WordPress")
 
-	// Navigate to shop and add product
+	// Navigate to product page
 	err = chromedp.Run(ctx,
-		chromedp.Navigate(wordpressURL+"/shop"),
-		chromedp.WaitVisible(`.products`, chromedp.ByQuery),
-		chromedp.Click(`.add_to_cart_button`, chromedp.ByQuery),
+		chromedp.Navigate(wordpressURL+"/product/test-product"),
 		chromedp.Sleep(2*time.Second),
+		chromedp.WaitVisible(`body`, chromedp.ByQuery),
 	)
-	require.NoError(t, err, "Should add product to cart")
+	require.NoError(t, err, "Should navigate to product page")
 
-	// Go to checkout
+	// Click add to cart button (try multiple possible selectors)
+	err = chromedp.Run(ctx,
+		chromedp.Click(`button[name="add-to-cart"]`, chromedp.ByQuery),
+	)
+	if err != nil {
+		// Try alternative selector
+		err = chromedp.Run(ctx,
+			chromedp.Click(`.single_add_to_cart_button`, chromedp.ByQuery),
+		)
+	}
+	if err != nil {
+		// Try another alternative
+		err = chromedp.Run(ctx,
+			chromedp.Click(`a.add_to_cart_button`, chromedp.ByQuery),
+		)
+	}
+	require.NoError(t, err, "Should click add to cart button")
+
+	// Wait for add to cart to complete
+	err = chromedp.Run(ctx,
+		chromedp.Sleep(3*time.Second),
+	)
+	require.NoError(t, err, "Should wait for add to cart")
+
+	// Navigate to cart page
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(wordpressURL+"/cart"),
+		chromedp.Sleep(2*time.Second),
+		chromedp.WaitVisible(`body`, chromedp.ByQuery),
+	)
+	require.NoError(t, err, "Should navigate to cart page")
+
+	// Navigate to checkout
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(wordpressURL+"/checkout"),
+		chromedp.Sleep(3*time.Second),
 		chromedp.WaitVisible(`#billing_first_name`, chromedp.ByID),
 	)
 	require.NoError(t, err, "Should navigate to checkout")

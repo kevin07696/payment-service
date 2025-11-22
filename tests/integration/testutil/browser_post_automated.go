@@ -295,6 +295,7 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	t.Logf("✅ Transaction created via automated browser:")
 	t.Logf("   Transaction ID: %s", txID)
 	t.Logf("   Authorization Code (BRIC): %s", authCode)
+	t.Logf("   EPX TRAN_NBR: %s", epxTranNbr)
 	t.Logf("   Type: %s", transactionType)
 	t.Logf("   Status: %s", statusStr)
 	if parentTxID != "" {
@@ -305,12 +306,14 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	// For SALE/AUTH: TransactionID is the root transaction that can be used for REFUND
 	// For CAPTURE: ParentTransactionId is the AUTH that was captured
 	// BRIC is the authorization_code (EPX AUTH_GUID) that can be stored and reused
+	// TranNbr is the EPX TRAN_NBR (10-digit numeric ID) used for EPX API calls
 	return &RealBRICResult{
 		TransactionID: txID,
 		GroupID:       parentTxID, // Empty for SALE/AUTH, populated for CAPTURE/REFUND
 		BRIC:          authCode,   // EPX AUTH_GUID for reuse in future transactions
 		Amount:        amount,
 		MerchantID:    merchantID,
+		TranNbr:       epxTranNbr, // EPX TRAN_NBR for replay testing
 	}
 }
 

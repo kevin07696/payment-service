@@ -20,6 +20,7 @@ type RealBRICResult struct {
 	BRIC          string
 	Amount        string
 	MerchantID    string
+	TranNbr       string // EPX TRAN_NBR (numeric transaction identifier)
 }
 
 // GetRealBRICFromEPX obtains a real BRIC token by POSTing test card data directly to EPX

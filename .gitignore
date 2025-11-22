@@ -19,6 +19,10 @@ secrets/
 coverage.out
 *.coverprofile
 
+# Auto-generated documentation
+docs/development/DATABASE_SCHEMA.md
+docs/integration/API_SPECS_GENERATED.md
+
 # ================================================
 # SECRETS AND CREDENTIALS (NEVER COMMIT!)
 # ================================================

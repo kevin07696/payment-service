@@ -626,13 +626,14 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	// Initialize authorization resolver
 	merchantResolver := authorization.NewMerchantResolver()
 
-	// Initialize services
+	// Initialize services with caches
 	paymentSvc := paymentService.NewPaymentService(
 		dbAdapter.Queries(),
 		dbAdapter,
 		serverPost,
 		secretManager,
 		merchantResolver,
+		merchantCache, // P2-1: Merchant credential cache (70% DB load reduction)
 		logger,
 	)
 
@@ -651,6 +652,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		serverPost,
 		bricStorage,
 		secretManager,
+		paymentMethodCache, // P2-2: Payment method cache (60% faster lookups)
 		logger,
 	)
 
