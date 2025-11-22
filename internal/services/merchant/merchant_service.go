@@ -311,8 +311,8 @@ func sqlcMerchantToDomain(dbMerchant *sqlc.Merchant) *domain.Merchant {
 		MACSecretPath: dbMerchant.MacSecretPath,
 		Environment:   domain.Environment(dbMerchant.Environment),
 		IsActive:      dbMerchant.IsActive,
-		CreatedAt:     dbMerchant.CreatedAt,
-		UpdatedAt:     dbMerchant.UpdatedAt,
+		CreatedAt:     dbMerchant.CreatedAt.Time,
+		UpdatedAt:     dbMerchant.UpdatedAt.Time,
 	}
 }
 
