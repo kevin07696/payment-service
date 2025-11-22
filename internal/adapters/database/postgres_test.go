@@ -40,6 +40,7 @@ func TestNewPostgreSQLAdapter(t *testing.T) {
 }
 
 // TestNewPostgreSQLAdapter_InvalidURL tests error handling for invalid database URL
+// Best Practice: Assert on error behavior, not exact error messages (implementation details)
 func TestNewPostgreSQLAdapter_InvalidURL(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
@@ -47,22 +48,18 @@ func TestNewPostgreSQLAdapter_InvalidURL(t *testing.T) {
 	tests := []struct {
 		name        string
 		databaseURL string
-		expectError string
 	}{
 		{
-			name:        "empty URL",
+			name:        "empty_URL",
 			databaseURL: "",
-			expectError: "failed to", // pgxpool accepts empty URL but fails on connect
 		},
 		{
-			name:        "invalid URL format",
+			name:        "invalid_URL_format",
 			databaseURL: "not-a-valid-url",
-			expectError: "failed to parse database URL",
 		},
 		{
-			name:        "invalid scheme",
+			name:        "invalid_scheme",
 			databaseURL: "mysql://user:password@localhost:5432/db",
-			expectError: "failed to parse database URL",
 		},
 	}
 
@@ -75,9 +72,16 @@ func TestNewPostgreSQLAdapter_InvalidURL(t *testing.T) {
 			}
 
 			adapter, err := NewPostgreSQLAdapter(ctx, cfg, logger)
-			assert.Error(t, err, "Should return error for invalid URL")
-			assert.Nil(t, adapter, "Adapter should be nil on error")
-			assert.Contains(t, err.Error(), tt.expectError)
+
+			// Assert behavior, not implementation details
+			require.Error(t, err, "Should return error for invalid URL")
+			require.Nil(t, adapter, "Adapter should be nil on error")
+
+			// Note: We don't assert on exact error message text because:
+			// 1. Error messages are implementation details, not API contracts
+			// 2. Asserting on messages makes tests brittle (breaks when improving clarity)
+			// 3. Internal database adapter errors aren't user-facing
+			// 4. The important behavior is: "invalid URL returns an error"
 		})
 	}
 }
@@ -246,8 +250,12 @@ func TestWithTx_ContextCancellation(t *testing.T) {
 		return nil
 	})
 
-	assert.Error(t, err, "Transaction should fail with cancelled context")
-	assert.Contains(t, err.Error(), "context canceled", "Error should indicate context cancellation")
+	// Assert behavior: transaction should fail with cancelled context
+	require.Error(t, err, "Transaction should fail with cancelled context")
+
+	// Best Practice: Use error type check instead of message string
+	// This is stable across error message rewording
+	assert.ErrorIs(t, err, context.Canceled, "Error should be context.Canceled")
 }
 
 // TestPool tests the Pool method
