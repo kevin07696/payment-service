@@ -239,10 +239,14 @@ func main() {
 	// Serve Browser Post demo form (avoids CORS issues with file:// protocol)
 	httpMux.HandleFunc("/browser-post-demo", serveBrowserPostDemo)
 
+	// Initialize security headers middleware
+	isDevelopment := getEnv("ENVIRONMENT", "development") != "production"
+	securityHeaders := authMiddleware.NewSecurityHeaders(isDevelopment)
+
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler:           rateLimiter.Middleware(httpMux), // Apply rate limiting to all HTTP endpoints
-		ReadTimeout:       65 * time.Second,                // Slightly longer than handler timeout (60s)
+		Handler:           securityHeaders.Middleware(rateLimiter.Middleware(httpMux)), // Apply security headers + rate limiting
+		ReadTimeout:       65 * time.Second,                                             // Slightly longer than handler timeout (60s)
 		WriteTimeout:      65 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -252,8 +256,8 @@ func main() {
 	// This allows the server to accept gRPC, Connect, gRPC-Web, and HTTP/JSON requests
 	connectServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           h2c.NewHandler(mux, &http2.Server{}),
-		ReadTimeout:       65 * time.Second, // Slightly longer than handler timeout (60s)
+		Handler:           securityHeaders.Middleware(h2c.NewHandler(mux, &http2.Server{})), // Apply security headers
+		ReadTimeout:       65 * time.Second,                                                  // Slightly longer than handler timeout (60s)
 		WriteTimeout:      65 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,

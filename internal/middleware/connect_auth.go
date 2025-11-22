@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rsa"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/http"
 	"strings"
@@ -391,7 +390,9 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 // Helper functions
 
 func generateRequestID() string {
-	return fmt.Sprintf("%d-%d", timeutil.Now().UnixNano(), rand.Int63())
+	// Use cryptographically secure UUID v4 for request IDs
+	// This prevents collisions and provides non-predictable request tracking
+	return uuid.New().String()
 }
 
 func getClientIPFromContext(ctx context.Context) string {

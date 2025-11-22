@@ -62,7 +62,9 @@ func NewPostgreSQLAdapter(ctx context.Context, cfg *PostgreSQLConfig, logger *za
 	// Parse connection string and create pool config
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse database URL: %w", err)
+		// SECURITY: Do not wrap error as it may contain the database URL with password
+		// Return a sanitized error message instead
+		return nil, fmt.Errorf("failed to parse database configuration: invalid connection parameters")
 	}
 
 	// Configure pool settings
@@ -93,13 +95,16 @@ func NewPostgreSQLAdapter(ctx context.Context, cfg *PostgreSQLConfig, logger *za
 	// Create connection pool
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+		// SECURITY: Do not wrap error as it may contain connection details
+		// Provide generic error message for security
+		return nil, fmt.Errorf("failed to establish database connection pool")
 	}
 
 	// Test connection
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		// SECURITY: Ping errors are safe to wrap (no connection string exposure)
+		return nil, fmt.Errorf("database connection test failed: %w", err)
 	}
 
 	logger.Info("PostgreSQL adapter initialized",
