@@ -35,29 +35,44 @@ const (
 )
 
 // Transaction represents a payment transaction
+// Field order optimized for memory alignment (largest to smallest):
+// - time.Time (24 bytes) first
+// - map (8 bytes header)
+// - strings (16 bytes)
+// - pointers (8 bytes)
+// - int64 (8 bytes)
 type Transaction struct {
-	CreatedAt           time.Time              `json:"created_at"`
-	UpdatedAt           time.Time              `json:"updated_at"`
-	AuthCardType        *string                `json:"auth_card_type"`
-	AuthRespText        *string                `json:"auth_resp_text"`
-	SubscriptionID      *string                `json:"subscription_id"`
-	ParentTransactionID *string                `json:"parent_transaction_id"`
-	Metadata            map[string]interface{} `json:"metadata"`
-	IdempotencyKey      *string                `json:"idempotency_key"`
-	AuthCVV2            *string                `json:"auth_cvv2"`
-	AuthAVS             *string                `json:"auth_avs"`
-	PaymentMethodID     *string                `json:"payment_method_id"`
-	CustomerID          *string                `json:"customer_id"`
-	AuthResp            *string                `json:"auth_resp"`
-	AuthCode            *string                `json:"auth_code"`
-	AuthGUID            string                 `json:"auth_guid"`
-	ID                  string                 `json:"id"`
-	PaymentMethodType   PaymentMethodType      `json:"payment_method_type"`
-	Type                TransactionType        `json:"type"`
-	Status              TransactionStatus      `json:"status"`
-	Currency            string                 `json:"currency"`
-	MerchantID          string                 `json:"merchant_id"`
-	AmountCents         int64                  `json:"amount_cents"`
+	// Timestamps (24 bytes each) - largest fields first
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Map (8 byte header + data)
+	Metadata map[string]interface{} `json:"metadata"`
+
+	// Strings (16 bytes each on 64-bit)
+	ID                string            `json:"id"`
+	MerchantID        string            `json:"merchant_id"`
+	AuthGUID          string            `json:"auth_guid"`
+	Currency          string            `json:"currency"`
+	Status            TransactionStatus `json:"status"` // string alias
+	Type              TransactionType   `json:"type"`   // string alias
+	PaymentMethodType PaymentMethodType `json:"payment_method_type"` // string alias
+
+	// Pointers (8 bytes each) grouped together
+	ParentTransactionID *string `json:"parent_transaction_id"`
+	CustomerID          *string `json:"customer_id"`
+	SubscriptionID      *string `json:"subscription_id"`
+	PaymentMethodID     *string `json:"payment_method_id"`
+	IdempotencyKey      *string `json:"idempotency_key"`
+	AuthResp            *string `json:"auth_resp"`
+	AuthCode            *string `json:"auth_code"`
+	AuthRespText        *string `json:"auth_resp_text"`
+	AuthCardType        *string `json:"auth_card_type"`
+	AuthAVS             *string `json:"auth_avs"`
+	AuthCVV2            *string `json:"auth_cvv2"`
+
+	// int64 (8 bytes) - same size as pointers, grouped at end
+	AmountCents int64 `json:"amount_cents"`
 }
 
 // IsApproved returns true if the transaction was approved by the gateway

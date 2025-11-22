@@ -18,31 +18,49 @@ const (
 // No grace period - ACH accounts must be fully verified before use
 
 // PaymentMethod represents a saved payment method (tokenized)
+// Field order optimized for memory alignment (largest to smallest):
+// - time.Time (24 bytes)
+// - strings (16 bytes)
+// - pointers to time.Time (8 bytes)
+// - pointers to string (8 bytes)
+// - pointers to int (8 bytes)
+// - bools (1 byte each, grouped at end)
 type PaymentMethod struct {
-	CreatedAt                 time.Time         `json:"created_at"`
-	UpdatedAt                 time.Time         `json:"updated_at"`
-	ReturnCount               *int              `json:"return_count"`
-	PreNoteTransactionID      *string           `json:"prenote_transaction_id"`
-	LastUsedAt                *time.Time        `json:"last_used_at"`
-	DeactivatedAt             *time.Time        `json:"deactivated_at"`
-	CardBrand                 *string           `json:"card_brand"`
-	CardExpMonth              *int              `json:"card_exp_month"`
-	CardExpYear               *int              `json:"card_exp_year"`
-	BankName                  *string           `json:"bank_name"`
-	AccountType               *string           `json:"account_type"`
-	VerificationStatus        *string           `json:"verification_status"`
-	DeactivationReason        *string           `json:"deactivation_reason"`
-	VerificationFailureReason *string           `json:"verification_failure_reason"`
-	VerifiedAt                *time.Time        `json:"verified_at"`
-	ID                        string            `json:"id"`
-	PaymentType               PaymentMethodType `json:"payment_type"`
-	LastFour                  string            `json:"last_four"`
-	CustomerID                string            `json:"customer_id"`
-	MerchantID                string            `json:"merchant_id"`
-	PaymentToken              string            `json:"payment_token"`
-	IsDefault                 bool              `json:"is_default"`
-	IsVerified                bool              `json:"is_verified"`
-	IsActive                  bool              `json:"is_active"`
+	// Timestamps (24 bytes each) - largest fields first
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Strings (16 bytes each on 64-bit)
+	ID           string            `json:"id"`
+	MerchantID   string            `json:"merchant_id"`
+	CustomerID   string            `json:"customer_id"`
+	PaymentToken string            `json:"payment_token"`
+	LastFour     string            `json:"last_four"`
+	PaymentType  PaymentMethodType `json:"payment_type"` // string alias
+
+	// Pointers to time.Time (8 bytes each)
+	LastUsedAt    *time.Time `json:"last_used_at"`
+	VerifiedAt    *time.Time `json:"verified_at"`
+	DeactivatedAt *time.Time `json:"deactivated_at"`
+
+	// Pointers to strings (8 bytes each)
+	PreNoteTransactionID      *string `json:"prenote_transaction_id"`
+	CardBrand                 *string `json:"card_brand"`
+	BankName                  *string `json:"bank_name"`
+	AccountType               *string `json:"account_type"`
+	VerificationStatus        *string `json:"verification_status"`
+	DeactivationReason        *string `json:"deactivation_reason"`
+	VerificationFailureReason *string `json:"verification_failure_reason"`
+
+	// Pointers to int (8 bytes each)
+	ReturnCount  *int `json:"return_count"`
+	CardExpMonth *int `json:"card_exp_month"`
+	CardExpYear  *int `json:"card_exp_year"`
+
+	// Booleans (1 byte each) - smallest fields last
+	IsDefault  bool `json:"is_default"`
+	IsVerified bool `json:"is_verified"`
+	IsActive   bool `json:"is_active"`
 }
 
 // IsCreditCard returns true if this is a credit card payment method
