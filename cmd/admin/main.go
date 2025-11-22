@@ -470,7 +470,7 @@ func (cli *AdminCLI) grantAccess() {
 		MerchantID: merchant.ID,
 		Scopes:     scopes,
 		GrantedBy:  grantedByUUID,
-		ExpiresAt:  pgtype.Timestamp{}, // No expiration
+		ExpiresAt:  pgtype.Timestamptz{}, // No expiration
 	})
 
 	if err != nil {
@@ -526,7 +526,7 @@ func (cli *AdminCLI) listMerchants() {
 	for _, merchant := range merchants {
 		fmt.Printf("%-30s %-40s %-15s %-15v %-20s\n",
 			merchant.Slug, merchant.Name, merchant.Environment, merchant.IsActive,
-			merchant.CreatedAt.Time.Format("2006-01-02 15:04"))
+			merchant.CreatedAt.Format("2006-01-02 15:04"))
 	}
 }
 

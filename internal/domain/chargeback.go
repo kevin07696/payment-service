@@ -3,6 +3,7 @@ package domain
 import (
 	"time"
 
+	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"github.com/shopspring/decimal"
 )
 
@@ -24,45 +25,27 @@ const (
 
 // Chargeback represents a payment dispute/chargeback
 type Chargeback struct {
-	// Identity
-	ID string `json:"id"` // UUID
-
-	// Link to specific disputed transaction
-	// Can traverse to related transactions via transactions.parent_transaction_id
-	TransactionID string `json:"transaction_id"` // References transactions.id
-
-	// Multi-tenant
-	AgentID string `json:"agent_id"`
-
-	// Customer (can be NULL for guest transactions)
-	CustomerID *string `json:"customer_id"`
-
-	// North API fields
-	CaseNumber        string          `json:"case_number"` // North's unique case identifier
-	DisputeDate       time.Time       `json:"dispute_date"`
-	ChargebackDate    time.Time       `json:"chargeback_date"`
-	ChargebackAmount  decimal.Decimal `json:"chargeback_amount"`
-	Currency          string          `json:"currency"`
-	ReasonCode        string          `json:"reason_code"`        // North's reason code (e.g., "P22", "F10")
-	ReasonDescription *string         `json:"reason_description"` // Human-readable reason
-
-	// Status and timeline
-	Status              ChargebackStatus `json:"status"`
-	RespondByDate       *time.Time       `json:"respond_by_date"`
-	ResponseSubmittedAt *time.Time       `json:"response_submitted_at"`
-	ResolvedAt          *time.Time       `json:"resolved_at"`
-
-	// Evidence and response (read-only, synced from North API or manually updated via North portal)
-	EvidenceFileURLs []string `json:"evidence_file_urls"` // File URLs if provided by North API
-	ResponseText     *string  `json:"response_text"`      // Written response to dispute (if submitted via North portal)
-	InternalNotes    *string  `json:"internal_notes"`     // Internal team notes (local tracking only)
-
-	// Store full North API response for debugging
-	RawData map[string]interface{} `json:"raw_data"`
-
-	// Timestamps
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	DisputeDate         time.Time              `json:"dispute_date"`
+	UpdatedAt           time.Time              `json:"updated_at"`
+	CreatedAt           time.Time              `json:"created_at"`
+	ChargebackDate      time.Time              `json:"chargeback_date"`
+	ReasonDescription   *string                `json:"reason_description"`
+	InternalNotes       *string                `json:"internal_notes"`
+	CustomerID          *string                `json:"customer_id"`
+	RawData             map[string]interface{} `json:"raw_data"`
+	ResponseText        *string                `json:"response_text"`
+	ResolvedAt          *time.Time             `json:"resolved_at"`
+	ResponseSubmittedAt *time.Time             `json:"response_submitted_at"`
+	RespondByDate       *time.Time             `json:"respond_by_date"`
+	Status              ChargebackStatus       `json:"status"`
+	ID                  string                 `json:"id"`
+	ReasonCode          string                 `json:"reason_code"`
+	Currency            string                 `json:"currency"`
+	CaseNumber          string                 `json:"case_number"`
+	ChargebackAmount    decimal.Decimal        `json:"chargeback_amount"`
+	AgentID             string                 `json:"agent_id"`
+	TransactionID       string                 `json:"transaction_id"`
+	EvidenceFileURLs    []string               `json:"evidence_file_urls"`
 }
 
 // IsOpen returns true if the chargeback is still open/actionable
@@ -84,7 +67,7 @@ func (c *Chargeback) CanRespond() bool {
 	}
 
 	// Check if response deadline has passed
-	if c.RespondByDate != nil && time.Now().After(*c.RespondByDate) {
+	if c.RespondByDate != nil && timeutil.Now().After(*c.RespondByDate) {
 		return false
 	}
 
@@ -102,7 +85,7 @@ func (c *Chargeback) IsOverdue() bool {
 		return false
 	}
 
-	return c.IsOpen() && time.Now().After(*c.RespondByDate)
+	return c.IsOpen() && timeutil.Now().After(*c.RespondByDate)
 }
 
 // DaysUntilDeadline returns the number of days until the response deadline
@@ -111,13 +94,13 @@ func (c *Chargeback) DaysUntilDeadline() int {
 		return 0
 	}
 
-	duration := time.Until(*c.RespondByDate)
+	duration := c.RespondByDate.Sub(timeutil.Now())
 	return int(duration.Hours() / 24)
 }
 
 // MarkResponded marks the chargeback as responded with evidence
 func (c *Chargeback) MarkResponded() {
-	now := time.Now()
+	now := timeutil.Now()
 	c.ResponseSubmittedAt = &now
 	c.Status = ChargebackStatusResponded
 	c.UpdatedAt = now
@@ -135,7 +118,7 @@ func (c *Chargeback) MarkResolved(status ChargebackStatus) error {
 		return ErrInvalidChargebackStatus
 	}
 
-	now := time.Now()
+	now := timeutil.Now()
 	c.Status = status
 	c.ResolvedAt = &now
 	c.UpdatedAt = now

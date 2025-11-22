@@ -33,34 +33,42 @@ WHERE id = sqlc.arg(id);
 -- Example: GetTransactionTree(auth1) returns [auth1, auth2, capture2, refund2]
 -- Example: GetTransactionTree(auth2) returns [auth1, auth2, capture2, refund2] (includes root!)
 -- Example: GetTransactionTree(capture2) returns [auth1, auth2, capture2, refund2] (includes root!)
+-- DEPTH LIMIT: Max 100 levels to prevent DoS via deep transaction chains (realistic chains are 2-5 levels)
 WITH RECURSIVE
 -- Step 1: Walk UP the parent chain to find the root
 find_root AS (
-    SELECT * FROM transactions WHERE transactions.id = sqlc.arg(transaction_id)
+    SELECT transactions.*, 0 AS depth FROM transactions WHERE transactions.id = sqlc.arg(transaction_id)
 
     UNION ALL
 
-    SELECT t.*
+    SELECT t.*, fr.depth + 1
     FROM transactions t
     INNER JOIN find_root fr ON fr.parent_transaction_id = t.id
+    WHERE fr.depth < 100  -- DEPTH LIMIT: prevent infinite recursion
 ),
 -- Step 2: Get the root transaction (has no parent)
 root AS (
-    SELECT * FROM find_root
+    SELECT find_root.* FROM find_root
     WHERE parent_transaction_id IS NULL
     LIMIT 1
 ),
 -- Step 3: Walk DOWN from root to get all descendants
 full_tree AS (
-    SELECT * FROM root
+    SELECT root.*, 0 AS depth FROM root
 
     UNION ALL
 
-    SELECT t.*
+    SELECT t.*, ft.depth + 1
     FROM transactions t
     INNER JOIN full_tree ft ON t.parent_transaction_id = ft.id
+    WHERE ft.depth < 100  -- DEPTH LIMIT: max 100 levels
 )
-SELECT * FROM full_tree
+SELECT
+    id, parent_transaction_id, merchant_id, customer_id,
+    amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id,
+    tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type,
+    status, processed_at, metadata, deleted_at, created_at, updated_at
+FROM full_tree
 ORDER BY created_at ASC;
 
 -- name: ListTransactions :many
@@ -98,6 +106,7 @@ LIMIT 1;
 -- name: UpdateTransactionFromEPXResponse :one
 -- Updates transaction with EPX response data (for Browser Post callback)
 -- Only updates EPX response fields, leaves core transaction data unchanged
+-- SECURITY: Prevents TAC replay attacks by only updating PENDING transactions
 UPDATE transactions SET
     customer_id = COALESCE(sqlc.narg(customer_id), customer_id),
     auth_guid = COALESCE(sqlc.narg(auth_guid), auth_guid),
@@ -108,4 +117,5 @@ UPDATE transactions SET
     metadata = COALESCE(sqlc.arg(metadata), metadata),
     updated_at = CURRENT_TIMESTAMP
 WHERE tran_nbr = sqlc.arg(tran_nbr)
+  AND status = 'PENDING'  -- Only update pending transactions (TAC replay protection)
 RETURNING *;

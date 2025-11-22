@@ -689,5 +689,10 @@ func (m *MockQuerier) CleanupOldRateLimitBuckets(ctx context.Context) error {
 	return args.Error(0)
 }
 
+func (m *MockQuerier) DeleteOldAuditLogs(ctx context.Context, cutoffDate pgtype.Timestamp) (pgconn.CommandTag, error) {
+	args := m.Called(ctx, cutoffDate)
+	return args.Get(0).(pgconn.CommandTag), args.Error(1)
+}
+
 // Ensure MockQuerier implements sqlc.Querier
 var _ sqlc.Querier = (*MockQuerier)(nil)

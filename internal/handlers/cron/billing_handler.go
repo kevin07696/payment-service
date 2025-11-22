@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"go.uber.org/zap"
 )
 
@@ -84,14 +85,14 @@ func (h *BillingHandler) ProcessBilling(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Determine as-of date
-	asOfDate := time.Now()
+	asOfDate := timeutil.Now()
 	if req.AsOfDate != nil {
 		parsed, err := time.Parse("2006-01-02", *req.AsOfDate)
 		if err != nil {
 			h.respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid as_of_date format: %v", err))
 			return
 		}
-		asOfDate = parsed
+		asOfDate = timeutil.ToUTC(parsed)
 	}
 
 	// Determine batch size
@@ -114,7 +115,7 @@ func (h *BillingHandler) ProcessBilling(w http.ResponseWriter, r *http.Request) 
 		Processed:    processed,
 		SuccessCount: success,
 		FailureCount: failed,
-		ProcessedAt:  time.Now().Format(time.RFC3339),
+		ProcessedAt:  timeutil.Now().Format(time.RFC3339),
 	}
 
 	if len(errs) > 0 {
@@ -196,7 +197,7 @@ func (h *BillingHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]interface{}{
 		"status": "healthy",
-		"time":   time.Now().Format(time.RFC3339),
+		"time":   timeutil.Now().Format(time.RFC3339),
 	}
 
 	json.NewEncoder(w).Encode(resp)
@@ -236,7 +237,7 @@ func (h *BillingHandler) Stats(w http.ResponseWriter, r *http.Request) {
 			"total_succeeded":        0,
 			"total_failed":           0,
 		},
-		"timestamp": time.Now().Format(time.RFC3339),
+		"timestamp": timeutil.Now().Format(time.RFC3339),
 	}
 
 	json.NewEncoder(w).Encode(resp)

@@ -9,6 +9,7 @@ import (
 	"context"
 	"net/netip"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -87,6 +88,17 @@ func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) 
 		arg.ErrorMessage,
 	)
 	return err
+}
+
+const deleteOldAuditLogs = `-- name: DeleteOldAuditLogs :execresult
+DELETE FROM audit_logs
+WHERE performed_at < $1
+`
+
+// Deletes audit logs older than the specified retention period
+// Used by audit log retention policy to prevent unbounded growth
+func (q *Queries) DeleteOldAuditLogs(ctx context.Context, cutoffDate pgtype.Timestamp) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteOldAuditLogs, cutoffDate)
 }
 
 const getAuditLogsByActor = `-- name: GetAuditLogsByActor :many

@@ -59,8 +59,8 @@ func TestCreateService_Success(t *testing.T) {
 		RequestsPerSecond:    pgtype.Int4{Int32: 50, Valid: true},
 		BurstLimit:           pgtype.Int4{Int32: 100, Valid: true},
 		IsActive:             pgtype.Bool{Bool: true, Valid: true},
-		CreatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
-		UpdatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
+		CreatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		UpdatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
 	}
 
 	mockQuerier.On("CreateService", ctx, mock.MatchedBy(func(params sqlc.CreateServiceParams) bool {
@@ -113,8 +113,8 @@ func TestCreateService_DefaultRateLimits(t *testing.T) {
 		RequestsPerSecond:    pgtype.Int4{Int32: 100, Valid: true},
 		BurstLimit:           pgtype.Int4{Int32: 200, Valid: true},
 		IsActive:             pgtype.Bool{Bool: true, Valid: true},
-		CreatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
-		UpdatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
+		CreatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		UpdatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
 	}
 
 	mockQuerier.On("CreateService", ctx, mock.MatchedBy(func(params sqlc.CreateServiceParams) bool {
@@ -254,8 +254,8 @@ func TestRotateServiceKey_Success(t *testing.T) {
 		RequestsPerSecond:    pgtype.Int4{Int32: 100, Valid: true},
 		BurstLimit:           pgtype.Int4{Int32: 200, Valid: true},
 		IsActive:             pgtype.Bool{Bool: true, Valid: true},
-		CreatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
-		UpdatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
+		CreatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		UpdatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
 	}
 
 	mockQuerier.On("GetServiceByServiceID", ctx, "test-service").
@@ -375,8 +375,8 @@ func TestGetService_Success(t *testing.T) {
 		RequestsPerSecond:    pgtype.Int4{Int32: 100, Valid: true},
 		BurstLimit:           pgtype.Int4{Int32: 200, Valid: true},
 		IsActive:             pgtype.Bool{Bool: true, Valid: true},
-		CreatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
-		UpdatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
+		CreatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		UpdatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
 	}
 
 	mockQuerier.On("GetServiceByServiceID", ctx, "test-service").
@@ -456,8 +456,8 @@ func TestListServices_Success(t *testing.T) {
 			RequestsPerSecond:    pgtype.Int4{Int32: 100, Valid: true},
 			BurstLimit:           pgtype.Int4{Int32: 200, Valid: true},
 			IsActive:             pgtype.Bool{Bool: true, Valid: true},
-			CreatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
-			UpdatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
+			CreatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
+			UpdatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
 		},
 		{
 			ID:                   uuid.New(),
@@ -468,8 +468,8 @@ func TestListServices_Success(t *testing.T) {
 			RequestsPerSecond:    pgtype.Int4{Int32: 50, Valid: true},
 			BurstLimit:           pgtype.Int4{Int32: 100, Valid: true},
 			IsActive:             pgtype.Bool{Bool: true, Valid: true},
-			CreatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
-			UpdatedAt:            pgtype.Timestamp{Time: time.Now(), Valid: true},
+			CreatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
+			UpdatedAt:            pgtype.Timestamptz{Time: time.Now(), Valid: true},
 		},
 	}
 
@@ -580,8 +580,8 @@ func TestDeactivateService_Success(t *testing.T) {
 
 	deactivatedService := service
 	deactivatedService.IsActive = pgtype.Bool{Bool: false, Valid: true}
-	deactivatedService.CreatedAt = pgtype.Timestamp{Time: time.Now(), Valid: true}
-	deactivatedService.UpdatedAt = pgtype.Timestamp{Time: time.Now(), Valid: true}
+	deactivatedService.CreatedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	deactivatedService.UpdatedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
 	deactivatedService.RequestsPerSecond = pgtype.Int4{Int32: 100, Valid: true}
 	deactivatedService.BurstLimit = pgtype.Int4{Int32: 200, Valid: true}
 
@@ -667,8 +667,8 @@ func TestActivateService_Success(t *testing.T) {
 
 	activatedService := service
 	activatedService.IsActive = pgtype.Bool{Bool: true, Valid: true}
-	activatedService.CreatedAt = pgtype.Timestamp{Time: time.Now(), Valid: true}
-	activatedService.UpdatedAt = pgtype.Timestamp{Time: time.Now(), Valid: true}
+	activatedService.CreatedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	activatedService.UpdatedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
 	activatedService.RequestsPerSecond = pgtype.Int4{Int32: 100, Valid: true}
 	activatedService.BurstLimit = pgtype.Int4{Int32: 200, Valid: true}
 

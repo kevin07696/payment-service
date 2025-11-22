@@ -2,6 +2,8 @@ package domain
 
 import (
 	"time"
+
+	"github.com/kevin07696/payment-service/pkg/timeutil"
 )
 
 // VerificationStatus represents the verification status of a payment method
@@ -17,51 +19,30 @@ const (
 
 // PaymentMethod represents a saved payment method (tokenized)
 type PaymentMethod struct {
-	// Identity
-	ID string `json:"id"` // UUID
-
-	// Multi-tenant
-	MerchantID string `json:"merchant_id"`
-
-	// Customer
-	CustomerID string `json:"customer_id"`
-
-	// Payment type
-	PaymentType PaymentMethodType `json:"payment_type"` // credit_card or ach
-
-	// Tokenization
-	PaymentToken string `json:"payment_token"` // EPX token (AUTH_GUID from tokenization)
-
-	// Display metadata (NEVER store full card/account numbers)
-	LastFour string `json:"last_four"` // Last 4 digits
-
-	// Credit card specific (optional)
-	CardBrand    *string `json:"card_brand"`     // "visa", "mastercard", "amex", "discover"
-	CardExpMonth *int    `json:"card_exp_month"` // 1-12
-	CardExpYear  *int    `json:"card_exp_year"`  // 2025, 2026, etc.
-
-	// ACH specific (optional)
-	BankName    *string `json:"bank_name"`    // "Chase", "Bank of America", etc.
-	AccountType *string `json:"account_type"` // "checking" or "savings"
-
-	// Status
-	IsDefault  bool `json:"is_default"`
-	IsActive   bool `json:"is_active"`
-	IsVerified bool `json:"is_verified"` // For ACH pre-note verification
-
-	// ACH Verification (from migration 009)
-	VerificationStatus        *string    `json:"verification_status"`         // "pending", "verified", "failed"
-	PreNoteTransactionID      *string    `json:"prenote_transaction_id"`      // Links to pre-note transaction
-	VerifiedAt                *time.Time `json:"verified_at"`                 // When verification completed
-	VerificationFailureReason *string    `json:"verification_failure_reason"` // Why verification failed
-	ReturnCount               *int       `json:"return_count"`                // Number of ACH returns received
-	DeactivationReason        *string    `json:"deactivation_reason"`         // Why payment method deactivated
-	DeactivatedAt             *time.Time `json:"deactivated_at"`              // When deactivated
-
-	// Timestamps
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	LastUsedAt *time.Time `json:"last_used_at"`
+	CreatedAt                 time.Time         `json:"created_at"`
+	UpdatedAt                 time.Time         `json:"updated_at"`
+	ReturnCount               *int              `json:"return_count"`
+	PreNoteTransactionID      *string           `json:"prenote_transaction_id"`
+	LastUsedAt                *time.Time        `json:"last_used_at"`
+	DeactivatedAt             *time.Time        `json:"deactivated_at"`
+	CardBrand                 *string           `json:"card_brand"`
+	CardExpMonth              *int              `json:"card_exp_month"`
+	CardExpYear               *int              `json:"card_exp_year"`
+	BankName                  *string           `json:"bank_name"`
+	AccountType               *string           `json:"account_type"`
+	VerificationStatus        *string           `json:"verification_status"`
+	DeactivationReason        *string           `json:"deactivation_reason"`
+	VerificationFailureReason *string           `json:"verification_failure_reason"`
+	VerifiedAt                *time.Time        `json:"verified_at"`
+	ID                        string            `json:"id"`
+	PaymentType               PaymentMethodType `json:"payment_type"`
+	LastFour                  string            `json:"last_four"`
+	CustomerID                string            `json:"customer_id"`
+	MerchantID                string            `json:"merchant_id"`
+	PaymentToken              string            `json:"payment_token"`
+	IsDefault                 bool              `json:"is_default"`
+	IsVerified                bool              `json:"is_verified"`
+	IsActive                  bool              `json:"is_active"`
 }
 
 // IsCreditCard returns true if this is a credit card payment method
@@ -80,7 +61,7 @@ func (pm *PaymentMethod) IsExpired() bool {
 		return false
 	}
 
-	now := time.Now()
+	now := timeutil.Now()
 	expYear := *pm.CardExpYear
 	expMonth := *pm.CardExpMonth
 
@@ -161,6 +142,6 @@ func (pm *PaymentMethod) GetDisplayName() string {
 
 // MarkUsed updates the last used timestamp
 func (pm *PaymentMethod) MarkUsed() {
-	now := time.Now()
+	now := timeutil.Now()
 	pm.LastUsedAt = &now
 }

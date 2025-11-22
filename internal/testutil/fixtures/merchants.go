@@ -27,14 +27,8 @@ func NewMerchant() *MerchantBuilder {
 			Environment:   "sandbox",
 			IsActive:      true,
 			Name:          "Test Merchant",
-			CreatedAt: pgtype.Timestamp{
-				Time:  time.Now(),
-				Valid: true,
-			},
-			UpdatedAt: pgtype.Timestamp{
-				Time:  time.Now(),
-				Valid: true,
-			},
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
 		},
 	}
 }

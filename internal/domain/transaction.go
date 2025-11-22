@@ -36,43 +36,28 @@ const (
 
 // Transaction represents a payment transaction
 type Transaction struct {
-	// Identity
-	ID                  string  `json:"id"`                    // UUID
-	ParentTransactionID *string `json:"parent_transaction_id"` // Links related transactions (auth → capture → refund)
-
-	// Multi-tenant
-	MerchantID string `json:"merchant_id"` // Which merchant owns this transaction
-
-	// Customer
-	CustomerID *string `json:"customer_id"` // NULL for guest transactions
-
-	// Optional subscription reference (for recurring billing)
-	SubscriptionID *string `json:"subscription_id"` // NULL for one-time payments
-
-	// Transaction details
-	AmountCents       int64             `json:"amount_cents"` // Amount in cents (e.g., 10050 = $100.50)
-	Currency          string            `json:"currency"`     // ISO 4217 code (e.g., "USD")
-	Status            TransactionStatus `json:"status"`
-	Type              TransactionType   `json:"type"`
-	PaymentMethodType PaymentMethodType `json:"payment_method_type"`
-	PaymentMethodID   *string           `json:"payment_method_id"` // References saved payment method (NULL if one-time)
-
-	// EPX Gateway response fields
-	AuthGUID     string  `json:"auth_guid"`      // EPX AUTH_GUID (BRIC token) for this transaction
-	AuthResp     *string `json:"auth_resp"`      // EPX approval code ("00" = approved, "05" = declined)
-	AuthCode     *string `json:"auth_code"`      // Bank authorization code (NULL if declined)
-	AuthRespText *string `json:"auth_resp_text"` // Human-readable response message
-	AuthCardType *string `json:"auth_card_type"` // Card brand ("V"/"M"/"A"/"D") - NULL for ACH
-	AuthAVS      *string `json:"auth_avs"`       // Address verification result
-	AuthCVV2     *string `json:"auth_cvv2"`      // CVV verification result
-
-	// Idempotency and metadata
-	IdempotencyKey *string                `json:"idempotency_key"`
-	Metadata       map[string]interface{} `json:"metadata"`
-
-	// Timestamps
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt           time.Time              `json:"created_at"`
+	UpdatedAt           time.Time              `json:"updated_at"`
+	AuthCardType        *string                `json:"auth_card_type"`
+	AuthRespText        *string                `json:"auth_resp_text"`
+	SubscriptionID      *string                `json:"subscription_id"`
+	ParentTransactionID *string                `json:"parent_transaction_id"`
+	Metadata            map[string]interface{} `json:"metadata"`
+	IdempotencyKey      *string                `json:"idempotency_key"`
+	AuthCVV2            *string                `json:"auth_cvv2"`
+	AuthAVS             *string                `json:"auth_avs"`
+	PaymentMethodID     *string                `json:"payment_method_id"`
+	CustomerID          *string                `json:"customer_id"`
+	AuthResp            *string                `json:"auth_resp"`
+	AuthCode            *string                `json:"auth_code"`
+	AuthGUID            string                 `json:"auth_guid"`
+	ID                  string                 `json:"id"`
+	PaymentMethodType   PaymentMethodType      `json:"payment_method_type"`
+	Type                TransactionType        `json:"type"`
+	Status              TransactionStatus      `json:"status"`
+	Currency            string                 `json:"currency"`
+	MerchantID          string                 `json:"merchant_id"`
+	AmountCents         int64                  `json:"amount_cents"`
 }
 
 // IsApproved returns true if the transaction was approved by the gateway

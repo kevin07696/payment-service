@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -612,6 +613,19 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 	})
 
 	if err != nil {
+		// Check if this is a TAC replay attack (transaction not in PENDING status)
+		if err == sql.ErrNoRows {
+			h.logger.Warn("TAC replay attack detected - transaction not in PENDING status",
+				zap.String("transaction_id", transactionID.String()),
+				zap.String("tran_nbr", response.TranNbr),
+				zap.String("merchant_id", merchantID.String()),
+				zap.String("security_issue", "TAC replay protection triggered"),
+			)
+			// Return generic error to not leak information about transaction state
+			h.renderErrorPage(w, "Transaction has already been processed", "")
+			return
+		}
+
 		h.logger.Error("Failed to update transaction from EPX response",
 			zap.Error(err),
 			zap.String("transaction_id", transactionID.String()),

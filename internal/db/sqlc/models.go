@@ -14,23 +14,27 @@ import (
 )
 
 type Admin struct {
-	ID           uuid.UUID        `json:"id"`
-	Email        string           `json:"email"`
-	PasswordHash string           `json:"password_hash"`
-	Role         pgtype.Text      `json:"role"`
-	IsActive     pgtype.Bool      `json:"is_active"`
-	CreatedAt    pgtype.Timestamp `json:"created_at"`
-	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
+	ID           uuid.UUID   `json:"id"`
+	Email        string      `json:"email"`
+	PasswordHash string      `json:"password_hash"`
+	Role         pgtype.Text `json:"role"`
+	IsActive     pgtype.Bool `json:"is_active"`
+	// Timezone-aware timestamp (stored as UTC)
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type AdminSession struct {
-	ID        uuid.UUID        `json:"id"`
-	AdminID   pgtype.UUID      `json:"admin_id"`
-	TokenHash string           `json:"token_hash"`
-	IpAddress *netip.Addr      `json:"ip_address"`
-	UserAgent pgtype.Text      `json:"user_agent"`
-	ExpiresAt pgtype.Timestamp `json:"expires_at"`
-	CreatedAt pgtype.Timestamp `json:"created_at"`
+	ID        uuid.UUID   `json:"id"`
+	AdminID   pgtype.UUID `json:"admin_id"`
+	TokenHash string      `json:"token_hash"`
+	IpAddress *netip.Addr `json:"ip_address"`
+	UserAgent pgtype.Text `json:"user_agent"`
+	// Timezone-aware timestamp (stored as UTC)
+	ExpiresAt time.Time `json:"expires_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type AuditLog struct {
@@ -112,83 +116,98 @@ type CustomerPaymentMethod struct {
 }
 
 type EpxIpWhitelist struct {
-	ID          int32            `json:"id"`
-	IpAddress   netip.Addr       `json:"ip_address"`
-	Description pgtype.Text      `json:"description"`
-	AddedBy     pgtype.UUID      `json:"added_by"`
-	AddedAt     pgtype.Timestamp `json:"added_at"`
-	IsActive    pgtype.Bool      `json:"is_active"`
+	ID          int32       `json:"id"`
+	IpAddress   netip.Addr  `json:"ip_address"`
+	Description pgtype.Text `json:"description"`
+	AddedBy     pgtype.UUID `json:"added_by"`
+	// Timezone-aware timestamp (stored as UTC)
+	AddedAt  pgtype.Timestamptz `json:"added_at"`
+	IsActive pgtype.Bool        `json:"is_active"`
 }
 
 type JwtBlacklist struct {
-	Jti           string           `json:"jti"`
-	ServiceID     pgtype.Text      `json:"service_id"`
-	MerchantID    pgtype.UUID      `json:"merchant_id"`
-	ExpiresAt     pgtype.Timestamp `json:"expires_at"`
-	BlacklistedAt pgtype.Timestamp `json:"blacklisted_at"`
-	BlacklistedBy pgtype.UUID      `json:"blacklisted_by"`
-	Reason        pgtype.Text      `json:"reason"`
+	Jti        string      `json:"jti"`
+	ServiceID  pgtype.Text `json:"service_id"`
+	MerchantID pgtype.UUID `json:"merchant_id"`
+	// Timezone-aware timestamp (stored as UTC)
+	ExpiresAt time.Time `json:"expires_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	BlacklistedAt pgtype.Timestamptz `json:"blacklisted_at"`
+	BlacklistedBy pgtype.UUID        `json:"blacklisted_by"`
+	Reason        pgtype.Text        `json:"reason"`
 }
 
 type Merchant struct {
-	ID            uuid.UUID        `json:"id"`
-	Slug          string           `json:"slug"`
-	CustNbr       string           `json:"cust_nbr"`
-	MerchNbr      string           `json:"merch_nbr"`
-	DbaNbr        string           `json:"dba_nbr"`
-	TerminalNbr   string           `json:"terminal_nbr"`
-	MacSecretPath string           `json:"mac_secret_path"`
-	Environment   string           `json:"environment"`
-	IsActive      bool             `json:"is_active"`
-	Name          string           `json:"name"`
-	CreatedAt     pgtype.Timestamp `json:"created_at"`
-	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
-	DeletedAt     pgtype.Timestamp `json:"deleted_at"`
-	Status        pgtype.Text      `json:"status"`
-	Tier          pgtype.Text      `json:"tier"`
-	CreatedBy     pgtype.UUID      `json:"created_by"`
-	ApprovedBy    pgtype.UUID      `json:"approved_by"`
-	ApprovedAt    pgtype.Timestamp `json:"approved_at"`
+	ID            uuid.UUID `json:"id"`
+	Slug          string    `json:"slug"`
+	CustNbr       string    `json:"cust_nbr"`
+	MerchNbr      string    `json:"merch_nbr"`
+	DbaNbr        string    `json:"dba_nbr"`
+	TerminalNbr   string    `json:"terminal_nbr"`
+	MacSecretPath string    `json:"mac_secret_path"`
+	Environment   string    `json:"environment"`
+	IsActive      bool      `json:"is_active"`
+	Name          string    `json:"name"`
+	// Timezone-aware timestamp (stored as UTC)
+	CreatedAt time.Time `json:"created_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	UpdatedAt time.Time `json:"updated_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
+	Status     pgtype.Text        `json:"status"`
+	Tier       pgtype.Text        `json:"tier"`
+	CreatedBy  pgtype.UUID        `json:"created_by"`
+	ApprovedBy pgtype.UUID        `json:"approved_by"`
+	// Timezone-aware timestamp (stored as UTC)
+	ApprovedAt pgtype.Timestamptz `json:"approved_at"`
 }
 
 type MerchantActivationToken struct {
-	ID         uuid.UUID        `json:"id"`
-	MerchantID pgtype.UUID      `json:"merchant_id"`
-	TokenHash  string           `json:"token_hash"`
-	ExpiresAt  pgtype.Timestamp `json:"expires_at"`
-	UsedAt     pgtype.Timestamp `json:"used_at"`
-	CreatedAt  pgtype.Timestamp `json:"created_at"`
+	ID         uuid.UUID   `json:"id"`
+	MerchantID pgtype.UUID `json:"merchant_id"`
+	TokenHash  string      `json:"token_hash"`
+	// Timezone-aware timestamp (stored as UTC)
+	ExpiresAt time.Time `json:"expires_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	UsedAt pgtype.Timestamptz `json:"used_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type RateLimitBucket struct {
 	BucketKey  string           `json:"bucket_key"`
 	Tokens     int32            `json:"tokens"`
 	LastRefill pgtype.Timestamp `json:"last_refill"`
-	CreatedAt  pgtype.Timestamp `json:"created_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type Service struct {
-	ID                   uuid.UUID        `json:"id"`
-	ServiceID            string           `json:"service_id"`
-	ServiceName          string           `json:"service_name"`
-	PublicKey            string           `json:"public_key"`
-	PublicKeyFingerprint string           `json:"public_key_fingerprint"`
-	Environment          string           `json:"environment"`
-	RequestsPerSecond    pgtype.Int4      `json:"requests_per_second"`
-	BurstLimit           pgtype.Int4      `json:"burst_limit"`
-	IsActive             pgtype.Bool      `json:"is_active"`
-	CreatedBy            pgtype.UUID      `json:"created_by"`
-	CreatedAt            pgtype.Timestamp `json:"created_at"`
-	UpdatedAt            pgtype.Timestamp `json:"updated_at"`
+	ID                   uuid.UUID   `json:"id"`
+	ServiceID            string      `json:"service_id"`
+	ServiceName          string      `json:"service_name"`
+	PublicKey            string      `json:"public_key"`
+	PublicKeyFingerprint string      `json:"public_key_fingerprint"`
+	Environment          string      `json:"environment"`
+	RequestsPerSecond    pgtype.Int4 `json:"requests_per_second"`
+	BurstLimit           pgtype.Int4 `json:"burst_limit"`
+	IsActive             pgtype.Bool `json:"is_active"`
+	CreatedBy            pgtype.UUID `json:"created_by"`
+	// Timezone-aware timestamp (stored as UTC)
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ServiceMerchant struct {
-	ServiceID  uuid.UUID        `json:"service_id"`
-	MerchantID uuid.UUID        `json:"merchant_id"`
-	Scopes     []string         `json:"scopes"`
-	GrantedBy  pgtype.UUID      `json:"granted_by"`
-	GrantedAt  pgtype.Timestamp `json:"granted_at"`
-	ExpiresAt  pgtype.Timestamp `json:"expires_at"`
+	ServiceID  uuid.UUID   `json:"service_id"`
+	MerchantID uuid.UUID   `json:"merchant_id"`
+	Scopes     []string    `json:"scopes"`
+	GrantedBy  pgtype.UUID `json:"granted_by"`
+	// Timezone-aware timestamp (stored as UTC)
+	GrantedAt pgtype.Timestamptz `json:"granted_at"`
+	// Timezone-aware timestamp (stored as UTC)
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
 type Subscription struct {

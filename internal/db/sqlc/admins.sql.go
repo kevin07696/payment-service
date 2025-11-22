@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -70,12 +71,12 @@ INSERT INTO admin_sessions (
 `
 
 type CreateAdminSessionParams struct {
-	ID        uuid.UUID        `json:"id"`
-	AdminID   pgtype.UUID      `json:"admin_id"`
-	TokenHash string           `json:"token_hash"`
-	IpAddress *netip.Addr      `json:"ip_address"`
-	UserAgent pgtype.Text      `json:"user_agent"`
-	ExpiresAt pgtype.Timestamp `json:"expires_at"`
+	ID        uuid.UUID   `json:"id"`
+	AdminID   pgtype.UUID `json:"admin_id"`
+	TokenHash string      `json:"token_hash"`
+	IpAddress *netip.Addr `json:"ip_address"`
+	UserAgent pgtype.Text `json:"user_agent"`
+	ExpiresAt time.Time   `json:"expires_at"`
 }
 
 func (q *Queries) CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error) {

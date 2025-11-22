@@ -217,29 +217,36 @@ func (q *Queries) GetTransactionByTranNbr(ctx context.Context, tranNbr pgtype.Te
 const getTransactionTree = `-- name: GetTransactionTree :many
 WITH RECURSIVE
 find_root AS (
-    SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM transactions WHERE transactions.id = $1
+    SELECT transactions.id, transactions.parent_transaction_id, transactions.merchant_id, transactions.customer_id, transactions.amount_cents, transactions.currency, transactions.type, transactions.payment_method_type, transactions.payment_method_id, transactions.subscription_id, transactions.tran_nbr, transactions.auth_guid, transactions.auth_resp, transactions.auth_code, transactions.auth_card_type, transactions.status, transactions.processed_at, transactions.metadata, transactions.deleted_at, transactions.created_at, transactions.updated_at, 0 AS depth FROM transactions WHERE transactions.id = $1
 
     UNION ALL
 
-    SELECT t.id, t.parent_transaction_id, t.merchant_id, t.customer_id, t.amount_cents, t.currency, t.type, t.payment_method_type, t.payment_method_id, t.subscription_id, t.tran_nbr, t.auth_guid, t.auth_resp, t.auth_code, t.auth_card_type, t.status, t.processed_at, t.metadata, t.deleted_at, t.created_at, t.updated_at
+    SELECT t.id, t.parent_transaction_id, t.merchant_id, t.customer_id, t.amount_cents, t.currency, t.type, t.payment_method_type, t.payment_method_id, t.subscription_id, t.tran_nbr, t.auth_guid, t.auth_resp, t.auth_code, t.auth_card_type, t.status, t.processed_at, t.metadata, t.deleted_at, t.created_at, t.updated_at, fr.depth + 1
     FROM transactions t
     INNER JOIN find_root fr ON fr.parent_transaction_id = t.id
+    WHERE fr.depth < 100  -- DEPTH LIMIT: prevent infinite recursion
 ),
 root AS (
-    SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM find_root
+    SELECT find_root.id, find_root.parent_transaction_id, find_root.merchant_id, find_root.customer_id, find_root.amount_cents, find_root.currency, find_root.type, find_root.payment_method_type, find_root.payment_method_id, find_root.subscription_id, find_root.tran_nbr, find_root.auth_guid, find_root.auth_resp, find_root.auth_code, find_root.auth_card_type, find_root.status, find_root.processed_at, find_root.metadata, find_root.deleted_at, find_root.created_at, find_root.updated_at, find_root.depth FROM find_root
     WHERE parent_transaction_id IS NULL
     LIMIT 1
 ),
 full_tree AS (
-    SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM root
+    SELECT root.id, root.parent_transaction_id, root.merchant_id, root.customer_id, root.amount_cents, root.currency, root.type, root.payment_method_type, root.payment_method_id, root.subscription_id, root.tran_nbr, root.auth_guid, root.auth_resp, root.auth_code, root.auth_card_type, root.status, root.processed_at, root.metadata, root.deleted_at, root.created_at, root.updated_at, root.depth, 0 AS depth FROM root
 
     UNION ALL
 
-    SELECT t.id, t.parent_transaction_id, t.merchant_id, t.customer_id, t.amount_cents, t.currency, t.type, t.payment_method_type, t.payment_method_id, t.subscription_id, t.tran_nbr, t.auth_guid, t.auth_resp, t.auth_code, t.auth_card_type, t.status, t.processed_at, t.metadata, t.deleted_at, t.created_at, t.updated_at
+    SELECT t.id, t.parent_transaction_id, t.merchant_id, t.customer_id, t.amount_cents, t.currency, t.type, t.payment_method_type, t.payment_method_id, t.subscription_id, t.tran_nbr, t.auth_guid, t.auth_resp, t.auth_code, t.auth_card_type, t.status, t.processed_at, t.metadata, t.deleted_at, t.created_at, t.updated_at, ft.depth + 1
     FROM transactions t
     INNER JOIN full_tree ft ON t.parent_transaction_id = ft.id
+    WHERE ft.depth < 100  -- DEPTH LIMIT: max 100 levels
 )
-SELECT id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at FROM full_tree
+SELECT
+    id, parent_transaction_id, merchant_id, customer_id,
+    amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id,
+    tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type,
+    status, processed_at, metadata, deleted_at, created_at, updated_at
+FROM full_tree
 ORDER BY created_at ASC
 `
 
@@ -273,6 +280,7 @@ type GetTransactionTreeRow struct {
 // Example: GetTransactionTree(auth1) returns [auth1, auth2, capture2, refund2]
 // Example: GetTransactionTree(auth2) returns [auth1, auth2, capture2, refund2] (includes root!)
 // Example: GetTransactionTree(capture2) returns [auth1, auth2, capture2, refund2] (includes root!)
+// DEPTH LIMIT: Max 100 levels to prevent DoS via deep transaction chains (realistic chains are 2-5 levels)
 // Step 1: Walk UP the parent chain to find the root
 // Step 2: Get the root transaction (has no parent)
 // Step 3: Walk DOWN from root to get all descendants
@@ -407,6 +415,7 @@ UPDATE transactions SET
     metadata = COALESCE($7, metadata),
     updated_at = CURRENT_TIMESTAMP
 WHERE tran_nbr = $8
+  AND status = 'PENDING'  -- Only update pending transactions (TAC replay protection)
 RETURNING id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at
 `
 
@@ -423,6 +432,7 @@ type UpdateTransactionFromEPXResponseParams struct {
 
 // Updates transaction with EPX response data (for Browser Post callback)
 // Only updates EPX response fields, leaves core transaction data unchanged
+// SECURITY: Prevents TAC replay attacks by only updating PENDING transactions
 func (q *Queries) UpdateTransactionFromEPXResponse(ctx context.Context, arg UpdateTransactionFromEPXResponseParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, updateTransactionFromEPXResponse,
 		arg.CustomerID,

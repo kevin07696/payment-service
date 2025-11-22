@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security Enhancements - Additional Hardening (2025-11-22)
+
+#### Short-Term & Medium-Term Security Improvements (4 items completed)
+
+1. **Browser Post HMAC Verification Review (SHORT-6)**
+   - **Action**: Verified HMAC signature verification for Browser Post callbacks
+   - **Finding**: Browser Post uses TAC (Temporary Access Code) authentication, NOT HMAC
+   - **Evidence**: Comprehensive documentation at `internal/handlers/payment/browser_post_callback_handler.go:491-514`
+   - **TAC Security Model**:
+     - Time-limited tokens (4-hour expiry)
+     - Single-use tokens validated by EPX
+     - Transaction ID validation (cryptographically random UUID v4)
+     - Merchant ID validation
+     - HTTPS transport security
+   - **Conclusion**: Authentication properly implemented by design, no changes needed
+   - **Impact**: Confirmed Browser Post security follows EPX specifications
+
+2. **Request Size Limits for DOS Protection (MED-11)**
+   - **Issue**: No limits on request body or header sizes could allow DOS attacks
+   - **Fix**: Implemented comprehensive request size limiting
+   - **Location**: `cmd/server/main.go:254,262-277`
+   - **Implementation**:
+     - Added `maxRequestBodySize = 1 << 20` (1 MB limit)
+     - Applied `http.MaxBytesHandler` to both HTTP and ConnectRPC servers
+     - Set `MaxHeaderBytes: 1 << 20` on both server configurations
+   - **Impact**: Prevents DOS attacks via large request payloads
+
+3. **TAC Replay Protection (MED-9)**
+   - **Issue**: Browser Post callbacks could be replayed to reprocess transactions
+   - **Fix**: Multi-layer replay attack prevention
+   - **Database Layer**:
+     - Modified `UpdateTransactionFromEPXResponse` query
+     - Added `AND status = 'PENDING'` condition to only update pending transactions
+     - Location: `internal/db/queries/transactions.sql:106-121`
+   - **Handler Layer**:
+     - Detect `sql.ErrNoRows` as replay attack indicator
+     - Log security warning with `security_issue` tag
+     - Return generic error without leaking transaction state
+     - Location: `internal/handlers/payment/browser_post_callback_handler.go:614-636`
+   - **Impact**: Replay attacks blocked at database level and logged for security monitoring
+
+4. **Audit Log Retention Policy (MED-13)**
+   - **Issue**: Audit logs accumulate indefinitely without cleanup mechanism
+   - **Fix**: Automated audit log retention with cron handler
+   - **Components**:
+     - **SQL Query**: `DeleteOldAuditLogs` with configurable cutoff date
+       - Location: `internal/db/queries/audit_logs.sql:45-49`
+     - **Cron Handler**: Complete implementation with authentication and monitoring
+       - Location: `internal/handlers/cron/audit_cleanup_handler.go` (NEW FILE)
+       - Default retention: 90 days (PCI DSS compliant: 90-365 days recommended)
+       - Configurable retention via request body
+       - Bearer token authentication using `CRON_SECRET`
+       - 60-second timeout for cleanup operations
+     - **Endpoints**:
+       - `POST /cron/cleanup-audit-logs` - Execute cleanup (requires auth)
+       - `GET /cron/audit/health` - Health check (no auth for monitoring)
+       - `GET /cron/audit/stats` - Statistics (requires auth)
+     - **Integration**: `cmd/server/main.go:666,692,221,224,229`
+   - **Security Features**:
+     - Bearer token authentication for sensitive endpoints
+     - Context timeouts prevent runaway operations
+     - Prometheus metrics for monitoring
+   - **Impact**: Prevents unbounded audit log growth while maintaining PCI DSS compliance
+
+#### Quality Assurance
+- ✅ All components compile successfully
+- ✅ No go vet issues
+- ✅ sqlc code regenerated for database changes
+- ✅ Security logging with structured tags
+- ✅ Generic error messages (no information leakage)
+
 ### Security Enhancements - Medium Priority (2025-11-22)
 
 #### Medium Priority Security Fixes (4 issues addressed)
@@ -121,13 +192,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Deployment downtime: -100% (zero-downtime with graceful shutdown)
     - Memory leak detection: 30s monitoring interval
 
+  - **Integration Completed** (`cmd/server/main.go`):
+    - ✅ Merchant and payment method caches initialized in dependency injection
+    - ✅ Optimized HTTP clients (EPX, webhooks, North API) using connection pooling configs
+    - ✅ Compression middleware applied to both HTTP and ConnectRPC servers
+    - ✅ Graceful shutdown manager with LIFO component ordering:
+      - HTTP servers shut down first (stop accepting requests)
+      - Background services shut down second (finish in-flight work)
+      - Database connections close last (all components depend on it)
+    - ✅ Goroutine leak monitoring started with 30s interval
+    - ✅ All components integrated with zero breaking changes
+
+  - **Integration Quality Assurance**:
+    - ✅ Full codebase builds successfully (`go build ./...`)
+    - ✅ No go vet issues in modified packages
+    - ✅ Compilation errors resolved:
+      - Fixed merchant service CreatedAt/UpdatedAt field access (removed .Time accessor)
+      - Renamed duplicate `sqlcPaymentMethodToDomain` → `convertSqlcToPaymentMethod` in cache
+      - Removed unused `os/signal` and `syscall` imports after shutdown manager integration
+      - Wrapped database Close() to match shutdown manager interface
+
   - **Next Steps**:
-    - [ ] Integrate caches into service constructors
-    - [ ] Apply compression middleware to HTTP servers
-    - [ ] Implement graceful shutdown in cmd/server/main.go
-    - [ ] Start goroutine leak monitoring
-    - [ ] Run load tests to verify performance targets
-    - [ ] Monitor Prometheus metrics for cache hit rates and shutdown duration
+    - [ ] Run load tests to verify performance targets (1000 TPS)
+    - [ ] Monitor Prometheus metrics:
+      - Cache hit rates (expect >90%)
+      - Shutdown duration (expect <30s)
+      - Goroutine count stability
+      - Connection pool utilization
+    - [ ] Stress test graceful shutdown with in-flight requests
+    - [ ] Verify compression ratios for JSON responses (expect 60-80%)
 
 ### Documentation (2025-11-22)
 

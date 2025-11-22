@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -21,12 +22,12 @@ INSERT INTO jwt_blacklist (
 `
 
 type BlacklistJWTParams struct {
-	Jti           string           `json:"jti"`
-	ServiceID     pgtype.Text      `json:"service_id"`
-	MerchantID    pgtype.UUID      `json:"merchant_id"`
-	ExpiresAt     pgtype.Timestamp `json:"expires_at"`
-	BlacklistedBy pgtype.UUID      `json:"blacklisted_by"`
-	Reason        pgtype.Text      `json:"reason"`
+	Jti           string      `json:"jti"`
+	ServiceID     pgtype.Text `json:"service_id"`
+	MerchantID    pgtype.UUID `json:"merchant_id"`
+	ExpiresAt     time.Time   `json:"expires_at"`
+	BlacklistedBy pgtype.UUID `json:"blacklisted_by"`
+	Reason        pgtype.Text `json:"reason"`
 }
 
 // Add a JWT token to the blacklist

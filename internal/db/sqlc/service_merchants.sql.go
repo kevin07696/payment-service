@@ -127,11 +127,11 @@ RETURNING service_id, merchant_id, scopes, granted_by, granted_at, expires_at
 `
 
 type GrantServiceAccessParams struct {
-	ServiceID  uuid.UUID        `json:"service_id"`
-	MerchantID uuid.UUID        `json:"merchant_id"`
-	Scopes     []string         `json:"scopes"`
-	GrantedBy  pgtype.UUID      `json:"granted_by"`
-	ExpiresAt  pgtype.Timestamp `json:"expires_at"`
+	ServiceID  uuid.UUID          `json:"service_id"`
+	MerchantID uuid.UUID          `json:"merchant_id"`
+	Scopes     []string           `json:"scopes"`
+	GrantedBy  pgtype.UUID        `json:"granted_by"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 }
 
 func (q *Queries) GrantServiceAccess(ctx context.Context, arg GrantServiceAccessParams) (ServiceMerchant, error) {
@@ -163,15 +163,15 @@ ORDER BY sm.granted_at DESC
 `
 
 type ListMerchantServicesRow struct {
-	ServiceID   uuid.UUID        `json:"service_id"`
-	MerchantID  uuid.UUID        `json:"merchant_id"`
-	Scopes      []string         `json:"scopes"`
-	GrantedBy   pgtype.UUID      `json:"granted_by"`
-	GrantedAt   pgtype.Timestamp `json:"granted_at"`
-	ExpiresAt   pgtype.Timestamp `json:"expires_at"`
-	ServiceName string           `json:"service_name"`
-	Environment string           `json:"environment"`
-	IsActive    pgtype.Bool      `json:"is_active"`
+	ServiceID   uuid.UUID          `json:"service_id"`
+	MerchantID  uuid.UUID          `json:"merchant_id"`
+	Scopes      []string           `json:"scopes"`
+	GrantedBy   pgtype.UUID        `json:"granted_by"`
+	GrantedAt   pgtype.Timestamptz `json:"granted_at"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	ServiceName string             `json:"service_name"`
+	Environment string             `json:"environment"`
+	IsActive    pgtype.Bool        `json:"is_active"`
 }
 
 // Get all services that have access to a merchant
@@ -214,14 +214,14 @@ ORDER BY sm.granted_at DESC
 `
 
 type ListServiceMerchantsRow struct {
-	ServiceID    uuid.UUID        `json:"service_id"`
-	MerchantID   uuid.UUID        `json:"merchant_id"`
-	Scopes       []string         `json:"scopes"`
-	GrantedBy    pgtype.UUID      `json:"granted_by"`
-	GrantedAt    pgtype.Timestamp `json:"granted_at"`
-	ExpiresAt    pgtype.Timestamp `json:"expires_at"`
-	MerchantName string           `json:"merchant_name"`
-	MerchantSlug string           `json:"merchant_slug"`
+	ServiceID    uuid.UUID          `json:"service_id"`
+	MerchantID   uuid.UUID          `json:"merchant_id"`
+	Scopes       []string           `json:"scopes"`
+	GrantedBy    pgtype.UUID        `json:"granted_by"`
+	GrantedAt    pgtype.Timestamptz `json:"granted_at"`
+	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+	MerchantName string             `json:"merchant_name"`
+	MerchantSlug string             `json:"merchant_slug"`
 }
 
 // Get all merchants a service has access to

@@ -41,3 +41,9 @@ WHERE
     (sqlc.narg(action)::varchar IS NULL OR action = sqlc.narg(action)) AND
     (sqlc.narg(start_date)::timestamp IS NULL OR performed_at >= sqlc.narg(start_date)) AND
     (sqlc.narg(end_date)::timestamp IS NULL OR performed_at <= sqlc.narg(end_date));
+
+-- name: DeleteOldAuditLogs :execresult
+-- Deletes audit logs older than the specified retention period
+-- Used by audit log retention policy to prevent unbounded growth
+DELETE FROM audit_logs
+WHERE performed_at < sqlc.arg(cutoff_date);

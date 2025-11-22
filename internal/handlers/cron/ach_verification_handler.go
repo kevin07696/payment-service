@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"go.uber.org/zap"
 )
 
@@ -112,7 +113,7 @@ func (h *ACHVerificationHandler) VerifyACH(w http.ResponseWriter, r *http.Reques
 		Success:     len(errs) == 0,
 		Verified:    verified,
 		Skipped:     skipped,
-		ProcessedAt: time.Now().Format(time.RFC3339),
+		ProcessedAt: timeutil.Now().Format(time.RFC3339),
 	}
 
 	if len(errs) > 0 {
@@ -146,7 +147,7 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 	// Find ACH payment methods pending verification that are older than verificationDays
 	// Note: We use calendar days (not business days) for simplicity
 	// In production, you might want to calculate business days excluding weekends/holidays
-	cutoffDate := time.Now().AddDate(0, 0, -verificationDays)
+	cutoffDate := timeutil.Now().AddDate(0, 0, -verificationDays)
 
 	// Find eligible ACH accounts using sqlc
 	paymentMethods, err := h.queries.FindEligibleACHForVerification(ctx, sqlc.FindEligibleACHForVerificationParams{
@@ -250,7 +251,7 @@ func (h *ACHVerificationHandler) HealthCheck(w http.ResponseWriter, r *http.Requ
 
 	resp := map[string]interface{}{
 		"status": "healthy",
-		"time":   time.Now().Format(time.RFC3339),
+		"time":   timeutil.Now().Format(time.RFC3339),
 	}
 
 	json.NewEncoder(w).Encode(resp)
@@ -309,7 +310,7 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Eligible for verification (pending > 3 days) using sqlc
-	cutoffDate := time.Now().AddDate(0, 0, -3)
+	cutoffDate := timeutil.Now().AddDate(0, 0, -3)
 	eligibleACH, err := h.queries.CountEligibleACH(ctx, cutoffDate)
 	if err != nil {
 		h.logger.Error("Failed to query eligible ACH", zap.Error(err))
@@ -323,7 +324,7 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"success":   true,
 		"stats":     stats,
-		"timestamp": time.Now().Format(time.RFC3339),
+		"timestamp": timeutil.Now().Format(time.RFC3339),
 	}
 
 	json.NewEncoder(w).Encode(resp)

@@ -10,10 +10,10 @@ type ErrorCode string
 
 const (
 	// Authentication & Authorization Errors (AUTH_*)
-	ErrorCodeAuthMissing          ErrorCode = "AUTH_MISSING"
-	ErrorCodeAuthInvalid          ErrorCode = "AUTH_INVALID"
-	ErrorCodeAuthMerchantMismatch ErrorCode = "AUTH_MERCHANT_MISMATCH"
-	ErrorCodeAuthAccessDenied     ErrorCode = "AUTH_ACCESS_DENIED"
+	ErrorCodeAuthMissing           ErrorCode = "AUTH_MISSING"
+	ErrorCodeAuthInvalid           ErrorCode = "AUTH_INVALID"
+	ErrorCodeAuthMerchantMismatch  ErrorCode = "AUTH_MERCHANT_MISMATCH"
+	ErrorCodeAuthAccessDenied      ErrorCode = "AUTH_ACCESS_DENIED"
 	ErrorCodeAuthInsufficientPerms ErrorCode = "AUTH_INSUFFICIENT_PERMISSIONS"
 
 	// Merchant Errors (MERCHANT_*)
@@ -40,9 +40,9 @@ const (
 	ErrorCodeCustomerNotFound ErrorCode = "CUSTOMER_NOT_FOUND"
 
 	// Validation Errors (VALIDATION_*)
-	ErrorCodeValidationFailed       ErrorCode = "VALIDATION_FAILED"
+	ErrorCodeValidationFailed        ErrorCode = "VALIDATION_FAILED"
 	ErrorCodeValidationAmountInvalid ErrorCode = "VALIDATION_AMOUNT_INVALID"
-	ErrorCodeValidationMissingField ErrorCode = "VALIDATION_MISSING_FIELD"
+	ErrorCodeValidationMissingField  ErrorCode = "VALIDATION_MISSING_FIELD"
 
 	// Payment Gateway Errors (GATEWAY_*)
 	ErrorCodeGatewayError    ErrorCode = "GATEWAY_ERROR"
@@ -59,10 +59,10 @@ const (
 
 // DomainError represents a structured domain error with error code and context
 type DomainError struct {
+	Err     error
+	Details map[string]interface{}
 	Code    ErrorCode
 	Message string
-	Details map[string]interface{}
-	Err     error // Wrapped underlying error
 }
 
 // Error implements the error interface
@@ -174,17 +174,17 @@ var (
 	ErrTxnInvalidState     = NewDomainError(ErrorCodeTxnInvalidState, "transaction is in invalid state for this operation")
 	ErrTxnAlreadyProcessed = NewDomainError(ErrorCodeTxnAlreadyProcessed, "transaction already processed")
 
-	ErrPMNotFound  = NewDomainError(ErrorCodePMNotFound, "payment method not found")
-	ErrPMRequired  = NewDomainError(ErrorCodePMRequired, "payment method required")
-	ErrPMInvalid   = NewDomainError(ErrorCodePMInvalid, "invalid payment method")
-	ErrPMExpired   = NewDomainError(ErrorCodePMExpired, "payment method has expired")
+	ErrPMNotFound    = NewDomainError(ErrorCodePMNotFound, "payment method not found")
+	ErrPMRequired    = NewDomainError(ErrorCodePMRequired, "payment method required")
+	ErrPMInvalid     = NewDomainError(ErrorCodePMInvalid, "invalid payment method")
+	ErrPMExpired     = NewDomainError(ErrorCodePMExpired, "payment method has expired")
 	ErrPMNotVerified = NewDomainError(ErrorCodePMNotVerified, "ACH payment method not verified")
 
 	ErrCustomerNotFound = NewDomainError(ErrorCodeCustomerNotFound, "customer not found")
 
-	ErrValidationFailed       = NewDomainError(ErrorCodeValidationFailed, "validation failed")
+	ErrValidationFailed        = NewDomainError(ErrorCodeValidationFailed, "validation failed")
 	ErrValidationAmountInvalid = NewDomainError(ErrorCodeValidationAmountInvalid, "invalid amount")
-	ErrValidationMissingField = NewDomainError(ErrorCodeValidationMissingField, "required field missing")
+	ErrValidationMissingField  = NewDomainError(ErrorCodeValidationMissingField, "required field missing")
 
 	ErrGatewayError    = NewDomainError(ErrorCodeGatewayError, "payment gateway error")
 	ErrGatewayTimedOut = NewDomainError(ErrorCodeGatewayTimeout, "payment gateway timeout")

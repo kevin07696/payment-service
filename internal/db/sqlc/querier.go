@@ -78,6 +78,9 @@ type Querier interface {
 	DeactivateService(ctx context.Context, id uuid.UUID) error
 	DeleteAdminSession(ctx context.Context, id uuid.UUID) error
 	DeleteExpiredAdminSessions(ctx context.Context) error
+	// Deletes audit logs older than the specified retention period
+	// Used by audit log retention policy to prevent unbounded growth
+	DeleteOldAuditLogs(ctx context.Context, cutoffDate pgtype.Timestamp) (pgconn.CommandTag, error)
 	DeletePaymentMethod(ctx context.Context, id uuid.UUID) error
 	DeleteWebhookSubscription(ctx context.Context, arg DeleteWebhookSubscriptionParams) error
 	// Find ACH payment methods eligible for verification
@@ -120,6 +123,7 @@ type Querier interface {
 	// Example: GetTransactionTree(auth1) returns [auth1, auth2, capture2, refund2]
 	// Example: GetTransactionTree(auth2) returns [auth1, auth2, capture2, refund2] (includes root!)
 	// Example: GetTransactionTree(capture2) returns [auth1, auth2, capture2, refund2] (includes root!)
+	// DEPTH LIMIT: Max 100 levels to prevent DoS via deep transaction chains (realistic chains are 2-5 levels)
 	// Step 1: Walk UP the parent chain to find the root
 	// Step 2: Get the root transaction (has no parent)
 	// Step 3: Walk DOWN from root to get all descendants
@@ -191,6 +195,7 @@ type Querier interface {
 	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) (Subscription, error)
 	// Updates transaction with EPX response data (for Browser Post callback)
 	// Only updates EPX response fields, leaves core transaction data unchanged
+	// SECURITY: Prevents TAC replay attacks by only updating PENDING transactions
 	UpdateTransactionFromEPXResponse(ctx context.Context, arg UpdateTransactionFromEPXResponseParams) (Transaction, error)
 	// Update verification status and related fields
 	UpdateVerificationStatus(ctx context.Context, arg UpdateVerificationStatusParams) error

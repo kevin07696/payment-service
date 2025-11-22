@@ -27,11 +27,11 @@ func NewService() *ServiceBuilder {
 			RequestsPerSecond:    pgtype.Int4{Int32: 100, Valid: true},
 			BurstLimit:           pgtype.Int4{Int32: 200, Valid: true},
 			IsActive:             pgtype.Bool{Bool: true, Valid: true},
-			CreatedAt: pgtype.Timestamp{
+			CreatedAt: pgtype.Timestamptz{
 				Time:  now,
 				Valid: true,
 			},
-			UpdatedAt: pgtype.Timestamp{
+			UpdatedAt: pgtype.Timestamptz{
 				Time:  now,
 				Valid: true,
 			},

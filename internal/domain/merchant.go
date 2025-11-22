@@ -17,31 +17,18 @@ const (
 // Merchant represents a merchant in the multi-tenant system
 // Merchant credentials are stored securely with MAC secrets in a secret manager
 type Merchant struct {
-	// Identity
-	ID      string `json:"id"`       // UUID (internal)
-	AgentID string `json:"agent_id"` // Unique merchant identifier (external-facing)
-
-	// EPX credentials
-	CustNbr     string `json:"cust_nbr"`     // EPX customer number
-	MerchNbr    string `json:"merch_nbr"`    // EPX merchant number
-	DBAnbr      string `json:"dba_nbr"`      // EPX DBA number
-	TerminalNbr string `json:"terminal_nbr"` // EPX terminal number
-
-	// Secret Manager reference (NEVER store actual MAC in database)
-	MACSecretPath string `json:"mac_secret_path"` // Path to MAC secret in secret manager
-
-	// Environment
-	Environment Environment `json:"environment"` // sandbox or production
-
-	// Status
-	IsActive bool `json:"is_active"`
-
-	// Additional metadata
-	Metadata map[string]interface{} `json:"metadata"` // Business name, contact info, etc.
-
-	// Timestamps
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt     time.Time              `json:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
+	Metadata      map[string]interface{} `json:"metadata"`
+	ID            string                 `json:"id"`
+	AgentID       string                 `json:"agent_id"`
+	CustNbr       string                 `json:"cust_nbr"`
+	MerchNbr      string                 `json:"merch_nbr"`
+	DBAnbr        string                 `json:"dba_nbr"`
+	TerminalNbr   string                 `json:"terminal_nbr"`
+	MACSecretPath string                 `json:"mac_secret_path"`
+	Environment   Environment            `json:"environment"`
+	IsActive      bool                   `json:"is_active"`
 }
 
 // IsSandbox returns true if this merchant is using sandbox environment

@@ -3,6 +3,8 @@ package domain
 import (
 	"strconv"
 	"time"
+
+	"github.com/kevin07696/payment-service/pkg/timeutil"
 )
 
 // SubscriptionStatus represents the subscription state
@@ -27,44 +29,23 @@ const (
 
 // Subscription represents a recurring billing subscription
 type Subscription struct {
-	// Identity
-	ID string `json:"id"` // UUID
-
-	// Multi-tenant
-	MerchantID string `json:"merchant_id"`
-
-	// Customer
-	CustomerID string `json:"customer_id"`
-
-	// Billing details
-	AmountCents int64  `json:"amount_cents"` // Amount in smallest currency unit (cents)
-	Currency    string `json:"currency"`     // ISO 4217 code
-
-	// Billing interval (e.g., 1 month, 2 weeks, 3 months)
-	IntervalValue int          `json:"interval_value"` // 1, 2, 3, etc.
-	IntervalUnit  IntervalUnit `json:"interval_unit"`  // day, week, month, year
-
-	// Status and dates
-	Status          SubscriptionStatus `json:"status"`
-	NextBillingDate time.Time          `json:"next_billing_date"`
-
-	// Payment method (must be a saved payment method)
-	PaymentMethodID string `json:"payment_method_id"` // UUID reference
-
-	// Gateway reference
-	GatewaySubscriptionID *string `json:"gateway_subscription_id"` // EPX subscription ID (if applicable)
-
-	// Failure handling
-	FailureRetryCount int `json:"failure_retry_count"`
-	MaxRetries        int `json:"max_retries"`
-
-	// Metadata
-	Metadata map[string]interface{} `json:"metadata"`
-
-	// Timestamps
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	CancelledAt *time.Time `json:"cancelled_at"`
+	NextBillingDate       time.Time              `json:"next_billing_date"`
+	UpdatedAt             time.Time              `json:"updated_at"`
+	CreatedAt             time.Time              `json:"created_at"`
+	CancelledAt           *time.Time             `json:"cancelled_at"`
+	Metadata              map[string]interface{} `json:"metadata"`
+	GatewaySubscriptionID *string                `json:"gateway_subscription_id"`
+	Currency              string                 `json:"currency"`
+	Status                SubscriptionStatus     `json:"status"`
+	IntervalUnit          IntervalUnit           `json:"interval_unit"`
+	PaymentMethodID       string                 `json:"payment_method_id"`
+	ID                    string                 `json:"id"`
+	CustomerID            string                 `json:"customer_id"`
+	MerchantID            string                 `json:"merchant_id"`
+	IntervalValue         int                    `json:"interval_value"`
+	FailureRetryCount     int                    `json:"failure_retry_count"`
+	MaxRetries            int                    `json:"max_retries"`
+	AmountCents           int64                  `json:"amount_cents"`
 }
 
 // IsActive returns true if the subscription is currently active
@@ -79,7 +60,7 @@ func (s *Subscription) IsCancelled() bool {
 
 // CanBeBilled returns true if the subscription is due for billing
 func (s *Subscription) CanBeBilled() bool {
-	return s.IsActive() && time.Now().After(s.NextBillingDate)
+	return s.IsActive() && timeutil.Now().After(s.NextBillingDate)
 }
 
 // ShouldRetry returns true if the subscription should retry after a failed billing
@@ -104,18 +85,22 @@ func (s *Subscription) ResetRetryCount() {
 func (s *Subscription) CalculateNextBillingDate() time.Time {
 	current := s.NextBillingDate
 
+	var next time.Time
 	switch s.IntervalUnit {
 	case IntervalUnitDay:
-		return current.AddDate(0, 0, s.IntervalValue)
+		next = current.AddDate(0, 0, s.IntervalValue)
 	case IntervalUnitWeek:
-		return current.AddDate(0, 0, s.IntervalValue*7)
+		next = current.AddDate(0, 0, s.IntervalValue*7)
 	case IntervalUnitMonth:
-		return current.AddDate(0, s.IntervalValue, 0)
+		next = current.AddDate(0, s.IntervalValue, 0)
 	case IntervalUnitYear:
-		return current.AddDate(s.IntervalValue, 0, 0)
+		next = current.AddDate(s.IntervalValue, 0, 0)
 	default:
-		return current.AddDate(0, s.IntervalValue, 0) // Default to months
+		next = current.AddDate(0, s.IntervalValue, 0) // Default to months
 	}
+
+	// Ensure the result is in UTC
+	return timeutil.ToUTC(next)
 }
 
 // GetIntervalDescription returns a human-readable interval description
