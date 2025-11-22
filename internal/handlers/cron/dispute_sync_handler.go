@@ -16,6 +16,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// webhookJob represents a webhook delivery job
+type webhookJob struct {
+	ctx       context.Context
+	agentID   string
+	eventType string
+	event     *webhook.WebhookEvent
+}
+
 // DisputeSyncHandler handles cron job endpoints for dispute synchronization
 type DisputeSyncHandler struct {
 	merchantReporting adapterports.MerchantReportingAdapter
@@ -23,6 +31,9 @@ type DisputeSyncHandler struct {
 	webhookService    *webhook.WebhookDeliveryService
 	logger            *zap.Logger
 	cronSecret        string
+	webhookJobs       chan webhookJob // Buffered channel for webhook delivery jobs
+	stopCh            chan struct{}   // Channel to signal worker shutdown
+	workerCount       int              // Number of webhook delivery workers
 }
 
 // NewDisputeSyncHandler creates a new dispute sync cron handler
@@ -33,13 +44,60 @@ func NewDisputeSyncHandler(
 	logger *zap.Logger,
 	cronSecret string,
 ) *DisputeSyncHandler {
-	return &DisputeSyncHandler{
+	const workerCount = 5     // Max 5 concurrent webhook deliveries
+	const queueSize = 100     // Max 100 pending webhooks in queue
+
+	h := &DisputeSyncHandler{
 		merchantReporting: merchantReporting,
 		db:                db,
 		webhookService:    webhookService,
 		logger:            logger,
 		cronSecret:        cronSecret,
+		webhookJobs:       make(chan webhookJob, queueSize),
+		stopCh:            make(chan struct{}),
+		workerCount:       workerCount,
 	}
+
+	// Start webhook delivery workers
+	h.startWebhookWorkers()
+
+	return h
+}
+
+// startWebhookWorkers starts fixed number of worker goroutines for webhook delivery
+func (h *DisputeSyncHandler) startWebhookWorkers() {
+	for i := 0; i < h.workerCount; i++ {
+		go func(workerID int) {
+			h.logger.Debug("Webhook delivery worker started", zap.Int("worker_id", workerID))
+
+			for {
+				select {
+				case <-h.stopCh:
+					h.logger.Info("Webhook delivery worker stopped", zap.Int("worker_id", workerID))
+					return
+				case job := <-h.webhookJobs:
+					// Deliver webhook
+					if err := h.webhookService.DeliverEvent(job.ctx, job.event); err != nil {
+						h.logger.Error("Failed to deliver chargeback webhook",
+							zap.Int("worker_id", workerID),
+							zap.String("event_type", job.eventType),
+							zap.String("merchant_id", job.agentID),
+							zap.Error(err),
+						)
+					}
+				}
+			}
+		}(i)
+	}
+
+	h.logger.Info("Webhook delivery worker pool started", zap.Int("worker_count", h.workerCount))
+}
+
+// Shutdown gracefully stops webhook delivery workers
+func (h *DisputeSyncHandler) Shutdown() {
+	h.logger.Info("Shutting down dispute sync handler")
+	close(h.stopCh)
+	// Note: Pending jobs in the channel will be lost. Consider draining if needed.
 }
 
 // SyncDisputesRequest represents the request body for dispute sync
@@ -443,15 +501,30 @@ func (h *DisputeSyncHandler) triggerChargebackWebhook(ctx context.Context, agent
 		Timestamp: time.Now(),
 	}
 
-	// Deliver webhook asynchronously (don't block cron job)
-	go func() {
-		if err := h.webhookService.DeliverEvent(context.Background(), event); err != nil {
-			h.logger.Error("Failed to deliver chargeback webhook",
-				zap.String("event_type", eventType),
-				zap.String("merchant_id", agentID),
-				zap.String("case_number", chargeback.CaseNumber),
-				zap.Error(err),
-			)
-		}
-	}()
+	// Send webhook job to worker pool (non-blocking with select)
+	// If queue is full, drop the webhook and log error
+	job := webhookJob{
+		ctx:       context.Background(),
+		agentID:   agentID,
+		eventType: eventType,
+		event:     event,
+	}
+
+	select {
+	case h.webhookJobs <- job:
+		// Successfully queued for delivery
+		h.logger.Debug("Webhook job queued",
+			zap.String("event_type", eventType),
+			zap.String("merchant_id", agentID),
+		)
+	default:
+		// Queue is full - drop webhook and log critical error
+		h.logger.Error("Webhook queue full - dropping webhook",
+			zap.String("event_type", eventType),
+			zap.String("merchant_id", agentID),
+			zap.String("case_number", chargeback.CaseNumber),
+			zap.Int("queue_capacity", cap(h.webhookJobs)),
+			zap.String("recommendation", "Increase queue size or worker count"),
+		)
+	}
 }

@@ -29,13 +29,18 @@ type PostgreSQLConfig struct {
 }
 
 // DefaultPostgreSQLConfig returns default configuration
+// Pool sizing rationale:
+// - MaxConns: 50 allows handling burst traffic (25-50 req/s at ~50ms avg query time)
+// - MinConns: 10 (20% of max) keeps warm connections ready, reduces cold-start latency
+// - Lifetime/IdleTime: Prevents stale connections, allows graceful rotation
+// - MaxConnLifetime: 30m follows PostgreSQL best practices (was 1h)
 func DefaultPostgreSQLConfig(databaseURL string) *PostgreSQLConfig {
 	return &PostgreSQLConfig{
 		DatabaseURL:     databaseURL,
-		MaxConns:        25,
-		MinConns:        5,
-		MaxConnLifetime: "1h",
-		MaxConnIdleTime: "30m",
+		MaxConns:        50, // Increased for production workload (was 25)
+		MinConns:        10, // Increased to 20% of max (was 5)
+		MaxConnLifetime: "30m", // Reduced from 1h - PostgreSQL best practice
+		MaxConnIdleTime: "15m", // Reduced to release idle connections faster (was 30m)
 		// Query timeouts - tiered based on complexity
 		SimpleQueryTimeout:  2 * time.Second,  // ID lookups, single row operations
 		ComplexQueryTimeout: 5 * time.Second,  // JOINs, filters, aggregations
@@ -49,6 +54,7 @@ type PostgreSQLAdapter struct {
 	queries *sqlc.Queries
 	logger  *zap.Logger
 	config  *PostgreSQLConfig
+	stopCh  chan struct{} // Channel to signal pool monitoring goroutine shutdown
 }
 
 // NewPostgreSQLAdapter creates a new PostgreSQL adapter with connection pooling
@@ -62,6 +68,27 @@ func NewPostgreSQLAdapter(ctx context.Context, cfg *PostgreSQLConfig, logger *za
 	// Configure pool settings
 	poolConfig.MaxConns = cfg.MaxConns
 	poolConfig.MinConns = cfg.MinConns
+
+	// Parse and set connection lifetime
+	if cfg.MaxConnLifetime != "" {
+		maxLifetime, err := time.ParseDuration(cfg.MaxConnLifetime)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MaxConnLifetime: %w", err)
+		}
+		poolConfig.MaxConnLifetime = maxLifetime
+	}
+
+	// Parse and set idle time
+	if cfg.MaxConnIdleTime != "" {
+		maxIdleTime, err := time.ParseDuration(cfg.MaxConnIdleTime)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MaxConnIdleTime: %w", err)
+		}
+		poolConfig.MaxConnIdleTime = maxIdleTime
+	}
+
+	// Set health check period to detect and replace broken connections
+	poolConfig.HealthCheckPeriod = 1 * time.Minute
 
 	// Create connection pool
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
@@ -79,8 +106,11 @@ func NewPostgreSQLAdapter(ctx context.Context, cfg *PostgreSQLConfig, logger *za
 		zap.String("database", poolConfig.ConnConfig.Database),
 		zap.String("host", poolConfig.ConnConfig.Host),
 		zap.Uint16("port", poolConfig.ConnConfig.Port),
-		zap.Int32("max_conns", cfg.MaxConns),
-		zap.Int32("min_conns", cfg.MinConns),
+		zap.Int32("max_conns", poolConfig.MaxConns),
+		zap.Int32("min_conns", poolConfig.MinConns),
+		zap.Duration("max_conn_lifetime", poolConfig.MaxConnLifetime),
+		zap.Duration("max_conn_idle_time", poolConfig.MaxConnIdleTime),
+		zap.Duration("health_check_period", poolConfig.HealthCheckPeriod),
 	)
 
 	// Create sqlc queries instance
@@ -91,6 +121,7 @@ func NewPostgreSQLAdapter(ctx context.Context, cfg *PostgreSQLConfig, logger *za
 		queries: queries,
 		logger:  logger,
 		config:  cfg,
+		stopCh:  make(chan struct{}),
 	}, nil
 }
 
@@ -104,9 +135,20 @@ func (a *PostgreSQLAdapter) Pool() *pgxpool.Pool {
 	return a.pool
 }
 
-// Close closes the database connection pool
+// Shutdown gracefully stops the pool monitoring goroutine
+func (a *PostgreSQLAdapter) Shutdown() {
+	select {
+	case <-a.stopCh:
+		// Already closed, do nothing
+	default:
+		close(a.stopCh)
+	}
+}
+
+// Close closes the database connection pool and stops monitoring
 func (a *PostgreSQLAdapter) Close() {
 	a.logger.Info("Closing PostgreSQL connection pool")
+	a.Shutdown() // Stop monitoring goroutine first
 	a.pool.Close()
 }
 
@@ -170,7 +212,10 @@ func (a *PostgreSQLAdapter) StartPoolMonitoring(ctx context.Context, interval ti
 		for {
 			select {
 			case <-ctx.Done():
-				a.logger.Info("Stopping connection pool monitoring")
+				a.logger.Info("Stopping connection pool monitoring (context cancelled)")
+				return
+			case <-a.stopCh:
+				a.logger.Info("Stopping connection pool monitoring (shutdown requested)")
 				return
 			case <-ticker.C:
 				stat := a.pool.Stat()

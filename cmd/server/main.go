@@ -310,8 +310,8 @@ func main() {
 	}
 
 	// Stop DisputeSyncHandler webhook workers
-	if disputeSyncCronHdlr != nil {
-		disputeSyncCronHdlr.Shutdown()
+	if deps.disputeSyncCronHandler != nil {
+		deps.disputeSyncCronHandler.Shutdown()
 	}
 
 	// Stop RateLimiter cleanup goroutine
@@ -320,8 +320,8 @@ func main() {
 	}
 
 	// Stop PostgreSQL adapter pool monitoring and close connections
-	if dbAdapter != nil {
-		dbAdapter.Close() // This calls Shutdown() internally
+	if deps.dbAdapter != nil {
+		deps.dbAdapter.Close() // This calls Shutdown() internally
 	}
 
 	logger.Info("Servers stopped")
@@ -370,6 +370,7 @@ type Config struct {
 
 // Dependencies holds all initialized services and handlers
 type Dependencies struct {
+	dbAdapter                  *database.PostgreSQLAdapter
 	paymentHandler             *paymentHandler.ConnectHandler
 	subscriptionHandler        *subscriptionHandler.ConnectHandler
 	paymentMethodHandler       *paymentmethodHandler.ConnectHandler
@@ -596,13 +597,13 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		browserPost,
 		keyExchange,
 		secretManager,      // Secret manager for fetching merchant-specific MACs
-		paymentMethodSvc,   // Payment method service for saving payment methods
 		logger,
 		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
 		cfg.CallbackBaseURL,    // Base URL for callbacks
 	)
 
 	return &Dependencies{
+		dbAdapter:                  dbAdapter,
 		paymentHandler:             paymentHdlr,
 		subscriptionHandler:        subscriptionHdlr,
 		paymentMethodHandler:       paymentMethodHdlr,

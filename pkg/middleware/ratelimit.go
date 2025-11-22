@@ -3,27 +3,87 @@ package middleware
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"golang.org/x/time/rate"
 )
 
-// RateLimiter provides rate limiting functionality
+// ipLimiter tracks a rate limiter and its last access time
+type ipLimiter struct {
+	limiter    *rate.Limiter
+	lastAccess time.Time
+}
+
+// RateLimiter provides rate limiting functionality with automatic cleanup
 type RateLimiter struct {
-	limiters map[string]*rate.Limiter
-	mu       sync.RWMutex
-	rate     rate.Limit
-	burst    int
+	limiters  map[string]*ipLimiter
+	mu        sync.RWMutex
+	rate      rate.Limit
+	burst     int
+	maxSize   int           // Maximum number of IP limiters to cache
+	cleanupInterval time.Duration // How often to cleanup stale entries
+	stopCh    chan struct{} // Channel to signal cleanup goroutine shutdown
 }
 
 // NewRateLimiter creates a new rate limiter
 // requestsPerSecond: max requests per second per IP
 // burst: max burst size
 func NewRateLimiter(requestsPerSecond float64, burst int) *RateLimiter {
-	return &RateLimiter{
-		limiters: make(map[string]*rate.Limiter),
-		rate:     rate.Limit(requestsPerSecond),
-		burst:    burst,
+	rl := &RateLimiter{
+		limiters:        make(map[string]*ipLimiter),
+		rate:            rate.Limit(requestsPerSecond),
+		burst:           burst,
+		maxSize:         10000,              // Max 10k unique IPs in cache
+		cleanupInterval: 5 * time.Minute,    // Cleanup every 5 minutes
+		stopCh:          make(chan struct{}),
 	}
+
+	// Start cleanup goroutine
+	go rl.cleanupLoop()
+
+	return rl
+}
+
+// cleanupLoop periodically removes stale entries from the rate limiter cache
+func (rl *RateLimiter) cleanupLoop() {
+	ticker := time.NewTicker(rl.cleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-rl.stopCh:
+			return
+		case <-ticker.C:
+			rl.cleanup()
+		}
+	}
+}
+
+// cleanup removes entries that haven't been accessed in the last cleanup interval
+func (rl *RateLimiter) cleanup() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	cutoff := time.Now().Add(-rl.cleanupInterval)
+	removed := 0
+
+	for ip, limiter := range rl.limiters {
+		if limiter.lastAccess.Before(cutoff) {
+			delete(rl.limiters, ip)
+			removed++
+		}
+	}
+
+	// Log cleanup if significant (more than 100 entries removed)
+	if removed > 100 {
+		// Note: Would log here if logger was available
+		// For now, this is a silent cleanup
+	}
+}
+
+// Shutdown stops the cleanup goroutine
+func (rl *RateLimiter) Shutdown() {
+	close(rl.stopCh)
 }
 
 // getLimiter returns the rate limiter for the given IP
@@ -31,13 +91,42 @@ func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
+	// Check if limiter exists
 	limiter, exists := rl.limiters[ip]
-	if !exists {
-		limiter = rate.NewLimiter(rl.rate, rl.burst)
-		rl.limiters[ip] = limiter
+	if exists {
+		// Update last access time
+		limiter.lastAccess = time.Now()
+		return limiter.limiter
 	}
 
-	return limiter
+	// Check if map is at capacity
+	if len(rl.limiters) >= rl.maxSize {
+		// Evict oldest entry (LRU)
+		var oldestIP string
+		var oldestTime time.Time
+		first := true
+
+		for ip, lim := range rl.limiters {
+			if first || lim.lastAccess.Before(oldestTime) {
+				oldestIP = ip
+				oldestTime = lim.lastAccess
+				first = false
+			}
+		}
+
+		if oldestIP != "" {
+			delete(rl.limiters, oldestIP)
+		}
+	}
+
+	// Create new limiter
+	newLimiter := &ipLimiter{
+		limiter:    rate.NewLimiter(rl.rate, rl.burst),
+		lastAccess: time.Now(),
+	}
+	rl.limiters[ip] = newLimiter
+
+	return newLimiter.limiter
 }
 
 // Middleware returns HTTP middleware that applies rate limiting

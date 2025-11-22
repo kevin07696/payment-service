@@ -118,6 +118,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Quality Checks**: ✅ go vet ✅ go build ✅ go test -short ./...
   - **Security Posture**: Addressed 7 critical/high security issues with fail-closed patterns and proper resource cleanup
 
+- **Additional Critical Concurrency Fixes** (Multiple files)
+  - **Scope**: Addressed remaining critical goroutine leaks and concurrency issues from audit
+  - **Fixes Applied**:
+    1. **PostgreSQL Pool Monitoring Goroutine Leak** (`internal/adapters/database/postgres.go:56,123,137-145,205-207`)
+       - Added `stopCh chan struct{}` field to PostgreSQLAdapter
+       - Updated `StartPoolMonitoring` to listen on both `ctx.Done()` and `stopCh`
+       - Added `Shutdown()` method to gracefully stop monitoring goroutine
+       - Updated `Close()` to call `Shutdown()` before closing pool
+       - **Impact**: Prevents goroutine accumulation on server restarts
+    2. **Unbounded Webhook Goroutine Spawning** (`internal/handlers/cron/dispute_sync_handler.go:19-25,35-36,47-100,504-529`)
+       - Replaced unbounded `go func()` spawning with fixed worker pool pattern
+       - Added `webhookJobs` buffered channel (capacity: 100)
+       - Implemented 5 worker goroutines for concurrent webhook delivery
+       - Non-blocking job submission with drop-on-full queue policy
+       - Added `Shutdown()` method to stop workers gracefully
+       - **Impact**: Prevents DOS from mass chargeback webhook flooding (10k chargebacks = 10k goroutines → 5 workers + 100 queue)
+    3. **Rate Limiter Memory Leak** (`pkg/middleware/ratelimit.go:11-26,31-130`)
+       - Added LRU eviction policy with max 10k IP cache limit
+       - Implemented periodic cleanup goroutine (every 5 minutes)
+       - Added timestamp tracking for last access per IP
+       - Created `Shutdown()` method to stop cleanup goroutine
+       - **Impact**: Prevents unbounded map growth from unique IP addresses
+    4. **Server Shutdown Orchestration** (`cmd/server/main.go:304-325,373,607`)
+       - Added shutdown calls for AuthInterceptor, DisputeSyncHandler, RateLimiter
+       - Added `dbAdapter` to Dependencies struct for proper lifecycle management
+       - Graceful shutdown of all background goroutines before closing database
+       - **Impact**: Clean server shutdown without goroutine leaks
+  - **Worker Pool Configuration**:
+    - Webhook workers: 5 concurrent (configurable)
+    - Queue size: 100 pending webhooks
+    - Rate limiter: 10k IP limit with 5-minute cleanup
+  - **Quality Checks**: ✅ go vet ✅ go build
+  - **Concurrency Posture**: Eliminated all critical goroutine leaks and unbounded spawning patterns
+
 ### Refactored (2025-11-21)
 
 - **Admin CLI Refactored to Use SQLC and Add Audit Trail** (`cmd/admin/main.go`)
