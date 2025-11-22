@@ -522,13 +522,6 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 	return nil
 }
 
-// getPaymentMethodByIdempotencyKey retrieves a payment method by idempotency key
-func (s *paymentMethodService) getPaymentMethodByIdempotencyKey(ctx context.Context, key string) (*domain.PaymentMethod, error) {
-	// Note: This would require adding idempotency_key to payment_methods table
-	// For now, returning not found error
-	return nil, fmt.Errorf("payment method not found")
-}
-
 // Helper functions
 
 func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.PaymentMethod {
