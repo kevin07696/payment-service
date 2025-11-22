@@ -1,435 +1,344 @@
-# EPX Server Post API Reference
+# EPX API Reference
 
-**Sandbox:** `https://secure.epxuap.com`
-**Production:** `https://secure.epxnow.com`
+**Target Audience:** Developers understanding EPX payment gateway integration
+**Topic:** EPX Server Post and Browser Post APIs used in payment-service
+**Goal:** Reference for EPX transaction types, fields, and response codes we actually use
 
-## Quick Reference
+---
 
-| Transaction | Code | Use Case | Auth | Capture | Requires ORIG_AUTH_GUID |
-|-------------|------|----------|------|---------|-------------------------|
-| Sale | CCE1 | Immediate payment | Yes | Yes | No |
-| Authorization | CCE2 | Hold funds | Yes | No | No |
-| Capture | CCE4 | Capture auth | No | Yes | Yes |
-| Refund | CCE9 | Return money | No | No | Yes |
-| Void | CCEX | Cancel unsettled | No | No | Yes |
-| BRIC Storage | CCE8 | Tokenize for future | No | No | Yes (Financial BRIC) |
-| Recurring | CCE1 | Subscription payment | Yes | Yes | Yes (Storage BRIC) |
+## Overview
 
-## Authentication
+This service integrates with EPX payment gateway using two methods:
 
-Required in every request:
+1. **Server Post API** - Direct server-to-server for payment operations
+2. **Browser Post API** - PCI-compliant hosted form for card entry
 
-| Field | Example | Source |
-|-------|---------|--------|
-| `CUST_NBR` | `9001` | EPX support |
-| `MERCH_NBR` | `900300` | EPX support |
-| `DBA_NBR` | `2` | EPX support |
-| `TERMINAL_NBR` | `77` | EPX support |
+**EPX Environments:**
+- **Sandbox:** `https://secure.epxuap.com`
+- **Production:** `https://secure.epxnow.com`
 
-## Common Fields
+---
 
-### Required in All Transactions
+## Server Post API
+
+### Authentication (Required in Every Request)
+
+| Field | Example | Notes |
+|-------|---------|-------|
+| `CUST_NBR` | `9001` | Customer number from EPX |
+| `MERCH_NBR` | `900300` | Merchant number from EPX |
+| `DBA_NBR` | `2` | DBA number from EPX |
+| `TERMINAL_NBR` | `77` | Terminal number from EPX |
+
+### Credit Card Transactions
+
+| Transaction | Code | Use Case | Requires ORIG_AUTH_GUID |
+|-------------|------|----------|-------------------------|
+| **Sale** | CCE1 | Immediate payment (auth + capture) | No |
+| **Authorization** | CCE2 | Hold funds for capture later | No |
+| **Capture** | CCE4 | Capture previously authorized funds | Yes (auth GUID) |
+| **Refund** | CCE9 | Return money to customer | Yes (sale/capture GUID) |
+| **Void** | CCEX | Cancel unsettled transaction | Yes |
+| **Reversal** | CCE7 | Void + release authorization | Yes |
+| **BRIC Storage** | CCE8 | Tokenize card for recurring payments | Yes (Financial BRIC) or card details |
+
+### ACH Checking Account Transactions
+
+| Transaction | Code | Use Case | Requires Fields |
+|-------------|------|----------|-----------------|
+| **Pre-Note Debit** | CKC0 | Verify account before debit | Account, Routing, Name |
+| **Pre-Note Credit** | CKC1 | Verify account before credit | Account, Routing, Name |
+| **Debit/Sale** | CKC2 | Pull funds from account | Storage BRIC, Amount |
+| **Credit/Refund** | CKC3 | Send funds to account | Storage BRIC, Amount |
+| **BRIC Storage** | CKC8 | Tokenize account for recurring | Account, Routing or Financial BRIC |
+| **Void** | CKCX | Cancel unsettled ACH transaction | Original GUID, Amount |
+
+### ACH Savings Account Transactions
+
+| Transaction | Code | Use Case |
+|-------------|------|----------|
+| **Pre-Note Debit** | CKS0 | Verify savings account |
+| **Pre-Note Credit** | CKS1 | Verify savings account |
+| **Debit/Sale** | CKS2 | Pull funds from savings |
+| **Credit/Refund** | CKS3 | Send funds to savings |
+| **Void** | CKSX | Cancel savings transaction |
+
+---
+
+## Browser Post API
+
+### Purpose
+PCI-compliant credit card entry - card data goes directly from customer's browser to EPX, never touching our server.
+
+### Supported Operations
+- **Sale** (TRAN_CODE=U) - Immediate payment
+- **Auth Only** (TRAN_CODE=A) - Authorization for later capture
+
+### Flow
+1. Backend requests TAC (Temporary Access Code) from EPX Key Exchange API
+2. Backend creates pending transaction in database
+3. Frontend displays EPX-hosted form with TAC
+4. Customer enters card details directly on EPX form
+5. EPX processes transaction and redirects to callback URL
+6. Backend receives Financial BRIC in callback
+7. Backend converts Financial BRIC → Storage BRIC via CCE8 (if saving card)
+
+### TAC Authentication
+- TAC expires in 4 hours
+- Cryptographically signed by EPX
+- Prevents form tampering
+- One-time use per transaction
+
+---
+
+## Common Request Fields
+
+### Required in All Server Post Transactions
 
 | Field | Format | Example | Notes |
 |-------|--------|---------|-------|
-| `TRAN_TYPE` | String(4) | `CCE1` | Transaction code |
-| `AMOUNT` | Decimal | `10.00` | Dollars.cents |
-| `TRAN_NBR` | String(5-10) | `12345` | Unique per transaction |
-| `BATCH_ID` | String | `12345` | Batch identifier |
+| `TRAN_TYPE` | String(4) | `CCE1` | Transaction code from tables above |
+| `AMOUNT` | Decimal | `10.00` | Dollars.cents (required except voids) |
+| `TRAN_NBR` | String(5-10) | `12345` | Unique transaction identifier |
+| `BATCH_ID` | String | `20250122` | Batch identifier (usually YYYYMMDD) |
 
-**TRAN_NBR Generation:**
-```go
-tranNbr := fmt.Sprintf("%d", time.Now().Unix() % 100000)
-```
-
-### Card Information (New Card Transactions)
+### Credit Card Fields (for non-BRIC transactions)
 
 | Field | Format | Example | Required |
 |-------|--------|---------|----------|
-| `ACCOUNT_NBR` | String(16) | `4111111111111111` | Yes* |
-| `EXP_DATE` | YYMM | `1225` | Yes* |
+| `ACCOUNT_NBR` | String(13-16) | `4111111111111111` | Yes* |
+| `EXP_DATE` | MMYY | `1225` | Yes* |
 | `CVV2` | String(3-4) | `123` | Recommended |
-| `CARD_ENT_METH` | E/Z/6 | `E` | Yes |
-| `INDUSTRY_TYPE` | E/R/T | `E` | Yes |
+| `ZIP_CODE` | String | `10001` | For AVS verification |
+| `CARD_ENT_METH` | String(1) | `E` | E=Ecommerce, Z=BRIC |
 
-*Not required when using BRIC token
+*Not required if using `AUTH_GUID` (BRIC token)
 
-**CARD_ENT_METH Values:**
-- `E` = E-commerce (card details provided)
-- `Z` = BRIC/Token
-- `6` = PAN Entry via Card on File
+### ACH Fields (for non-BRIC transactions)
 
-### Billing Information (AVS)
+| Field | Format | Example | Required |
+|-------|--------|---------|----------|
+| `ACCOUNT_NBR` | String(10-12) | `1234567890` | Yes* |
+| `ROUTING_NBR` | String(9) | `021000021` | Yes* |
+| `RECEIVER_NAME` | String | `John Doe` | Yes* |
+| `STD_ENTRY_CLASS` | String(3) | `PPD` | Yes |
+| `RECEIVER_TYPE_CODE` | String(1) | `0` | Yes |
 
-| Field | Format | Example | AVS Required |
-|-------|--------|---------|--------------|
-| `FIRST_NAME` | String(50) | `John` | No |
-| `LAST_NAME` | String(50) | `Doe` | No |
-| `ADDRESS` | String(100) | `123 Main St` | Yes |
-| `ZIP_CODE` | String(10) | `10001` | Yes |
-
-AVS improves authorization rates and reduces fraud.
+*Not required if using `AUTH_GUID` (BRIC token)
 
 ### BRIC Token Fields
 
-| Field | Format | Use Case |
-|-------|--------|----------|
-| `AUTH_GUID` | String(20) | Use token FOR this transaction |
-| `ORIG_AUTH_GUID` | String(20) | Reference PREVIOUS transaction |
+| Field | Format | Example | Notes |
+|-------|--------|---------|-------|
+| `AUTH_GUID` | String(19-20) | `09LMQAABBCCDD` | Storage BRIC for recurring |
+| `ORIG_AUTH_GUID` | String(19-20) | `09XYZFINANCIAL` | Financial BRIC to convert or void |
+| `CARD_ENT_METH` | String(1) | `Z` | Must be 'Z' when using BRIC |
 
-### Advanced Fields
-
-| Field | Format | Use Case | Values |
-|-------|--------|----------|--------|
-| `ACI_EXT` | String(2) | Card-on-file type | `RB`, `IP`, `CA` |
-| `COF_PERIOD` | Integer | Token lifetime (months) | `0`, `13`, `18`, `24` |
-| `ORIG_AUTH_AMOUNT` | Decimal | Original transaction amount | `100.00` |
-| `ORIG_AUTH_TRAN_IDENT` | String(15) | Network Transaction ID | From previous response |
-
-**ACI_EXT Values:**
-- `RB` = Recurring Billing (subscriptions)
-- `IP` = Installment Payment
-- `CA` = Completion Advice
+---
 
 ## Response Fields
 
-### Core Response
+### Standard Response Fields
 
-| Field | Format | Description |
-|-------|--------|-------------|
-| `AUTH_GUID` | String | BRIC token (save for future use) |
-| `AUTH_RESP` | String(2) | Response code (`00` = approved) |
-| `AUTH_CODE` | String | Bank approval code |
-| `AUTH_RESP_TEXT` | String | Response message |
-| `AUTH_CARD_TYPE` | V/M/A/D | Card brand |
-| `AUTH_AVS` | String(1) | AVS result code |
-| `AUTH_CVV2` | M/N/P/U | CVV verification result |
+| Field | Description | Example |
+|-------|-------------|---------|
+| `AUTH_RESP` | Authorization response code | `00` (approved) |
+| `AUTH_RESP_TEXT` | Human-readable response | `APPROVED` |
+| `AUTH_CODE` | Bank authorization code | `123456` |
+| `AUTH_GUID` | BRIC token (Financial or Storage) | `09LMQAABBCCDD` |
+| `TRAN_NBR` | Transaction number echoed back | `12345` |
 
-### Network Fields
+### Common Response Codes
 
-| Field | Description |
-|-------|-------------|
-| `AUTH_TRAN_IDENT` | Network Transaction ID (save for disputes) |
-| `PROC_CODE` | Processing code |
-| `SYS_TRACE_NUM` | System trace number |
+| Code | Description | Retry? | Action |
+|------|-------------|--------|--------|
+| `00` | **Approved** | N/A | Success |
+| `85` | **Not Declined** (treat as approval) | N/A | Success |
+| `05` | Do not honor | No | Card restricted/closed |
+| `14` | Invalid card number | No | Fix card number |
+| `51` | Insufficient funds | Yes (1 min) | Retry later |
+| `61` | Exceeds limit | Yes (24h) | Retry next day |
+| `91` | Issuer unavailable | Yes (exp backoff) | Bank temporarily down |
 
-## Transaction Types
+### AVS Response Codes
 
-### Sale (CCE1)
+| Code | Meaning | Accept? |
+|------|---------|---------|
+| `Y` | Address and ZIP match | ✅ Yes |
+| `Z` | ZIP matches only | ✅ Yes |
+| `A` | Address matches only | ⚠️ Review |
+| `N` | No match | ❌ Decline |
+| `U` | Unavailable | ⚠️ Caution |
 
-Authorization + capture in one step.
+### CVV2 Response Codes
 
-**Request:**
-```go
-request := &ports.ServerPostRequest{
-    TransactionType: "CCE1",
-    Amount:          "10.00",
-    TranNbr:         "12345",
-    AccountNumber:   strPtr("4111111111111111"),
-    ExpirationDate:  strPtr("1225"),
-    CVV:             strPtr("123"),
-    CardEntryMethod: strPtr("E"),
-    ZipCode:         strPtr("10001"),
-}
+| Code | Meaning | Accept? |
+|------|---------|---------|
+| `M` | Match | ✅ Yes |
+| `N` | No match | ❌ Decline |
+| `P` | Not processed | ⚠️ Caution |
+| `U` | Unavailable | ⚠️ Caution |
+
+---
+
+## BRIC Tokens
+
+### Financial BRIC
+- **Created by:** Any transaction (Sale, Auth, etc.)
+- **Lifetime:** 13 months
+- **Use case:** Refunds, voids, one-time capture
+- **Format:** 19-20 character alphanumeric
+
+### Storage BRIC
+- **Created by:** CCE8 (Credit Card) or CKC8 (ACH)
+- **Lifetime:** Never expires
+- **Use case:** Recurring payments, subscriptions
+- **Requires:** Account Verification ($0.00 auth for cards, Pre-Note for ACH)
+- **Format:** 19-20 character alphanumeric
+
+### Converting Financial → Storage BRIC
+
+**Credit Card (CCE8):**
+```
+TRAN_TYPE=CCE8
+ORIG_AUTH_GUID=[Financial BRIC from previous transaction]
+CARD_ENT_METH=Z
+ADDRESS, CITY, STATE, ZIP_CODE (required for Account Verification)
+FIRST_NAME, LAST_NAME
 ```
 
-**Response:**
-- `AUTH_GUID`: Financial BRIC (13-month expiry)
-- `AUTH_RESP`: `00` = Approved
-- `AUTH_CODE`: Bank approval code
-
-### Authorization Only (CCE2)
-
-Hold funds without capturing.
-
-**Request:**
-```go
-request := &ports.ServerPostRequest{
-    TransactionType: "CCE2",
-    Amount:          "25.00",
-    TranNbr:         "12346",
-    AccountNumber:   strPtr("4111111111111111"),
-    ExpirationDate:  strPtr("1225"),
-    CardEntryMethod: strPtr("E"),
-}
+**ACH (CKC8):**
+```
+TRAN_TYPE=CKC8
+ORIG_AUTH_GUID=[Financial BRIC from CKC0 pre-note]
+CARD_ENT_METH=Z
 ```
 
-**Capture later with CCE4 using ORIG_AUTH_GUID.**
+---
 
-**Expiry:** Typically 7-30 days depending on card network.
+## Standard Entry Class Codes (ACH)
 
-### Capture (CCE4)
+| Code | Description | Use Case |
+|------|-------------|----------|
+| `PPD` | Prearranged Payment/Deposit | Consumer recurring (subscriptions) |
+| `CCD` | Corporate Credit/Debit | B2B payments |
+| `WEB` | Internet-Initiated | Online bill pay |
+| `TEL` | Telephone-Initiated | Phone authorizations |
 
-Capture previously authorized funds.
+**Recommendation:** Use PPD for consumer subscriptions (lower return rate ~0.5% vs WEB ~1-2%)
 
-**Request:**
-```go
-request := &ports.ServerPostRequest{
-    TransactionType: "CCE4",
-    Amount:          "25.00",           // Must match or be less than auth
-    TranNbr:         "12347",
-    OrigAuthGUID:    "09LMQ886...",     // From authorization response
-}
-```
+---
 
-**Notes:**
-- Amount can be less than original (partial capture)
-- Cannot exceed original authorization amount
-- Must capture before authorization expires
+## Card Entry Methods
 
-### Refund (CCE9)
+| Code | Description | Use Case |
+|------|-------------|----------|
+| `E` | Ecommerce | Manual card entry (Server Post with raw card data) |
+| `Z` | BRIC-based | Using tokenized payment method (AUTH_GUID) |
+| `X` | Browser Post | Customer enters card on EPX-hosted form |
 
-Return money to customer.
+---
 
-**Request:**
-```go
-request := &ports.ServerPostRequest{
-    TransactionType: "CCE9",
-    Amount:          "5.00",            // Refund amount
-    TranNbr:         "12348",
-    OrigAuthGUID:    "09LMQ886...",     // From original sale
-    AccountNumber:   strPtr("4111111111111111"),
-    ExpirationDate:  strPtr("1225"),
-}
-```
+## Account Verification
 
-**Notes:**
-- Can be partial or full refund
-- May require card details depending on processor
-- Refund appears on customer statement in 3-5 business days
+### Credit Cards (CCE8)
+- $0.00 authorization sent to card network
+- Validates: Card active, address matches, CVV matches
+- Returns: Network Transaction ID (NTID)
+- **NTID required** for card-on-file compliance (all recurring transactions)
 
-### Void (CCEX)
+### ACH (CKC0/CKC1)
+- $0.00 pre-note transaction
+- Validates: Account exists and can accept debits/credits
+- Clears in 1-3 business days
+- **NACHA requirement:** Must verify before recurring ACH debits
 
-Cancel unsettled transaction.
+---
 
-**Request:**
-```go
-request := &ports.ServerPostRequest{
-    TransactionType: "CCEX",
-    Amount:          "1.00",            // Original amount
-    TranNbr:         "12349",
-    OrigAuthGUID:    "09LMQ886...",     // From original transaction
-}
-```
+## Idempotency
 
-**Notes:**
-- Only works for unsettled transactions (same day)
-- After settlement, use refund instead
-- Amount must match original transaction
+- Use unique `TRAN_NBR` for each request
+- EPX does not provide built-in idempotency
+- **Our implementation:** Store transaction ID before EPX request, check for duplicates
 
-### BRIC Storage (CCE8)
-
-Convert Financial BRIC to Storage BRIC for recurring payments.
-
-**Request:**
-```go
-request := &ports.ServerPostRequest{
-    TransactionType: "CCE8",
-    Amount:          "0.00",            // Always $0 for tokenization
-    TranNbr:         "12350",
-    OrigAuthGUID:    "09LMQ886...",     // Financial BRIC from previous sale
-    ACIExt:          strPtr("RB"),      // Recurring billing
-    COFPeriod:       intPtr(0),         // Never expires
-}
-```
-
-**Response:**
-- `AUTH_GUID`: Storage BRIC (never expires)
-
-**COF_PERIOD Values:**
-- `0` = Never expires (recommended for subscriptions)
-- `13` = 13 months
-- `18` = 18 months
-- `24` = 24 months
-
-### Recurring Payment
-
-Sale using Storage BRIC.
-
-**Request:**
-```go
-request := &ports.ServerPostRequest{
-    TransactionType:    "CCE1",
-    Amount:             "15.00",
-    TranNbr:            "12351",
-    AuthGUID:           "09LMQ886...",  // Storage BRIC
-    CardEntryMethod:    strPtr("Z"),    // Token entry method
-    ACIExt:             strPtr("RB"),   // Recurring billing
-    OrigAuthAmount:     "15.00",        // First transaction amount
-    OrigAuthTranIdent:  "...",          // NTID from first transaction
-}
-```
-
-**Notes:**
-- Use `AUTH_GUID` (not `ORIG_AUTH_GUID`)
-- Set `CARD_ENT_METH` to `Z`
-- Include `ORIG_AUTH_TRAN_IDENT` from first transaction
-
-## Response Codes
-
-### AUTH_RESP Codes
-
-| Code | Meaning | Action |
-|------|---------|--------|
-| `00` | Approved | Process transaction |
-| `05` | Do not honor | Decline, retry different card |
-| `14` | Invalid card | Card number invalid |
-| `41` | Lost card | Decline, do not retry |
-| `43` | Stolen card | Decline, do not retry |
-| `51` | Insufficient funds | Decline, user needs to add funds |
-| `54` | Expired card | Request updated expiration |
-| `57` | Transaction not permitted | Card restricted |
-| `61` | Exceeds withdrawal limit | User exceeded daily limit |
-| `91` | Issuer unavailable | Retry later |
-
-### AVS Codes
-
-| Code | Meaning | Recommendation |
-|------|---------|----------------|
-| `Y` | Address and ZIP match | Accept |
-| `Z` | ZIP matches, address no match | Accept |
-| `A` | Address matches, ZIP no match | Review |
-| `N` | Neither address nor ZIP match | Decline (fraud risk) |
-| `U` | Unavailable | Accept with caution |
-
-### CVV2 Codes
-
-| Code | Meaning | Recommendation |
-|------|---------|----------------|
-| `M` | Match | Accept |
-| `N` | No match | Decline (fraud risk) |
-| `P` | Not processed | Accept with caution |
-| `U` | Unavailable | Accept with caution |
-
-## Error Handling
-
-### HTTP Response Codes
-
-| Code | Meaning | Action |
-|------|---------|--------|
-| 200 | Success | Parse XML response |
-| 400 | Bad request | Check request formatting |
-| 401 | Unauthorized | Verify credentials |
-| 500 | Server error | Retry with exponential backoff |
-
-### Common Errors
-
-**"Invalid TRAN_NBR[LEN]"**
-- TRAN_NBR too long
-- Keep to 5-10 digits
-- Use: `time.Now().Unix() % 100000`
-
-**"Duplicate TRAN_NBR"**
-- TRAN_NBR must be unique per transaction
-- Generate new number for retries
-
-**"Invalid AMOUNT format"**
-- Must be decimal format: `10.00`
-- No currency symbols
-- Maximum 2 decimal places
-
-**"Missing required field"**
-- Check all required fields present
-- Verify field names match API exactly
-
-## Best Practices
-
-### TRAN_NBR Generation
-
-```go
-// Generate unique 5-digit transaction number
-tranNbr := fmt.Sprintf("%d", time.Now().Unix() % 100000)
-
-// For high volume, add randomness
-tranNbr := fmt.Sprintf("%d%d", time.Now().Unix() % 10000, rand.Intn(10))
-```
-
-### BRIC Token Lifecycle
-
-```
-1. Sale (CCE1)
-   → Returns Financial BRIC (13-month expiry)
-
-2. Convert to Storage BRIC (CCE8)
-   → Returns Storage BRIC (never expires)
-
-3. Use for Recurring Payments (CCE1 with AUTH_GUID)
-   → Creates new Financial BRIC each time
-```
-
-### Idempotency
-
-- Store `AUTH_GUID` immediately after successful transaction
-- Use `TRAN_NBR` to prevent duplicate transactions
-- Check for duplicate before processing
-
-### Security
-
-- Never log full card numbers
-- Store only BRIC tokens, never raw card data
-- Use HTTPS for all requests
-- Validate CVV and AVS results
-- Implement fraud detection rules
-
-### Error Handling
-
-```go
-switch response.AuthResp {
-case "00":
-    // Approved - process order
-    saveTransaction(response)
-case "05", "51", "61":
-    // Soft decline - prompt for different card
-    return ErrPaymentDeclined
-case "41", "43":
-    // Hard decline - do not retry
-    return ErrCardRestricted
-case "91":
-    // Temporary issue - retry with backoff
-    return ErrTemporaryFailure
-default:
-    // Unknown error - review logs
-    return ErrUnknownResponse
-}
-```
-
-### Rate Limiting
-
-- EPX sandbox: ~2 requests/second
-- Production: Contact EPX for limits
-- Implement exponential backoff for retries
+---
 
 ## Testing
 
-### Test Cards
+### Test Credit Cards (Sandbox Only)
 
-| Card | Number | Exp | CVV | AVS ZIP | Expected |
-|------|--------|-----|-----|---------|----------|
-| Visa | 4111111111111111 | Any future | 123 | Any | Approved |
-| Mastercard | 5499740000000057 | Any future | 123 | Any | Approved |
-| Amex | 371449635398431 | Any future | 1234 | Any | Approved |
-| Discover | 6011000991001201 | Any future | 123 | Any | Approved |
-| Decline | 4000000000000002 | Any future | 123 | Any | Declined |
+| Card Number | Brand | Result |
+|-------------|-------|--------|
+| `4111111111111111` | Visa | Approved (00) |
+| `5499740000000057` | Mastercard | Approved (00) |
+| `340000000000009` | Amex | Approved (00) |
+| `4000300011112220` | Visa | Declined (05) |
 
-### Test Workflow
+### Test ACH Accounts (Sandbox Only)
 
-```bash
-# 1. Sale
-curl -X POST https://secure.epxuap.com/xml \
-  -d "TRAN_TYPE=CCE1&AMOUNT=10.00&TRAN_NBR=12345..."
+| Account | Routing | Result |
+|---------|---------|--------|
+| Any valid 10-12 digits | `021000021` | Approved |
+| Any | `000000000` | Declined |
 
-# 2. Convert to Storage BRIC
-curl -X POST https://secure.epxuap.com/xml \
-  -d "TRAN_TYPE=CCE8&AMOUNT=0.00&ORIG_AUTH_GUID=..."
+---
 
-# 3. Recurring payment
-curl -X POST https://secure.epxuap.com/xml \
-  -d "TRAN_TYPE=CCE1&AMOUNT=15.00&AUTH_GUID=..."
-```
+## Chargeback Management (North API)
 
-## References
+**Note:** We integrate with North Payment Solutions for chargeback/dispute management.
 
-- EPX Developer Portal: Contact EPX support
-- Card network rules: Visa, Mastercard, Amex documentation
-- PCI DSS compliance: https://pcisecuritystandards.org
-- Implementation: `internal/adapters/epx/server_post_adapter.go`
+### Read-Only Operations
+- `SearchDisputes` - List/filter chargebacks
+- `GetChargeback` - Retrieve chargeback details
+
+### Response via Portal
+- Merchants must respond to chargebacks through North's web portal
+- North API does not provide write operations for dispute responses
+
+### Chargeback Statuses
+- `new` - Just received
+- `pending` - Under review
+- `responded` - Merchant submitted response
+- `won` - Merchant prevailed
+- `lost` - Chargeback upheld
+- `accepted` - Merchant accepted liability
+
+---
+
+## Error Handling Best Practices
+
+### Retry Strategy
+
+**Retryable (with backoff):**
+- `51` - Insufficient funds (retry after 60s)
+- `61` - Exceeds limit (retry next day)
+- `91` - Issuer unavailable (exponential backoff: 2s, 4s, 8s, 16s)
+
+**Non-Retryable:**
+- `05` - Do not honor (card restricted)
+- `14` - Invalid card (fix data)
+- `41`/`43` - Lost/stolen card
+- Any `00`/`85` - Already approved
+
+### Timeout Recommendations
+- Connection timeout: 10 seconds
+- Read timeout: 30 seconds
+- Max retries: 3 (for retryable errors only)
+
+---
+
+## Related Documentation
+
+- **[Payment CLI](PAYMENT_CLI.md)** - Setting up merchants and credentials
+- **[Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md)** - PCI-compliant integration
+- **[API Specs](API_SPECS.md)** - ConnectRPC/gRPC payment service APIs
+- **EPX Official Docs** (in supplemental-resources/):
+  - EPX API - Server Post.pdf
+  - EPX API - Browser Post.pdf
+  - EPX Data Dictionary.pdf
+  - EPX Reference - BRICs.pdf
+
+---
+
+**Last Updated:** 2025-11-22
+**Based on:** Payment Service codebase analysis
