@@ -3,6 +3,7 @@ package merchant
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -96,12 +97,27 @@ func (c *MerchantCredentialCache) Get(ctx context.Context, merchantID uuid.UUID)
 	// Fast path: check cache
 	if val, ok := c.cache.Load(merchantID); ok {
 		cached := val.(*CachedCredential)
-		cached.mu.RLock()
-		defer cached.mu.RUnlock()
 
-		// Check if still valid
-		if time.Now().Before(cached.expiresAt) {
-			// Update access time for LRU
+		// CRITICAL FIX: Hold lock during entire validity check to prevent TOCTOU race
+		// Another goroutine could invalidate between Load() and RLock()
+		cached.mu.RLock()
+		isValid := time.Now().Before(cached.expiresAt)
+
+		// Copy data while holding lock to prevent reading stale data
+		var result *CachedCredential
+		if isValid {
+			result = &CachedCredential{
+				merchant:  cached.merchant,
+				macSecret: cached.macSecret,
+				cachedAt:  cached.cachedAt,
+				expiresAt: cached.expiresAt,
+			}
+		}
+		cached.mu.RUnlock()
+
+		// Check validity after releasing lock
+		if isValid {
+			// Update access time AFTER releasing lock to avoid contention
 			c.accessTimes.Store(merchantID, time.Now())
 
 			// Record cache hit metric (no labels to avoid allocations)
@@ -111,7 +127,7 @@ func (c *MerchantCredentialCache) Get(ctx context.Context, merchantID uuid.UUID)
 				zap.String("merchant_id", merchantID.String()),
 			)
 
-			return cached, nil
+			return result, nil
 		}
 
 		// Cache entry expired
@@ -243,14 +259,11 @@ func (c *MerchantCredentialCache) evictIfNeeded() {
 	})
 
 	// Sort by access time (oldest first)
-	// Using bubble sort for simplicity (cache is small)
-	for i := 0; i < len(entries)-1; i++ {
-		for j := 0; j < len(entries)-i-1; j++ {
-			if entries[j].accessTime.After(entries[j+1].accessTime) {
-				entries[j], entries[j+1] = entries[j+1], entries[j]
-			}
-		}
-	}
+	// PERFORMANCE FIX: Use O(n log n) sort instead of O(n²) bubble sort
+	// At 1000 merchants: ~10K comparisons vs ~1M with bubble sort
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].accessTime.Before(entries[j].accessTime)
+	})
 
 	// Evict oldest 10% or until under maxSize
 	evictCount := (size - c.maxSize) + (c.maxSize / 10) // Evict extra 10% to reduce churn

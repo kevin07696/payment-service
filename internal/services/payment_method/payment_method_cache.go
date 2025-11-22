@@ -3,6 +3,7 @@ package payment_method
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -269,13 +270,11 @@ func (c *PaymentMethodCache) evictIfNeeded() {
 	})
 
 	// Sort by access time (oldest first)
-	for i := 0; i < len(entries)-1; i++ {
-		for j := 0; j < len(entries)-i-1; j++ {
-			if entries[j].accessTime.After(entries[j+1].accessTime) {
-				entries[j], entries[j+1] = entries[j+1], entries[j]
-			}
-		}
-	}
+	// PERFORMANCE FIX: Use O(n log n) sort instead of O(n²) bubble sort
+	// At 1000 payment methods: ~10K comparisons vs ~1M with bubble sort
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].accessTime.Before(entries[j].accessTime)
+	})
 
 	// Evict oldest 10% or until under maxSize
 	evictCount := (size - c.maxSize) + (c.maxSize / 10)
