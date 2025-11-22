@@ -116,7 +116,7 @@ Content-Type: application/x-www-form-urlencoded
 
 TAC=QnJuHTpXRCsNXnxNlGyrmw==|oy5DEup7ep2hOGB37bh04OOuaPXZHTWvIhNyK6sRLTLvQfl9MAsUEy8LjcLj/w68ztkt58bes87KCvlCG4Phh0534lQG0CyQy8WCwr6CD4RnnEhER4pZYROjk8WVkjqDEsyumyE5tggdunA5neQJ/+gJUp0xfgLveVDrU6RI7biSqJa2IidbmUhZfMBRv+vP7X8zshFXzO75ZckHk2QLB749UkANj3DVfiS8AjfP1WJvIqyNB0fNtKfI1SSwiWzI/JfYkNAMxuE7fuTWvuEbiJBbJCOlo7b+DjqwKoDW1bJqgZ3h2tvopCkVzsnFr69zWSH+TX7o1cWIshMXcGzdz8cFCwb+U3zqYCwXOi0kces=&
 TRAN_NBR=2188937920&
-TRAN_GROUP=2188937920&
+TRAN_GROUP=SALE&
 AMOUNT=50.00&
 REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback&
 REDIRECT_URL_DECLINE=http://localhost:8081/api/v1/payments/browser-post/callback&
@@ -165,7 +165,7 @@ Content-Type: application/x-www-form-urlencoded
 
 TAC=4ZlUy5nB1VVmSgPsXFqViQ==|Yt5SAbrOxvvHqW7he9nzkxV0/fQkt/KIdEF8w+mLCWuo1dlWlMiRffEP9fyauo6AE/TNakeVOymXdbfpHEEPr4/4OzDSVs9KAEAlJOaAFssOMQ32dPqaDoyoDw/PsLhd7NKn0UihjjqjYQG8zAEFEC9xvAq0FZgSon+Z3eNuAbSBW4kUV4A0LlSTwX6K8hVMmdZG17iQkmqHLEFNjABzNQDgERRib6r0bQWRO0wOjBAHCzflgY1IFMUCqcHSdFqTrP9svhcjFyfVZFRiNk1a6EbEwl/so/BlJ5nlTM9DHaT5AFxSddAave7F7vw+yB2UsRYnhQMNj9eQzEVysJjdgyP8FdhmhcAt+MhchPwzrWQ=&
 TRAN_NBR=1414128065&
-TRAN_GROUP=1414128065&
+TRAN_GROUP=AUTH&
 AMOUNT=50.00&
 REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback&
 REDIRECT_URL_DECLINE=http://localhost:8081/api/v1/payments/browser-post/callback&
@@ -213,7 +213,7 @@ Content-Type: application/x-www-form-urlencoded
 
 TAC=QnJuHTpXRCsNXnxNlGyrmw==|oy5DEup7ep2hOGB37bh04OOuaPXZHTWvIhNyK6sRLTLvQfl9MAsUEy8LjcLj/w68ztkt58bes87KCvlCG4Phh0534lQG0CyQy8WCwr6CD4RnnEhER4pZYROjk8WVkjqDEsyumyE5tggdunA5neQJ/+gJUp0xfgLveVDrU6RI7biSqJa2IidbmUhZfMBRv+vP7X8zshFXzO75ZckHk2QLB749UkANj3DVfiS8AjfP1WJvIqyNB0fNtKfI1SSwiWzI/JfYkNAMxuE7fuTWvuEbiJBbJCOlo7b+DjqwKoDW1bJqgZ3h2tvopCkVzsnFr69zWSH+TX7o1cWIshMXcGzdz8cFCwb+U3zqYCwXOi0kces=&
 TRAN_NBR=3697076326&
-TRAN_GROUP=3697076326&
+TRAN_GROUP=STORAGE&
 AMOUNT=0.00&
 USER_DATA_2=00000000-0000-0000-0000-000000001001&  # Customer ID
 REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback&
