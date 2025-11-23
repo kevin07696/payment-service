@@ -222,6 +222,32 @@ func (sm *Manager) RegisterHTTPServer(name string, server interface{ Shutdown(co
 	sm.Register(name, server.Shutdown)
 }
 
+// RegisterHTTPServerWithDraining registers an HTTP server with draining support
+// First drains in-flight requests, then shuts down the server
+// This enables zero-downtime deployments by ensuring all requests complete
+func (sm *Manager) RegisterHTTPServerWithDraining(name string, server interface{ Shutdown(context.Context) error }, tracker *HTTPInFlightTracker) {
+	sm.Register(name, func(ctx context.Context) error {
+		sm.logger.Info("Draining HTTP server before shutdown",
+			zap.String("server", name),
+		)
+
+		// First, drain in-flight requests (uses same context/timeout as shutdown)
+		if err := tracker.Drain(ctx); err != nil {
+			sm.logger.Warn("HTTP server draining did not complete cleanly",
+				zap.String("server", name),
+				zap.Error(err),
+			)
+			// Continue with shutdown anyway
+		}
+
+		// Then shutdown the server (stops accepting new connections)
+		sm.logger.Info("Shutting down HTTP server",
+			zap.String("server", name),
+		)
+		return server.Shutdown(ctx)
+	})
+}
+
 // RegisterCloser is a convenience method for registering components with Close() method
 func (sm *Manager) RegisterCloser(name string, closer interface{ Close() error }) {
 	sm.Register(name, func(ctx context.Context) error {

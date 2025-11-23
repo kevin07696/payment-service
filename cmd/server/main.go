@@ -175,6 +175,11 @@ func main() {
 	// Setup separate HTTP server for cron endpoints and Browser Post callback
 	httpMux := http.NewServeMux()
 
+	// Initialize in-flight request tracking (P2-5) - Zero-downtime deployments
+	// Created early so health checks can use draining-aware wrappers
+	httpServerTracker := shutdown.NewHTTPInFlightTracker("http_server", logger)
+	connectServerTracker := shutdown.NewHTTPInFlightTracker("connect_server", logger)
+
 	// Create rate limiter (10 requests per second per IP, burst of 20)
 	// Adjust these values based on expected staging traffic
 	rateLimiter := middleware.NewRateLimiter(10, 20)
@@ -224,9 +229,11 @@ func main() {
 	httpMux.HandleFunc("/cron/audit/stats", cronAuthMiddleware(deps.auditCleanupCronHandler.Stats))
 
 	// Health endpoints (no auth required for monitoring/load balancers)
-	httpMux.HandleFunc("/cron/health", deps.billingCronHandler.HealthCheck)
-	httpMux.HandleFunc("/cron/ach/health", deps.achVerificationCronHandler.HealthCheck)
-	httpMux.HandleFunc("/cron/audit/health", deps.auditCleanupCronHandler.HealthCheck)
+	// Wrap health checks with draining awareness - returns 503 during shutdown
+	// This allows load balancers to remove instances from rotation before draining
+	httpMux.Handle("/cron/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.billingCronHandler.HealthCheck)))
+	httpMux.Handle("/cron/ach/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.achVerificationCronHandler.HealthCheck)))
+	httpMux.Handle("/cron/audit/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.auditCleanupCronHandler.HealthCheck)))
 
 	// Browser Post endpoints (with rate limiting and EPX auth for callbacks)
 	httpMux.HandleFunc("/api/v1/payments/browser-post/form",
@@ -257,8 +264,14 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.HTTPPort),
-		// Apply MaxBytesHandler for DOS protection, then security headers, compression, and rate limiting
-		Handler:           http.MaxBytesHandler(securityHeaders.Middleware(compressionMiddleware(rateLimiter.Middleware(httpMux))), maxRequestBodySize),
+		// Middleware chain (innermost to outermost):
+		// 1. httpMux (routes)
+		// 2. rateLimiter (DOS protection)
+		// 3. compressionMiddleware (gzip)
+		// 4. securityHeaders (CSP, HSTS, etc.)
+		// 5. httpServerTracker (in-flight request tracking + draining)
+		// 6. MaxBytesHandler (request size limit)
+		Handler:           http.MaxBytesHandler(httpServerTracker.Middleware(securityHeaders.Middleware(compressionMiddleware(rateLimiter.Middleware(httpMux)))), maxRequestBodySize),
 		ReadTimeout:       65 * time.Second, // Slightly longer than handler timeout (60s)
 		WriteTimeout:      65 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -270,8 +283,14 @@ func main() {
 	// This allows the server to accept gRPC, Connect, gRPC-Web, and HTTP/JSON requests
 	connectServer := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
-		// Apply MaxBytesHandler for DOS protection, then security headers and compression
-		Handler:           http.MaxBytesHandler(securityHeaders.Middleware(compressionMiddleware(h2c.NewHandler(mux, &http2.Server{}))), maxRequestBodySize),
+		// Middleware chain (innermost to outermost):
+		// 1. mux (ConnectRPC routes)
+		// 2. h2c.NewHandler (HTTP/2 cleartext)
+		// 3. compressionMiddleware (gzip)
+		// 4. securityHeaders (CSP, HSTS, etc.)
+		// 5. connectServerTracker (in-flight request tracking + draining)
+		// 6. MaxBytesHandler (request size limit)
+		Handler:           http.MaxBytesHandler(connectServerTracker.Middleware(securityHeaders.Middleware(compressionMiddleware(h2c.NewHandler(mux, &http2.Server{})))), maxRequestBodySize),
 		ReadTimeout:       65 * time.Second, // Slightly longer than handler timeout (60s)
 		WriteTimeout:      65 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -326,8 +345,10 @@ func main() {
 	}
 
 	// 3. HTTP servers (shut down first - stop accepting new requests)
-	shutdownMgr.RegisterHTTPServer("http_server", httpServer)
-	shutdownMgr.RegisterHTTPServer("connect_server", connectServer)
+	// Use draining shutdown: first drain in-flight requests, then shutdown server
+	// This enables zero-downtime deployments by completing all active requests
+	shutdownMgr.RegisterHTTPServerWithDraining("http_server", httpServer, httpServerTracker)
+	shutdownMgr.RegisterHTTPServerWithDraining("connect_server", connectServer, connectServerTracker)
 
 	logger.Info("Shutdown manager initialized - all components registered")
 
