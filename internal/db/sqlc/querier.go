@@ -91,8 +91,8 @@ type Querier interface {
 	GetAuditLogsByActor(ctx context.Context, arg GetAuditLogsByActorParams) ([]AuditLog, error)
 	GetAuditLogsByEntity(ctx context.Context, arg GetAuditLogsByEntityParams) ([]AuditLog, error)
 	GetChargebackByCaseNumber(ctx context.Context, arg GetChargebackByCaseNumberParams) (Chargeback, error)
+	GetChargebackByGroupID(ctx context.Context, groupID pgtype.UUID) (Chargeback, error)
 	GetChargebackByID(ctx context.Context, id uuid.UUID) (Chargeback, error)
-	GetChargebackByTransactionID(ctx context.Context, transactionID uuid.UUID) (Chargeback, error)
 	GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPaymentMethodParams) (CustomerPaymentMethod, error)
 	// Get a specific IP whitelist entry
 	GetIPWhitelistEntry(ctx context.Context, ipAddress netip.Addr) (EpxIpWhitelist, error)

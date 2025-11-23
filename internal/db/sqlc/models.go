@@ -55,9 +55,225 @@ type AuditLog struct {
 	PerformedAt  pgtype.Timestamp `json:"performed_at"`
 }
 
+type AuditLogs202504 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202505 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202506 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202507 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202508 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202509 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202510 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202511 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202512 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202601 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202602 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
+type AuditLogs202603 struct {
+	ID           pgtype.UUID      `json:"id"`
+	ActorType    pgtype.Text      `json:"actor_type"`
+	ActorID      pgtype.Text      `json:"actor_id"`
+	ActorName    pgtype.Text      `json:"actor_name"`
+	Action       string           `json:"action"`
+	EntityType   pgtype.Text      `json:"entity_type"`
+	EntityID     pgtype.Text      `json:"entity_id"`
+	Changes      []byte           `json:"changes"`
+	Metadata     []byte           `json:"metadata"`
+	IpAddress    *netip.Addr      `json:"ip_address"`
+	UserAgent    pgtype.Text      `json:"user_agent"`
+	RequestID    pgtype.Text      `json:"request_id"`
+	Success      pgtype.Bool      `json:"success"`
+	ErrorMessage pgtype.Text      `json:"error_message"`
+	PerformedAt  pgtype.Timestamp `json:"performed_at"`
+}
+
 type Chargeback struct {
 	ID                  uuid.UUID          `json:"id"`
-	TransactionID       uuid.UUID          `json:"transaction_id"`
+	GroupID             pgtype.UUID        `json:"group_id"`
 	AgentID             string             `json:"agent_id"`
 	CustomerID          pgtype.Text        `json:"customer_id"`
 	CaseNumber          string             `json:"case_number"`
