@@ -28,7 +28,7 @@ This guide provides a high-level roadmap for integrating with the payment servic
 **How to register:**
 Contact your payment service administrator to register your merchant account using the Payment CLI.
 
-📖 **See:** [Payment CLI Guide](PAYMENT_CLI.md) - Complete merchant registration steps
+📖 **See:** [Admin CLI Guide](ADMIN_CLI.md) - Complete merchant registration steps
 
 **You'll receive:**
 - `merchant_id` - Your unique identifier for all API requests
@@ -316,7 +316,7 @@ Before going live:
 - **Solution:** Use unique idempotency key per transaction
 
 📖 **Full troubleshooting guides:**
-- [Payment CLI](PAYMENT_CLI.md#troubleshooting) - Merchant setup issues
+- [Admin CLI](ADMIN_CLI.md#troubleshooting) - Merchant setup issues
 - [Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md#troubleshooting) - Browser Post errors
 - [EPX API Reference](EPX_API_REFERENCE.md#common-response-codes) - EPX response codes
 

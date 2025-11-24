@@ -329,7 +329,7 @@ CARD_ENT_METH=Z
 
 ## Related Documentation
 
-- **[Payment CLI](PAYMENT_CLI.md)** - Setting up merchants and credentials
+- **[Admin CLI](ADMIN_CLI.md)** - Setting up merchants and credentials
 - **[Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md)** - PCI-compliant integration
 - **[API Specs](API_SPECS.md)** - ConnectRPC/gRPC payment service APIs
 - **EPX Official Docs** (in supplemental-resources/):
