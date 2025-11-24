@@ -255,7 +255,7 @@ func (h *Handler) ListTransactions(ctx context.Context, req *paymentv1.ListTrans
 		filters.ParentTransactionID = &req.ParentTransactionId
 	}
 	if req.Status != paymentv1.TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED {
-		statusStr := protoStatusToDomain(req.Status)
+		statusStr := mapProtoStatusToDomain(req.Status)
 		filters.Status = &statusStr
 	}
 
@@ -328,7 +328,7 @@ func transactionToPaymentResponse(tx *domain.Transaction) *paymentv1.PaymentResp
 		ParentTransactionId: stringPtrToString(tx.ParentTransactionID),
 		AmountCents:         tx.AmountCents,
 		Currency:            string(tx.Currency),
-		Status:              transactionStatusToProto(tx.Status),
+		Status:              mapDomainStatusToProto(tx.Status),
 		Type:                transactionTypeToProto(tx.Type),
 		IsApproved:          tx.IsApproved(),
 		AuthorizationCode:   stringPtrToString(tx.AuthCode),
@@ -404,7 +404,7 @@ func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 		CustomerId:          stringPtrToString(tx.CustomerID),
 		AmountCents:         tx.AmountCents,
 		Currency:            string(tx.Currency),
-		Status:              transactionStatusToProto(tx.Status),
+		Status:              mapDomainStatusToProto(tx.Status),
 		Type:                transactionTypeToProto(tx.Type),
 		PaymentMethodType:   paymentMethodTypeToProto(tx.PaymentMethodType),
 		AuthorizationCode:   stringPtrToString(tx.AuthCode),
@@ -422,7 +422,7 @@ func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 	return proto
 }
 
-func transactionStatusToProto(status domain.TransactionStatus) paymentv1.TransactionStatus {
+func mapDomainStatusToProto(status domain.TransactionStatus) paymentv1.TransactionStatus {
 	switch status {
 	case domain.TransactionStatusApproved:
 		return paymentv1.TransactionStatus_TRANSACTION_STATUS_APPROVED
@@ -433,7 +433,7 @@ func transactionStatusToProto(status domain.TransactionStatus) paymentv1.Transac
 	}
 }
 
-func protoStatusToDomain(status paymentv1.TransactionStatus) string {
+func mapProtoStatusToDomain(status paymentv1.TransactionStatus) string {
 	switch status {
 	case paymentv1.TransactionStatus_TRANSACTION_STATUS_APPROVED:
 		return string(domain.TransactionStatusApproved)

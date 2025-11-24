@@ -237,7 +237,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		}
 
 		// Convert sqlc transaction to domain transaction
-		transaction = sqlcToDomain(&dbTx)
+		transaction = sqlcTransactionToDomain(&dbTx)
 		return nil
 	})
 
@@ -431,7 +431,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 			}
 		}
 
-		transaction = sqlcToDomain(&dbTx)
+		transaction = sqlcTransactionToDomain(&dbTx)
 		return nil
 	})
 
@@ -472,7 +472,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	}
 
 	// Validate transaction access
-	domainTx := sqlcToDomain(&originalTx)
+	domainTx := sqlcTransactionToDomain(&originalTx)
 	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, domainTx); err != nil {
 		return nil, err
 	}
@@ -507,7 +507,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 				zap.String("transaction_id", txID.String()),
 				zap.String("status", existingTx.Status.String),
 			)
-			return sqlcToDomain(existingTx), nil
+			return sqlcTransactionToDomain(existingTx), nil
 		}
 		// Transaction exists but auth_resp is empty - it's still pending
 		s.logger.Warn("CAPTURE transaction is pending - possible retry",
@@ -543,7 +543,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		for i, tx := range groupTxs {
 			// Convert GetTransactionTreeRow to Transaction for sqlcToDomain
 			sqlcTx := sqlc.Transaction(tx)
-			domainTxs[i] = sqlcToDomain(&sqlcTx)
+			domainTxs[i] = sqlcTransactionToDomain(&sqlcTx)
 		}
 
 		// Compute current state using WAL
@@ -604,7 +604,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	for i, tx := range groupTxsRefetch {
 		// Convert GetTransactionTreeRow to Transaction for sqlcToDomain
 		sqlcTx := sqlc.Transaction(tx)
-		domainTxsRefetch[i] = sqlcToDomain(&sqlcTx)
+		domainTxsRefetch[i] = sqlcTransactionToDomain(&sqlcTx)
 	}
 	state := ComputeGroupState(domainTxsRefetch)
 
@@ -703,7 +703,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get updated transaction: %w", err)
 	}
-	transaction = sqlcToDomain(&updatedTx)
+	transaction = sqlcTransactionToDomain(&updatedTx)
 
 	s.logger.Info("Capture completed",
 		zap.String("transaction_id", transaction.ID),
@@ -744,7 +744,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	}
 
 	// Validate access using the parent transaction
-	firstTx := sqlcToDomain(&parentTx)
+	firstTx := sqlcTransactionToDomain(&parentTx)
 	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, firstTx); err != nil {
 		return nil, err
 	}
@@ -772,7 +772,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 				zap.String("transaction_id", txID.String()),
 				zap.String("status", existingTx.Status.String),
 			)
-			return sqlcToDomain(existingTx), nil
+			return sqlcTransactionToDomain(existingTx), nil
 		}
 		// Transaction exists but auth_resp is empty - it's still pending
 		s.logger.Warn("VOID transaction is pending - possible retry",
@@ -798,7 +798,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		for i, tx := range groupTxs {
 			// Convert GetTransactionTreeRow to Transaction for sqlcToDomain
 			sqlcTx := sqlc.Transaction(tx)
-			domainTxs[i] = sqlcToDomain(&sqlcTx)
+			domainTxs[i] = sqlcTransactionToDomain(&sqlcTx)
 		}
 
 		// Compute current state using WAL
@@ -868,7 +868,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	domainTxsRefetch := make([]*domain.Transaction, len(groupTxsRefetch))
 	for i, tx := range groupTxsRefetch {
 		sqlcTx := sqlc.Transaction(tx)
-		domainTxsRefetch[i] = sqlcToDomain(&sqlcTx)
+		domainTxsRefetch[i] = sqlcTransactionToDomain(&sqlcTx)
 	}
 	state := ComputeGroupState(domainTxsRefetch)
 
@@ -964,7 +964,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	if err != nil {
 		return nil, fmt.Errorf("failed to get updated transaction: %w", err)
 	}
-	transaction = sqlcToDomain(&updatedTx)
+	transaction = sqlcTransactionToDomain(&updatedTx)
 
 	s.logger.Info("Void completed",
 		zap.String("transaction_id", transaction.ID),
@@ -1005,7 +1005,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	}
 
 	// Validate access using the parent transaction
-	firstTx := sqlcToDomain(&parentTx)
+	firstTx := sqlcTransactionToDomain(&parentTx)
 	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, firstTx); err != nil {
 		return nil, err
 	}
@@ -1042,7 +1042,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 				zap.String("transaction_id", txID.String()),
 				zap.String("status", existingTx.Status.String),
 			)
-			return sqlcToDomain(existingTx), nil
+			return sqlcTransactionToDomain(existingTx), nil
 		}
 		// Transaction exists but auth_resp is empty - it's still pending
 		// This means another request is processing it, or it failed mid-way
@@ -1069,7 +1069,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		for i, tx := range groupTxs {
 			// Convert GetTransactionTreeRow to Transaction for sqlcToDomain
 			sqlcTx := sqlc.Transaction(tx)
-			domainTxs[i] = sqlcToDomain(&sqlcTx)
+			domainTxs[i] = sqlcTransactionToDomain(&sqlcTx)
 		}
 
 		// Compute current state using WAL
@@ -1130,7 +1130,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	domainTxsRefetch := make([]*domain.Transaction, len(groupTxsRefetch))
 	for i, tx := range groupTxsRefetch {
 		sqlcTx := sqlc.Transaction(tx)
-		domainTxsRefetch[i] = sqlcToDomain(&sqlcTx)
+		domainTxsRefetch[i] = sqlcTransactionToDomain(&sqlcTx)
 	}
 	state := ComputeGroupState(domainTxsRefetch)
 
@@ -1227,7 +1227,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to get updated transaction: %w", err)
 	}
-	transaction = sqlcToDomain(&updatedTx)
+	transaction = sqlcTransactionToDomain(&updatedTx)
 
 	s.logger.Info("Refund completed",
 		zap.String("transaction_id", transaction.ID),
@@ -1255,7 +1255,7 @@ func (s *paymentService) GetTransaction(ctx context.Context, transactionID strin
 		return nil, domain.ErrTransactionNotFound
 	}
 
-	return sqlcToDomain(&dbTx), nil
+	return sqlcTransactionToDomain(&dbTx), nil
 }
 
 // GetTransactionByIdempotencyKey retrieves a transaction by idempotency key
@@ -1276,7 +1276,7 @@ func (s *paymentService) GetTransactionByIdempotencyKey(ctx context.Context, key
 		return nil, domain.ErrTransactionNotFound
 	}
 
-	return sqlcToDomain(&dbTx), nil
+	return sqlcTransactionToDomain(&dbTx), nil
 }
 
 // ListTransactions lists transactions with filters using sqlc
@@ -1335,7 +1335,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 
 	transactions := make([]*domain.Transaction, len(dbTxs))
 	for i, dbTx := range dbTxs {
-		transactions[i] = sqlcToDomain(&dbTx)
+		transactions[i] = sqlcTransactionToDomain(&dbTx)
 	}
 
 	return transactions, int(count), nil
@@ -1357,7 +1357,7 @@ func (s *paymentService) GetTransactionsByGroup(ctx context.Context, parentTrans
 	transactions := make([]*domain.Transaction, len(groupTxs))
 	for i, tx := range groupTxs {
 		sqlcTx := sqlc.Transaction(tx)
-		transactions[i] = sqlcToDomain(&sqlcTx)
+		transactions[i] = sqlcTransactionToDomain(&sqlcTx)
 	}
 
 	return transactions, nil
@@ -1378,7 +1378,7 @@ func isUniqueViolation(err error) bool {
 
 // Helper functions to convert between sqlc and domain models
 
-func sqlcToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
+func sqlcTransactionToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
 	var parentTxID *string
 	if dbTx.ParentTransactionID.Valid {
 		id := uuid.UUID(dbTx.ParentTransactionID.Bytes).String()

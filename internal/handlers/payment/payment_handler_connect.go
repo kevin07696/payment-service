@@ -284,7 +284,7 @@ func (h *ConnectHandler) ListTransactions(
 		filters.ParentTransactionID = &msg.ParentTransactionId
 	}
 	if msg.Status != paymentv1.TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED {
-		statusStr := protoStatusToDomain(msg.Status)
+		statusStr := mapProtoStatusToDomain(msg.Status)
 		filters.Status = &statusStr
 	}
 

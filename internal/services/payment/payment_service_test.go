@@ -159,7 +159,7 @@ func TestSqlcToDomain_ValidTransaction(t *testing.T) {
 		Status:              pgtype.Text{String: "approved", Valid: true},
 	}
 
-	domainTx := sqlcToDomain(sqlcTx)
+	domainTx := sqlcTransactionToDomain(sqlcTx)
 
 	// Assert: Conversion is accurate
 	assert.Equal(t, txID.String(), domainTx.ID)

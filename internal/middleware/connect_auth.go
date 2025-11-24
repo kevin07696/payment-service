@@ -180,6 +180,18 @@ func (ai *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 		}
 		ctx = context.WithValue(ctx, auth.RequestIDKey, requestID)
 
+		// Extract client IP from headers
+		clientIP := extractClientIP(req.Header())
+		if clientIP != "" {
+			ctx = context.WithValue(ctx, auth.ClientIPKey, clientIP)
+		}
+
+		// Extract User-Agent
+		userAgent := req.Header().Get("User-Agent")
+		if userAgent != "" {
+			ctx = context.WithValue(ctx, auth.UserAgentKey, userAgent)
+		}
+
 		// JWT authentication (for services only)
 		if authHeader := req.Header().Get("Authorization"); authHeader != "" {
 			if strings.HasPrefix(authHeader, "Bearer ") {
@@ -464,7 +476,7 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 	actorID, _ := ctx.Value(auth.ServiceIDKey).(string)
 
 	// Parse IP address from context
-	ipStr := getClientIPFromContext(ctx)
+	ipStr := auth.GetClientIP(ctx)
 	var ipAddr *netip.Addr
 	if ipStr != "" {
 		if parsed, err := netip.ParseAddr(ipStr); err == nil {
@@ -544,9 +556,27 @@ func generateRequestID() string {
 	return uuid.New().String()
 }
 
-func getClientIPFromContext(ctx context.Context) string {
-	// This would need to be set by a previous interceptor or extracted from headers
-	// For now, return empty string
+// extractClientIP extracts client IP from HTTP headers (for ConnectRPC)
+func extractClientIP(headers http.Header) string {
+	// Check X-Forwarded-For header first (standard proxy header)
+	xff := headers.Get("X-Forwarded-For")
+	if xff != "" {
+		// X-Forwarded-For can contain multiple IPs, take the first (client)
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	// Check X-Real-IP (nginx proxy header)
+	xri := headers.Get("X-Real-IP")
+	if xri != "" {
+		return xri
+	}
+
+	// ConnectRPC doesn't provide RemoteAddr in headers
+	// If neither proxy header is present, IP extraction may require
+	// additional middleware at the HTTP layer
 	return ""
 }
 

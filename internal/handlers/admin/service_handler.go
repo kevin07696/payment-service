@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/kevin07696/payment-service/internal/auth"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/middleware"
 	"github.com/kevin07696/payment-service/pkg/crypto"
@@ -360,6 +362,19 @@ func (h *ServiceHandler) auditServiceCreation(
 	// Extract auth context (service_id, actor_name, request_id from JWT)
 	actorID, actorName, requestID := middleware.ExtractAuthContext(ctx)
 
+	// Extract HTTP metadata from context
+	var ipAddr *netip.Addr
+	if clientIP := auth.GetClientIP(ctx); clientIP != "" {
+		if parsed, err := netip.ParseAddr(clientIP); err == nil {
+			ipAddr = &parsed
+		}
+	}
+
+	var userAgent pgtype.Text
+	if ua := auth.GetUserAgent(ctx); ua != "" {
+		userAgent = pgtype.Text{String: ua, Valid: true}
+	}
+
 	// Build metadata JSON
 	metadata := map[string]interface{}{
 		"service_name":           service.ServiceName,
@@ -375,19 +390,19 @@ func (h *ServiceHandler) auditServiceCreation(
 
 	// Create audit log entry
 	return h.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
-		ID:         pgtype.UUID{Bytes: uuid.New(), Valid: true},
-		ActorType:  pgtype.Text{String: "service", Valid: true},
-		ActorID:    actorID,
-		ActorName:  actorName,
-		Action:     "service.created",
-		EntityType: pgtype.Text{String: "service", Valid: true},
-		EntityID:   pgtype.Text{String: service.ID.String(), Valid: true},
-		Changes:    nil, // No previous state for creation
-		Metadata:   metadataJSON,
-		IpAddress:  nil,       // TODO: Extract from HTTP request (requires HTTP interceptor)
-		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from HTTP headers (requires HTTP interceptor)
-		RequestID:  requestID, // From JWT middleware
-		Success:    pgtype.Bool{Bool: true, Valid: true},
+		ID:           pgtype.UUID{Bytes: uuid.New(), Valid: true},
+		ActorType:    pgtype.Text{String: "service", Valid: true},
+		ActorID:      actorID,
+		ActorName:    actorName,
+		Action:       "service.created",
+		EntityType:   pgtype.Text{String: "service", Valid: true},
+		EntityID:     pgtype.Text{String: service.ID.String(), Valid: true},
+		Changes:      nil, // No previous state for creation
+		Metadata:     metadataJSON,
+		IpAddress:    ipAddr,
+		UserAgent:    userAgent,
+		RequestID:    requestID, // From JWT middleware
+		Success:      pgtype.Bool{Bool: true, Valid: true},
 		ErrorMessage: pgtype.Text{Valid: false},
 	})
 }
@@ -401,6 +416,19 @@ func (h *ServiceHandler) auditKeyRotation(
 ) error {
 	// Extract auth context (service_id, actor_name, request_id from JWT)
 	actorID, actorName, requestID := middleware.ExtractAuthContext(ctx)
+
+	// Extract HTTP metadata from context
+	var ipAddr *netip.Addr
+	if clientIP := auth.GetClientIP(ctx); clientIP != "" {
+		if parsed, err := netip.ParseAddr(clientIP); err == nil {
+			ipAddr = &parsed
+		}
+	}
+
+	var userAgent pgtype.Text
+	if ua := auth.GetUserAgent(ctx); ua != "" {
+		userAgent = pgtype.Text{String: ua, Valid: true}
+	}
 
 	// Build changes JSON (before/after)
 	changes := map[string]interface{}{
@@ -431,19 +459,19 @@ func (h *ServiceHandler) auditKeyRotation(
 
 	// Create audit log entry
 	return h.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
-		ID:         pgtype.UUID{Bytes: uuid.New(), Valid: true},
-		ActorType:  pgtype.Text{String: "service", Valid: true},
-		ActorID:    actorID,
-		ActorName:  actorName,
-		Action:     "service.key_rotated",
-		EntityType: pgtype.Text{String: "service", Valid: true},
-		EntityID:   pgtype.Text{String: service.ID.String(), Valid: true},
-		Changes:    changesJSON,
-		Metadata:   metadataJSON,
-		IpAddress:  nil,       // TODO: Extract from HTTP request (requires HTTP interceptor)
-		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from HTTP headers (requires HTTP interceptor)
-		RequestID:  requestID, // From JWT middleware
-		Success:    pgtype.Bool{Bool: true, Valid: true},
+		ID:           pgtype.UUID{Bytes: uuid.New(), Valid: true},
+		ActorType:    pgtype.Text{String: "service", Valid: true},
+		ActorID:      actorID,
+		ActorName:    actorName,
+		Action:       "service.key_rotated",
+		EntityType:   pgtype.Text{String: "service", Valid: true},
+		EntityID:     pgtype.Text{String: service.ID.String(), Valid: true},
+		Changes:      changesJSON,
+		Metadata:     metadataJSON,
+		IpAddress:    ipAddr,
+		UserAgent:    userAgent,
+		RequestID:    requestID, // From JWT middleware
+		Success:      pgtype.Bool{Bool: true, Valid: true},
 		ErrorMessage: pgtype.Text{Valid: false},
 	})
 }
@@ -456,6 +484,19 @@ func (h *ServiceHandler) auditServiceDeactivation(
 ) error {
 	// Extract auth context (service_id, actor_name, request_id from JWT)
 	actorID, actorName, requestID := middleware.ExtractAuthContext(ctx)
+
+	// Extract HTTP metadata from context
+	var ipAddr *netip.Addr
+	if clientIP := auth.GetClientIP(ctx); clientIP != "" {
+		if parsed, err := netip.ParseAddr(clientIP); err == nil {
+			ipAddr = &parsed
+		}
+	}
+
+	var userAgent pgtype.Text
+	if ua := auth.GetUserAgent(ctx); ua != "" {
+		userAgent = pgtype.Text{String: ua, Valid: true}
+	}
 
 	// Build changes JSON (before/after)
 	changes := map[string]interface{}{
@@ -486,18 +527,18 @@ func (h *ServiceHandler) auditServiceDeactivation(
 
 	// Create audit log entry
 	return h.queries.CreateAuditLog(ctx, sqlc.CreateAuditLogParams{
-		ID:         pgtype.UUID{Bytes: uuid.New(), Valid: true},
-		ActorType:  pgtype.Text{String: "service", Valid: true},
-		ActorID:    actorID,
-		ActorName:  actorName,
-		Action:     "service.deactivated",
-		EntityType: pgtype.Text{String: "service", Valid: true},
-		EntityID:   pgtype.Text{String: service.ID.String(), Valid: true},
-		Changes:    changesJSON,
-		Metadata:   metadataJSON,
-		IpAddress:  nil,       // TODO: Extract from HTTP request (requires HTTP interceptor)
-		UserAgent:  pgtype.Text{Valid: false}, // TODO: Extract from HTTP headers (requires HTTP interceptor)
-		RequestID:  requestID, // From JWT middleware
+		ID:           pgtype.UUID{Bytes: uuid.New(), Valid: true},
+		ActorType:    pgtype.Text{String: "service", Valid: true},
+		ActorID:      actorID,
+		ActorName:    actorName,
+		Action:       "service.deactivated",
+		EntityType:   pgtype.Text{String: "service", Valid: true},
+		EntityID:     pgtype.Text{String: service.ID.String(), Valid: true},
+		Changes:      changesJSON,
+		Metadata:     metadataJSON,
+		IpAddress:    ipAddr,
+		UserAgent:    userAgent,
+		RequestID:    requestID, // From JWT middleware
 		Success:    pgtype.Bool{Bool: true, Valid: true},
 		ErrorMessage: pgtype.Text{Valid: false},
 	})

@@ -18,6 +18,7 @@ var (
 	TokenJTIKey     = contextKey{"token_jti"}
 	RequestIDKey    = contextKey{"request_id"}
 	ClientIPKey     = contextKey{"client_ip"}
+	UserAgentKey    = contextKey{"user_agent"}
 	ScopesKey       = contextKey{"scopes"}
 	EnvironmentKey  = contextKey{"environment"}
 )
@@ -42,6 +43,7 @@ type AuthInfo struct {
 	TokenJTI     string
 	RequestID    string
 	ClientIP     string
+	UserAgent    string
 	Scopes       []string
 	Environment  string
 }
@@ -83,6 +85,10 @@ func GetAuthInfo(ctx context.Context) *AuthInfo {
 
 	if clientIP, ok := ctx.Value(ClientIPKey).(string); ok {
 		info.ClientIP = clientIP
+	}
+
+	if userAgent, ok := ctx.Value(UserAgentKey).(string); ok {
+		info.UserAgent = userAgent
 	}
 
 	// Extract scopes
@@ -202,6 +208,10 @@ func WithAuth(ctx context.Context, info *AuthInfo) context.Context {
 		ctx = context.WithValue(ctx, ClientIPKey, info.ClientIP)
 	}
 
+	if info.UserAgent != "" {
+		ctx = context.WithValue(ctx, UserAgentKey, info.UserAgent)
+	}
+
 	if len(info.Scopes) > 0 {
 		ctx = context.WithValue(ctx, ScopesKey, info.Scopes)
 	}
@@ -252,4 +262,10 @@ func GetRequestID(ctx context.Context) string {
 func GetClientIP(ctx context.Context) string {
 	clientIP, _ := ctx.Value(ClientIPKey).(string)
 	return clientIP
+}
+
+// GetUserAgent safely extracts the user agent from the context
+func GetUserAgent(ctx context.Context) string {
+	userAgent, _ := ctx.Value(UserAgentKey).(string)
+	return userAgent
 }
