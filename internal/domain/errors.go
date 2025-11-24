@@ -27,6 +27,10 @@ const (
 	ErrorCodeTxnAlreadyProcessed ErrorCode = "TXN_ALREADY_PROCESSED"
 	ErrorCodeTxnAmountMismatch   ErrorCode = "TXN_AMOUNT_MISMATCH"
 	ErrorCodeTxnProcessingFailed ErrorCode = "TXN_PROCESSING_FAILED"
+	ErrorCodeTxnCannotBeVoided   ErrorCode = "TXN_CANNOT_BE_VOIDED"
+	ErrorCodeTxnCannotBeCaptured ErrorCode = "TXN_CANNOT_BE_CAPTURED"
+	ErrorCodeTxnCannotBeRefunded ErrorCode = "TXN_CANNOT_BE_REFUNDED"
+	ErrorCodeTxnInvalidAmount    ErrorCode = "TXN_INVALID_AMOUNT"
 
 	// Payment Method Errors (PM_*)
 	ErrorCodePMNotFound        ErrorCode = "PM_NOT_FOUND"
@@ -34,20 +38,43 @@ const (
 	ErrorCodePMInvalid         ErrorCode = "PM_INVALID"
 	ErrorCodePMExpired         ErrorCode = "PM_EXPIRED"
 	ErrorCodePMNotVerified     ErrorCode = "PM_NOT_VERIFIED"
+	ErrorCodePMInactive        ErrorCode = "PM_INACTIVE"
+	ErrorCodePMInvalidType     ErrorCode = "PM_INVALID_TYPE"
 	ErrorCodePMInsufficientACH ErrorCode = "PM_INSUFFICIENT_ACH_VERIFICATIONS"
 
 	// Customer Errors (CUSTOMER_*)
 	ErrorCodeCustomerNotFound ErrorCode = "CUSTOMER_NOT_FOUND"
 
+	// Subscription Errors (SUBSCRIPTION_*)
+	ErrorCodeSubscriptionNotFound         ErrorCode = "SUBSCRIPTION_NOT_FOUND"
+	ErrorCodeSubscriptionNotActive        ErrorCode = "SUBSCRIPTION_NOT_ACTIVE"
+	ErrorCodeSubscriptionAlreadyCancelled ErrorCode = "SUBSCRIPTION_ALREADY_CANCELLED"
+	ErrorCodeSubscriptionInvalidInterval  ErrorCode = "SUBSCRIPTION_INVALID_INTERVAL"
+	ErrorCodeSubscriptionMaxRetries       ErrorCode = "SUBSCRIPTION_MAX_RETRIES_EXCEEDED"
+
+	// Chargeback Errors (CHARGEBACK_*)
+	ErrorCodeChargebackNotFound        ErrorCode = "CHARGEBACK_NOT_FOUND"
+	ErrorCodeChargebackCannotRespond   ErrorCode = "CHARGEBACK_CANNOT_RESPOND"
+	ErrorCodeChargebackAlreadyResolved ErrorCode = "CHARGEBACK_ALREADY_RESOLVED"
+	ErrorCodeChargebackInvalidStatus   ErrorCode = "CHARGEBACK_INVALID_STATUS"
+
+	// Merchant Errors (additional)
+	ErrorCodeMerchantAlreadyExists ErrorCode = "MERCHANT_ALREADY_EXISTS"
+	ErrorCodeMerchantInvalidEnv    ErrorCode = "MERCHANT_INVALID_ENVIRONMENT"
+
 	// Validation Errors (VALIDATION_*)
 	ErrorCodeValidationFailed        ErrorCode = "VALIDATION_FAILED"
 	ErrorCodeValidationAmountInvalid ErrorCode = "VALIDATION_AMOUNT_INVALID"
 	ErrorCodeValidationMissingField  ErrorCode = "VALIDATION_MISSING_FIELD"
+	ErrorCodeValidationInvalidAmount ErrorCode = "VALIDATION_INVALID_AMOUNT"
+	ErrorCodeValidationInvalidCurrency ErrorCode = "VALIDATION_INVALID_CURRENCY"
 
 	// Payment Gateway Errors (GATEWAY_*)
-	ErrorCodeGatewayError    ErrorCode = "GATEWAY_ERROR"
-	ErrorCodeGatewayTimeout  ErrorCode = "GATEWAY_TIMEOUT"
-	ErrorCodeGatewayDeclined ErrorCode = "GATEWAY_DECLINED"
+	ErrorCodeGatewayError        ErrorCode = "GATEWAY_ERROR"
+	ErrorCodeGatewayTimeout      ErrorCode = "GATEWAY_TIMEOUT"
+	ErrorCodeGatewayDeclined     ErrorCode = "GATEWAY_DECLINED"
+	ErrorCodeGatewayUnavailable  ErrorCode = "GATEWAY_UNAVAILABLE"
+	ErrorCodeGatewayInvalidResp  ErrorCode = "GATEWAY_INVALID_RESPONSE"
 
 	// Idempotency Errors (IDEMPOTENCY_*)
 	ErrorCodeIdempotencyConflict ErrorCode = "IDEMPOTENCY_CONFLICT"
@@ -170,15 +197,44 @@ var (
 	ErrMerchantInactiveTyped = NewDomainError(ErrorCodeMerchantInactive, "merchant is not active")
 	ErrMerchantRequired      = NewDomainError(ErrorCodeMerchantRequired, "merchant_id is required")
 
-	ErrTxnNotFound         = NewDomainError(ErrorCodeTxnNotFound, "transaction not found")
-	ErrTxnInvalidState     = NewDomainError(ErrorCodeTxnInvalidState, "transaction is in invalid state for this operation")
-	ErrTxnAlreadyProcessed = NewDomainError(ErrorCodeTxnAlreadyProcessed, "transaction already processed")
+	ErrTxnNotFound          = NewDomainError(ErrorCodeTxnNotFound, "transaction not found")
+	ErrTxnInvalidState      = NewDomainError(ErrorCodeTxnInvalidState, "transaction is in invalid state for this operation")
+	ErrTxnAlreadyProcessed  = NewDomainError(ErrorCodeTxnAlreadyProcessed, "transaction already processed")
+	ErrTxnCannotBeVoided    = NewDomainError(ErrorCodeTxnCannotBeVoided, "transaction cannot be voided")
+	ErrTxnCannotBeCaptured  = NewDomainError(ErrorCodeTxnCannotBeCaptured, "transaction cannot be captured")
+	ErrTxnCannotBeRefunded  = NewDomainError(ErrorCodeTxnCannotBeRefunded, "transaction cannot be refunded")
+	ErrTxnInvalidAmount     = NewDomainError(ErrorCodeTxnInvalidAmount, "invalid transaction amount")
 
 	ErrPMNotFound    = NewDomainError(ErrorCodePMNotFound, "payment method not found")
 	ErrPMRequired    = NewDomainError(ErrorCodePMRequired, "payment method required")
 	ErrPMInvalid     = NewDomainError(ErrorCodePMInvalid, "invalid payment method")
 	ErrPMExpired     = NewDomainError(ErrorCodePMExpired, "payment method has expired")
 	ErrPMNotVerified = NewDomainError(ErrorCodePMNotVerified, "ACH payment method not verified")
+	ErrPMInactive    = NewDomainError(ErrorCodePMInactive, "payment method is inactive")
+	ErrPMInvalidType = NewDomainError(ErrorCodePMInvalidType, "invalid payment method type")
+
+	ErrSubscriptionNotFound         = NewDomainError(ErrorCodeSubscriptionNotFound, "subscription not found")
+	ErrSubscriptionNotActive        = NewDomainError(ErrorCodeSubscriptionNotActive, "subscription is not active")
+	ErrSubscriptionAlreadyCancelled = NewDomainError(ErrorCodeSubscriptionAlreadyCancelled, "subscription is already cancelled")
+	ErrSubscriptionInvalidInterval  = NewDomainError(ErrorCodeSubscriptionInvalidInterval, "invalid billing interval")
+	ErrSubscriptionMaxRetries       = NewDomainError(ErrorCodeSubscriptionMaxRetries, "max billing retries exceeded")
+
+	ErrChargebackNotFound        = NewDomainError(ErrorCodeChargebackNotFound, "chargeback not found")
+	ErrChargebackCannotRespond   = NewDomainError(ErrorCodeChargebackCannotRespond, "cannot respond to chargeback (deadline passed or already responded)")
+	ErrChargebackAlreadyResolved = NewDomainError(ErrorCodeChargebackAlreadyResolved, "chargeback is already resolved")
+	ErrChargebackInvalidStatus   = NewDomainError(ErrorCodeChargebackInvalidStatus, "invalid chargeback status")
+
+	ErrMerchantAlreadyExists = NewDomainError(ErrorCodeMerchantAlreadyExists, "merchant already exists")
+	ErrMerchantInvalidEnv    = NewDomainError(ErrorCodeMerchantInvalidEnv, "invalid environment")
+
+	ErrGatewayUnavailable  = NewDomainError(ErrorCodeGatewayUnavailable, "gateway is unavailable")
+	ErrGatewayInvalidResp  = NewDomainError(ErrorCodeGatewayInvalidResp, "invalid gateway response")
+	ErrTxnDeclined         = NewDomainError(ErrorCodeGatewayDeclined, "transaction was declined by gateway")
+
+	ErrDuplicateIdempotencyKey = NewDomainError(ErrorCodeIdempotencyConflict, "duplicate idempotency key")
+
+	ErrInvalidAmount   = NewDomainError(ErrorCodeValidationInvalidAmount, "invalid amount")
+	ErrInvalidCurrency = NewDomainError(ErrorCodeValidationInvalidCurrency, "invalid currency")
 
 	ErrCustomerNotFound = NewDomainError(ErrorCodeCustomerNotFound, "customer not found")
 
@@ -196,9 +252,46 @@ var (
 	ErrDatabaseError = NewDomainError(ErrorCodeDatabaseError, "database error")
 )
 
-// Common domain errors (legacy - kept for backward compatibility)
+// Legacy sentinel errors - DEPRECATED: Use DomainError instances above instead
+// These are kept for backward compatibility but should not be used in new code
+//
+// Migration guide:
+//   ErrTransactionNotFound         -> ErrTxnNotFound
+//   ErrTransactionCannotBeVoided   -> ErrTxnCannotBeVoided
+//   ErrTransactionCannotBeCaptured -> ErrTxnCannotBeCaptured
+//   ErrTransactionCannotBeRefunded -> ErrTxnCannotBeRefunded
+//   ErrInvalidTransactionStatus    -> ErrTxnInvalidState
+//   ErrInvalidTransactionAmount    -> ErrTxnInvalidAmount
+//   ErrSubscriptionNotFound         -> (use DomainError above)
+//   ErrSubscriptionNotActive        -> (use DomainError above)
+//   ErrSubscriptionAlreadyCancelled -> (use DomainError above)
+//   ErrInvalidBillingInterval       -> ErrSubscriptionInvalidInterval
+//   ErrMaxRetriesExceeded           -> ErrSubscriptionMaxRetries
+//   ErrPaymentMethodNotFound        -> ErrPMNotFound
+//   ErrPaymentMethodExpired         -> ErrPMExpired
+//   ErrPaymentMethodNotVerified     -> ErrPMNotVerified
+//   ErrPaymentMethodInactive        -> ErrPMInactive
+//   ErrInvalidPaymentMethodType     -> ErrPMInvalidType
+//   ErrChargebackNotFound           -> (use DomainError above)
+//   ErrChargebackCannotRespond      -> (use DomainError above)
+//   ErrChargebackAlreadyResolved    -> (use DomainError above)
+//   ErrInvalidChargebackStatus      -> (use DomainError above)
+//   ErrMerchantNotFound             -> ErrMerchantNotFoundTyped
+//   ErrMerchantInactive             -> ErrMerchantInactiveTyped
+//   ErrMerchantAlreadyExists        -> (use DomainError above)
+//   ErrInvalidEnvironment           -> ErrMerchantInvalidEnv
+//   ErrGatewayTimeout               -> ErrGatewayTimedOut
+//   ErrGatewayUnavailable           -> (use DomainError above)
+//   ErrInvalidGatewayResponse       -> ErrGatewayInvalidResp
+//   ErrTransactionDeclined          -> ErrTxnDeclined
+//   ErrDuplicateIdempotencyKey      -> (use DomainError above)
+//   ErrInvalidAmount                -> (use DomainError above)
+//   ErrInvalidCurrency              -> (use DomainError above)
+//   ErrMissingRequiredField         -> ErrValidationMissingField
+//
+// TODO: Remove these after migrating all usages to DomainError
 var (
-	// Transaction errors
+	// Transaction errors - DEPRECATED
 	ErrTransactionNotFound         = errors.New("transaction not found")
 	ErrTransactionCannotBeVoided   = errors.New("transaction cannot be voided")
 	ErrTransactionCannotBeCaptured = errors.New("transaction cannot be captured")
@@ -206,43 +299,32 @@ var (
 	ErrInvalidTransactionStatus    = errors.New("invalid transaction status")
 	ErrInvalidTransactionAmount    = errors.New("invalid transaction amount")
 
-	// Subscription errors
-	ErrSubscriptionNotFound         = errors.New("subscription not found")
-	ErrSubscriptionNotActive        = errors.New("subscription is not active")
-	ErrSubscriptionAlreadyCancelled = errors.New("subscription is already cancelled")
-	ErrInvalidBillingInterval       = errors.New("invalid billing interval")
-	ErrMaxRetriesExceeded           = errors.New("max billing retries exceeded")
+	// Subscription errors - DEPRECATED
+	// Use ErrSubscriptionNotFound, ErrSubscriptionNotActive, etc. instead
+	ErrInvalidBillingInterval = errors.New("invalid billing interval")
+	ErrMaxRetriesExceeded     = errors.New("max billing retries exceeded")
 
-	// Payment method errors
+	// Payment method errors - DEPRECATED
 	ErrPaymentMethodNotFound    = errors.New("payment method not found")
 	ErrPaymentMethodExpired     = errors.New("payment method is expired")
 	ErrPaymentMethodNotVerified = errors.New("ACH payment method is not verified")
 	ErrPaymentMethodInactive    = errors.New("payment method is inactive")
 	ErrInvalidPaymentMethodType = errors.New("invalid payment method type")
 
-	// Chargeback errors
-	ErrChargebackNotFound        = errors.New("chargeback not found")
-	ErrChargebackCannotRespond   = errors.New("cannot respond to chargeback (deadline passed or already responded)")
-	ErrChargebackAlreadyResolved = errors.New("chargeback is already resolved")
-	ErrInvalidChargebackStatus   = errors.New("invalid chargeback status")
+	// Chargeback errors - DEPRECATED
+	// Chargebacks now use DomainError instances (see lines 222-225)
+	ErrInvalidChargebackStatus = errors.New("invalid chargeback status")
 
-	// Merchant errors
-	ErrMerchantNotFound      = errors.New("merchant not found")
-	ErrMerchantInactive      = errors.New("merchant is inactive")
-	ErrMerchantAlreadyExists = errors.New("merchant already exists")
-	ErrInvalidEnvironment    = errors.New("invalid environment")
+	// Merchant errors - DEPRECATED
+	ErrMerchantNotFound   = errors.New("merchant not found")
+	ErrMerchantInactive   = errors.New("merchant is inactive")
+	ErrInvalidEnvironment = errors.New("invalid environment")
 
-	// Gateway errors
+	// Gateway errors - DEPRECATED
 	ErrGatewayTimeout         = errors.New("gateway request timed out")
-	ErrGatewayUnavailable     = errors.New("gateway is unavailable")
 	ErrInvalidGatewayResponse = errors.New("invalid gateway response")
 	ErrTransactionDeclined    = errors.New("transaction was declined by gateway")
 
-	// Idempotency errors
-	ErrDuplicateIdempotencyKey = errors.New("duplicate idempotency key")
-
-	// Validation errors
-	ErrInvalidAmount        = errors.New("invalid amount")
-	ErrInvalidCurrency      = errors.New("invalid currency")
+	// Validation errors - DEPRECATED
 	ErrMissingRequiredField = errors.New("missing required field")
 )
