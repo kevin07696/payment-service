@@ -30,7 +30,7 @@ type AdminCLI struct {
 
 func main() {
 	var (
-		dbURL    = flag.String("db", "postgres://postgres:postgres@localhost:5432/payments?sslmode=disable", "Database URL")
+		dbURL    = flag.String("db", os.Getenv("DATABASE_URL"), "Database URL")
 		action   = flag.String("action", "", "Action to perform: login, create-service, create-merchant, grant-access")
 		email    = flag.String("email", "", "Admin email for login")
 		jsonFile = flag.String("json", "", "JSON file with service/merchant details")

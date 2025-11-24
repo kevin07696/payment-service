@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2025-11-24 - Environment Variables) 🔧
+
+**Admin CLI - Use DATABASE_URL from Environment**
+
+Removed hardcoded database URL default in favor of environment variable:
+- `cmd/admin/main.go:33` - Changed default from hardcoded string to `os.Getenv("DATABASE_URL")`
+- `.env.example:27-29` - Added DATABASE_URL with format documentation
+
+**Before:**
+```go
+dbURL = flag.String("db", "postgres://postgres:postgres@localhost:5432/payments?sslmode=disable", ...)
+```
+
+**After:**
+```go
+dbURL = flag.String("db", os.Getenv("DATABASE_URL"), ...)
+```
+
+**Usage:**
+```bash
+# Set environment variable
+export DATABASE_URL="postgres://postgres:your_password@localhost:5432/payment_service?sslmode=disable"
+
+# Run without -db flag
+./admin -action=create-service
+
+# Or override with -db flag
+./admin -action=create-service -db="postgres://..."
+```
+
 ### Changed (2025-11-24 - CLI Simplification) ♻️
 
 **Admin CLI Documentation Update**
