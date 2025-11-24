@@ -18,10 +18,12 @@ type BrowserPostFormData struct {
 	TranNbr   string // Unique transaction number (matches TAC request)
 	TranGroup string // EPX transaction classification: SALE, AUTH, VOID, REFUND, PRENOTE, STORAGE, etc.
 
+	// Industry type (required for EPX certification)
+	IndustryType string // E = Ecommerce, RE = Retail
+
 	// Redirect URLs
-	RedirectURL        string // Success redirect URL
-	RedirectURLDecline string // Decline redirect URL (optional)
-	RedirectURLError   string // Error redirect URL (optional)
+	RedirectURL         string // Success redirect URL
+	InvalidRedirectURL  string // Invalid/error redirect URL (optional, replaces DECLINE/ERROR)
 
 	// Optional fields for display
 	MerchantName string            // Merchant display name

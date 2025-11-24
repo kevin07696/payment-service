@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-11-24 - EPX Certification Issues) ✅
+
+**KeyExchange INDUSTRY_TYPE=E Support**
+
+Added INDUSTRY_TYPE field to KeyExchange requests per EPX certification requirements:
+- `internal/adapters/ports/key_exchange.go:26` - Added IndustryType field to KeyExchangeRequest struct
+- `internal/adapters/epx/key_exchange_adapter.go:240-243` - Include INDUSTRY_TYPE in form data
+- `internal/handlers/payment/browser_post_callback_handler.go:253` - Set IndustryType="E" for ecommerce
+
+**BrowserPost INDUSTRY_TYPE=E Support**
+
+Added INDUSTRY_TYPE field to BrowserPost form data per EPX certification requirements:
+- `internal/adapters/ports/browser_post.go:21-22` - Added IndustryType field to BrowserPostFormData struct
+- `internal/adapters/epx/browser_post_adapter.go:96` - Set IndustryType="E" in BuildFormData()
+
+**BrowserPost Redirect URL Fields Fixed**
+
+Replaced invalid REDIRECT_URL_DECLINE/ERROR with INVALID_REDIRECT_URL per EPX requirements:
+- `internal/adapters/ports/browser_post.go:25-26` - Replaced RedirectURLDecline/Error with InvalidRedirectURL
+- `internal/adapters/epx/browser_post_adapter.go:98` - Use InvalidRedirectURL field
+- `examples/browser_post_form.html:207` - Added INVALID_REDIRECT_URL hidden field
+
+**BrowserPost Form Address Fields Added**
+
+Added billing address fields to BrowserPost form per EPX certification requirements:
+- `examples/browser_post_form.html:164-183` - Added ADDRESS, CITY, STATE, ZIP_CODE input fields
+- `examples/browser_post_form.html:202-205` - Added address hidden fields for EPX submission
+- `examples/browser_post_form.html:241-244` - Capture address values from form
+- `examples/browser_post_form.html:283-286` - Populate address hidden fields before submission
+
+**Impact:**
+- EPX Key Exchange requests now include INDUSTRY_TYPE=E for ecommerce transactions
+- EPX Browser Post forms now include INDUSTRY_TYPE=E for ecommerce transactions
+- Browser Post forms use correct INVALID_REDIRECT_URL field instead of invalid DECLINE/ERROR fields
+- Browser Post forms now collect and submit billing address for AVS verification
+- Addresses 4 of 6 EPX certification issues (2 were already fixed)
+
+**Testing:**
+- ✅ All EPX adapter tests pass (56 tests)
+- ✅ go build successful
+- ✅ go vet clean
+
 ### Added (2025-11-24 - EPX Certification Analysis) 📋
 
 **EPX Certification Issues Report**

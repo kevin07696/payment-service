@@ -240,16 +240,17 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 	// Call EPX Key Exchange to get TAC (do this before idempotency check - we need fresh TAC regardless)
 	// EPX accepts full transaction type strings as TRAN_GROUP: SALE, AUTH, STORAGE
 	keyExchangeReq := &ports.KeyExchangeRequest{
-		MerchantID:  merchantID.String(),
-		CustNbr:     merchant.CustNbr,
-		MerchNbr:    merchant.MerchNbr,
-		DBAnbr:      merchant.DbaNbr,
-		TerminalNbr: merchant.TerminalNbr,
-		MAC:         macSecret.Value, // Merchant-specific MAC from secret manager
-		Amount:      amountStr,
-		TranNbr:     epxTranNbr,      // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:   transactionType, // SALE, AUTH, or STORAGE (full string, not code)
-		RedirectURL: redirectURL,     // Include transaction_id in redirect URL
+		MerchantID:   merchantID.String(),
+		CustNbr:      merchant.CustNbr,
+		MerchNbr:     merchant.MerchNbr,
+		DBAnbr:       merchant.DbaNbr,
+		TerminalNbr:  merchant.TerminalNbr,
+		MAC:          macSecret.Value, // Merchant-specific MAC from secret manager
+		Amount:       amountStr,
+		TranNbr:      epxTranNbr,      // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:    transactionType, // SALE, AUTH, or STORAGE (full string, not code)
+		RedirectURL:  redirectURL,     // Include transaction_id in redirect URL
+		IndustryType: "E",             // Ecommerce (required for EPX certification)
 	}
 
 	keyExchangeResp, err := h.keyExchangeAdapter.GetTAC(r.Context(), keyExchangeReq)

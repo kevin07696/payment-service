@@ -22,6 +22,9 @@ type KeyExchangeRequest struct {
 	TranGroup   string // EPX transaction classification: SALE, AUTH, VOID, REFUND, PRENOTE, STORAGE, etc.
 	RedirectURL string // URL where EPX will redirect after payment
 
+	// Industry type (required by EPX for certification)
+	IndustryType string // E = Ecommerce, RE = Retail
+
 	// Optional fields
 	CustomerID string            // Our internal customer ID (optional)
 	Metadata   map[string]string // Additional metadata (optional)

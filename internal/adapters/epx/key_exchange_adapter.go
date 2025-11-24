@@ -237,6 +237,11 @@ func (a *keyExchangeAdapter) buildFormData(req *ports.KeyExchangeRequest) url.Va
 	data.Set("TRAN_GROUP", tranGroup) // Must be full string: SALE, AUTH, or STORAGE
 	data.Set("REDIRECT_URL", req.RedirectURL)
 
+	// Industry type (required for EPX certification)
+	if req.IndustryType != "" {
+		data.Set("INDUSTRY_TYPE", req.IndustryType)
+	}
+
 	// Optional fields
 	if req.CustomerID != "" {
 		data.Set("CUSTOMER_ID", req.CustomerID)

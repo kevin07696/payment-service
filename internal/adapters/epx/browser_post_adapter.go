@@ -88,15 +88,14 @@ func (a *browserPostAdapter) BuildFormData(tac, amount, tranNbr, tranGroup, redi
 	)
 
 	return &ports.BrowserPostFormData{
-		PostURL:     a.config.PostURL,
-		TAC:         tac,
-		Amount:      amount,
-		TranNbr:     tranNbr,
-		TranGroup:   tranGroup,
-		RedirectURL: redirectURL,
-		// Optional redirect URLs for decline/error (can be same as success URL)
-		RedirectURLDecline: redirectURL,
-		RedirectURLError:   redirectURL,
+		PostURL:            a.config.PostURL,
+		TAC:                tac,
+		Amount:             amount,
+		TranNbr:            tranNbr,
+		TranGroup:          tranGroup,
+		IndustryType:       "E", // Ecommerce (required for EPX certification)
+		RedirectURL:        redirectURL,
+		InvalidRedirectURL: redirectURL, // Use INVALID_REDIRECT_URL per EPX requirements
 		MerchantName:       a.config.MerchantName,
 		Metadata:           make(map[string]string),
 	}, nil

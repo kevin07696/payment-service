@@ -161,6 +161,27 @@
             </div>
         </div>
 
+        <div class="form-group">
+            <label for="address">Billing Address</label>
+            <input type="text" id="address" placeholder="123 Main St">
+        </div>
+
+        <div class="card-row">
+            <div class="form-group">
+                <label for="city">City</label>
+                <input type="text" id="city" placeholder="New York">
+            </div>
+            <div class="form-group">
+                <label for="state">State</label>
+                <input type="text" id="state" placeholder="NY" maxlength="2">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="zipCode">ZIP Code</label>
+            <input type="text" id="zipCode" placeholder="10001" maxlength="10">
+        </div>
+
         <button id="submitBtn" onclick="processPayment()">Process Payment</button>
 
         <div id="status"></div>
@@ -178,7 +199,12 @@
             <input type="hidden" name="CARD_NBR" id="cardNbrHidden">
             <input type="hidden" name="EXP_DATE" id="expDateHidden">
             <input type="hidden" name="CVV" id="cvvHidden">
+            <input type="hidden" name="ADDRESS" id="addressHidden">
+            <input type="hidden" name="CITY" id="cityHidden">
+            <input type="hidden" name="STATE" id="stateHidden">
+            <input type="hidden" name="ZIP_CODE" id="zipCodeHidden">
             <input type="hidden" name="REDIRECT_URL" id="redirectUrl">
+            <input type="hidden" name="INVALID_REDIRECT_URL" id="invalidRedirectUrl">
             <input type="hidden" name="USER_DATA_1" id="userData1">
             <input type="hidden" name="USER_DATA_2" value="browser-post-manual">
             <input type="hidden" name="USER_DATA_3" id="userData3">
@@ -212,6 +238,10 @@
                 const cardNumber = document.getElementById('cardNumber').value;
                 const expDate = document.getElementById('expDate').value;
                 const cvv = document.getElementById('cvv').value;
+                const address = document.getElementById('address').value;
+                const city = document.getElementById('city').value;
+                const state = document.getElementById('state').value;
+                const zipCode = document.getElementById('zipCode').value;
 
                 // Generate transaction ID
                 const transactionId = generateUUID();
@@ -250,7 +280,12 @@
                 document.getElementById('cardNbrHidden').value = cardNumber;
                 document.getElementById('expDateHidden').value = expDate;
                 document.getElementById('cvvHidden').value = cvv;
+                document.getElementById('addressHidden').value = address;
+                document.getElementById('cityHidden').value = city;
+                document.getElementById('stateHidden').value = state;
+                document.getElementById('zipCodeHidden').value = zipCode;
                 document.getElementById('redirectUrl').value = returnUrl;
+                document.getElementById('invalidRedirectUrl').value = returnUrl;
                 document.getElementById('userData1').value = returnUrl;
                 document.getElementById('userData3').value = merchantId;
 
