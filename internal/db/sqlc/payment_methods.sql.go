@@ -230,7 +230,7 @@ func (q *Queries) DeletePaymentMethod(ctx context.Context, id uuid.UUID) error {
 }
 
 const findEligibleACHForVerification = `-- name: FindEligibleACHForVerification :many
-SELECT id, merchant_id, customer_id, payment_type
+SELECT id, merchant_id, customer_id, payment_type, bric
 FROM customer_payment_methods
 WHERE payment_type = 'ach'
   AND verification_status = 'pending'
@@ -250,6 +250,7 @@ type FindEligibleACHForVerificationRow struct {
 	MerchantID  uuid.UUID `json:"merchant_id"`
 	CustomerID  string    `json:"customer_id"`
 	PaymentType string    `json:"payment_type"`
+	Bric        string    `json:"bric"`
 }
 
 // Find ACH payment methods eligible for verification
@@ -267,6 +268,7 @@ func (q *Queries) FindEligibleACHForVerification(ctx context.Context, arg FindEl
 			&i.MerchantID,
 			&i.CustomerID,
 			&i.PaymentType,
+			&i.Bric,
 		); err != nil {
 			return nil, err
 		}

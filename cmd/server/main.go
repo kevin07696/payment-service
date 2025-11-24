@@ -619,6 +619,18 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	bricStorageCfg.BaseURL = cfg.EPXServerPostURL // Same as Server Post
 	bricStorage := epx.NewBRICStorageAdapter(bricStorageCfg, logger)
 
+	// Business Reporting adapter configuration (for ACH return checks)
+	businessReportingCfg := epx.DefaultBusinessReportingConfig(epxEnv)
+	businessReportingCfg.BaseURL = cfg.NorthMerchantReportingURL
+	businessReportingCfg.CustNbr = cfg.EPXCustNbr
+	businessReportingCfg.MerchNbr = cfg.EPXMerchNbr
+	businessReportingCfg.DBAnbr = cfg.EPXDBAnbr
+	businessReportingCfg.Timeout = time.Duration(cfg.NorthTimeout) * time.Second
+	// API credentials will be needed from environment if using API key auth
+	businessReportingCfg.APIKey = getEnv("EPX_API_KEY", "")
+	businessReportingCfg.APISecret = getEnv("EPX_API_SECRET", "")
+	businessReporting := epx.NewBusinessReportingAdapter(businessReportingCfg, logger)
+
 	// Initialize secret manager based on environment
 	// Supports: GCP Secret Manager (production) or Mock (development)
 	secretManager := initSecretManager(context.Background(), cfg, logger)
@@ -716,7 +728,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	// Initialize cron handlers (for HTTP endpoints)
 	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, logger, cfg.CronSecret)
 	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
-	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(queries, logger, cfg.CronSecret)
+	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(queries, businessReporting, logger, cfg.CronSecret)
 	auditCleanupCronHdlr := cronHandler.NewAuditCleanupHandler(queries, logger, cfg.CronSecret)
 	rateLimitCleanupCronHdlr := cronHandler.NewRateLimitCleanupHandler(queries, logger, cfg.CronSecret)
 

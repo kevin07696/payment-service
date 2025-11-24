@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-11-24 - ACH Prenote Verification Documentation) 🔧 **CRITICAL**
+
+**IMPORTANT: Corrected ACH Storage to Use NACHA-Compliant Prenote Verification**
+
+**Issue**: Original certification documentation showed CKC8 (instant storage) without prenote verification - NOT NACHA-compliant for recurring ACH debits.
+
+**Code Status**: ✅ Implementation was already correct (uses CKC0 prenote), only documentation needed update
+
+**Fixed in `docs/certification_sheets.md`:**
+1. **Step 1 (CKC0)**: Pre-note Debit - $0.00 verification with CARD_ENT_METH=X
+2. **Step 2 (CKC8)**: Convert Financial BRIC to Storage BRIC with CARD_ENT_METH=Z
+3. Added Technical Notes explaining prenote vs instant verification
+4. Clarified NACHA compliance requirements (1-3 business day verification)
+
+**Code References:**
+- ✅ `internal/services/payment_method/payment_method_service.go:305-308` - Uses `TransactionTypeACHPreNoteDebit` (CKC0)
+- ✅ `docs/development/ACH_BUSINESS_LOGIC.md` - Correctly documents prenote flow
+
+**Why This Matters**: NACHA requires pre-notification before recurring ACH debits. Without prenote, recurring billing is non-compliant and subject to penalties.
+
 ### Tested (2025-11-24 - EPX Certification Testing) ✅ **CERTIFICATION READY**
 
 **EPX Certification Test Results**

@@ -193,7 +193,7 @@ WHERE payment_type = 'ach'
 
 -- name: FindEligibleACHForVerification :many
 -- Find ACH payment methods eligible for verification
-SELECT id, merchant_id, customer_id, payment_type
+SELECT id, merchant_id, customer_id, payment_type, bric
 FROM customer_payment_methods
 WHERE payment_type = 'ach'
   AND verification_status = 'pending'

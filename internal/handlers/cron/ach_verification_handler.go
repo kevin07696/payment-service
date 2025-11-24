@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"go.uber.org/zap"
@@ -14,21 +16,24 @@ import (
 
 // ACHVerificationHandler handles cron job endpoints for ACH verification
 type ACHVerificationHandler struct {
-	queries    sqlc.Querier
-	logger     *zap.Logger
-	cronSecret string // Secret token for authenticating cron requests
+	queries           sqlc.Querier
+	businessReporting ports.BusinessReportingAdapter // For checking ACH returns
+	logger            *zap.Logger
+	cronSecret        string // Secret token for authenticating cron requests
 }
 
 // NewACHVerificationHandler creates a new ACH verification cron handler
 func NewACHVerificationHandler(
 	queries sqlc.Querier,
+	businessReporting ports.BusinessReportingAdapter,
 	logger *zap.Logger,
 	cronSecret string,
 ) *ACHVerificationHandler {
 	return &ACHVerificationHandler{
-		queries:    queries,
-		logger:     logger,
-		cronSecret: cronSecret,
+		queries:           queries,
+		businessReporting: businessReporting,
+		logger:            logger,
+		cronSecret:        cronSecret,
 	}
 }
 
@@ -168,8 +173,53 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 		zap.Int("verification_days", verificationDays),
 	)
 
-	// Update each payment method to verified status and activate it using sqlc
+	// Process each payment method: check for ACH returns before verification
+	var failed int
 	for _, pm := range paymentMethods {
+		// ✅ CHECK EPX FOR ACH RETURNS FIRST
+		hasReturn, returnCode, returnReason, err := h.businessReporting.CheckACHReturns(ctx, pm.Bric)
+		if err != nil {
+			h.logger.Error("Failed to check for ACH returns",
+				zap.String("payment_method_id", pm.ID.String()),
+				zap.String("bric", pm.Bric),
+				zap.Error(err),
+			)
+			errs = append(errs, fmt.Errorf("failed to check returns for %s: %w", pm.ID.String(), err))
+			skipped++
+			continue
+		}
+
+		if hasReturn {
+			// ❌ ACH RETURN DETECTED - Mark account as failed
+			h.logger.Warn("ACH return detected - marking account as failed",
+				zap.String("payment_method_id", pm.ID.String()),
+				zap.String("bric", pm.Bric),
+				zap.String("return_code", returnCode),
+				zap.String("return_reason", returnReason),
+			)
+
+			// Mark account as failed using sqlc
+			err := h.queries.MarkVerificationFailed(ctx, sqlc.MarkVerificationFailedParams{
+				ID: pm.ID,
+				FailureReason: pgtype.Text{
+					String: fmt.Sprintf("ACH Return %s: %s", returnCode, returnReason),
+					Valid:  true,
+				},
+			})
+			if err != nil {
+				h.logger.Error("Failed to mark ACH account as failed",
+					zap.String("payment_method_id", pm.ID.String()),
+					zap.Error(err),
+				)
+				errs = append(errs, fmt.Errorf("failed to mark %s as failed: %w", pm.ID.String(), err))
+				continue
+			}
+
+			failed++
+			continue
+		}
+
+		// ✅ NO RETURNS - Verify the account
 		result, err := h.queries.VerifyACHPaymentMethod(ctx, pm.ID)
 		if err != nil {
 			h.logger.Error("Failed to verify ACH account",
@@ -188,12 +238,20 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 			)
 			skipped++
 		} else {
-			h.logger.Info("ACH account verified",
+			h.logger.Info("ACH account verified successfully",
 				zap.String("payment_method_id", pm.ID.String()),
+				zap.String("bric", pm.Bric),
 			)
 			verified++
 		}
 	}
+
+	h.logger.Info("ACH verification processing complete",
+		zap.Int("verified", verified),
+		zap.Int("failed", failed),
+		zap.Int("skipped", skipped),
+		zap.Int("errors", len(errs)),
+	)
 
 	return verified, skipped, errs
 }
