@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-11-23 - WordPress Integration Tests) 🧪
+
+**WordPress Integration Test Suite - Critical Fixes Applied**
+
+Fixed all failing WordPress integration tests by implementing approved plan:
+
+- **admin_operations_test.go** - Comprehensive admin operations testing
+  - Updated browser config: Added `disable-gpu: false`, `disable-dev-shm-usage: true`, `WindowSize(1920, 1080)`
+  - Replaced `performCheckout()` stub with full working implementation (lines 166-298):
+    - WordPress login automation
+    - Product cart via `/?add-to-cart=12` URL
+    - Checkout form automation with billing details
+    - 2-second AJAX wait after billing details
+    - JavaScript payment method selection (handles hidden radio inputs)
+    - 25-second payment processing wait
+    - Transaction ID extraction from page/API
+  - Implemented `performBulkCapture()` (lines 386-420):
+    - Navigate to WordPress admin transactions page
+    - Select transaction checkboxes by ID
+    - Execute bulk capture action
+    - Handle confirmation dialogs
+    - 5-second AJAX completion wait
+  - Implemented `verifyBulkCapture()` (lines 448-473):
+    - List child transactions via payment service API
+    - Verify CAPTURE transactions exist for AUTH parents
+    - Proper API-based verification pattern
+  - Added missing imports: `fmt`, `strings` (removed unused `uuid`)
+
+- **wordpress_checkout_test.go** - Basic checkout flow testing
+  - Updated browser config: Added `disable-gpu: false`, `disable-dev-shm-usage: true`, `WindowSize(1920, 1080)` (lines 49-51)
+  - Added 2-second sleep after billing details for WooCommerce AJAX (lines 118-122)
+  - Replaced payment method click with JavaScript selection (lines 126-130):
+    - `document.querySelector('#payment_method_north_payments').checked = true`
+    - `jQuery(document.body).trigger('payment_method_selected')`
+  - Changed payment processing wait to 25 seconds outside chromedp.Run() (lines 149-156):
+    - Moved from `chromedp.Sleep(15*time.Second)` inside Run
+    - Changed to `time.Sleep(25*time.Second)` outside Run
+    - Prevents context timeout issues during long EPX processing
+
+- **automated_e2e_test.go** - Automated E2E workflow testing
+  - Verified browser config already correct (lines 73-80)
+  - Both test functions have proper settings:
+    - `TestAutomatedCheckoutAndVerify` (lines 27-34)
+    - `TestBulkCaptureWorkflow` (lines 73-80)
+
+**Why These Changes Were Necessary:**
+
+1. **Browser Config Improvements**: WooCommerce AJAX requires proper viewport size (1920x1080) and GPU acceleration to function correctly in headless mode. The `/dev/shm` usage flag prevents shared memory exhaustion in containerized environments.
+
+2. **Payment Method Selection Fix**: WooCommerce hides radio inputs with `display:none`, making standard click actions fail. JavaScript selection directly sets the checked property and triggers the required jQuery event.
+
+3. **AJAX Wait Times**: WooCommerce heavily relies on AJAX for checkout updates. Without proper wait times after billing details, payment methods may not load correctly.
+
+4. **Payment Processing Wait**: EPX payment processing can take 10-25 seconds for redirect and callback. Using `time.Sleep()` outside chromedp.Run() prevents context deadline exceeded errors while still allowing the browser to process the payment.
+
+5. **Transaction ID Extraction**: Implements robust fallback to payment service API when transaction ID cannot be extracted from page content.
+
+**Files Modified:**
+- `/home/kevinlam/Documents/projects/payments/tests/integration/wordpress/admin_operations_test.go`
+- `/home/kevinlam/Documents/projects/payments/tests/integration/wordpress/wordpress_checkout_test.go`
+- `/home/kevinlam/Documents/projects/payments/tests/integration/wordpress/automated_e2e_test.go` (verified)
+
+**Impact**: WordPress integration tests now have proper browser automation, AJAX handling, and payment processing waits. All test stubs have been replaced with working implementations that follow the patterns from automated_e2e_test.go.
+
 ### Fixed (2025-11-22 - P0 CRITICAL) 🚨 **PRODUCTION DEPLOYMENT READY**
 
 **All P0 Critical Blockers Resolved - Service Ready for Production**

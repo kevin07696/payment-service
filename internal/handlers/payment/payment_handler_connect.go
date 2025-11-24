@@ -306,6 +306,33 @@ func (h *ConnectHandler) ListTransactions(
 	return connect.NewResponse(response), nil
 }
 
+// ACHDebit pulls money from a bank account
+// TODO: Implement ACH debit functionality
+func (h *ConnectHandler) ACHDebit(
+	ctx context.Context,
+	req *connect.Request[paymentv1.ACHDebitRequest],
+) (*connect.Response[paymentv1.PaymentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("ACH debit not yet implemented"))
+}
+
+// ACHCredit sends money to a bank account
+// TODO: Implement ACH credit functionality
+func (h *ConnectHandler) ACHCredit(
+	ctx context.Context,
+	req *connect.Request[paymentv1.ACHCreditRequest],
+) (*connect.Response[paymentv1.PaymentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("ACH credit not yet implemented"))
+}
+
+// ACHVoid cancels an ACH transaction
+// TODO: Implement ACH void functionality
+func (h *ConnectHandler) ACHVoid(
+	ctx context.Context,
+	req *connect.Request[paymentv1.ACHVoidRequest],
+) (*connect.Response[paymentv1.PaymentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("ACH void not yet implemented"))
+}
+
 // handleServiceErrorConnect maps domain errors to Connect error codes
 func (h *ConnectHandler) handleServiceErrorConnect(err error) error {
 	// Map domain errors to Connect status codes

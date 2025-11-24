@@ -12,8 +12,6 @@ import (
 
 // TestCronAuthentication_ValidSecret tests cron endpoint with valid X-Cron-Secret header
 func TestCronAuthentication_ValidSecret(t *testing.T) {
-	t.Skip("Requires authentication enabled - will be enabled in task #6")
-
 	cfg, client := testutil.Setup(t)
 
 	// Create request with valid X-Cron-Secret header
@@ -34,8 +32,6 @@ func TestCronAuthentication_ValidSecret(t *testing.T) {
 
 // TestCronAuthentication_InvalidSecret tests cron endpoint with wrong secret is rejected
 func TestCronAuthentication_InvalidSecret(t *testing.T) {
-	t.Skip("Requires authentication enabled - will be enabled in task #6")
-
 	_, client := testutil.Setup(t)
 
 	// Create request with WRONG cron secret
@@ -54,8 +50,6 @@ func TestCronAuthentication_InvalidSecret(t *testing.T) {
 
 // TestCronAuthentication_MissingSecret tests cron endpoint without X-Cron-Secret is rejected
 func TestCronAuthentication_MissingSecret(t *testing.T) {
-	t.Skip("Requires authentication enabled - will be enabled in task #6")
-
 	_, client := testutil.Setup(t)
 
 	// Make request WITHOUT any authentication headers
@@ -74,8 +68,6 @@ func TestCronAuthentication_MissingSecret(t *testing.T) {
 
 // TestCronAuthentication_BearerToken tests cron endpoint accepts Bearer token
 func TestCronAuthentication_BearerToken(t *testing.T) {
-	t.Skip("Requires authentication enabled - will be enabled in task #6")
-
 	cfg, client := testutil.Setup(t)
 
 	// Use Bearer token authentication instead of X-Cron-Secret
@@ -96,8 +88,6 @@ func TestCronAuthentication_BearerToken(t *testing.T) {
 
 // TestCronAuthentication_QueryParameter tests cron endpoint accepts secret as query param (insecure)
 func TestCronAuthentication_QueryParameter(t *testing.T) {
-	t.Skip("Requires authentication enabled - will be enabled in task #6")
-
 	cfg, client := testutil.Setup(t)
 
 	// Use query parameter authentication (insecure, for development only)
@@ -120,8 +110,6 @@ func TestCronAuthentication_QueryParameter(t *testing.T) {
 
 // TestCronAuthentication_AllEndpoints tests all cron endpoints require authentication
 func TestCronAuthentication_AllEndpoints(t *testing.T) {
-	t.Skip("Requires authentication enabled - will be enabled in task #6")
-
 	_, client := testutil.Setup(t)
 
 	// List of cron endpoints that should require authentication
@@ -167,8 +155,6 @@ func TestCronAuthentication_AllEndpoints(t *testing.T) {
 
 // TestCronAuthentication_HealthCheckNoAuth tests health check endpoints don't require auth
 func TestCronAuthentication_HealthCheckNoAuth(t *testing.T) {
-	t.Skip("Requires health endpoints to be implemented")
-
 	_, client := testutil.Setup(t)
 
 	// Health check endpoints should be accessible without authentication

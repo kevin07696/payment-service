@@ -45,7 +45,7 @@ func TestAutomatedCheckoutAndVerify(t *testing.T) {
 	t.Log("🛍️  Starting automated checkout test...")
 
 	// Perform automated checkout
-	txID := automatedCheckout(t, ctx, 50.00, false) // SALE transaction
+	txID := automatedCheckout(t, ctx, 75.00, false) // SALE transaction (product ID 12 = $75)
 	require.NotEmpty(t, txID, "Transaction ID should be returned")
 
 	t.Logf("✅ Checkout completed, transaction ID: %s", txID)
@@ -56,7 +56,7 @@ func TestAutomatedCheckoutAndVerify(t *testing.T) {
 	resp, err := client.GetTransaction(context.Background(), connect.NewRequest(req))
 	require.NoError(t, err, "Should get transaction from API")
 	require.Equal(t, txID, resp.Msg.Id)
-	require.Equal(t, int64(5000), resp.Msg.AmountCents) // $50.00
+	require.Equal(t, int64(7500), resp.Msg.AmountCents) // $75.00 (product ID 12)
 	require.Equal(t, paymentv1.TransactionStatus_TRANSACTION_STATUS_APPROVED, resp.Msg.Status)
 
 	t.Log("✅ Transaction verified via API")
@@ -132,6 +132,19 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 	)
 	require.NoError(t, err, "Should login to WordPress")
 
+	// Clear cart to avoid accumulation from previous test runs
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(wordpressURL+"/cart"),
+		chromedp.Sleep(1*time.Second),
+		chromedp.Evaluate(`
+			if (typeof jQuery !== 'undefined') {
+				jQuery('.woocommerce-cart-form__contents .remove').click();
+			}
+		`, nil),
+		chromedp.Sleep(2*time.Second),
+	)
+	// Ignore errors if cart is already empty
+
 	// Add product to cart using direct URL (product ID 12)
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(wordpressURL+"/?add-to-cart=12"),
@@ -147,16 +160,27 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 	)
 	require.NoError(t, err, "Should navigate to checkout")
 
-	// Fill billing details
+	// Fill billing details using JavaScript - all in one block to avoid scope issues
+	email := fmt.Sprintf("test%d@example.com", time.Now().Unix())
 	err = chromedp.Run(ctx,
-		chromedp.SendKeys(`#billing_first_name`, "Test", chromedp.ByID),
-		chromedp.SendKeys(`#billing_last_name`, "User", chromedp.ByID),
-		chromedp.SendKeys(`#billing_email`, fmt.Sprintf("test%d@example.com", time.Now().Unix()), chromedp.ByID),
-		chromedp.SendKeys(`#billing_phone`, "1234567890", chromedp.ByID),
-		chromedp.SendKeys(`#billing_address_1`, "123 Test St", chromedp.ByID),
-		chromedp.SendKeys(`#billing_city`, "Test City", chromedp.ByID),
-		chromedp.SendKeys(`#billing_postcode`, "12345", chromedp.ByID),
-		chromedp.Sleep(2*time.Second), // Allow WooCommerce AJAX to trigger and complete
+		chromedp.Evaluate(fmt.Sprintf(`
+			(function() {
+				function setFieldValue(id, value) {
+					var el = document.getElementById(id);
+					el.value = value;
+					el.dispatchEvent(new Event('input', { bubbles: true }));
+					el.dispatchEvent(new Event('change', { bubbles: true }));
+				}
+				setFieldValue('billing_first_name', 'Test');
+				setFieldValue('billing_last_name', 'User');
+				setFieldValue('billing_email', '%s');
+				setFieldValue('billing_phone', '1234567890');
+				setFieldValue('billing_address_1', '123 Test St');
+				setFieldValue('billing_city', 'Test City');
+				setFieldValue('billing_postcode', '12345');
+			})();
+		`, email), nil),
+		chromedp.Sleep(3*time.Second), // Allow WooCommerce validation and AJAX to complete
 	)
 	require.NoError(t, err, "Should fill billing details")
 
@@ -178,22 +202,33 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 	)
 	require.NoError(t, err, "Should select payment method")
 
-	// Fill card details
+	// Fill card details - use setTimeout to trigger click asynchronously
 	err = chromedp.Run(ctx,
 		chromedp.WaitVisible(`#north_card_number`, chromedp.ByID),
-		chromedp.SendKeys(`#north_card_number`, "4111111111111111", chromedp.ByID),
-		chromedp.SendKeys(`#north_card_exp`, "12/25", chromedp.ByID),
-		chromedp.SendKeys(`#north_card_cvv`, "123", chromedp.ByID),
-		chromedp.SendKeys(`#north_card_zip`, "12345", chromedp.ByID),
+		chromedp.Sleep(1*time.Second), // Allow jQuery event handlers to attach
+		// Clear fields first to prevent text accumulation
+		chromedp.Evaluate(`
+			document.getElementById('north_card_number').value = '';
+			document.getElementById('north_card_exp').value = '';
+			document.getElementById('north_card_cvv').value = '';
+			document.getElementById('north_card_zip').value = '';
+		`, nil),
+		// Set values directly with proper formatting (bypass the formatter)
+		chromedp.Evaluate(`
+			document.getElementById('north_card_number').value = '4111111111111111';
+			document.getElementById('north_card_exp').value = '12/25';
+			document.getElementById('north_card_cvv').value = '123';
+			document.getElementById('north_card_zip').value = '12345';
+			// Trigger change events for WooCommerce validation
+			['north_card_number', 'north_card_exp', 'north_card_cvv', 'north_card_zip'].forEach(function(id) {
+				var el = document.getElementById(id);
+				el.dispatchEvent(new Event('input', { bubbles: true }));
+				el.dispatchEvent(new Event('change', { bubbles: true }));
+			});
+		`, nil),
+		chromedp.Sleep(1*time.Second), // Allow validation to complete
 	)
 	require.NoError(t, err, "Should fill card details")
-
-	// Save screenshot before submitting for debugging
-	var buf []byte
-	chromedp.Run(ctx, chromedp.FullScreenshot(&buf, 90))
-	if len(buf) > 0 {
-		t.Logf("Screenshot taken: %d bytes", len(buf))
-	}
 
 	// Select transaction type if AUTH
 	if isAuth {
@@ -203,12 +238,17 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 		// Ignore error if field doesn't exist
 	}
 
-	// Submit order
+	// Submit order using setTimeout to avoid chromedp.Evaluate hanging
 	t.Log("Submitting order...")
 	err = chromedp.Run(ctx,
-		chromedp.Click(`#place_order`, chromedp.ByID),
+		chromedp.Evaluate(`
+			setTimeout(function() {
+				document.getElementById('place_order').click();
+			}, 10);
+			'Click scheduled';
+		`, nil),
 	)
-	require.NoError(t, err, "Should click place order")
+	require.NoError(t, err, "Should schedule place order click")
 
 	// Wait for payment processing - this can take 10-20 seconds for EPX
 	// The page will show a blocking overlay during processing

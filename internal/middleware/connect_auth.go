@@ -6,33 +6,67 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/auth"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/pkg/timeutil"
+	"github.com/sony/gobreaker"
 	"go.uber.org/zap"
 )
 
+// tokenBucket represents an in-memory rate limit bucket
+type tokenBucket struct {
+	tokens    int32
+	timestamp time.Time
+	mu        sync.Mutex
+}
+
 // AuthInterceptor provides authentication for ConnectRPC services
 type AuthInterceptor struct {
-	queries    sqlc.Querier
-	publicKeys map[string]*rsa.PublicKey // service_id -> public key
-	logger     *zap.Logger
-	stopCh     chan struct{} // Channel to signal goroutine shutdown
+	queries         sqlc.Querier
+	publicKeys      map[string]*rsa.PublicKey // service_id -> public key
+	logger          *zap.Logger
+	stopCh          chan struct{}             // Channel to signal goroutine shutdown
+	rateLimitCB     *gobreaker.CircuitBreaker // Circuit breaker for rate limit DB calls
+	memoryBuckets   sync.Map                  // In-memory fallback for rate limiting (bucket_key -> *tokenBucket)
+	bucketCleanupCh chan struct{}             // Channel to signal bucket cleanup goroutine shutdown
 }
 
 // NewAuthInterceptor creates a new authentication interceptor
 func NewAuthInterceptor(queries sqlc.Querier, logger *zap.Logger) (*AuthInterceptor, error) {
+	// Configure circuit breaker for rate limit DB calls
+	// After 5 consecutive failures, open circuit for 30 seconds
+	cbSettings := gobreaker.Settings{
+		Name:        "RateLimitDB",
+		MaxRequests: 3,                // Allow 3 requests in half-open state
+		Interval:    time.Minute,      // Reset failure count every minute
+		Timeout:     30 * time.Second, // Stay open for 30 seconds before trying again
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			// Open circuit after 5 consecutive failures
+			return counts.ConsecutiveFailures >= 5
+		},
+		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
+			logger.Warn("Rate limit circuit breaker state changed",
+				zap.String("from", from.String()),
+				zap.String("to", to.String()))
+		},
+	}
+
 	ai := &AuthInterceptor{
-		queries:    queries,
-		publicKeys: make(map[string]*rsa.PublicKey),
-		logger:     logger,
-		stopCh:     make(chan struct{}),
+		queries:         queries,
+		publicKeys:      make(map[string]*rsa.PublicKey),
+		logger:          logger,
+		stopCh:          make(chan struct{}),
+		rateLimitCB:     gobreaker.NewCircuitBreaker(cbSettings),
+		bucketCleanupCh: make(chan struct{}),
 	}
 
 	// Load public keys from database
@@ -42,6 +76,9 @@ func NewAuthInterceptor(queries sqlc.Querier, logger *zap.Logger) (*AuthIntercep
 
 	// Start periodic refresh of public keys
 	go ai.startPublicKeyRefresh()
+
+	// Start periodic cleanup of old in-memory buckets
+	go ai.startBucketCleanup()
 
 	return ai, nil
 }
@@ -93,9 +130,36 @@ func (ai *AuthInterceptor) startPublicKeyRefresh() {
 	}
 }
 
-// Shutdown gracefully stops the public key refresh goroutine
+// startBucketCleanup periodically removes expired in-memory rate limit buckets
+func (ai *AuthInterceptor) startBucketCleanup() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			now := timeutil.Now()
+			ai.memoryBuckets.Range(func(key, value interface{}) bool {
+				bucket := value.(*tokenBucket)
+				bucket.mu.Lock()
+				// Remove buckets older than 2 minutes
+				if now.Sub(bucket.timestamp) > 2*time.Minute {
+					ai.memoryBuckets.Delete(key)
+				}
+				bucket.mu.Unlock()
+				return true
+			})
+		case <-ai.bucketCleanupCh:
+			ai.logger.Info("Stopping bucket cleanup goroutine")
+			return
+		}
+	}
+}
+
+// Shutdown gracefully stops background goroutines
 func (ai *AuthInterceptor) Shutdown() {
 	close(ai.stopCh)
+	close(ai.bucketCleanupCh)
 }
 
 // WrapUnary provides authentication for unary RPC calls
@@ -314,7 +378,7 @@ func (ai *AuthInterceptor) isTokenBlacklisted(jti string) bool {
 	return isBlacklisted
 }
 
-// checkRateLimit implements token bucket rate limiting
+// checkRateLimit implements token bucket rate limiting with circuit breaker and in-memory fallback
 func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 	// Extract service info from context (JWT auth only)
 	entityType := "service"
@@ -333,33 +397,64 @@ func (ai *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 		entityID,
 		timeutil.Now().Format("2006-01-02-15:04"))
 
-	// Token bucket algorithm with database storage using sqlc
-	tokens, err := ai.queries.ConsumeRateLimitToken(ctx, sqlc.ConsumeRateLimitTokenParams{
-		BucketKey:     bucketKey,
-		InitialTokens: int32(limit),
+	// Try database rate limiting through circuit breaker
+	result, err := ai.rateLimitCB.Execute(func() (interface{}, error) {
+		tokens, err := ai.queries.ConsumeRateLimitToken(ctx, sqlc.ConsumeRateLimitTokenParams{
+			BucketKey:     bucketKey,
+			InitialTokens: int32(limit),
+		})
+		return tokens, err
 	})
 
-	if err != nil {
-		// SECURITY: Fail closed - deny request if we can't verify rate limit
-		// This prevents unlimited requests during DB outages
-		// TODO: Implement circuit breaker pattern or in-memory fallback for better availability
-		ai.logger.Error("Rate limit check failed - denying request for security",
-			zap.String("bucket_key", bucketKey),
-			zap.String("entity_type", entityType),
-			zap.String("entity_id", entityID),
-			zap.Error(err))
-		return fmt.Errorf("rate limit check unavailable: %w", err)
+	// If circuit breaker succeeded, use database result
+	if err == nil {
+		tokens := result.(int32)
+		if tokens <= 0 {
+			return fmt.Errorf("rate limit exceeded for %s %s", entityType, entityID)
+		}
+		return nil
 	}
 
-	if tokens <= 0 {
-		return fmt.Errorf("rate limit exceeded for %s %s", entityType, entityID)
+	// Circuit is open or database failed - fall back to in-memory rate limiting
+	ai.logger.Warn("Using in-memory rate limiting fallback",
+		zap.String("bucket_key", bucketKey),
+		zap.String("entity_type", entityType),
+		zap.String("entity_id", entityID),
+		zap.Error(err))
+
+	return ai.checkMemoryRateLimit(bucketKey, int32(limit))
+}
+
+// checkMemoryRateLimit implements in-memory token bucket rate limiting
+func (ai *AuthInterceptor) checkMemoryRateLimit(bucketKey string, limit int32) error {
+	now := timeutil.Now()
+
+	// Get or create bucket
+	value, loaded := ai.memoryBuckets.LoadOrStore(bucketKey, &tokenBucket{
+		tokens:    limit,
+		timestamp: now,
+	})
+
+	bucket := value.(*tokenBucket)
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
+	// If this is a fresh bucket or minute has changed, reset tokens
+	if !loaded || bucket.timestamp.Format("2006-01-02-15:04") != now.Format("2006-01-02-15:04") {
+		bucket.tokens = limit
+		bucket.timestamp = now
 	}
 
+	// Try to consume a token
+	if bucket.tokens <= 0 {
+		return fmt.Errorf("rate limit exceeded (in-memory)")
+	}
+
+	bucket.tokens--
 	return nil
 }
 
-// logAuth logs authentication attempts using the logger
-// TODO: Implement database audit_log table and replace with DB logging
+// logAuth logs authentication attempts to database audit_log table
 func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg string, procedure string) {
 	// Extract context values (JWT auth only)
 	authType, _ := ctx.Value(auth.AuthTypeKey).(string)
@@ -368,14 +463,68 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 	// Extract service info
 	actorID, _ := ctx.Value(auth.ServiceIDKey).(string)
 
-	// Use regular logging instead of database audit_log table
+	// Parse IP address from context
+	ipStr := getClientIPFromContext(ctx)
+	var ipAddr *netip.Addr
+	if ipStr != "" {
+		if parsed, err := netip.ParseAddr(ipStr); err == nil {
+			ipAddr = &parsed
+		}
+	}
+
+	// Build audit log params
+	params := sqlc.CreateAuditLogParams{
+		ID:     pgtype.UUID{Bytes: uuid.New(), Valid: true},
+		Action: "authenticate",
+		Success: pgtype.Bool{
+			Bool:  success,
+			Valid: true,
+		},
+	}
+
+	// Set actor info if available
+	if actorID != "" {
+		params.ActorType = pgtype.Text{String: authType, Valid: true}
+		params.ActorID = pgtype.Text{String: actorID, Valid: true}
+	}
+
+	// Set request context
+	if requestID != "" {
+		params.RequestID = pgtype.Text{String: requestID, Valid: true}
+	}
+	if ipAddr != nil {
+		params.IpAddress = ipAddr
+	}
+
+	// Set error if failed
+	if !success && errorMsg != "" {
+		params.ErrorMessage = pgtype.Text{String: errorMsg, Valid: true}
+	}
+
+	// Set metadata with procedure info
+	if procedure != "" {
+		metadataJSON := fmt.Sprintf(`{"procedure":"%s"}`, procedure)
+		params.Metadata = []byte(metadataJSON)
+	}
+
+	// Write to database (async to avoid blocking the request)
+	go func() {
+		insertCtx := context.Background()
+		if err := ai.queries.CreateAuditLog(insertCtx, params); err != nil {
+			ai.logger.Error("Failed to write audit log to database",
+				zap.String("actor_id", actorID),
+				zap.Error(err))
+		}
+	}()
+
+	// Also log to structured logger as backup
 	if success {
 		ai.logger.Info("Auth attempt succeeded",
 			zap.String("actor_id", actorID),
 			zap.String("auth_type", authType),
 			zap.String("procedure", procedure),
 			zap.String("request_id", requestID),
-			zap.String("ip_address", getClientIPFromContext(ctx)))
+			zap.String("ip_address", ipStr))
 	} else {
 		ai.logger.Warn("Auth attempt failed",
 			zap.String("actor_id", actorID),
@@ -383,7 +532,7 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 			zap.String("procedure", procedure),
 			zap.String("request_id", requestID),
 			zap.String("error", errorMsg),
-			zap.String("ip_address", getClientIPFromContext(ctx)))
+			zap.String("ip_address", ipStr))
 	}
 }
 

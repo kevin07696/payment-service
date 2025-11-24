@@ -2353,4 +2353,4 @@ if (cachedToken && Date.now() < Number(tokenExpiry)) {
 
 ---
 
-**Questions?** Check the [FAQ](../wiki-templates/FAQ.md) or review the [Integration Guide](INTEGRATION_GUIDE.md).
+**Questions?** Check the [FAQ](../wiki-templates/FAQ.md) or review the [Getting Started Guide](GETTING_STARTED.md).

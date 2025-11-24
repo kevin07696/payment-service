@@ -79,6 +79,7 @@ proto: ## Generate protobuf code
 	@echo "Generating protobuf code..."
 	@protoc -I. -Iproto --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		--connect-go_out=. --connect-go_opt=paths=source_relative \
 		proto/admin/v1/admin.proto \
 		proto/merchant/v1/merchant.proto \
 		proto/chargeback/v1/chargeback.proto \

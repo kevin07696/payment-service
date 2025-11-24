@@ -715,9 +715,9 @@ Before going to production, verify:
 
 ## Additional Resources
 
-- [API Specifications](../API_SPECS.md) - Complete API reference
-- [Authentication Guide](../AUTH.md) - Detailed auth architecture
-- [Integration Guide](../INTEGRATION_GUIDE.md) - Full integration walkthrough
+- [API Specifications](API_SPECS.md) - Complete API reference
+- [Authentication Guide](../development/AUTH.md) - Detailed auth architecture
+- [Getting Started](GETTING_STARTED.md) - Quick start integration guide
 - [ConnectRPC Documentation](https://connectrpc.com/docs/) - Client libraries
 
 ---

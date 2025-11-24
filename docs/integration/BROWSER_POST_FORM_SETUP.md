@@ -461,10 +461,10 @@ Use approved card numbers with specific amounts to trigger error codes:
 
 ## Next Steps
 
-- **[Integration Guide](INTEGRATION_GUIDE.md)** - Step-by-step integration walkthrough
+- **[Getting Started](GETTING_STARTED.md)** - Quick start integration guide
 - **[API Specs](API_SPECS.md)** - Complete API reference
-- **[DATAFLOW](DATAFLOW.md)** - Detailed payment flow diagrams
-- **[FAQ](wiki-templates/FAQ.md)** - Common questions answered
+- **[Payment Dataflows](../development/DATAFLOW.md)** - Detailed payment flow diagrams
+- **[FAQ](../wiki-templates/FAQ.md)** - Common questions answered
 
 ---
 

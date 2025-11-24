@@ -46,6 +46,9 @@ func TestWordPressCheckoutFlow(t *testing.T) {
 		chromedp.Flag("disable-application-cache", cfg.CacheDisable),
 		chromedp.Flag("disable-offline-load-stale-cache", cfg.CacheDisable),
 		chromedp.Flag("disk-cache-size", "0"),
+		chromedp.Flag("disable-gpu", false),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.WindowSize(1920, 1080),
 	)
 
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -97,17 +100,25 @@ func TestWordPressCheckoutFlow(t *testing.T) {
 	require.NoError(t, err, "Should navigate to checkout page")
 	t.Log("✅ At checkout page")
 
-	// Step 4: Fill billing details
+	// Step 4: Fill billing details using JavaScript with event triggering
 	t.Log("📝 Filling billing details...")
 	err = chromedp.Run(ctx,
-		chromedp.SendKeys(`#billing_first_name`, "Test", chromedp.ByID),
-		chromedp.SendKeys(`#billing_last_name`, "User", chromedp.ByID),
-		chromedp.SendKeys(`#billing_email`, "test@example.com", chromedp.ByID),
-		chromedp.SendKeys(`#billing_phone`, "1234567890", chromedp.ByID),
-		chromedp.SendKeys(`#billing_address_1`, "123 Test St", chromedp.ByID),
-		chromedp.SendKeys(`#billing_city`, "Test City", chromedp.ByID),
-		chromedp.SendKeys(`#billing_postcode`, "12345", chromedp.ByID),
-		chromedp.Sleep(1*time.Second),
+		chromedp.Evaluate(`
+			function setFieldValue(id, value) {
+				var el = document.getElementById(id);
+				el.value = value;
+				el.dispatchEvent(new Event('input', { bubbles: true }));
+				el.dispatchEvent(new Event('change', { bubbles: true }));
+			}
+		`, nil),
+		chromedp.Evaluate(`setFieldValue('billing_first_name', 'Test');`, nil),
+		chromedp.Evaluate(`setFieldValue('billing_last_name', 'User');`, nil),
+		chromedp.Evaluate(`setFieldValue('billing_email', 'test@example.com');`, nil),
+		chromedp.Evaluate(`setFieldValue('billing_phone', '1234567890');`, nil),
+		chromedp.Evaluate(`setFieldValue('billing_address_1', '123 Test St');`, nil),
+		chromedp.Evaluate(`setFieldValue('billing_city', 'Test City');`, nil),
+		chromedp.Evaluate(`setFieldValue('billing_postcode', '12345');`, nil),
+		chromedp.Sleep(3*time.Second), // Allow WooCommerce validation and AJAX to complete
 	)
 	require.NoError(t, err, "Should fill billing details")
 	t.Log("✅ Billing details filled")
@@ -115,31 +126,54 @@ func TestWordPressCheckoutFlow(t *testing.T) {
 	// Step 5: Select North Payments gateway
 	t.Log("💳 Selecting North Payments gateway...")
 	err = chromedp.Run(ctx,
-		chromedp.Click(`#payment_method_north_payments`, chromedp.ByID),
+		chromedp.Evaluate(`document.querySelector('#payment_method_north_payments').checked = true;`, nil),
+		chromedp.Evaluate(`jQuery(document.body).trigger('payment_method_selected');`, nil),
 		chromedp.Sleep(2*time.Second),
 	)
 	require.NoError(t, err, "Should select North Payments")
 	t.Log("✅ North Payments selected")
 
-	// Step 6: Fill card details
+	// Step 6: Fill card details with proper formatting
 	t.Log("🔢 Filling card details...")
 	err = chromedp.Run(ctx,
 		chromedp.WaitVisible(`#north_card_number`, chromedp.ByID),
-		chromedp.SendKeys(`#north_card_number`, "4111111111111111", chromedp.ByID),
-		chromedp.SendKeys(`#north_card_exp`, "12/25", chromedp.ByID),
-		chromedp.SendKeys(`#north_card_cvv`, "123", chromedp.ByID),
-		chromedp.SendKeys(`#north_card_zip`, "12345", chromedp.ByID),
-		chromedp.Sleep(1*time.Second),
+		chromedp.Sleep(1*time.Second), // Allow jQuery event handlers to attach
+		// Set values directly with proper formatting
+		chromedp.Evaluate(`
+			document.getElementById('north_card_number').value = '4111111111111111';
+			document.getElementById('north_card_exp').value = '12/25';
+			document.getElementById('north_card_cvv').value = '123';
+			document.getElementById('north_card_zip').value = '12345';
+			// Trigger change events for WooCommerce validation
+			['north_card_number', 'north_card_exp', 'north_card_cvv', 'north_card_zip'].forEach(function(id) {
+				var el = document.getElementById(id);
+				el.dispatchEvent(new Event('input', { bubbles: true }));
+				el.dispatchEvent(new Event('change', { bubbles: true }));
+			});
+		`, nil),
+		chromedp.Sleep(1*time.Second), // Allow validation to complete
 	)
 	require.NoError(t, err, "Should fill card details")
 	t.Log("✅ Card details filled")
 
-	// Step 7: Submit order
+	// Step 7: Submit order using setTimeout to avoid chromedp.Evaluate hanging
 	t.Log("🚀 Submitting order...")
+	err = chromedp.Run(ctx,
+		chromedp.Evaluate(`
+			setTimeout(function() {
+				document.getElementById('place_order').click();
+			}, 10);
+			'Click scheduled';
+		`, nil),
+	)
+	require.NoError(t, err, "Should schedule place order click")
+
+	// Wait for payment processing outside chromedp.Run() to avoid context timeout issues
+	t.Log("⏳ Waiting for payment processing...")
+	time.Sleep(25 * time.Second)
+
 	var finalURL string
 	err = chromedp.Run(ctx,
-		chromedp.Click(`#place_order`, chromedp.ByID),
-		chromedp.Sleep(15*time.Second), // Wait for EPX redirect and callback
 		chromedp.Location(&finalURL),
 	)
 

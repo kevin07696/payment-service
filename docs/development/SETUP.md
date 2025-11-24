@@ -2,7 +2,7 @@
 
 **Target Audience:** DevOps engineers, infrastructure operators, service maintainers
 **Purpose:** Set up and run the payment service infrastructure
-**For API Integration:** See [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)
+**For API Integration:** See [Getting Started Guide](../integration/GETTING_STARTED.md)
 
 Complete guide to setting up and running the payment service locally and in production.
 
@@ -705,11 +705,11 @@ docker-compose up -d
 After setup is complete:
 
 **For Client Developers (integrating with the payment service):**
-1. **Integration Guide**: [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) - Step-by-step API integration
-2. **API Documentation**: [API_SPECS.md](API_SPECS.md) - Complete endpoint reference
+1. **Getting Started**: [GETTING_STARTED.md](../integration/GETTING_STARTED.md) - Quick start guide
+2. **API Documentation**: [API_SPECS.md](../integration/API_SPECS.md) - Complete endpoint reference
 3. **Payment Flows**: [DATAFLOW.md](DATAFLOW.md) - Understand payment workflows
 
 **For Service Operators:**
-1. **Testing Strategy**: [INTEGRATION_TEST_STRATEGY.md](INTEGRATION_TEST_STRATEGY.md)
+1. **CI/CD Guide**: [CICD.md](CICD.md) - Deployment pipeline
 2. **Production Deployment**: [GCP_PRODUCTION_SETUP.md](GCP_PRODUCTION_SETUP.md)
 3. **FAQ**: Check common questions and answers

@@ -272,9 +272,10 @@ type AuditLogs202603 struct {
 }
 
 type Chargeback struct {
-	ID                  uuid.UUID          `json:"id"`
-	GroupID             pgtype.UUID        `json:"group_id"`
-	AgentID             string             `json:"agent_id"`
+	ID            uuid.UUID `json:"id"`
+	TransactionID uuid.UUID `json:"transaction_id"`
+	// Merchant/agent ID (matches merchants.id) - denormalized for querying
+	MerchantID          string             `json:"merchant_id"`
 	CustomerID          pgtype.Text        `json:"customer_id"`
 	CaseNumber          string             `json:"case_number"`
 	DisputeDate         time.Time          `json:"dispute_date"`

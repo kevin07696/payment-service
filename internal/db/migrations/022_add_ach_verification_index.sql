@@ -1,5 +1,5 @@
+-- +goose NO TRANSACTION
 -- +goose Up
--- +goose StatementBegin
 
 -- CRITICAL PERFORMANCE FIX: ACH Verification Query Optimization
 --
@@ -34,11 +34,6 @@ WHERE payment_type = 'ach'
 COMMENT ON INDEX idx_payment_methods_ach_verification IS
 'Optimizes ACH verification cron queries. Reduces full table scan (100ms) to index scan (<5ms). Partial index only for pending ACH verifications.';
 
--- +goose StatementEnd
-
 -- +goose Down
--- +goose StatementBegin
 
 DROP INDEX CONCURRENTLY IF EXISTS idx_payment_methods_ach_verification;
-
--- +goose StatementEnd

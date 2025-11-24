@@ -289,7 +289,7 @@ func (h *DisputeSyncHandler) syncAgentDisputes(ctx context.Context, agent *sqlc.
 func (h *DisputeSyncHandler) upsertChargeback(ctx context.Context, agentID string, dispute *adapterports.Dispute) (isNew bool, err error) {
 	// Check if chargeback already exists
 	existing, err := h.db.Queries().GetChargebackByCaseNumber(ctx, sqlc.GetChargebackByCaseNumberParams{
-		AgentID:    agentID,
+		MerchantID: agentID,
 		CaseNumber: dispute.CaseNumber,
 	})
 
@@ -317,11 +317,12 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID strin
 		chargebackDate = time.Now()
 	}
 
-	// Find matching transaction by transaction number
-	// TransactionNumber from North API should match our tran_nbr field
-	var transactionID uuid.UUID
+	// Link to the specific transaction being disputed
+	// TransactionNumber from North API matches our tran_nbr field
+	var transactionID uuid.UUID = uuid.Nil
+
 	if dispute.TransactionNumber != "" {
-		// Try to find the transaction by tran_nbr
+		// Get transaction ID from tran_nbr
 		tx, err := h.db.Queries().GetTransactionByTranNbr(ctx, pgtype.Text{
 			String: dispute.TransactionNumber,
 			Valid:  true,
@@ -332,15 +333,13 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID strin
 				zap.String("case_number", dispute.CaseNumber),
 				zap.Error(err),
 			)
-			// Return error - we need a valid transaction for chargebacks
-			return fmt.Errorf("transaction not found for chargeback (tran_nbr: %s)", dispute.TransactionNumber)
+		} else {
+			transactionID = tx.ID
 		}
-		transactionID = tx.ID
 	} else {
-		h.logger.Error("Dispute missing transaction number",
+		h.logger.Warn("Dispute missing transaction number",
 			zap.String("case_number", dispute.CaseNumber),
 		)
-		return fmt.Errorf("dispute missing transaction number: %s", dispute.CaseNumber)
 	}
 
 	// Marshal dispute as raw_data
@@ -352,10 +351,10 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID strin
 
 	chargebackID := uuid.New()
 	params := sqlc.CreateChargebackParams{
-		ID:                chargebackID,
-		TransactionID:     transactionID,
-		AgentID:           agentID,
-		CustomerID:        pgtype.Text{Valid: false}, // Not available from North API
+		ID:            chargebackID,
+		TransactionID: transactionID,
+		MerchantID:    agentID,
+		CustomerID:    pgtype.Text{Valid: false}, // Not available from North API
 		CaseNumber:        dispute.CaseNumber,
 		DisputeDate:       disputeDate,
 		ChargebackDate:    chargebackDate,
@@ -407,7 +406,7 @@ func (h *DisputeSyncHandler) updateChargeback(ctx context.Context, existing *sql
 
 	// Trigger webhook notification for updated chargeback
 	if h.webhookService != nil {
-		h.triggerChargebackWebhook(ctx, existing.AgentID, "chargeback.updated", &chargeback)
+		h.triggerChargebackWebhook(ctx, existing.MerchantID, "chargeback.updated", &chargeback)
 	}
 
 	return nil
@@ -478,6 +477,7 @@ func (h *DisputeSyncHandler) triggerChargebackWebhook(ctx context.Context, agent
 	eventData := map[string]interface{}{
 		"chargeback_id":      chargeback.ID.String(),
 		"case_number":        chargeback.CaseNumber,
+		"transaction_id":     chargeback.TransactionID.String(),
 		"status":             chargeback.Status,
 		"amount":             chargeback.ChargebackAmount,
 		"currency":           chargeback.Currency,
@@ -486,9 +486,6 @@ func (h *DisputeSyncHandler) triggerChargebackWebhook(ctx context.Context, agent
 		"dispute_date":       chargeback.DisputeDate.Format("2006-01-02"),
 		"chargeback_date":    chargeback.ChargebackDate.Format("2006-01-02"),
 	}
-
-	// Transaction ID is always set (NOT NULL in schema)
-	eventData["transaction_id"] = chargeback.TransactionID.String()
 
 	if chargeback.CustomerID.Valid {
 		eventData["customer_id"] = chargeback.CustomerID.String

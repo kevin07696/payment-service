@@ -450,12 +450,6 @@ func TokenizeAndSaveACH(cfg *Config, client *Client, jwtToken, merchantID, custo
 	return paymentMethodID, nil
 }
 
-// TokenizeAndSaveCard is deprecated - use TokenizeAndSaveCardViaBrowserPost instead
-// Browser Post STORAGE flow is now the standard approach for tokenizing and storing cards
-func TokenizeAndSaveCard(cfg *Config, client *Client, merchantID, customerID string, card TestCard) (string, error) {
-	return "", fmt.Errorf("TokenizeAndSaveCard deprecated - use TokenizeAndSaveCardViaBrowserPost instead")
-}
-
 func parseYear(year string) int {
 	var y int
 	fmt.Sscanf(year, "%d", &y)

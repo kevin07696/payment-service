@@ -85,11 +85,11 @@ func (h *ConnectHandler) GetChargeback(
 	}
 
 	// Verify agent authorization
-	if chargeback.AgentID != msg.AgentId {
+	if chargeback.MerchantID != msg.AgentId {
 		h.logger.Warn("Unauthorized chargeback access attempt",
 			zap.String("chargeback_id", msg.ChargebackId),
 			zap.String("requested_agent", msg.AgentId),
-			zap.String("actual_agent", chargeback.AgentID),
+			zap.String("actual_agent", chargeback.MerchantID),
 		)
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("not authorized to access this chargeback"))
 	}
@@ -124,9 +124,9 @@ func (h *ConnectHandler) ListChargebacks(
 
 	// Build query params
 	params := sqlc.ListChargebacksParams{
-		AgentID:   pgtype.Text{String: msg.AgentId, Valid: true},
-		LimitVal:  msg.Limit,
-		OffsetVal: msg.Offset,
+		MerchantID: pgtype.Text{String: msg.AgentId, Valid: true},
+		LimitVal:   msg.Limit,
+		OffsetVal:  msg.Offset,
 	}
 
 	// Optional filters
@@ -179,7 +179,7 @@ func (h *ConnectHandler) ListChargebacks(
 
 	// Get total count
 	countParams := sqlc.CountChargebacksParams{
-		AgentID:         params.AgentID,
+		MerchantID:      params.MerchantID,
 		CustomerID:      params.CustomerID,
 		TransactionID:   params.TransactionID,
 		Status:          params.Status,
@@ -217,8 +217,7 @@ func (h *ConnectHandler) ListChargebacks(
 func convertChargebackToProto(cb *sqlc.Chargeback) *chargebackv1.Chargeback {
 	proto := &chargebackv1.Chargeback{
 		Id:               cb.ID.String(),
-		TransactionId:    cb.TransactionID.String(), // Transaction ID is always set (NOT NULL)
-		AgentId:          cb.AgentID,
+		AgentId:          cb.MerchantID,
 		CaseNumber:       cb.CaseNumber,
 		DisputeDate:      timestamppb.New(cb.DisputeDate),
 		ChargebackDate:   timestamppb.New(cb.ChargebackDate),
@@ -230,6 +229,9 @@ func convertChargebackToProto(cb *sqlc.Chargeback) *chargebackv1.Chargeback {
 		CreatedAt:        timestamppb.New(cb.CreatedAt),
 		UpdatedAt:        timestamppb.New(cb.UpdatedAt),
 	}
+
+	// Transaction ID links to the specific transaction being disputed
+	proto.TransactionId = cb.TransactionID.String()
 
 	if cb.CustomerID.Valid {
 		proto.CustomerId = cb.CustomerID.String

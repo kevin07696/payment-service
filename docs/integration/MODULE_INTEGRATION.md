@@ -15,7 +15,7 @@ The payment service can be integrated in two ways:
 - Your app makes **HTTP/ConnectRPC calls** to the payment service
 - **Pros:** Service isolation, independent scaling, language-agnostic clients
 - **Cons:** Network latency, additional operational complexity
-- **See:** [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)
+- **See:** [GETTING_STARTED.md](GETTING_STARTED.md)
 
 ### Option 2: Module/Library Integration (This Guide)
 - Payment service imported as a **Go module** into your application
@@ -816,10 +816,10 @@ MAC_SECRET_PATH=projects/my-project/secrets/epx-mac/versions/latest
 
 ## Next Steps
 
-- **[INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)** - Microservice integration alternative
+- **[GETTING_STARTED.md](GETTING_STARTED.md)** - Microservice integration alternative
 - **[API_SPECS.md](API_SPECS.md)** - Complete service API reference
-- **[DATABASE.md](DATABASE.md)** - Database schema documentation
-- **[DEVELOP.md](DEVELOP.md)** - Contributing to the payment service
+- **[DATABASE.md](../development/DATABASE.md)** - Database schema documentation
+- **[DEVELOP.md](../development/DEVELOP.md)** - Contributing to the payment service
 
 ---
 

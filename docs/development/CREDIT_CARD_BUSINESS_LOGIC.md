@@ -166,7 +166,7 @@ if !shouldSave || !response.IsApproved {
 ```
 
 **Step 2: Convert Financial BRIC to Storage BRIC**
-Call `ConvertFinancialBRICToStorageBRIC` (see Section 3 for details)
+Use the EPX adapter's `ConvertFinancialBRICToStorage()` method (adapter-level) to convert the Financial BRIC to a Storage BRIC via Account Verification (CCE8).
 
 **Step 3: Save to Database**
 ```sql
@@ -219,89 +219,7 @@ message PaymentMethod {
 
 ---
 
-## 3. ConvertFinancialBRICToStorageBRIC Flow
-
-### Purpose
-Convert a temporary Financial BRIC (from any transaction) to a permanent Storage BRIC.
-
-### Process
-
-**Step 1: Validate Financial BRIC**
-```go
-if financialBRIC == "" {
-    return ErrFinancialBRICRequired
-}
-
-// Financial BRIC format: 19-20 characters alphanumeric
-if !isValidBRICFormat(financialBRIC) {
-    return ErrInvalidBRICFormat
-}
-```
-
-**Step 2: Send BRIC Storage Request (CCE8)**
-```xml
-<DETAIL cust_nbr="9001" merch_nbr="900300" dba_nbr="2" terminal_nbr="77">
-    <TRAN_TYPE>CCE8</TRAN_TYPE>
-    <BATCH_ID>20250119</BATCH_ID>
-    <TRAN_NBR>12346</TRAN_NBR>
-    <ORIG_AUTH_GUID>09LMQAABBCCDD</ORIG_AUTH_GUID>  <!-- Financial BRIC -->
-    <CARD_ENT_METH>Z</CARD_ENT_METH>                <!-- BRIC-based -->
-
-    <!-- Required for Account Verification -->
-    <ADDRESS>123 Main Street</ADDRESS>
-    <CITY>New York</CITY>
-    <STATE>NY</STATE>
-    <ZIP_CODE>10001</ZIP_CODE>
-    <FIRST_NAME>John</FIRST_NAME>
-    <LAST_NAME>Doe</LAST_NAME>
-</DETAIL>
-```
-
-**Step 3: EPX Performs Account Verification**
-- EPX sends $0.00 authorization to card network (CCE0 internally)
-- Issuer validates: Card active, address matches, CVV matches
-- Issuer assigns Network Transaction ID (NTID)
-- Issuer returns approval/decline
-
-**Step 4: Parse Response**
-```xml
-<RESPONSE>
-  <FIELD KEY="AUTH_GUID">09XYZSTORAGETOKEN</FIELD>  <!-- Storage BRIC -->
-  <FIELD KEY="AUTH_RESP">00</FIELD>                 <!-- Approved -->
-  <FIELD KEY="AUTH_RESP_TEXT">APPROVED</FIELD>
-  <FIELD KEY="AUTH_AVS">Y</FIELD>                   <!-- Address match -->
-  <FIELD KEY="AUTH_CVV2">M</FIELD>                  <!-- CVV match -->
-  <FIELD KEY="AUTH_CARD_TYPE">V</FIELD>             <!-- Visa -->
-  <FIELD KEY="AUTH_TRAN_IDENT">1234567890123456</FIELD>  <!-- NTID -->
-</RESPONSE>
-```
-
-**Step 5: Validate Response**
-```go
-if response.AuthResp != "00" && response.AuthResp != "85" {
-    // Account Verification declined
-    return fmt.Errorf("verification failed: %s", response.AuthRespText)
-}
-
-storageBRIC := response.AuthGUID
-ntid := response.NetworkTransactionID
-```
-
-**Step 6: Return Storage BRIC**
-- Storage BRIC: Never expires
-- NTID: Required for card-on-file compliance
-- AVS/CVV results: Stored for fraud analysis
-
-### Important Notes
-- Billing address REQUIRED for Account Verification
-- AVS match improves approval rate
-- NTID must be stored for recurring transactions
-- Original Financial BRIC still valid (13 months)
-- Storage BRIC is separate, independent token
-
----
-
-## 4. Account Verification (CCE0) Flow
+## 3. Account Verification (CCE0) Flow
 
 ### Purpose
 $0.00 authorization to verify card validity and obtain Network Transaction ID for card-on-file.
@@ -712,77 +630,6 @@ if existing != nil {
 
 // Process new transaction
 // ...
-```
-
----
-
-## 12. Implementation Examples
-
-### ConvertFinancialBRICToStorageBRIC Handler
-
-```go
-func (s *PaymentMethodService) ConvertFinancialBRICToStorageBRIC(
-    ctx context.Context,
-    req *ports.ConvertFinancialBRICRequest,
-) (*domain.PaymentMethod, error) {
-
-    // 1. Validate Financial BRIC
-    if req.FinancialBRIC == "" {
-        return nil, ErrFinancialBRICRequired
-    }
-
-    // 2. Build BRIC Storage request
-    bricReq := &ports.BRICStorageRequest{
-        CustNbr: merchant.CustNbr,
-        MerchNbr: merchant.MerchNbr,
-        DBAnbr: merchant.DBAnbr,
-        TerminalNbr: merchant.TerminalNbr,
-        PaymentType: ports.PaymentMethodTypeCreditCard,
-        FinancialBRIC: &req.FinancialBRIC,
-        FirstName: req.FirstName,
-        LastName: req.LastName,
-        Address: req.Address,
-        City: req.City,
-        State: req.State,
-        ZipCode: req.ZipCode,
-    }
-
-    // 3. Call BRIC Storage API (CCE8)
-    resp, err := s.bricStorage.ConvertFinancialBRICToStorage(ctx, bricReq)
-    if err != nil {
-        return nil, fmt.Errorf("BRIC conversion failed: %w", err)
-    }
-
-    if !resp.IsApproved {
-        return nil, fmt.Errorf("account verification declined: %s", resp.AuthRespText)
-    }
-
-    // 4. Save to database
-    pm := &domain.PaymentMethod{
-        ID: uuid.New().String(),
-        MerchantID: req.MerchantID,
-        CustomerID: req.CustomerID,
-        PaymentToken: resp.StorageBRIC,
-        PaymentType: "credit_card",
-        LastFour: req.LastFour,
-        CardBrand: req.CardBrand,
-        CardExpMonth: req.CardExpMonth,
-        CardExpYear: req.CardExpYear,
-        IsVerified: true,
-        Metadata: map[string]interface{}{
-            "ntid": resp.NetworkTransactionID,
-            "avs_result": resp.AuthAVS,
-            "cvv_result": resp.AuthCVV2,
-        },
-    }
-
-    err = s.db.CreatePaymentMethod(ctx, pm)
-    if err != nil {
-        return nil, fmt.Errorf("failed to save payment method: %w", err)
-    }
-
-    return pm, nil
-}
 ```
 
 ---

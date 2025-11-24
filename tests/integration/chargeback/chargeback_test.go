@@ -70,11 +70,13 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Test merchant UUID (from test fixtures/database)
-	merchantID := "acme-corp" // Agent ID (slug)
+	// Test merchant UUID for JWT authentication
+	merchantID := "00000000-0000-0000-0000-000000000001"
+	// Agent ID (slug) for API requests
+	agentID := "test-merchant-staging"
 
 	req := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		AgentId: merchantID,
+		AgentId: agentID,
 		Limit:   10,
 		Offset:  0,
 	})
@@ -96,11 +98,12 @@ func TestChargeback_ListChargebacksWithStatusFilter(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	merchantID := "acme-corp"
+	merchantID := "00000000-0000-0000-0000-000000000001"
+	agentID := "test-merchant-staging"
 	status := chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_NEW
 
 	req := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		AgentId: merchantID,
+		AgentId: agentID,
 		Status:  &status,
 		Limit:   10,
 		Offset:  0,
@@ -126,11 +129,12 @@ func TestChargeback_GetChargeback(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	merchantID := "acme-corp"
+	merchantID := "00000000-0000-0000-0000-000000000001"
+	agentID := "test-merchant-staging"
 
 	// First, list chargebacks to get a valid ID
 	listReq := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		AgentId: merchantID,
+		AgentId: agentID,
 		Limit:   1,
 		Offset:  0,
 	})
@@ -148,7 +152,7 @@ func TestChargeback_GetChargeback(t *testing.T) {
 
 	getReq := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 		ChargebackId: chargebackID,
-		AgentId:      merchantID,
+		AgentId:      agentID,
 	})
 	addAuthToRequest(t, getReq, merchantID)
 
@@ -167,12 +171,13 @@ func TestChargeback_GetChargebackNotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	merchantID := "acme-corp"
+	merchantID := "00000000-0000-0000-0000-000000000001"
+	agentID := "test-merchant-staging"
 	nonExistentID := uuid.New().String()
 
 	req := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 		ChargebackId: nonExistentID,
-		AgentId:      merchantID,
+		AgentId:      agentID,
 	})
 	addAuthToRequest(t, req, merchantID)
 
@@ -194,13 +199,16 @@ func TestChargeback_UnauthorizedAccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Try to access with wrong merchant ID
-	wrongMerchantID := "wrong-merchant"
+	// Correct merchant credentials
+	correctMerchantID := "00000000-0000-0000-0000-000000000001"
+	correctAgentID := "test-merchant-staging"
+
+	// Wrong agent ID to test access control
+	wrongAgentID := "wrong-merchant"
 
 	// First, get a real chargeback ID from correct merchant
-	correctMerchantID := "acme-corp"
 	listReq := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		AgentId: correctMerchantID,
+		AgentId: correctAgentID,
 		Limit:   1,
 		Offset:  0,
 	})
@@ -215,12 +223,12 @@ func TestChargeback_UnauthorizedAccess(t *testing.T) {
 
 	chargebackID := listResp.Msg.Chargebacks[0].Id
 
-	// Try to get the chargeback with wrong merchant ID
+	// Try to get the chargeback with wrong agent ID (but valid merchant JWT)
 	getReq := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 		ChargebackId: chargebackID,
-		AgentId:      wrongMerchantID,
+		AgentId:      wrongAgentID,
 	})
-	addAuthToRequest(t, getReq, wrongMerchantID)
+	addAuthToRequest(t, getReq, correctMerchantID)
 
 	_, err = client.GetChargeback(ctx, getReq)
 	require.Error(t, err, "Should deny access to other merchant's chargebacks")
@@ -240,7 +248,8 @@ func TestChargeback_ValidationErrors(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	merchantID := "acme-corp"
+	merchantID := "00000000-0000-0000-0000-000000000001"
+	agentID := "test-merchant-staging"
 
 	tests := []struct {
 		name          string
@@ -252,7 +261,7 @@ func TestChargeback_ValidationErrors(t *testing.T) {
 		{
 			name:          "Missing chargeback_id",
 			chargebackID:  "",
-			agentID:       merchantID,
+			agentID:       agentID,
 			expectedCode:  connect.CodeInvalidArgument,
 			expectedError: "chargeback_id is required",
 		},
@@ -266,7 +275,7 @@ func TestChargeback_ValidationErrors(t *testing.T) {
 		{
 			name:          "Invalid chargeback_id format",
 			chargebackID:  "not-a-uuid",
-			agentID:       merchantID,
+			agentID:       agentID,
 			expectedCode:  connect.CodeInvalidArgument,
 			expectedError: "invalid chargeback_id format",
 		},
@@ -279,7 +288,7 @@ func TestChargeback_ValidationErrors(t *testing.T) {
 				AgentId:      tt.agentID,
 			})
 			if tt.agentID != "" {
-				addAuthToRequest(t, req, tt.agentID)
+				addAuthToRequest(t, req, merchantID)
 			}
 
 			_, err := client.GetChargeback(ctx, req)

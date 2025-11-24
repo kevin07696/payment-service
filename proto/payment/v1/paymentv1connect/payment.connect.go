@@ -44,6 +44,13 @@ const (
 	PaymentServiceVoidProcedure = "/payment.v1.PaymentService/Void"
 	// PaymentServiceRefundProcedure is the fully-qualified name of the PaymentService's Refund RPC.
 	PaymentServiceRefundProcedure = "/payment.v1.PaymentService/Refund"
+	// PaymentServiceACHDebitProcedure is the fully-qualified name of the PaymentService's ACHDebit RPC.
+	PaymentServiceACHDebitProcedure = "/payment.v1.PaymentService/ACHDebit"
+	// PaymentServiceACHCreditProcedure is the fully-qualified name of the PaymentService's ACHCredit
+	// RPC.
+	PaymentServiceACHCreditProcedure = "/payment.v1.PaymentService/ACHCredit"
+	// PaymentServiceACHVoidProcedure is the fully-qualified name of the PaymentService's ACHVoid RPC.
+	PaymentServiceACHVoidProcedure = "/payment.v1.PaymentService/ACHVoid"
 	// PaymentServiceGetTransactionProcedure is the fully-qualified name of the PaymentService's
 	// GetTransaction RPC.
 	PaymentServiceGetTransactionProcedure = "/payment.v1.PaymentService/GetTransaction"
@@ -64,6 +71,13 @@ type PaymentServiceClient interface {
 	Void(context.Context, *connect.Request[v1.VoidRequest]) (*connect.Response[v1.PaymentResponse], error)
 	// Refund returns funds to the customer
 	Refund(context.Context, *connect.Request[v1.RefundRequest]) (*connect.Response[v1.PaymentResponse], error)
+	// ACH Operations - all require Storage BRIC (payment_method_id)
+	// ACHDebit pulls money from a bank account
+	ACHDebit(context.Context, *connect.Request[v1.ACHDebitRequest]) (*connect.Response[v1.PaymentResponse], error)
+	// ACHCredit sends money to a bank account
+	ACHCredit(context.Context, *connect.Request[v1.ACHCreditRequest]) (*connect.Response[v1.PaymentResponse], error)
+	// ACHVoid cancels an ACH transaction
+	ACHVoid(context.Context, *connect.Request[v1.ACHVoidRequest]) (*connect.Response[v1.PaymentResponse], error)
 	// GetTransaction retrieves transaction details
 	GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	// ListTransactions lists transactions for a merchant or customer
@@ -111,6 +125,24 @@ func NewPaymentServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(paymentServiceMethods.ByName("Refund")),
 			connect.WithClientOptions(opts...),
 		),
+		aCHDebit: connect.NewClient[v1.ACHDebitRequest, v1.PaymentResponse](
+			httpClient,
+			baseURL+PaymentServiceACHDebitProcedure,
+			connect.WithSchema(paymentServiceMethods.ByName("ACHDebit")),
+			connect.WithClientOptions(opts...),
+		),
+		aCHCredit: connect.NewClient[v1.ACHCreditRequest, v1.PaymentResponse](
+			httpClient,
+			baseURL+PaymentServiceACHCreditProcedure,
+			connect.WithSchema(paymentServiceMethods.ByName("ACHCredit")),
+			connect.WithClientOptions(opts...),
+		),
+		aCHVoid: connect.NewClient[v1.ACHVoidRequest, v1.PaymentResponse](
+			httpClient,
+			baseURL+PaymentServiceACHVoidProcedure,
+			connect.WithSchema(paymentServiceMethods.ByName("ACHVoid")),
+			connect.WithClientOptions(opts...),
+		),
 		getTransaction: connect.NewClient[v1.GetTransactionRequest, v1.Transaction](
 			httpClient,
 			baseURL+PaymentServiceGetTransactionProcedure,
@@ -133,6 +165,9 @@ type paymentServiceClient struct {
 	sale             *connect.Client[v1.SaleRequest, v1.PaymentResponse]
 	void             *connect.Client[v1.VoidRequest, v1.PaymentResponse]
 	refund           *connect.Client[v1.RefundRequest, v1.PaymentResponse]
+	aCHDebit         *connect.Client[v1.ACHDebitRequest, v1.PaymentResponse]
+	aCHCredit        *connect.Client[v1.ACHCreditRequest, v1.PaymentResponse]
+	aCHVoid          *connect.Client[v1.ACHVoidRequest, v1.PaymentResponse]
 	getTransaction   *connect.Client[v1.GetTransactionRequest, v1.Transaction]
 	listTransactions *connect.Client[v1.ListTransactionsRequest, v1.ListTransactionsResponse]
 }
@@ -162,6 +197,21 @@ func (c *paymentServiceClient) Refund(ctx context.Context, req *connect.Request[
 	return c.refund.CallUnary(ctx, req)
 }
 
+// ACHDebit calls payment.v1.PaymentService.ACHDebit.
+func (c *paymentServiceClient) ACHDebit(ctx context.Context, req *connect.Request[v1.ACHDebitRequest]) (*connect.Response[v1.PaymentResponse], error) {
+	return c.aCHDebit.CallUnary(ctx, req)
+}
+
+// ACHCredit calls payment.v1.PaymentService.ACHCredit.
+func (c *paymentServiceClient) ACHCredit(ctx context.Context, req *connect.Request[v1.ACHCreditRequest]) (*connect.Response[v1.PaymentResponse], error) {
+	return c.aCHCredit.CallUnary(ctx, req)
+}
+
+// ACHVoid calls payment.v1.PaymentService.ACHVoid.
+func (c *paymentServiceClient) ACHVoid(ctx context.Context, req *connect.Request[v1.ACHVoidRequest]) (*connect.Response[v1.PaymentResponse], error) {
+	return c.aCHVoid.CallUnary(ctx, req)
+}
+
 // GetTransaction calls payment.v1.PaymentService.GetTransaction.
 func (c *paymentServiceClient) GetTransaction(ctx context.Context, req *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error) {
 	return c.getTransaction.CallUnary(ctx, req)
@@ -184,6 +234,13 @@ type PaymentServiceHandler interface {
 	Void(context.Context, *connect.Request[v1.VoidRequest]) (*connect.Response[v1.PaymentResponse], error)
 	// Refund returns funds to the customer
 	Refund(context.Context, *connect.Request[v1.RefundRequest]) (*connect.Response[v1.PaymentResponse], error)
+	// ACH Operations - all require Storage BRIC (payment_method_id)
+	// ACHDebit pulls money from a bank account
+	ACHDebit(context.Context, *connect.Request[v1.ACHDebitRequest]) (*connect.Response[v1.PaymentResponse], error)
+	// ACHCredit sends money to a bank account
+	ACHCredit(context.Context, *connect.Request[v1.ACHCreditRequest]) (*connect.Response[v1.PaymentResponse], error)
+	// ACHVoid cancels an ACH transaction
+	ACHVoid(context.Context, *connect.Request[v1.ACHVoidRequest]) (*connect.Response[v1.PaymentResponse], error)
 	// GetTransaction retrieves transaction details
 	GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	// ListTransactions lists transactions for a merchant or customer
@@ -227,6 +284,24 @@ func NewPaymentServiceHandler(svc PaymentServiceHandler, opts ...connect.Handler
 		connect.WithSchema(paymentServiceMethods.ByName("Refund")),
 		connect.WithHandlerOptions(opts...),
 	)
+	paymentServiceACHDebitHandler := connect.NewUnaryHandler(
+		PaymentServiceACHDebitProcedure,
+		svc.ACHDebit,
+		connect.WithSchema(paymentServiceMethods.ByName("ACHDebit")),
+		connect.WithHandlerOptions(opts...),
+	)
+	paymentServiceACHCreditHandler := connect.NewUnaryHandler(
+		PaymentServiceACHCreditProcedure,
+		svc.ACHCredit,
+		connect.WithSchema(paymentServiceMethods.ByName("ACHCredit")),
+		connect.WithHandlerOptions(opts...),
+	)
+	paymentServiceACHVoidHandler := connect.NewUnaryHandler(
+		PaymentServiceACHVoidProcedure,
+		svc.ACHVoid,
+		connect.WithSchema(paymentServiceMethods.ByName("ACHVoid")),
+		connect.WithHandlerOptions(opts...),
+	)
 	paymentServiceGetTransactionHandler := connect.NewUnaryHandler(
 		PaymentServiceGetTransactionProcedure,
 		svc.GetTransaction,
@@ -251,6 +326,12 @@ func NewPaymentServiceHandler(svc PaymentServiceHandler, opts ...connect.Handler
 			paymentServiceVoidHandler.ServeHTTP(w, r)
 		case PaymentServiceRefundProcedure:
 			paymentServiceRefundHandler.ServeHTTP(w, r)
+		case PaymentServiceACHDebitProcedure:
+			paymentServiceACHDebitHandler.ServeHTTP(w, r)
+		case PaymentServiceACHCreditProcedure:
+			paymentServiceACHCreditHandler.ServeHTTP(w, r)
+		case PaymentServiceACHVoidProcedure:
+			paymentServiceACHVoidHandler.ServeHTTP(w, r)
 		case PaymentServiceGetTransactionProcedure:
 			paymentServiceGetTransactionHandler.ServeHTTP(w, r)
 		case PaymentServiceListTransactionsProcedure:
@@ -282,6 +363,18 @@ func (UnimplementedPaymentServiceHandler) Void(context.Context, *connect.Request
 
 func (UnimplementedPaymentServiceHandler) Refund(context.Context, *connect.Request[v1.RefundRequest]) (*connect.Response[v1.PaymentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment.v1.PaymentService.Refund is not implemented"))
+}
+
+func (UnimplementedPaymentServiceHandler) ACHDebit(context.Context, *connect.Request[v1.ACHDebitRequest]) (*connect.Response[v1.PaymentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment.v1.PaymentService.ACHDebit is not implemented"))
+}
+
+func (UnimplementedPaymentServiceHandler) ACHCredit(context.Context, *connect.Request[v1.ACHCreditRequest]) (*connect.Response[v1.PaymentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment.v1.PaymentService.ACHCredit is not implemented"))
+}
+
+func (UnimplementedPaymentServiceHandler) ACHVoid(context.Context, *connect.Request[v1.ACHVoidRequest]) (*connect.Response[v1.PaymentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment.v1.PaymentService.ACHVoid is not implemented"))
 }
 
 func (UnimplementedPaymentServiceHandler) GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error) {
