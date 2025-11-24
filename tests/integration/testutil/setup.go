@@ -117,7 +117,7 @@ func seedTestMerchant(t *testing.T, cfg *Config) {
 		) VALUES (
 			'00000000-0000-0000-0000-000000000001'::uuid,
 			'test-merchant-staging',
-			'/epx/staging/mac_secret',
+			'epx/staging/mac_secret',
 			$1, $2, $3, $4,
 			'staging',
 			'Test Merchant (Staging)',
@@ -126,6 +126,7 @@ func seedTestMerchant(t *testing.T, cfg *Config) {
 			NOW()
 		) ON CONFLICT (id) DO UPDATE SET
 			slug = 'test-merchant-staging',
+			mac_secret_path = EXCLUDED.mac_secret_path,
 			cust_nbr = EXCLUDED.cust_nbr,
 			merch_nbr = EXCLUDED.merch_nbr,
 			dba_nbr = EXCLUDED.dba_nbr,

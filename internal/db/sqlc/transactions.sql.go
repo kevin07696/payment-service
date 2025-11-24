@@ -415,7 +415,7 @@ UPDATE transactions SET
     metadata = COALESCE($7, metadata),
     updated_at = CURRENT_TIMESTAMP
 WHERE tran_nbr = $8
-  AND status = 'PENDING'  -- Only update pending transactions (TAC replay protection)
+  AND status = 'pending'  -- Only update pending transactions (TAC replay protection)
 RETURNING id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at
 `
 

@@ -10,21 +10,22 @@ import (
 )
 
 const cleanupOldRateLimitBuckets = `-- name: CleanupOldRateLimitBuckets :exec
-DELETE FROM rate_limit_buckets
+DELETE FROM rate_limit_cache
 WHERE last_refill < NOW() - INTERVAL '1 hour'
 `
 
-// Remove old rate limit bucket entries
+// Remove old rate limit bucket entries (runs every 5 minutes)
+// Keeps last hour of data for analytics
 func (q *Queries) CleanupOldRateLimitBuckets(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, cleanupOldRateLimitBuckets)
 	return err
 }
 
 const consumeRateLimitToken = `-- name: ConsumeRateLimitToken :one
-INSERT INTO rate_limit_buckets (bucket_key, tokens, last_refill)
+INSERT INTO rate_limit_cache (bucket_key, tokens, last_refill)
 VALUES ($1, $2, NOW())
 ON CONFLICT (bucket_key) DO UPDATE
-SET tokens = GREATEST(rate_limit_buckets.tokens - 1, 0),
+SET tokens = GREATEST(rate_limit_cache.tokens - 1, 0),
     last_refill = NOW()
 RETURNING tokens
 `
@@ -34,8 +35,9 @@ type ConsumeRateLimitTokenParams struct {
 	InitialTokens int32  `json:"initial_tokens"`
 }
 
-// Atomically consume a token from the rate limit bucket
+// Atomically consume a token from the rate limit bucket (UNLOGGED for speed)
 // Returns the number of tokens remaining after consumption
+// Uses UNLOGGED table for 2-3x faster writes (no WAL overhead)
 func (q *Queries) ConsumeRateLimitToken(ctx context.Context, arg ConsumeRateLimitTokenParams) (int32, error) {
 	row := q.db.QueryRow(ctx, consumeRateLimitToken, arg.BucketKey, arg.InitialTokens)
 	var tokens int32
@@ -44,25 +46,20 @@ func (q *Queries) ConsumeRateLimitToken(ctx context.Context, arg ConsumeRateLimi
 }
 
 const getRateLimitBucket = `-- name: GetRateLimitBucket :one
-SELECT bucket_key, tokens, last_refill, created_at FROM rate_limit_buckets
+SELECT bucket_key, tokens, last_refill FROM rate_limit_cache
 WHERE bucket_key = $1
 `
 
 // Get current state of a rate limit bucket
-func (q *Queries) GetRateLimitBucket(ctx context.Context, bucketKey string) (RateLimitBucket, error) {
+func (q *Queries) GetRateLimitBucket(ctx context.Context, bucketKey string) (RateLimitCache, error) {
 	row := q.db.QueryRow(ctx, getRateLimitBucket, bucketKey)
-	var i RateLimitBucket
-	err := row.Scan(
-		&i.BucketKey,
-		&i.Tokens,
-		&i.LastRefill,
-		&i.CreatedAt,
-	)
+	var i RateLimitCache
+	err := row.Scan(&i.BucketKey, &i.Tokens, &i.LastRefill)
 	return i, err
 }
 
 const refillRateLimitBucket = `-- name: RefillRateLimitBucket :exec
-UPDATE rate_limit_buckets
+UPDATE rate_limit_cache
 SET tokens = $1,
     last_refill = NOW()
 WHERE bucket_key = $2

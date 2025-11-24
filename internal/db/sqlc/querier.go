@@ -32,10 +32,12 @@ type Querier interface {
 	CheckServiceMerchantAccessBySlug(ctx context.Context, arg CheckServiceMerchantAccessBySlugParams) (bool, error)
 	// Remove expired entries from JWT blacklist
 	CleanupExpiredBlacklist(ctx context.Context) error
-	// Remove old rate limit bucket entries
+	// Remove old rate limit bucket entries (runs every 5 minutes)
+	// Keeps last hour of data for analytics
 	CleanupOldRateLimitBuckets(ctx context.Context) error
-	// Atomically consume a token from the rate limit bucket
+	// Atomically consume a token from the rate limit bucket (UNLOGGED for speed)
 	// Returns the number of tokens remaining after consumption
+	// Uses UNLOGGED table for 2-3x faster writes (no WAL overhead)
 	ConsumeRateLimitToken(ctx context.Context, arg ConsumeRateLimitTokenParams) (int32, error)
 	CountAuditLogs(ctx context.Context, arg CountAuditLogsParams) (int64, error)
 	CountChargebacks(ctx context.Context, arg CountChargebacksParams) (int64, error)
@@ -106,7 +108,7 @@ type Querier interface {
 	// Used by cron job to mark accounts as verified after 3 days with no returns
 	GetPendingACHVerifications(ctx context.Context, arg GetPendingACHVerificationsParams) ([]CustomerPaymentMethod, error)
 	// Get current state of a rate limit bucket
-	GetRateLimitBucket(ctx context.Context, bucketKey string) (RateLimitBucket, error)
+	GetRateLimitBucket(ctx context.Context, bucketKey string) (RateLimitCache, error)
 	GetServiceByID(ctx context.Context, id uuid.UUID) (Service, error)
 	GetServiceByServiceID(ctx context.Context, serviceID string) (Service, error)
 	GetServiceMerchantAccess(ctx context.Context, arg GetServiceMerchantAccessParams) (ServiceMerchant, error)

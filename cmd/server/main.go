@@ -224,9 +224,11 @@ func main() {
 	httpMux.HandleFunc("/cron/sync-disputes", cronAuthMiddleware(deps.disputeSyncCronHandler.SyncDisputes))
 	httpMux.HandleFunc("/cron/verify-ach", cronAuthMiddleware(deps.achVerificationCronHandler.VerifyACH))
 	httpMux.HandleFunc("/cron/cleanup-audit-logs", cronAuthMiddleware(deps.auditCleanupCronHandler.CleanupAuditLogs))
+	httpMux.HandleFunc("/cron/cleanup-rate-limits", cronAuthMiddleware(deps.rateLimitCleanupCronHandler.CleanupRateLimitBuckets))
 	httpMux.HandleFunc("/cron/stats", cronAuthMiddleware(deps.billingCronHandler.Stats))
 	httpMux.HandleFunc("/cron/ach/stats", cronAuthMiddleware(deps.achVerificationCronHandler.Stats))
 	httpMux.HandleFunc("/cron/audit/stats", cronAuthMiddleware(deps.auditCleanupCronHandler.Stats))
+	httpMux.HandleFunc("/cron/rate-limit/stats", cronAuthMiddleware(deps.rateLimitCleanupCronHandler.Stats))
 
 	// Health endpoints (no auth required for monitoring/load balancers)
 	// Wrap health checks with draining awareness - returns 503 during shutdown
@@ -234,6 +236,7 @@ func main() {
 	httpMux.Handle("/cron/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.billingCronHandler.HealthCheck)))
 	httpMux.Handle("/cron/ach/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.achVerificationCronHandler.HealthCheck)))
 	httpMux.Handle("/cron/audit/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.auditCleanupCronHandler.HealthCheck)))
+	httpMux.Handle("/cron/rate-limit/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.rateLimitCleanupCronHandler.HealthCheck)))
 
 	// Browser Post endpoints (with rate limiting and EPX auth for callbacks)
 	httpMux.HandleFunc("/api/v1/payments/browser-post/form",
@@ -454,6 +457,7 @@ type Dependencies struct {
 	disputeSyncCronHandler     *cronHandler.DisputeSyncHandler
 	achVerificationCronHandler *cronHandler.ACHVerificationHandler
 	auditCleanupCronHandler    *cronHandler.AuditCleanupHandler
+	rateLimitCleanupCronHandler *cronHandler.RateLimitCleanupHandler
 	browserPostCallbackHandler *paymentHandler.BrowserPostCallbackHandler
 }
 
@@ -714,6 +718,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
 	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(queries, logger, cfg.CronSecret)
 	auditCleanupCronHdlr := cronHandler.NewAuditCleanupHandler(queries, logger, cfg.CronSecret)
+	rateLimitCleanupCronHdlr := cronHandler.NewRateLimitCleanupHandler(queries, logger, cfg.CronSecret)
 
 	// Initialize Browser Post callback handler
 	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(
@@ -727,20 +732,21 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	)
 
 	return &Dependencies{
-		dbAdapter:                  dbAdapter,
-		goroutineTracker:           goroutineTracker,
-		merchantCache:              merchantCache,
-		paymentMethodCache:         paymentMethodCache,
-		paymentHandler:             paymentHdlr,
-		subscriptionHandler:        subscriptionHdlr,
-		paymentMethodHandler:       paymentMethodHdlr,
-		chargebackHandler:          chargebackHdlr,
-		merchantHandler:            merchantHdlr,
-		billingCronHandler:         billingCronHdlr,
-		disputeSyncCronHandler:     disputeSyncCronHdlr,
-		achVerificationCronHandler: achVerificationCronHdlr,
-		auditCleanupCronHandler:    auditCleanupCronHdlr,
-		browserPostCallbackHandler: browserPostCallbackHdlr,
+		dbAdapter:                   dbAdapter,
+		goroutineTracker:            goroutineTracker,
+		merchantCache:               merchantCache,
+		paymentMethodCache:          paymentMethodCache,
+		paymentHandler:              paymentHdlr,
+		subscriptionHandler:         subscriptionHdlr,
+		paymentMethodHandler:        paymentMethodHdlr,
+		chargebackHandler:           chargebackHdlr,
+		merchantHandler:             merchantHdlr,
+		billingCronHandler:          billingCronHdlr,
+		disputeSyncCronHandler:      disputeSyncCronHdlr,
+		achVerificationCronHandler:  achVerificationCronHdlr,
+		auditCleanupCronHandler:     auditCleanupCronHdlr,
+		rateLimitCleanupCronHandler: rateLimitCleanupCronHdlr,
+		browserPostCallbackHandler:  browserPostCallbackHdlr,
 	}
 }
 

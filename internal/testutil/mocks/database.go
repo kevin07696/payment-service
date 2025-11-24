@@ -679,9 +679,9 @@ func (m *MockQuerier) RefillRateLimitBucket(ctx context.Context, arg sqlc.Refill
 	return args.Error(0)
 }
 
-func (m *MockQuerier) GetRateLimitBucket(ctx context.Context, bucketKey string) (sqlc.RateLimitBucket, error) {
+func (m *MockQuerier) GetRateLimitBucket(ctx context.Context, bucketKey string) (sqlc.RateLimitCache, error) {
 	args := m.Called(ctx, bucketKey)
-	return args.Get(0).(sqlc.RateLimitBucket), args.Error(1)
+	return args.Get(0).(sqlc.RateLimitCache), args.Error(1)
 }
 
 func (m *MockQuerier) CleanupOldRateLimitBuckets(ctx context.Context) error {

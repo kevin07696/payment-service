@@ -2,7 +2,6 @@ package payment
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
@@ -39,14 +39,21 @@ type DatabaseAdapter interface {
 //
 // Note: Returns UPPERCASE to match database constraint and transaction_type enum
 func mapRequestTypeToTransactionType(requestType string) string {
-	switch strings.ToUpper(requestType) {
+	upperType := strings.ToUpper(requestType)
+	result := ""
+	switch upperType {
 	case "AUTH":
-		return "AUTH"
+		result = "AUTH"
 	case "SALE":
-		return "SALE"
+		result = "SALE"
+	case "STORAGE":
+		result = "STORAGE" // Card tokenization transaction
 	default:
-		return "SALE" // Default to SALE (uppercase to match constraint)
+		result = "SALE" // Default to SALE (uppercase to match constraint)
 	}
+	// DEBUG: Log the mapping to troubleshoot
+	fmt.Printf("[DEBUG mapRequestTypeToTransactionType] input='%s' upper='%s' result='%s'\n", requestType, upperType, result)
+	return result
 }
 
 // BrowserPostCallbackHandler handles the redirect callback from EPX Browser Post API
@@ -615,7 +622,7 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 
 	if err != nil {
 		// Check if this is a TAC replay attack (transaction not in PENDING status)
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			h.logger.Warn("TAC replay attack detected - transaction not in PENDING status",
 				zap.String("transaction_id", transactionID.String()),
 				zap.String("tran_nbr", response.TranNbr),

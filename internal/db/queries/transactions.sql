@@ -117,5 +117,5 @@ UPDATE transactions SET
     metadata = COALESCE(sqlc.arg(metadata), metadata),
     updated_at = CURRENT_TIMESTAMP
 WHERE tran_nbr = sqlc.arg(tran_nbr)
-  AND status = 'PENDING'  -- Only update pending transactions (TAC replay protection)
+  AND status = 'pending'  -- Only update pending transactions (TAC replay protection)
 RETURNING *;

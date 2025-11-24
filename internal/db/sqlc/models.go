@@ -392,6 +392,12 @@ type RateLimitBucket struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type RateLimitCache struct {
+	BucketKey  string    `json:"bucket_key"`
+	Tokens     int32     `json:"tokens"`
+	LastRefill time.Time `json:"last_refill"`
+}
+
 type Service struct {
 	ID                   uuid.UUID   `json:"id"`
 	ServiceID            string      `json:"service_id"`

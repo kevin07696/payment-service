@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -139,7 +140,8 @@ func (c *Client) DoConnectRPC(serviceName, method string, body interface{}) (*ht
 	return resp, nil
 }
 
-// DecodeResponse decodes JSON response body
+// DecodeResponse decodes JSON response body, handling gzip compression automatically
+// Detects gzip compression even if Content-Encoding header is not set
 func DecodeResponse(resp *http.Response, v interface{}) error {
 	defer resp.Body.Close()
 
@@ -148,10 +150,34 @@ func DecodeResponse(resp *http.Response, v interface{}) error {
 		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	if v != nil {
-		if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
-			return fmt.Errorf("decode response: %w", err)
+	if v == nil {
+		return nil
+	}
+
+	// Read first 2 bytes to detect gzip magic number (0x1f 0x8b)
+	// This handles cases where server compresses without setting Content-Encoding header
+	var peekBuf [2]byte
+	n, err := io.ReadFull(resp.Body, peekBuf[:])
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return fmt.Errorf("peek response body: %w", err)
+	}
+
+	// Create reader that includes the peeked bytes
+	reader := io.MultiReader(bytes.NewReader(peekBuf[:n]), resp.Body)
+
+	// Check for gzip magic number (0x1f 0x8b) or Content-Encoding header
+	isGzip := n == 2 && peekBuf[0] == 0x1f && peekBuf[1] == 0x8b
+	if isGzip || resp.Header.Get("Content-Encoding") == "gzip" {
+		gzipReader, err := gzip.NewReader(reader)
+		if err != nil {
+			return fmt.Errorf("create gzip reader: %w", err)
 		}
+		defer gzipReader.Close()
+		reader = gzipReader
+	}
+
+	if err := json.NewDecoder(reader).Decode(v); err != nil {
+		return fmt.Errorf("decode response: %w", err)
 	}
 
 	return nil
