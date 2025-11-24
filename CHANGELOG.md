@@ -7,6 +7,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-11-24 - ConnectRPC Wire-Format Error) 🐛
+
+**Fixed critical wire-format error affecting all List* endpoints in ConnectRPC**
+
+**Root Cause:**
+- Custom gzip compression middleware was interfering with ConnectRPC's built-in compression
+- ConnectRPC handles compression via `Connect-Content-Encoding` header
+- Custom middleware was applying HTTP-level gzip compression (`Content-Encoding: gzip`) to ConnectRPC responses
+- Client received double-compressed/incorrectly compressed protobuf data
+- Error: `invalid_argument: unmarshal message: proto: cannot parse invalid wire-format data`
+
+**Affected Endpoints:**
+- `ListChargebacks` (chargeback service)
+- `ListTransactions` (payment service)
+- All endpoints returning `repeated` fields in protobuf responses
+
+**Working Endpoints:** (not affected because they return single objects, not lists)
+- `GetChargeback` - returns single Chargeback message
+- All non-list RPC endpoints
+
+**Solution:**
+1. Modified `pkg/middleware/compression.go` to support prefix-based path exclusion
+   - Paths ending with `/` now treated as prefix matches
+   - Example: `/chargeback.v1.ChargebackService/` matches all methods
+2. Excluded all ConnectRPC service paths from custom gzip middleware
+   - `/payment.v1.PaymentService/`
+   - `/subscription.v1.SubscriptionService/`
+   - `/paymentmethod.v1.PaymentMethodService/`
+   - `/chargeback.v1.ChargebackService/`
+   - `/merchant.v1.MerchantService/`
+3. ConnectRPC now handles compression internally using proper negotiation
+
+**Files Modified:**
+- `/home/kevinlam/Documents/projects/payments/cmd/server/main.go` (lines 257-271)
+  - Added ConnectRPC paths to compression exclusion list
+  - Added documentation explaining why exclusion is necessary
+- `/home/kevinlam/Documents/projects/payments/pkg/middleware/compression.go` (lines 158-183)
+  - Added prefix matching support for excluded paths
+  - Added configuration logging for debugging
+- `/home/kevinlam/Documents/projects/payments/tests/integration/chargeback/chargeback_test.go` (line 88)
+  - Removed assertion requiring non-nil slice for empty results (protobuf behavior)
+
+**Testing:**
+- Verified `ListChargebacks` works correctly
+- Verified `ListTransactions` works correctly
+- All ConnectRPC compression handled by Connect protocol
+- Created test: `tests/integration/payment/list_transactions_test.go`
+
+**Impact:** All List* endpoints now function correctly with proper protobuf wire format
+
+### Refactored (2025-11-24 - Test Architecture Improvements) ♻️
+
+**Eliminated redundancy between unit and integration tests for chargeback service**
+
+**Changes Made:**
+1. **Created dedicated unit tests** at `internal/handlers/chargeback/chargeback_handler_connect_test.go`
+   - Validation logic testing (missing fields, invalid formats)
+   - Error handling testing (NotFound errors)
+   - Business logic testing (limit defaults, pagination caps)
+   - Uses mock QueryExecutor (no database dependencies)
+   - Fast execution: 0.003s for all unit tests
+
+2. **Refactored integration tests** to table-driven approach
+   - Combined `TestChargeback_ListChargebacks` and `TestChargeback_ListChargebacksWithStatusFilter` into single table-driven test
+   - Removed `TestChargeback_ValidationErrors` (moved to unit tests)
+   - Integration tests now focus on end-to-end API behavior with real HTTP calls
+   - Reduced test count from 6 separate functions to 4 (with table-driven subtests)
+
+3. **Clear separation of concerns**
+   - Unit tests: Handler validation logic, error handling, business rules
+   - Integration tests: ConnectRPC protocol, JWT authentication, database interactions
+   - Added documentation comment directing to unit tests for validation testing
+
+**Test Coverage:**
+- Unit tests: 4 test functions, 10 total assertions, all passing
+  - `TestGetChargeback_Validation` (3 subtests)
+  - `TestListChargebacks_Validation` (1 subtest)
+  - `TestGetChargeback_NotFound`
+  - `TestListChargebacks_LimitDefaults` (3 subtests)
+- Integration tests: 4 test functions, 2 passing, 2 skipped (no seed data)
+  - `TestChargeback_ListChargebacks` (table-driven with 3 subtests)
+  - `TestChargeback_GetChargeback`
+  - `TestChargeback_GetChargebackNotFound`
+  - `TestChargeback_UnauthorizedAccess`
+
+**Files Modified:**
+- `/home/kevinlam/Documents/projects/payments/internal/handlers/chargeback/chargeback_handler_connect_test.go` (NEW)
+  - Complete unit test suite for handler validation
+- `/home/kevinlam/Documents/projects/payments/tests/integration/chargeback/chargeback_test.go`
+  - Refactored to table-driven approach
+  - Removed redundant validation tests
+
+**Benefits:**
+- Faster test execution (unit tests run in milliseconds without database)
+- Clearer test organization and purpose
+- Reduced duplication between test suites
+- Easier to maintain and extend
+
+### Changed (2025-11-23 - Documentation Improvements) 📚
+
+**React Integration Guide - Comprehensive Rewrite Following Style Guide**
+
+Completely rewrote `docs/integration/REACT_INTEGRATION.md` to follow documentation style guide with enhanced developer experience:
+
+- **Added curl Quickstart**: Developers now test APIs with curl before React integration
+  - Complete JWT token generation script (Node.js)
+  - curl examples for Authorize, Sale, Refund, and List Transactions operations
+  - Shows expected request/response format for understanding API behavior
+  - 5-minute path from "verify API works" to "React integration"
+
+- **Improved Key Integration Guide**: Clear authentication setup with security best practices
+  - Prerequisites section links to [Token Generation Guide](TOKEN_GENERATION.md)
+  - Backend token generation (recommended) vs frontend approaches
+  - Complete backend endpoint example (Node.js/Express) for JWT generation
+  - Frontend token caching with automatic refresh logic
+  - Security warnings: Never put private keys in browser code
+
+- **Holistic React Experience**: Complete end-to-end integration path
+  - Integration flow: Test APIs → Auth → TypeScript types → Components → Production
+  - Recommended project structure with file organization
+  - Environment configuration (.env setup)
+  - All pieces connected: client setup, hooks, components, error handling
+
+- **Enhanced Cross-References**: Better navigation between related docs
+  - Links to TOKEN_GENERATION.md for JWT authentication details
+  - Links to BROWSER_POST_FORM_SETUP.md for PCI-compliant card tokenization
+  - Links to GETTING_STARTED.md for integration flow context
+  - Links to API_SPECS.md for complete API reference
+  - Links to AUTH.md for authentication architecture details
+
+- **Documentation Style Guide Compliance**: Follows all style guide requirements
+  - **Target Audience, Topic, Goal** at document top (required header)
+  - **Show AND Tell**: curl examples + React code + explanations
+  - **Practical Examples**: Working code snippets with context
+  - **Troubleshooting Section**: Issue → Cause → Solution format
+  - **Related Documentation**: Links to next steps at bottom
+
+**Key Improvements:**
+1. **curl Testing First**: Verify API works before writing React code (reduces debugging time)
+2. **Security Focus**: Clear guidance on backend JWT generation (private keys never in browser)
+3. **Complete Examples**: Payment operations, Browser Post, checkout flow, error handling
+4. **Type Safety**: BigInt for amounts, TypeScript interfaces, generated proto types
+5. **Best Practices**: Idempotency keys, token caching, environment variables, loading states
+
+**Files Modified:**
+- `docs/integration/REACT_INTEGRATION.md` (complete rewrite, ~1310 lines)
+
+**Impact**: React developers can now integrate payments with better understanding of API behavior through curl testing, proper JWT authentication setup, and comprehensive working examples. Documentation is more discoverable with cross-references and follows consistent style guide format.
+
 ### Fixed (2025-11-23 - WordPress Integration Tests) 🧪
 
 **WordPress Integration Test Suite - Critical Fixes Applied**

@@ -63,63 +63,70 @@ func addAuthToRequest[T any](t *testing.T, req *connect.Request[T], merchantID s
 	req.Header().Set("Authorization", "Bearer "+token)
 }
 
-// TestChargeback_ListChargebacks tests listing chargebacks for a merchant
+// TestChargeback_ListChargebacks tests listing chargebacks with various filters
 func TestChargeback_ListChargebacks(t *testing.T) {
 	client := setupChargebackClient(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Test merchant UUID for JWT authentication
-	merchantID := "00000000-0000-0000-0000-000000000001"
-	// Agent ID (slug) for API requests
-	agentID := "test-merchant-staging"
-
-	req := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		AgentId: agentID,
-		Limit:   10,
-		Offset:  0,
-	})
-	addAuthToRequest(t, req, merchantID)
-
-	resp, err := client.ListChargebacks(ctx, req)
-	require.NoError(t, err, "ListChargebacks should succeed")
-	assert.NotNil(t, resp)
-	assert.NotNil(t, resp.Msg.Chargebacks)
-	assert.GreaterOrEqual(t, resp.Msg.TotalCount, int32(0), "Total count should be non-negative")
-
-	t.Logf("✅ Listed %d chargebacks (total: %d)", len(resp.Msg.Chargebacks), resp.Msg.TotalCount)
-}
-
-// TestChargeback_ListChargebacksWithStatusFilter tests filtering by status
-func TestChargeback_ListChargebacksWithStatusFilter(t *testing.T) {
-	client := setupChargebackClient(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	merchantID := "00000000-0000-0000-0000-000000000001"
 	agentID := "test-merchant-staging"
-	status := chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_NEW
 
-	req := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		AgentId: agentID,
-		Status:  &status,
-		Limit:   10,
-		Offset:  0,
-	})
-	addAuthToRequest(t, req, merchantID)
-
-	resp, err := client.ListChargebacks(ctx, req)
-	require.NoError(t, err, "ListChargebacks with status filter should succeed")
-	assert.NotNil(t, resp)
-
-	// Verify all returned chargebacks have the requested status
-	for _, cb := range resp.Msg.Chargebacks {
-		assert.Equal(t, status, cb.Status, "All chargebacks should have status NEW")
+	tests := []struct {
+		name        string
+		request     *chargebackv1.ListChargebacksRequest
+		description string
+	}{
+		{
+			name: "List all chargebacks",
+			request: &chargebackv1.ListChargebacksRequest{
+				AgentId: agentID,
+				Limit:   10,
+				Offset:  0,
+			},
+			description: "Basic list without filters",
+		},
+		{
+			name: "Filter by NEW status",
+			request: &chargebackv1.ListChargebacksRequest{
+				AgentId: agentID,
+				Status:  func() *chargebackv1.ChargebackStatus { s := chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_NEW; return &s }(),
+				Limit:   10,
+				Offset:  0,
+			},
+			description: "List with status filter",
+		},
+		{
+			name: "Pagination with offset",
+			request: &chargebackv1.ListChargebacksRequest{
+				AgentId: agentID,
+				Limit:   5,
+				Offset:  5,
+			},
+			description: "Test pagination",
+		},
 	}
 
-	t.Logf("✅ Listed %d NEW chargebacks", len(resp.Msg.Chargebacks))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req := connect.NewRequest(tt.request)
+			addAuthToRequest(t, req, merchantID)
+
+			resp, err := client.ListChargebacks(ctx, req)
+			require.NoError(t, err, "ListChargebacks should succeed")
+			assert.NotNil(t, resp)
+			assert.GreaterOrEqual(t, resp.Msg.TotalCount, int32(0), "Total count should be non-negative")
+
+			// If status filter is provided, verify all returned chargebacks match
+			if tt.request.Status != nil {
+				for _, cb := range resp.Msg.Chargebacks {
+					assert.Equal(t, *tt.request.Status, cb.Status, "All chargebacks should match filter status")
+				}
+			}
+
+			t.Logf("✅ %s: Listed %d chargebacks (total: %d)", tt.description, len(resp.Msg.Chargebacks), resp.Msg.TotalCount)
+		})
+	}
 }
 
 // TestChargeback_GetChargeback tests retrieving a specific chargeback
@@ -241,65 +248,6 @@ func TestChargeback_UnauthorizedAccess(t *testing.T) {
 	t.Logf("✅ Correctly denied unauthorized access")
 }
 
-// TestChargeback_ValidationErrors tests input validation
-func TestChargeback_ValidationErrors(t *testing.T) {
-	client := setupChargebackClient(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	merchantID := "00000000-0000-0000-0000-000000000001"
-	agentID := "test-merchant-staging"
-
-	tests := []struct {
-		name          string
-		chargebackID  string
-		agentID       string
-		expectedCode  connect.Code
-		expectedError string
-	}{
-		{
-			name:          "Missing chargeback_id",
-			chargebackID:  "",
-			agentID:       agentID,
-			expectedCode:  connect.CodeInvalidArgument,
-			expectedError: "chargeback_id is required",
-		},
-		{
-			name:          "Missing agent_id",
-			chargebackID:  uuid.New().String(),
-			agentID:       "",
-			expectedCode:  connect.CodeInvalidArgument,
-			expectedError: "agent_id is required",
-		},
-		{
-			name:          "Invalid chargeback_id format",
-			chargebackID:  "not-a-uuid",
-			agentID:       agentID,
-			expectedCode:  connect.CodeInvalidArgument,
-			expectedError: "invalid chargeback_id format",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := connect.NewRequest(&chargebackv1.GetChargebackRequest{
-				ChargebackId: tt.chargebackID,
-				AgentId:      tt.agentID,
-			})
-			if tt.agentID != "" {
-				addAuthToRequest(t, req, merchantID)
-			}
-
-			_, err := client.GetChargeback(ctx, req)
-			require.Error(t, err)
-
-			var connectErr *connect.Error
-			require.ErrorAs(t, err, &connectErr)
-			assert.Equal(t, tt.expectedCode, connectErr.Code())
-			assert.Contains(t, connectErr.Message(), tt.expectedError)
-
-			t.Logf("✅ Validation error: %s", connectErr.Message())
-		})
-	}
-}
+// NOTE: Validation tests have been moved to unit tests at:
+// internal/handlers/chargeback/chargeback_handler_connect_test.go
+// Integration tests focus on end-to-end API behavior with real HTTP calls
