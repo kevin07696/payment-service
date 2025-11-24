@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-11-24 - Test Failures) 🐛
+
+**Post-Audit-Removal Fixes**
+
+Fixed test failures and build errors after removing audit trail columns:
+- Fixed `internal/handlers/admin/service_handler.go` - Removed `CreatedBy` field reference
+- Fixed `internal/testutil/fixtures/services.go` - Removed obsolete `WithCreatedBy()` builder method
+- All unit tests now pass: `go test ./... -short` ✅
+- Build verification: `go build ./...` ✅
+- Code quality: `go vet ./...` ✅
+
+Files Modified:
+- `internal/handlers/admin/service_handler.go:64-91` - Removed createdBy variable and field
+- `internal/testutil/fixtures/services.go:88-91` - Removed WithCreatedBy method
+
 ### Removed (2025-11-24 - Simplification) ♻️
 
 **Admin CLI - Removed Authentication and Audit Trail**

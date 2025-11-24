@@ -85,11 +85,6 @@ func (b *ServiceBuilder) Inactive() *ServiceBuilder {
 	return b
 }
 
-func (b *ServiceBuilder) WithCreatedBy(createdBy uuid.UUID) *ServiceBuilder {
-	b.service.CreatedBy = pgtype.UUID{Bytes: createdBy, Valid: true}
-	return b
-}
-
 func (b *ServiceBuilder) Build() sqlc.Service {
 	return *b.service
 }

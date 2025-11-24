@@ -61,16 +61,6 @@ func (h *ServiceHandler) CreateService(
 		burstLimit = 200
 	}
 
-	// Extract creator from auth context
-	actorID, _, _ := middleware.ExtractAuthContext(ctx)
-	var createdBy pgtype.UUID
-	if actorID.Valid {
-		// Try to parse service_id as UUID for created_by field
-		// Note: created_by expects UUID, but service_id might be string identifier
-		// For now, leave as invalid UUID until we add proper admin user management
-		createdBy = pgtype.UUID{Valid: false}
-	}
-
 	// Create service in database (store only public key)
 	service, err := h.queries.CreateService(ctx, sqlc.CreateServiceParams{
 		ID:                   uuid.New(),
@@ -88,7 +78,6 @@ func (h *ServiceHandler) CreateService(
 			Valid: true,
 		},
 		IsActive: pgtype.Bool{Bool: true, Valid: true},
-		CreatedBy: createdBy, // From JWT context (currently service_id, not admin UUID)
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create service: %w", err))
