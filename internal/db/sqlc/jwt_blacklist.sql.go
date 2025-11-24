@@ -14,20 +14,19 @@ import (
 
 const blacklistJWT = `-- name: BlacklistJWT :exec
 INSERT INTO jwt_blacklist (
-    jti, service_id, merchant_id, expires_at, blacklisted_by, reason
+    jti, service_id, merchant_id, expires_at, reason
 ) VALUES (
     $1, $2, $3,
-    $4, $5, $6
+    $4, $5
 )
 `
 
 type BlacklistJWTParams struct {
-	Jti           string      `json:"jti"`
-	ServiceID     pgtype.Text `json:"service_id"`
-	MerchantID    pgtype.UUID `json:"merchant_id"`
-	ExpiresAt     time.Time   `json:"expires_at"`
-	BlacklistedBy pgtype.UUID `json:"blacklisted_by"`
-	Reason        pgtype.Text `json:"reason"`
+	Jti        string      `json:"jti"`
+	ServiceID  pgtype.Text `json:"service_id"`
+	MerchantID pgtype.UUID `json:"merchant_id"`
+	ExpiresAt  time.Time   `json:"expires_at"`
+	Reason     pgtype.Text `json:"reason"`
 }
 
 // Add a JWT token to the blacklist
@@ -37,7 +36,6 @@ func (q *Queries) BlacklistJWT(ctx context.Context, arg BlacklistJWTParams) erro
 		arg.ServiceID,
 		arg.MerchantID,
 		arg.ExpiresAt,
-		arg.BlacklistedBy,
 		arg.Reason,
 	)
 	return err

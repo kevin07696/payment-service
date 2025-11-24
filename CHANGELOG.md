@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed (2025-11-24 - Simplification) ♻️
+
+**Admin CLI - Removed Authentication and Audit Trail**
+
+Simplified admin CLI by removing all authentication requirements and audit trail columns:
+
+**Database Changes:**
+- Created migration `023_remove_audit_columns.sql` to drop audit columns:
+  - `services.created_by` - Removed
+  - `merchants.created_by` - Removed
+  - `merchants.approved_by` - Removed
+  - `merchants.approved_at` - Removed
+  - `service_merchants.granted_by` - Removed
+  - `epx_ip_whitelist.added_by` - Removed
+  - `jwt_blacklist.blacklisted_by` - Removed
+
+**sqlc Query Updates:**
+- Updated `services.sql` - Removed `created_by` from CreateService
+- Updated `service_merchants.sql` - Removed `granted_by` from GrantServiceAccess
+- Updated `epx_ip_whitelist.sql` - Removed `added_by` from AddIPToWhitelist
+- Updated `jwt_blacklist.sql` - Removed `blacklisted_by` from BlacklistJWT
+- Regenerated sqlc code
+
+**Admin CLI Updates:**
+- Removed `CreatedBy` parameter from service creation
+- Removed `GrantedBy` parameter from access granting
+- CLI now works without admin authentication
+- No seed command or login required
+
+**Why This Change:**
+- CLI authentication was fake security (autoLogin grabbed first admin anyway)
+- Audit trail added complexity without real value for CLI tool
+- Simplified first-time setup (no need for seed/login)
+- CLI is a local development tool - anyone with access can use it
+
+**Impact:** Admin CLI now works immediately without setup. Run `./admin -action=create-service` directly.
+
+**Files Modified:**
+- `internal/db/migrations/023_remove_audit_columns.sql` (new migration)
+- `internal/db/queries/services.sql`
+- `internal/db/queries/service_merchants.sql`
+- `internal/db/queries/epx_ip_whitelist.sql`
+- `internal/db/queries/jwt_blacklist.sql`
+- `internal/db/sqlc/*` (regenerated)
+- `cmd/admin/main.go`
+
 ### Added (2025-11-24 - Documentation) 📚
 
 **Admin CLI Guide - Added Missing Prerequisites Section**

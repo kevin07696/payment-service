@@ -50,7 +50,7 @@ INSERT INTO merchants (
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
     $7, $8, $9, $10
-) RETURNING id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier, created_by, approved_by, approved_at
+) RETURNING id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier
 `
 
 type CreateMerchantParams struct {
@@ -96,9 +96,6 @@ func (q *Queries) CreateMerchant(ctx context.Context, arg CreateMerchantParams) 
 		&i.DeletedAt,
 		&i.Status,
 		&i.Tier,
-		&i.CreatedBy,
-		&i.ApprovedBy,
-		&i.ApprovedAt,
 	)
 	return i, err
 }
@@ -115,7 +112,7 @@ func (q *Queries) DeactivateMerchant(ctx context.Context, id uuid.UUID) error {
 }
 
 const getMerchantByID = `-- name: GetMerchantByID :one
-SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier, created_by, approved_by, approved_at FROM merchants
+SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier FROM merchants
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -138,15 +135,12 @@ func (q *Queries) GetMerchantByID(ctx context.Context, id uuid.UUID) (Merchant, 
 		&i.DeletedAt,
 		&i.Status,
 		&i.Tier,
-		&i.CreatedBy,
-		&i.ApprovedBy,
-		&i.ApprovedAt,
 	)
 	return i, err
 }
 
 const getMerchantBySlug = `-- name: GetMerchantBySlug :one
-SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier, created_by, approved_by, approved_at FROM merchants
+SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier FROM merchants
 WHERE slug = $1 AND deleted_at IS NULL
 `
 
@@ -169,15 +163,12 @@ func (q *Queries) GetMerchantBySlug(ctx context.Context, slug string) (Merchant,
 		&i.DeletedAt,
 		&i.Status,
 		&i.Tier,
-		&i.CreatedBy,
-		&i.ApprovedBy,
-		&i.ApprovedAt,
 	)
 	return i, err
 }
 
 const listActiveMerchants = `-- name: ListActiveMerchants :many
-SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier, created_by, approved_by, approved_at FROM merchants
+SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier FROM merchants
 WHERE is_active = true AND deleted_at IS NULL
 ORDER BY created_at DESC
 `
@@ -207,9 +198,6 @@ func (q *Queries) ListActiveMerchants(ctx context.Context) ([]Merchant, error) {
 			&i.DeletedAt,
 			&i.Status,
 			&i.Tier,
-			&i.CreatedBy,
-			&i.ApprovedBy,
-			&i.ApprovedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -222,7 +210,7 @@ func (q *Queries) ListActiveMerchants(ctx context.Context) ([]Merchant, error) {
 }
 
 const listMerchants = `-- name: ListMerchants :many
-SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier, created_by, approved_by, approved_at FROM merchants
+SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier FROM merchants
 WHERE
     deleted_at IS NULL AND
     ($1::varchar IS NULL OR environment = $1) AND
@@ -268,9 +256,6 @@ func (q *Queries) ListMerchants(ctx context.Context, arg ListMerchantsParams) ([
 			&i.DeletedAt,
 			&i.Status,
 			&i.Tier,
-			&i.CreatedBy,
-			&i.ApprovedBy,
-			&i.ApprovedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -315,7 +300,7 @@ SET
     name = $6,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $7 AND deleted_at IS NULL
-RETURNING id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier, created_by, approved_by, approved_at
+RETURNING id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier
 `
 
 type UpdateMerchantParams struct {
@@ -355,9 +340,6 @@ func (q *Queries) UpdateMerchant(ctx context.Context, arg UpdateMerchantParams) 
 		&i.DeletedAt,
 		&i.Status,
 		&i.Tier,
-		&i.CreatedBy,
-		&i.ApprovedBy,
-		&i.ApprovedAt,
 	)
 	return i, err
 }

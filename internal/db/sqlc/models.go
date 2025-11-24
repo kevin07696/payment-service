@@ -335,7 +335,6 @@ type EpxIpWhitelist struct {
 	ID          int32       `json:"id"`
 	IpAddress   netip.Addr  `json:"ip_address"`
 	Description pgtype.Text `json:"description"`
-	AddedBy     pgtype.UUID `json:"added_by"`
 	// Timezone-aware timestamp (stored as UTC)
 	AddedAt  pgtype.Timestamptz `json:"added_at"`
 	IsActive pgtype.Bool        `json:"is_active"`
@@ -349,7 +348,6 @@ type JwtBlacklist struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	// Timezone-aware timestamp (stored as UTC)
 	BlacklistedAt pgtype.Timestamptz `json:"blacklisted_at"`
-	BlacklistedBy pgtype.UUID        `json:"blacklisted_by"`
 	Reason        pgtype.Text        `json:"reason"`
 }
 
@@ -369,13 +367,9 @@ type Merchant struct {
 	// Timezone-aware timestamp (stored as UTC)
 	UpdatedAt time.Time `json:"updated_at"`
 	// Timezone-aware timestamp (stored as UTC)
-	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
-	Status     pgtype.Text        `json:"status"`
-	Tier       pgtype.Text        `json:"tier"`
-	CreatedBy  pgtype.UUID        `json:"created_by"`
-	ApprovedBy pgtype.UUID        `json:"approved_by"`
-	// Timezone-aware timestamp (stored as UTC)
-	ApprovedAt pgtype.Timestamptz `json:"approved_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	Status    pgtype.Text        `json:"status"`
+	Tier      pgtype.Text        `json:"tier"`
 }
 
 type MerchantActivationToken struct {
@@ -408,7 +402,6 @@ type Service struct {
 	RequestsPerSecond    pgtype.Int4 `json:"requests_per_second"`
 	BurstLimit           pgtype.Int4 `json:"burst_limit"`
 	IsActive             pgtype.Bool `json:"is_active"`
-	CreatedBy            pgtype.UUID `json:"created_by"`
 	// Timezone-aware timestamp (stored as UTC)
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	// Timezone-aware timestamp (stored as UTC)
@@ -416,10 +409,9 @@ type Service struct {
 }
 
 type ServiceMerchant struct {
-	ServiceID  uuid.UUID   `json:"service_id"`
-	MerchantID uuid.UUID   `json:"merchant_id"`
-	Scopes     []string    `json:"scopes"`
-	GrantedBy  pgtype.UUID `json:"granted_by"`
+	ServiceID  uuid.UUID `json:"service_id"`
+	MerchantID uuid.UUID `json:"merchant_id"`
+	Scopes     []string  `json:"scopes"`
 	// Timezone-aware timestamp (stored as UTC)
 	GrantedAt pgtype.Timestamptz `json:"granted_at"`
 	// Timezone-aware timestamp (stored as UTC)

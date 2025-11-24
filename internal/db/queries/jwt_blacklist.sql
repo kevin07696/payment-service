@@ -9,10 +9,10 @@ SELECT EXISTS(
 -- name: BlacklistJWT :exec
 -- Add a JWT token to the blacklist
 INSERT INTO jwt_blacklist (
-    jti, service_id, merchant_id, expires_at, blacklisted_by, reason
+    jti, service_id, merchant_id, expires_at, reason
 ) VALUES (
     sqlc.arg(jti), sqlc.narg(service_id), sqlc.narg(merchant_id),
-    sqlc.arg(expires_at), sqlc.narg(blacklisted_by), sqlc.narg(reason)
+    sqlc.arg(expires_at), sqlc.narg(reason)
 );
 
 -- name: CleanupExpiredBlacklist :exec

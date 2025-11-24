@@ -14,33 +14,26 @@ import (
 
 const addIPToWhitelist = `-- name: AddIPToWhitelist :one
 INSERT INTO epx_ip_whitelist (
-    ip_address, description, added_by, is_active
+    ip_address, description, is_active
 ) VALUES (
-    $1, $2, $3, $4
-) RETURNING id, ip_address, description, added_by, added_at, is_active
+    $1, $2, $3
+) RETURNING id, ip_address, description, added_at, is_active
 `
 
 type AddIPToWhitelistParams struct {
 	IpAddress   netip.Addr  `json:"ip_address"`
 	Description pgtype.Text `json:"description"`
-	AddedBy     pgtype.UUID `json:"added_by"`
 	IsActive    pgtype.Bool `json:"is_active"`
 }
 
 // Add an IP address to the EPX whitelist
 func (q *Queries) AddIPToWhitelist(ctx context.Context, arg AddIPToWhitelistParams) (EpxIpWhitelist, error) {
-	row := q.db.QueryRow(ctx, addIPToWhitelist,
-		arg.IpAddress,
-		arg.Description,
-		arg.AddedBy,
-		arg.IsActive,
-	)
+	row := q.db.QueryRow(ctx, addIPToWhitelist, arg.IpAddress, arg.Description, arg.IsActive)
 	var i EpxIpWhitelist
 	err := row.Scan(
 		&i.ID,
 		&i.IpAddress,
 		&i.Description,
-		&i.AddedBy,
 		&i.AddedAt,
 		&i.IsActive,
 	)
@@ -48,7 +41,7 @@ func (q *Queries) AddIPToWhitelist(ctx context.Context, arg AddIPToWhitelistPara
 }
 
 const getIPWhitelistEntry = `-- name: GetIPWhitelistEntry :one
-SELECT id, ip_address, description, added_by, added_at, is_active FROM epx_ip_whitelist
+SELECT id, ip_address, description, added_at, is_active FROM epx_ip_whitelist
 WHERE ip_address = $1
 `
 
@@ -60,7 +53,6 @@ func (q *Queries) GetIPWhitelistEntry(ctx context.Context, ipAddress netip.Addr)
 		&i.ID,
 		&i.IpAddress,
 		&i.Description,
-		&i.AddedBy,
 		&i.AddedAt,
 		&i.IsActive,
 	)

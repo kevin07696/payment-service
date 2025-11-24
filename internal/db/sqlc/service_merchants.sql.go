@@ -88,7 +88,7 @@ func (q *Queries) CheckServiceMerchantAccessBySlug(ctx context.Context, arg Chec
 }
 
 const getServiceMerchantAccess = `-- name: GetServiceMerchantAccess :one
-SELECT service_id, merchant_id, scopes, granted_by, granted_at, expires_at FROM service_merchants
+SELECT service_id, merchant_id, scopes, granted_at, expires_at FROM service_merchants
 WHERE service_id = $1 AND merchant_id = $2
 `
 
@@ -104,7 +104,6 @@ func (q *Queries) GetServiceMerchantAccess(ctx context.Context, arg GetServiceMe
 		&i.ServiceID,
 		&i.MerchantID,
 		&i.Scopes,
-		&i.GrantedBy,
 		&i.GrantedAt,
 		&i.ExpiresAt,
 	)
@@ -113,24 +112,22 @@ func (q *Queries) GetServiceMerchantAccess(ctx context.Context, arg GetServiceMe
 
 const grantServiceAccess = `-- name: GrantServiceAccess :one
 INSERT INTO service_merchants (
-    service_id, merchant_id, scopes, granted_by, expires_at
+    service_id, merchant_id, scopes, expires_at
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4
 )
 ON CONFLICT (service_id, merchant_id) DO UPDATE
 SET
     scopes = EXCLUDED.scopes,
-    granted_by = EXCLUDED.granted_by,
     granted_at = CURRENT_TIMESTAMP,
     expires_at = EXCLUDED.expires_at
-RETURNING service_id, merchant_id, scopes, granted_by, granted_at, expires_at
+RETURNING service_id, merchant_id, scopes, granted_at, expires_at
 `
 
 type GrantServiceAccessParams struct {
 	ServiceID  uuid.UUID          `json:"service_id"`
 	MerchantID uuid.UUID          `json:"merchant_id"`
 	Scopes     []string           `json:"scopes"`
-	GrantedBy  pgtype.UUID        `json:"granted_by"`
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 }
 
@@ -139,7 +136,6 @@ func (q *Queries) GrantServiceAccess(ctx context.Context, arg GrantServiceAccess
 		arg.ServiceID,
 		arg.MerchantID,
 		arg.Scopes,
-		arg.GrantedBy,
 		arg.ExpiresAt,
 	)
 	var i ServiceMerchant
@@ -147,7 +143,6 @@ func (q *Queries) GrantServiceAccess(ctx context.Context, arg GrantServiceAccess
 		&i.ServiceID,
 		&i.MerchantID,
 		&i.Scopes,
-		&i.GrantedBy,
 		&i.GrantedAt,
 		&i.ExpiresAt,
 	)
@@ -155,7 +150,7 @@ func (q *Queries) GrantServiceAccess(ctx context.Context, arg GrantServiceAccess
 }
 
 const listMerchantServices = `-- name: ListMerchantServices :many
-SELECT sm.service_id, sm.merchant_id, sm.scopes, sm.granted_by, sm.granted_at, sm.expires_at, s.service_name, s.environment, s.is_active
+SELECT sm.service_id, sm.merchant_id, sm.scopes, sm.granted_at, sm.expires_at, s.service_name, s.environment, s.is_active
 FROM service_merchants sm
 JOIN services s ON sm.service_id = s.id
 WHERE sm.merchant_id = $1
@@ -166,7 +161,6 @@ type ListMerchantServicesRow struct {
 	ServiceID   uuid.UUID          `json:"service_id"`
 	MerchantID  uuid.UUID          `json:"merchant_id"`
 	Scopes      []string           `json:"scopes"`
-	GrantedBy   pgtype.UUID        `json:"granted_by"`
 	GrantedAt   pgtype.Timestamptz `json:"granted_at"`
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
 	ServiceName string             `json:"service_name"`
@@ -188,7 +182,6 @@ func (q *Queries) ListMerchantServices(ctx context.Context, merchantID uuid.UUID
 			&i.ServiceID,
 			&i.MerchantID,
 			&i.Scopes,
-			&i.GrantedBy,
 			&i.GrantedAt,
 			&i.ExpiresAt,
 			&i.ServiceName,
@@ -206,7 +199,7 @@ func (q *Queries) ListMerchantServices(ctx context.Context, merchantID uuid.UUID
 }
 
 const listServiceMerchants = `-- name: ListServiceMerchants :many
-SELECT sm.service_id, sm.merchant_id, sm.scopes, sm.granted_by, sm.granted_at, sm.expires_at, m.name as merchant_name, m.slug as merchant_slug
+SELECT sm.service_id, sm.merchant_id, sm.scopes, sm.granted_at, sm.expires_at, m.name as merchant_name, m.slug as merchant_slug
 FROM service_merchants sm
 JOIN merchants m ON sm.merchant_id = m.id
 WHERE sm.service_id = $1
@@ -217,7 +210,6 @@ type ListServiceMerchantsRow struct {
 	ServiceID    uuid.UUID          `json:"service_id"`
 	MerchantID   uuid.UUID          `json:"merchant_id"`
 	Scopes       []string           `json:"scopes"`
-	GrantedBy    pgtype.UUID        `json:"granted_by"`
 	GrantedAt    pgtype.Timestamptz `json:"granted_at"`
 	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
 	MerchantName string             `json:"merchant_name"`
@@ -238,7 +230,6 @@ func (q *Queries) ListServiceMerchants(ctx context.Context, serviceID uuid.UUID)
 			&i.ServiceID,
 			&i.MerchantID,
 			&i.Scopes,
-			&i.GrantedBy,
 			&i.GrantedAt,
 			&i.ExpiresAt,
 			&i.MerchantName,
@@ -275,7 +266,7 @@ SET
     scopes = $1,
     granted_at = CURRENT_TIMESTAMP
 WHERE service_id = $2 AND merchant_id = $3
-RETURNING service_id, merchant_id, scopes, granted_by, granted_at, expires_at
+RETURNING service_id, merchant_id, scopes, granted_at, expires_at
 `
 
 type UpdateServiceScopesParams struct {
@@ -291,7 +282,6 @@ func (q *Queries) UpdateServiceScopes(ctx context.Context, arg UpdateServiceScop
 		&i.ServiceID,
 		&i.MerchantID,
 		&i.Scopes,
-		&i.GrantedBy,
 		&i.GrantedAt,
 		&i.ExpiresAt,
 	)

@@ -1,13 +1,12 @@
 -- name: GrantServiceAccess :one
 INSERT INTO service_merchants (
-    service_id, merchant_id, scopes, granted_by, expires_at
+    service_id, merchant_id, scopes, expires_at
 ) VALUES (
-    sqlc.arg(service_id), sqlc.arg(merchant_id), sqlc.arg(scopes), sqlc.narg(granted_by), sqlc.narg(expires_at)
+    sqlc.arg(service_id), sqlc.arg(merchant_id), sqlc.arg(scopes), sqlc.narg(expires_at)
 )
 ON CONFLICT (service_id, merchant_id) DO UPDATE
 SET
     scopes = EXCLUDED.scopes,
-    granted_by = EXCLUDED.granted_by,
     granted_at = CURRENT_TIMESTAMP,
     expires_at = EXCLUDED.expires_at
 RETURNING *;

@@ -26,11 +26,11 @@ func (q *Queries) ActivateService(ctx context.Context, id uuid.UUID) error {
 const createService = `-- name: CreateService :one
 INSERT INTO services (
     id, service_id, service_name, public_key, public_key_fingerprint,
-    environment, requests_per_second, burst_limit, is_active, created_by
+    environment, requests_per_second, burst_limit, is_active
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $6, $7, $8, $9, $10
-) RETURNING id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_by, created_at, updated_at
+    $6, $7, $8, $9
+) RETURNING id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_at, updated_at
 `
 
 type CreateServiceParams struct {
@@ -43,7 +43,6 @@ type CreateServiceParams struct {
 	RequestsPerSecond    pgtype.Int4 `json:"requests_per_second"`
 	BurstLimit           pgtype.Int4 `json:"burst_limit"`
 	IsActive             pgtype.Bool `json:"is_active"`
-	CreatedBy            pgtype.UUID `json:"created_by"`
 }
 
 func (q *Queries) CreateService(ctx context.Context, arg CreateServiceParams) (Service, error) {
@@ -57,7 +56,6 @@ func (q *Queries) CreateService(ctx context.Context, arg CreateServiceParams) (S
 		arg.RequestsPerSecond,
 		arg.BurstLimit,
 		arg.IsActive,
-		arg.CreatedBy,
 	)
 	var i Service
 	err := row.Scan(
@@ -70,7 +68,6 @@ func (q *Queries) CreateService(ctx context.Context, arg CreateServiceParams) (S
 		&i.RequestsPerSecond,
 		&i.BurstLimit,
 		&i.IsActive,
-		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -89,7 +86,7 @@ func (q *Queries) DeactivateService(ctx context.Context, id uuid.UUID) error {
 }
 
 const getServiceByID = `-- name: GetServiceByID :one
-SELECT id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_by, created_at, updated_at FROM services
+SELECT id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_at, updated_at FROM services
 WHERE id = $1
 `
 
@@ -106,7 +103,6 @@ func (q *Queries) GetServiceByID(ctx context.Context, id uuid.UUID) (Service, er
 		&i.RequestsPerSecond,
 		&i.BurstLimit,
 		&i.IsActive,
-		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -114,7 +110,7 @@ func (q *Queries) GetServiceByID(ctx context.Context, id uuid.UUID) (Service, er
 }
 
 const getServiceByServiceID = `-- name: GetServiceByServiceID :one
-SELECT id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_by, created_at, updated_at FROM services
+SELECT id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_at, updated_at FROM services
 WHERE service_id = $1 AND is_active = true
 `
 
@@ -131,7 +127,6 @@ func (q *Queries) GetServiceByServiceID(ctx context.Context, serviceID string) (
 		&i.RequestsPerSecond,
 		&i.BurstLimit,
 		&i.IsActive,
-		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -185,7 +180,7 @@ func (q *Queries) ListActiveServicePublicKeys(ctx context.Context) ([]ListActive
 }
 
 const listServices = `-- name: ListServices :many
-SELECT id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_by, created_at, updated_at FROM services
+SELECT id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_at, updated_at FROM services
 WHERE
     ($1::varchar IS NULL OR environment = $1) AND
     ($2::boolean IS NULL OR is_active = $2)
@@ -224,7 +219,6 @@ func (q *Queries) ListServices(ctx context.Context, arg ListServicesParams) ([]S
 			&i.RequestsPerSecond,
 			&i.BurstLimit,
 			&i.IsActive,
-			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -245,7 +239,7 @@ SET
     public_key_fingerprint = $2,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $3
-RETURNING id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_by, created_at, updated_at
+RETURNING id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_at, updated_at
 `
 
 type RotateServiceKeyParams struct {
@@ -267,7 +261,6 @@ func (q *Queries) RotateServiceKey(ctx context.Context, arg RotateServiceKeyPara
 		&i.RequestsPerSecond,
 		&i.BurstLimit,
 		&i.IsActive,
-		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -285,7 +278,7 @@ SET
     is_active = $6,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $7
-RETURNING id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_by, created_at, updated_at
+RETURNING id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_at, updated_at
 `
 
 type UpdateServiceParams struct {
@@ -319,7 +312,6 @@ func (q *Queries) UpdateService(ctx context.Context, arg UpdateServiceParams) (S
 		&i.RequestsPerSecond,
 		&i.BurstLimit,
 		&i.IsActive,
-		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

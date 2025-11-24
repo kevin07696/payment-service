@@ -204,13 +204,6 @@ func (cli *AdminCLI) createService(jsonFile string) {
 
 	// Create service in database using sqlc
 	serviceUUID := uuid.New()
-	createdByUUID := pgtype.UUID{}
-	if cli.adminID != "" {
-		parsedUUID, err := uuid.Parse(cli.adminID)
-		if err == nil {
-			createdByUUID = pgtype.UUID{Bytes: parsedUUID, Valid: true}
-		}
-	}
 
 	service, err := cli.queries.CreateService(cli.ctx, sqlc.CreateServiceParams{
 		ID:                   serviceUUID,
@@ -222,7 +215,6 @@ func (cli *AdminCLI) createService(jsonFile string) {
 		RequestsPerSecond:    pgtype.Int4{Int32: int32(serviceData.RequestsPerSecond), Valid: true},
 		BurstLimit:           pgtype.Int4{Int32: int32(serviceData.BurstLimit), Valid: true},
 		IsActive:             pgtype.Bool{Bool: true, Valid: true},
-		CreatedBy:            createdByUUID,
 	})
 
 	if err != nil {
@@ -457,19 +449,10 @@ func (cli *AdminCLI) grantAccess() {
 	fmt.Printf("\nGranting scopes: %v\n", scopes)
 
 	// Grant access using sqlc
-	grantedByUUID := pgtype.UUID{}
-	if cli.adminID != "" {
-		parsedUUID, err := uuid.Parse(cli.adminID)
-		if err == nil {
-			grantedByUUID = pgtype.UUID{Bytes: parsedUUID, Valid: true}
-		}
-	}
-
 	_, err = cli.queries.GrantServiceAccess(cli.ctx, sqlc.GrantServiceAccessParams{
 		ServiceID:  service.ID,
 		MerchantID: merchant.ID,
 		Scopes:     scopes,
-		GrantedBy:  grantedByUUID,
 		ExpiresAt:  pgtype.Timestamptz{}, // No expiration
 	})
 

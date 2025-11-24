@@ -1,10 +1,10 @@
 -- name: CreateService :one
 INSERT INTO services (
     id, service_id, service_name, public_key, public_key_fingerprint,
-    environment, requests_per_second, burst_limit, is_active, created_by
+    environment, requests_per_second, burst_limit, is_active
 ) VALUES (
     sqlc.arg(id), sqlc.arg(service_id), sqlc.arg(service_name), sqlc.arg(public_key), sqlc.arg(public_key_fingerprint),
-    sqlc.arg(environment), sqlc.arg(requests_per_second), sqlc.arg(burst_limit), sqlc.arg(is_active), sqlc.narg(created_by)
+    sqlc.arg(environment), sqlc.arg(requests_per_second), sqlc.arg(burst_limit), sqlc.arg(is_active)
 ) RETURNING *;
 
 -- name: GetServiceByID :one
