@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-11-24 - Documentation) 📚
+
+**Admin CLI Guide - Added Missing Prerequisites Section**
+
+Added critical first-time setup instructions to `docs/integration/ADMIN_CLI.md`:
+
+- **Prerequisites Section**: Documents seed command for creating initial admin account
+  - `go build -o seed ./cmd/seed` - Build seed command
+  - `./seed` - Creates admin account with random password
+  - Email: `admin@payment-service.local`
+  - Also creates test service and merchant for development
+
+- **Windows Instructions**: PowerShell-specific commands (`seed.exe`, `admin.exe`)
+
+- **Why This Matters**: Users were getting "No admin account found" error with no documentation on how to create the first admin account. This was a critical gap preventing first-time setup.
+
+**Files Modified:**
+- `docs/integration/ADMIN_CLI.md` - Added Prerequisites section with seed command
+
+**Impact**: Users can now successfully complete first-time setup and create services/merchants.
+
 ### Changed (2025-11-24 - Documentation Improvements) 📚
 
 **React Integration Guide - Rewrite to Reference Payment Service Architecture**

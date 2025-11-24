@@ -21,6 +21,55 @@ The **admin CLI** (`cmd/admin/main.go`) is a command-line tool for managing:
 
 ---
 
+## Prerequisites
+
+Before using the admin CLI, you need:
+1. Payment service running ([Setup Guide](../development/SETUP.md))
+2. Database initialized with migrations
+3. **Admin account created** (first-time setup)
+
+### Creating the Initial Admin Account
+
+**First-time setup only** - Run the seed command to create the initial admin account:
+
+```bash
+# Build the seed command
+go build -o seed ./cmd/seed
+
+# Run it to create admin account and test data
+./seed
+```
+
+**Output:**
+```
+✅ Admin account created
+Email: admin@payment-service.local
+Password: [randomly generated secure password - SAVE THIS!]
+
+✅ Test service created: test-pos-system
+✅ Test merchant created: test-merchant-dev
+```
+
+**⚠️ IMPORTANT:** Save the admin password shown in the output! You'll need it to login.
+
+**Windows (PowerShell):**
+```powershell
+# Build seed command
+go build -o seed.exe .\cmd\seed
+
+# Run it
+.\seed.exe
+```
+
+**What the seed command creates:**
+- Admin account: `admin@payment-service.local` with random secure password
+- Test service: `test-pos-system` (for development/testing)
+- Test merchant: `test-merchant-dev` (for development/testing)
+
+**Note:** If you run the seed command again, it will update the admin password (generates a new random password).
+
+---
+
 ## Building the CLI
 
 ```bash
@@ -29,6 +78,12 @@ go build -o admin ./cmd/admin
 
 # Verify it works
 ./admin -h
+```
+
+**Windows (PowerShell):**
+```powershell
+go build -o admin.exe .\cmd\admin
+.\admin.exe -h
 ```
 
 **Output:**
