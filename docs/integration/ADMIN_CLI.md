@@ -31,7 +31,25 @@ The **admin CLI** (`cmd/admin/main.go`) is a command-line tool for managing:
 
 Before using the admin CLI, you need:
 1. Payment service database initialized with migrations
-2. Database connection URL (via `-db` flag or `DATABASE_URL` environment variable)
+2. **DATABASE_URL environment variable set** (or use `-db` flag to override)
+
+**Setting DATABASE_URL:**
+
+```bash
+# Linux/macOS
+export DATABASE_URL="postgres://postgres:your_password@localhost:5432/payment_service?sslmode=disable"
+
+# Windows PowerShell
+$env:DATABASE_URL = "postgres://postgres:your_password@localhost:5432/payment_service?sslmode=disable"
+
+# Or add to .env file
+echo 'DATABASE_URL=postgres://postgres:your_password@localhost:5432/payment_service?sslmode=disable' >> .env
+```
+
+**Important**: The CLI will show a helpful error if DATABASE_URL is not set:
+```
+Database URL not provided. Set DATABASE_URL environment variable or use -db flag.
+```
 
 That's it! No authentication setup required.
 
@@ -59,13 +77,16 @@ Usage of ./admin:
   -action string
         Action to perform: create-service, create-merchant, grant-access
   -db string
-        Database URL (default: postgres://postgres:postgres@localhost:5432/payments?sslmode=disable)
+        Database URL (default: reads from DATABASE_URL environment variable)
   -json string
         JSON file with service/merchant details
 ```
 
 **Quick Start:**
 ```bash
+# Set DATABASE_URL (once per session)
+export DATABASE_URL="postgres://postgres:your_password@localhost:5432/payment_service?sslmode=disable"
+
 # Create a service
 ./admin -action=create-service -json=service.json
 
@@ -74,6 +95,9 @@ Usage of ./admin:
 
 # Grant access (interactive prompts)
 ./admin -action=grant-access
+
+# Or override DATABASE_URL with -db flag
+./admin -action=create-service -db="postgres://..." -json=service.json
 ```
 
 ---

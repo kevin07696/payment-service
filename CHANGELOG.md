@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (2025-11-24 - Environment Variables) 🔧
 
+**Documentation & Environment Files Updated**
+
+Updated documentation and environment files for DATABASE_URL requirement:
+- `docs/integration/ADMIN_CLI.md:30-54` - Added DATABASE_URL setup instructions
+- `docs/integration/ADMIN_CLI.md:74-101` - Updated flags and quick start examples
+- `.env:1-2` - Added DATABASE_URL for local development
+
+All environment files now include DATABASE_URL:
+- `.env` - Added DATABASE_URL for local development
+- `.env.example` - Already includes DATABASE_URL with documentation
+- `.env.staging.example` - Already mentions Railway auto-provides it
+- `.env.production.example` - Already mentions hosting platform provides it
+
 **Admin CLI - Use DATABASE_URL from Environment**
 
 Removed hardcoded database URL default in favor of environment variable:
