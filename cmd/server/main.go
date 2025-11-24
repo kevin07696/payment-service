@@ -255,8 +255,19 @@ func main() {
 	securityHeaders := authMiddleware.NewSecurityHeaders(isDevelopment)
 
 	// Initialize compression middleware (P2-4) - 40-60% bandwidth reduction
+	// NOTE: ConnectRPC paths are excluded because Connect has its own built-in compression
+	// that uses Connect-Content-Encoding header. Using both causes double compression.
 	gzipConfig := middleware.DefaultGzipConfig()
-	gzipConfig.ExcludedPaths = []string{"/cron/health", "/cron/ach/health"} // Don't compress health checks
+	gzipConfig.ExcludedPaths = []string{
+		"/cron/health",
+		"/cron/ach/health",
+		// Exclude all ConnectRPC service paths - Connect handles compression internally
+		"/payment.v1.PaymentService/",
+		"/subscription.v1.SubscriptionService/",
+		"/paymentmethod.v1.PaymentMethodService/",
+		"/chargeback.v1.ChargebackService/",
+		"/merchant.v1.MerchantService/",
+	}
 	compressionMiddleware := middleware.GzipHandlerWithCustomConfig(gzipConfig, logger)
 
 	// Request size limits for DOS protection

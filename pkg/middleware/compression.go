@@ -157,11 +157,33 @@ func DefaultGzipConfig() *GzipConfig {
 
 // GzipHandlerWithCustomConfig creates handler with custom config
 func GzipHandlerWithCustomConfig(cfg *GzipConfig, logger *zap.Logger) func(http.Handler) http.Handler {
+	// Log configuration at startup
+	if logger != nil {
+		logger.Info("Compression middleware configured",
+			zap.Int("excluded_paths_count", len(cfg.ExcludedPaths)),
+			zap.Strings("excluded_paths", cfg.ExcludedPaths))
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Check excluded paths
+			// Check excluded paths (supports both exact match and prefix match)
 			for _, path := range cfg.ExcludedPaths {
-				if r.URL.Path == path {
+				// If path ends with '/', treat as prefix match
+				if strings.HasSuffix(path, "/") {
+					if strings.HasPrefix(r.URL.Path, path) {
+						if logger != nil {
+							logger.Debug("Skipping compression for excluded prefix",
+								zap.String("path", r.URL.Path),
+								zap.String("excluded_prefix", path))
+						}
+						next.ServeHTTP(w, r)
+						return
+					}
+				} else if r.URL.Path == path {
+					if logger != nil {
+						logger.Debug("Skipping compression for excluded exact path",
+							zap.String("path", r.URL.Path))
+					}
 					next.ServeHTTP(w, r)
 					return
 				}
