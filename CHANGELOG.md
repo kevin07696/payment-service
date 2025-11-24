@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (2025-11-24 - Environment Variables) 🔧
 
+**Seed Command - Removed Hardcoded Database URL**
+
+Fixed seed command to require DATABASE_URL environment variable:
+- `cmd/seed/main.go:19-23` - Removed hardcoded default with wrong database name
+- Now requires DATABASE_URL to be set (consistent with admin CLI)
+
+All cmd/ services now properly use environment variables:
+- ✅ `cmd/server` - Uses DB_HOST, DB_PORT, DB_USER, DB_PASSWORD env vars
+- ✅ `cmd/admin` - Uses DATABASE_URL env var (or -db flag override)
+- ✅ `cmd/seed` - Uses DATABASE_URL env var (no hardcoded fallback)
+
 **Documentation & Environment Files Updated**
 
 Updated documentation and environment files for DATABASE_URL requirement:

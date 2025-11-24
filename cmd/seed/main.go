@@ -16,10 +16,10 @@ import (
 )
 
 func main() {
-	// Get database URL
+	// Get database URL from environment
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"
+		log.Fatal("DATABASE_URL environment variable not set")
 	}
 
 	// Connect to database
