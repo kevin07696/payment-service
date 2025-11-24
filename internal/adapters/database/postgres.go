@@ -207,7 +207,12 @@ func (a *PostgreSQLAdapter) WithTx(ctx context.Context, fn func(sqlc.Querier) er
 	// Defer rollback in case of panic
 	defer func() {
 		if p := recover(); p != nil {
-			tx.Rollback(ctx)
+			if rbErr := tx.Rollback(ctx); rbErr != nil {
+				a.logger.Error("Failed to rollback transaction during panic recovery",
+					zap.Error(rbErr),
+					zap.Any("panic", p),
+				)
+			}
 			panic(p) // Re-throw panic after rollback
 		}
 	}()

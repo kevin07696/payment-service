@@ -122,8 +122,24 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
+	// If Operation is specified, determine the appropriate EPX transaction type
+	// This allows business logic to use semantic operations instead of EPX-specific codes
+	if req.Operation != "" {
+		transactionType, err := a.determineTransactionType(req.Operation, req.PaymentType)
+		if err != nil {
+			a.logger.Error("Failed to determine transaction type",
+				zap.String("operation", string(req.Operation)),
+				zap.String("payment_type", string(req.PaymentType)),
+				zap.Error(err))
+			return nil, fmt.Errorf("invalid operation: %w", err)
+		}
+		req.TransactionType = transactionType
+	}
+
 	a.logger.Info("Processing EPX Server Post transaction",
+		zap.String("operation", string(req.Operation)),
 		zap.String("transaction_type", string(req.TransactionType)),
+		zap.String("payment_type", string(req.PaymentType)),
 		zap.String("tran_nbr", req.TranNbr),
 		zap.String("amount", req.Amount),
 	)
@@ -470,6 +486,85 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 	}
 
 	return nil
+}
+
+// determineTransactionType translates semantic operations to EPX-specific transaction types
+// This encapsulates EPX gateway logic in the adapter layer, allowing business logic
+// to use payment-method-agnostic operations (sale, refund, void, etc.)
+//
+// Operation + PaymentMethod → EPX TransactionType
+// Example: OperationRefund + ACH → CKC3 (ACH Credit)
+//
+// This fixes the ACH refund bug where refunds always used CCE9 (credit card only)
+func (a *serverPostAdapter) determineTransactionType(op ports.Operation, paymentMethod ports.PaymentMethodType) (ports.TransactionType, error) {
+	switch op {
+	case ports.OperationSale:
+		// Sale = Take payment from customer (debit their account)
+		switch paymentMethod {
+		case ports.PaymentMethodTypeACH:
+			return ports.TransactionTypeACHDebit, nil // CKC2
+		case ports.PaymentMethodTypeCreditCard:
+			return ports.TransactionTypeSale, nil // CCE1
+		case ports.PaymentMethodTypePINlessDebit:
+			return ports.TransactionTypePINlessDebitPurchase, nil // DB0P
+		default:
+			return "", fmt.Errorf("unsupported payment method for sale: %s", paymentMethod)
+		}
+
+	case ports.OperationRefund:
+		// Refund = Return payment to customer (credit their account)
+		switch paymentMethod {
+		case ports.PaymentMethodTypeACH:
+			return ports.TransactionTypeACHCredit, nil // CKC3 - FIXES ACH REFUND BUG!
+		case ports.PaymentMethodTypeCreditCard:
+			return ports.TransactionTypeRefund, nil // CCE9
+		case ports.PaymentMethodTypePINlessDebit:
+			return ports.TransactionTypePINlessDebitReturn, nil // DB0S
+		default:
+			return "", fmt.Errorf("unsupported payment method for refund: %s", paymentMethod)
+		}
+
+	case ports.OperationVoid:
+		// Void = Cancel/reverse a transaction
+		switch paymentMethod {
+		case ports.PaymentMethodTypeACH:
+			return ports.TransactionTypeACHVoid, nil // CKCX
+		case ports.PaymentMethodTypeCreditCard:
+			return ports.TransactionTypeVoid, nil // CCEX
+		case ports.PaymentMethodTypePINlessDebit:
+			return ports.TransactionTypePINlessDebitVoid, nil // DB0V
+		default:
+			return "", fmt.Errorf("unsupported payment method for void: %s", paymentMethod)
+		}
+
+	case ports.OperationAuthorize:
+		// Authorize = Hold funds (credit cards only)
+		if paymentMethod != ports.PaymentMethodTypeCreditCard {
+			return "", fmt.Errorf("authorize operation only supports credit cards, got: %s", paymentMethod)
+		}
+		return ports.TransactionTypeAuthOnly, nil // CCE2
+
+	case ports.OperationCapture:
+		// Capture = Capture previously authorized funds (credit cards only)
+		if paymentMethod != ports.PaymentMethodTypeCreditCard {
+			return "", fmt.Errorf("capture operation only supports credit cards, got: %s", paymentMethod)
+		}
+		return ports.TransactionTypeCapture, nil // CCE4
+
+	case ports.OperationStorage:
+		// Storage = Tokenization (BRIC)
+		switch paymentMethod {
+		case ports.PaymentMethodTypeACH:
+			return ports.TransactionTypeBRICStorageACH, nil // CKC8
+		case ports.PaymentMethodTypeCreditCard:
+			return ports.TransactionTypeBRICStorageCC, nil // CCE8
+		default:
+			return "", fmt.Errorf("unsupported payment method for storage: %s", paymentMethod)
+		}
+
+	default:
+		return "", fmt.Errorf("unknown operation: %s", op)
+	}
 }
 
 // buildFormData constructs URL-encoded form data for HTTPS POST

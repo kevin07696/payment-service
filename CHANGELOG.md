@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-11-24 - ACH Refund Bug & Architectural Improvement) 🏗️
+
+**Critical Bug Fix: ACH Refunds Now Work Correctly**
+
+Fixed a critical bug where ACH refunds always used credit card transaction type (CCE9) instead of ACH credit type (CKC3), causing ACH refunds to fail.
+
+**Architectural Refactoring: Semantic Operations in Adapter Layer**
+
+Implemented proper separation of concerns by moving EPX-specific transaction type logic from business layer to adapter layer:
+
+**Root Cause:**
+- Business logic (`payment_service.go`) contained EPX-specific transaction type codes (CKC2, CCE9, etc.)
+- Refund() method hardcoded `TransactionTypeRefund` (CCE9) regardless of payment method
+- This violated hexagonal architecture principles and caused ACH refunds to fail
+
+**Solution: Semantic Operations Pattern**
+1. **Defined gateway-agnostic operations** (`internal/adapters/ports/server_post.go:44-55`)
+   - `OperationSale` - Take payment (debit customer account)
+   - `OperationRefund` - Return payment (credit customer account)
+   - `OperationVoid` - Cancel/reverse a transaction
+   - `OperationAuthorize` - Hold funds (credit card only)
+   - `OperationCapture` - Capture authorized funds (credit card only)
+   - `OperationStorage` - Store payment method (tokenization)
+
+2. **Implemented translation logic in adapter** (`internal/adapters/epx/server_post_adapter.go:491-568`)
+   - `determineTransactionType()` maps Operation + PaymentMethod → EPX TransactionType
+   - Examples:
+     - `OperationSale` + ACH → `CKC2` (ACH Debit)
+     - `OperationRefund` + ACH → `CKC3` (ACH Credit) ✅ **FIXES BUG**
+     - `OperationRefund` + CreditCard → `CCE9` (CC Refund)
+     - `OperationVoid` + ACH → `CKCX` (ACH Void)
+     - `OperationVoid` + CreditCard → `CCEX` (CC Void)
+
+3. **Refactored all service methods** (`internal/services/payment/payment_service.go`)
+   - Sale() - Removed conditional transaction type logic (lines 136-142), now uses `OperationSale`
+   - Authorize() - Changed from `TransactionTypeAuthOnly` to `OperationAuthorize` (line 340)
+   - Capture() - Changed from `TransactionTypeCapture` to `OperationCapture` (line 668)
+   - Void() - Changed from `TransactionTypeVoid` to `OperationVoid` (line 932)
+   - Refund() - Changed from `TransactionTypeRefund` to `OperationRefund` (line 1200) ✅ **CRITICAL FIX**
+
+**Benefits:**
+- ✅ **ACH refunds now work correctly** - Uses CKC3 instead of CCE9
+- ✅ **Better separation of concerns** - Business logic doesn't know EPX-specific codes
+- ✅ **Easier to add payment methods** - Just update adapter mapping
+- ✅ **Easier to swap gateways** - Business logic unchanged, only adapter changes
+- ✅ **Improved testability** - Can test business logic without EPX details
+
+**Modified Files:**
+- `internal/adapters/ports/server_post.go` - Added `Operation` enum and field to `ServerPostRequest`
+- `internal/adapters/epx/server_post_adapter.go` - Added `determineTransactionType()` method
+- `internal/services/payment/payment_service.go` - Refactored Sale(), Authorize(), Capture(), Void(), Refund()
+
+**Test Coverage:**
+
+*Unit Tests* (`internal/adapters/epx/server_post_adapter_test.go`):
+- ✅ `TestDetermineTransactionType` - Comprehensive test of operation → transaction type mapping
+  - Tests all payment methods (ACH, Credit Card, PIN-less Debit)
+  - Tests all operations (Sale, Refund, Void, Authorize, Capture, Storage)
+  - **Critical test**: `refund_with_ACH_-_FIXES_ACH_REFUND_BUG` verifies CKC3 mapping
+  - Tests error cases (invalid operations, unsupported payment methods)
+  - 17 test cases covering all combinations
+- ✅ `TestProcessTransaction_WithOperation` - Validates Operation field usage in ProcessTransaction
+  - Verifies ACH refund translates to CKC3 (ACH Credit)
+
+*Integration Tests* (`tests/integration/payment/payment_ach_refund_test.go` - NEW FILE):
+- ✅ `TestACH_SaleAndRefund_CriticalBugFix` - End-to-end ACH sale + refund workflow
+  - Verifies ACH sale works (CKC2)
+  - **CRITICAL**: Verifies ACH refund now works (CKC3 instead of CCE9)
+  - Tests partial refund ($50 of $100)
+  - Validates parent-child transaction relationship
+- ✅ `TestACH_FullRefund` - Full amount ACH refund
+  - Tests refunding entire sale amount without specifying amount
+- ✅ `TestACH_MultiplePartialRefunds` - Multiple partial refunds
+  - Tests 3 partial refunds ($30 + $25 + $45 = $100)
+  - Validates refund state tracking across multiple operations
+
+**Quality Assurance:**
+- ✅ `go build ./...` - Compiles successfully
+- ✅ `go vet ./...` - No issues
+- ✅ All unit tests passing (17 new test cases for semantic operations)
+- ✅ Integration test suite ready (3 comprehensive ACH refund tests)
+
 ### Added (2025-11-24 - Distributed Rate Limiting with PostgreSQL UNLOGGED Tables) ⚡
 
 **Feature: L2 Cache-Speed Distributed Rate Limiting**
@@ -214,17 +296,44 @@ Added billing address fields to BrowserPost form per EPX certification requireme
 - `examples/browser_post_form.html:241-244` - Capture address values from form
 - `examples/browser_post_form.html:283-286` - Populate address hidden fields before submission
 
+**ServerPost INDUSTRY_TYPE=E Support** 🔴 **CRITICAL**
+
+Added INDUSTRY_TYPE field to all ServerPost transactions per EPX certification requirements:
+
+**Payment Service (5 methods):**
+- `internal/services/payment/payment_service.go:146,160` - Sale method: Added IndustryType="E"
+- `internal/services/payment/payment_service.go:338,353` - Authorize method: Added IndustryType="E"
+- `internal/services/payment/payment_service.go:666,680` - Capture method: Added IndustryType="E"
+- `internal/services/payment/payment_service.go:929,943` - Void method: Added IndustryType="E"
+- `internal/services/payment/payment_service.go:1195,1209` - Refund method: Added IndustryType="E"
+
+**Payment Method Service (2 methods):**
+- `internal/services/payment_method/payment_method_service.go:321,343` - StoreACH Pre-Note: Added IndustryType="E"
+- `internal/services/payment_method/payment_method_service.go:482,497` - RetryPrenote: Added IndustryType="E"
+
+**Subscription Service:**
+- `internal/services/subscription/subscription_service.go:590,606` - ✅ Already had IndustryType (recurring billing)
+
+**Root Cause:**
+- EPX certification audit (docs/analysis/EPX_CERTIFICATION_AUDIT.md) identified missing INDUSTRY_TYPE in ServerPost
+- Certification sheet documented INDUSTRY_TYPE=E requirement, but codebase didn't implement it
+- Without INDUSTRY_TYPE, EPX may reject transactions or apply incorrect interchange rates
+
 **Impact:**
-- EPX Key Exchange requests now include INDUSTRY_TYPE=E for ecommerce transactions
-- EPX Browser Post forms now include INDUSTRY_TYPE=E for ecommerce transactions
-- Browser Post forms use correct INVALID_REDIRECT_URL field instead of invalid DECLINE/ERROR fields
-- Browser Post forms now collect and submit billing address for AVS verification
-- Addresses 4 of 6 EPX certification issues (2 were already fixed)
+- 🔴 **HIGH PRIORITY:** Required for EPX certification compliance
+- ✅ All 7 ServerPost transaction types now include INDUSTRY_TYPE="E"
+- ✅ Subscription recurring billing already compliant (includes ACI_EXT="RB" for MIT)
+- ✅ EPX Key Exchange requests include INDUSTRY_TYPE=E for ecommerce transactions
+- ✅ EPX Browser Post forms include INDUSTRY_TYPE=E for ecommerce transactions
+- ✅ Browser Post forms use correct INVALID_REDIRECT_URL field instead of invalid DECLINE/ERROR fields
+- ✅ Browser Post forms now collect and submit billing address for AVS verification
+- ✅ **All 6 EPX certification requirements now implemented** (was 4 of 6, now 6 of 6)
 
 **Testing:**
-- ✅ All EPX adapter tests pass (56 tests)
 - ✅ go build successful
 - ✅ go vet clean
+- ✅ All payment service methods compile correctly
+- ✅ Ready for EPX sandbox testing
 
 ### Added (2025-11-24 - EPX Certification Analysis) 📋
 

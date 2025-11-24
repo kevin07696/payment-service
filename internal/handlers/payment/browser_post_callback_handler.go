@@ -37,23 +37,19 @@ type DatabaseAdapter interface {
 //   - "SALE" → "SALE" (combined auth+capture in single step)
 //   - Default → "SALE"
 //
-// Note: Returns UPPERCASE to match database constraint and transaction_type enum
+// mapRequestTypeToTransactionType converts request transaction type to database enum value
+// Returns UPPERCASE to match database constraint and transaction_type enum
 func mapRequestTypeToTransactionType(requestType string) string {
-	upperType := strings.ToUpper(requestType)
-	result := ""
-	switch upperType {
+	switch strings.ToUpper(requestType) {
 	case "AUTH":
-		result = "AUTH"
+		return "AUTH"
 	case "SALE":
-		result = "SALE"
+		return "SALE"
 	case "STORAGE":
-		result = "STORAGE" // Card tokenization transaction
+		return "STORAGE" // Card tokenization transaction
 	default:
-		result = "SALE" // Default to SALE (uppercase to match constraint)
+		return "SALE" // Default to SALE (uppercase to match constraint)
 	}
-	// DEBUG: Log the mapping to troubleshoot
-	fmt.Printf("[DEBUG mapRequestTypeToTransactionType] input='%s' upper='%s' result='%s'\n", requestType, upperType, result)
-	return result
 }
 
 // BrowserPostCallbackHandler handles the redirect callback from EPX Browser Post API

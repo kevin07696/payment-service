@@ -133,29 +133,24 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
 	epxTranNbr := util.UUIDToEPXTranNbr(txID)
 
-	// Determine transaction type based on payment method (credit card vs ACH)
-	var transactionType adapterports.TransactionType
-	if paymentMethodType == domain.PaymentMethodTypeACH {
-		transactionType = adapterports.TransactionTypeACHDebit // CKC2 - ACH Debit/Sale
-	} else {
-		transactionType = adapterports.TransactionTypeSale // CCE1 - CC Sale (auth + capture)
-	}
-
 	// For BRIC-based transactions, set Card Entry Method to "Z"
 	cardEntryMethod := "Z" // BRIC/token
+	industryType := "E"    // Ecommerce (required for EPX certification)
 
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         merchant.CustNbr,
-		MerchNbr:        merchant.MerchNbr,
-		DBAnbr:          merchant.DbaNbr,
-		TerminalNbr:     merchant.TerminalNbr,
-		TransactionType: transactionType,
+		CustNbr:     merchant.CustNbr,
+		MerchNbr:    merchant.MerchNbr,
+		DBAnbr:      merchant.DbaNbr,
+		TerminalNbr: merchant.TerminalNbr,
+		// Use semantic operation - adapter determines EPX transaction type
+		Operation:       adapterports.OperationSale,
 		Amount:          centsToDecimalString(req.AmountCents),
 		PaymentType:     adapterports.PaymentMethodType(paymentMethodType),
 		TranNbr:         epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:       "SALE",     // Transaction class: SALE = auth + capture combined
 		CustomerID:      stringOrEmpty(req.CustomerID),
 		CardEntryMethod: &cardEntryMethod, // "Z" for BRIC-based transactions
+		IndustryType:    &industryType,    // "E" for Ecommerce
 	}
 
 	// EPX uses different fields for ACH vs credit card BRIC transactions
@@ -328,28 +323,32 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
 	epxTranNbr := util.UUIDToEPXTranNbr(txID)
 
-	s.logger.Info("[DEBUG] Generated EPX TRAN_NBR",
+	s.logger.Debug("Generated EPX TRAN_NBR",
 		zap.String("transaction_id", txID.String()),
 		zap.String("tran_nbr", epxTranNbr),
 	)
 
+	industryType := "E" // Ecommerce (required for EPX certification)
+
 	// Call EPX Server Post API for authorization only
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         merchant.CustNbr,
-		MerchNbr:        merchant.MerchNbr,
-		DBAnbr:          merchant.DbaNbr,
-		TerminalNbr:     merchant.TerminalNbr,
-		TransactionType: adapterports.TransactionTypeAuthOnly,
-		Amount:          centsToDecimalString(req.AmountCents),
-		PaymentType:     adapterports.PaymentMethodTypeCreditCard,
-		AuthGUID:        authGUID,
-		TranNbr:         epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:       "AUTH",     // Transaction class: AUTH = authorization-only, requires capture
-		CustomerID:      stringOrEmpty(req.CustomerID),
+		CustNbr:     merchant.CustNbr,
+		MerchNbr:    merchant.MerchNbr,
+		DBAnbr:      merchant.DbaNbr,
+		TerminalNbr: merchant.TerminalNbr,
+		// Use semantic operation - adapter determines EPX transaction type
+		Operation:    adapterports.OperationAuthorize,
+		Amount:       centsToDecimalString(req.AmountCents),
+		PaymentType:  adapterports.PaymentMethodTypeCreditCard,
+		AuthGUID:     authGUID,
+		TranNbr:      epxTranNbr,    // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:    "AUTH",        // Transaction class: AUTH = authorization-only, requires capture
+		CustomerID:   stringOrEmpty(req.CustomerID),
+		IndustryType: &industryType, // "E" for Ecommerce
 		// Don't send CardEntryMethod for BRIC-based AUTH transactions
 	}
 
-	s.logger.Info("[DEBUG] Calling EPX ServerPost",
+	s.logger.Debug("Calling EPX ServerPost",
 		zap.String("tran_nbr", epxTranNbr),
 		zap.String("auth_guid", authGUID),
 		zap.String("amount", centsToDecimalString(req.AmountCents)),
@@ -363,7 +362,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		return nil, fmt.Errorf("gateway error: %w", err)
 	}
 
-	s.logger.Info("[DEBUG] EPX ServerPost Response",
+	s.logger.Debug("EPX ServerPost Response",
 		zap.String("auth_resp", epxResp.AuthResp),
 		zap.String("auth_code", epxResp.AuthCode),
 		zap.String("auth_resp_text", epxResp.AuthRespText),
@@ -658,18 +657,22 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
 	epxTranNbr := util.UUIDToEPXTranNbr(txID)
 
+	industryType := "E" // Ecommerce (required for EPX certification)
+
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:          merchant.CustNbr,
-		MerchNbr:         merchant.MerchNbr,
-		DBAnbr:           merchant.DbaNbr,
-		TerminalNbr:      merchant.TerminalNbr,
-		TransactionType:  adapterports.TransactionTypeCapture,
+		CustNbr:     merchant.CustNbr,
+		MerchNbr:    merchant.MerchNbr,
+		DBAnbr:      merchant.DbaNbr,
+		TerminalNbr: merchant.TerminalNbr,
+		// Use semantic operation - adapter determines EPX transaction type
+		Operation:        adapterports.OperationCapture,
 		Amount:           centsToDecimalString(finalCaptureAmountCents),
 		PaymentType:      adapterports.PaymentMethodTypeCreditCard,
-		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
-		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:        "",         // No BATCH_ID for capture
+		OriginalAuthGUID: authBRIC,       // Reference to AUTH transaction
+		TranNbr:          epxTranNbr,     // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "",             // No BATCH_ID for capture
 		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
+		IndustryType:     &industryType,  // "E" for Ecommerce
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -918,18 +921,22 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
 	epxTranNbr := util.UUIDToEPXTranNbr(txID)
 
+	industryType := "E" // Ecommerce (required for EPX certification)
+
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:          merchant.CustNbr,
-		MerchNbr:         merchant.MerchNbr,
-		DBAnbr:           merchant.DbaNbr,
-		TerminalNbr:      merchant.TerminalNbr,
-		TransactionType:  adapterports.TransactionTypeVoid,
+		CustNbr:     merchant.CustNbr,
+		MerchNbr:    merchant.MerchNbr,
+		DBAnbr:      merchant.DbaNbr,
+		TerminalNbr: merchant.TerminalNbr,
+		// Use semantic operation - adapter determines EPX transaction type (CCEX for CC, CKCX for ACH)
+		Operation:        adapterports.OperationVoid,
 		Amount:           centsToDecimalString(voidAmountCents),
 		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
-		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
-		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:        "VOID",     // EPX TRAN_GROUP classification
+		OriginalAuthGUID: authBRIC,       // Reference to AUTH transaction
+		TranNbr:          epxTranNbr,     // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "VOID",         // EPX TRAN_GROUP classification
 		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
+		IndustryType:     &industryType,  // "E" for Ecommerce
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -1181,18 +1188,23 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
 	epxTranNbr := util.UUIDToEPXTranNbr(txID)
 
+	industryType := "E" // Ecommerce (required for EPX certification)
+
 	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:          merchant.CustNbr,
-		MerchNbr:         merchant.MerchNbr,
-		DBAnbr:           merchant.DbaNbr,
-		TerminalNbr:      merchant.TerminalNbr,
-		TransactionType:  adapterports.TransactionTypeRefund,
+		CustNbr:     merchant.CustNbr,
+		MerchNbr:    merchant.MerchNbr,
+		DBAnbr:      merchant.DbaNbr,
+		TerminalNbr: merchant.TerminalNbr,
+		// Use semantic operation - adapter determines EPX transaction type
+		// CRITICAL FIX: Now ACH refunds will use CKC3 (ACH Credit) instead of CCE9 (CC Refund)
+		Operation:        adapterports.OperationRefund,
 		Amount:           centsToDecimalString(finalRefundAmountCents),
 		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
-		OriginalAuthGUID: authBRIC,   // Reference to CAPTURE (or AUTH if SALE)
-		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:        "REFUND",   // EPX TRAN_GROUP classification
+		OriginalAuthGUID: authBRIC,       // Reference to CAPTURE (or AUTH if SALE)
+		TranNbr:          epxTranNbr,     // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "REFUND",       // EPX TRAN_GROUP classification
 		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
+		IndustryType:     &industryType,  // "E" for Ecommerce
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)

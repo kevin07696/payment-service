@@ -41,6 +41,19 @@ const (
 	TransactionTypePINlessDebitVoid     TransactionType = "DB0V" // PIN-less Debit Void
 )
 
+// Operation represents a semantic payment operation (gateway-agnostic)
+// The adapter translates these to gateway-specific transaction types
+type Operation string
+
+const (
+	OperationSale      Operation = "sale"       // Take payment (debit customer account)
+	OperationRefund    Operation = "refund"     // Return payment (credit customer account)
+	OperationVoid      Operation = "void"       // Cancel/reverse a transaction
+	OperationAuthorize Operation = "authorize"  // Hold funds (credit card only)
+	OperationCapture   Operation = "capture"    // Capture previously authorized funds (credit card only)
+	OperationStorage   Operation = "storage"    // Store payment method (tokenization/BRIC)
+)
+
 // PaymentMethodType represents the payment method
 type PaymentMethodType string
 
@@ -59,8 +72,12 @@ type ServerPostRequest struct {
 	DBAnbr      string // EPX DBA number
 	TerminalNbr string // EPX terminal number
 
+	// Semantic operation (gateway-agnostic)
+	// The adapter will translate this + PaymentType into the appropriate TransactionType
+	Operation Operation // sale, refund, void, authorize, capture, storage
+
 	// Transaction details (required)
-	TransactionType TransactionType   // A, D, S, C, V, P
+	TransactionType TransactionType   // EPX-specific transaction type (auto-determined by adapter if Operation is set)
 	Amount          string            // Transaction amount (e.g., "29.99")
 	PaymentType     PaymentMethodType // credit_card or ach
 

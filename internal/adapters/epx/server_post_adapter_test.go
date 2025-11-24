@@ -394,6 +394,216 @@ func TestParseXMLResponse(t *testing.T) {
 	}
 }
 
+// TestDetermineTransactionType tests the semantic operation to EPX transaction type mapping
+func TestDetermineTransactionType(t *testing.T) {
+	adapter := newTestAdapter(t)
+
+	tests := []struct {
+		name          string
+		operation     ports.Operation
+		paymentMethod ports.PaymentMethodType
+		wantType      ports.TransactionType
+		wantErr       bool
+		errContains   string
+	}{
+		// Sale operations
+		{
+			name:          "sale with credit card",
+			operation:     ports.OperationSale,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeSale, // CCE1
+			wantErr:       false,
+		},
+		{
+			name:          "sale with ACH",
+			operation:     ports.OperationSale,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantType:      ports.TransactionTypeACHDebit, // CKC2
+			wantErr:       false,
+		},
+		{
+			name:          "sale with PIN-less debit",
+			operation:     ports.OperationSale,
+			paymentMethod: ports.PaymentMethodTypePINlessDebit,
+			wantType:      ports.TransactionTypePINlessDebitPurchase, // DB0P
+			wantErr:       false,
+		},
+
+		// Refund operations - CRITICAL for ACH refund bug fix
+		{
+			name:          "refund with credit card",
+			operation:     ports.OperationRefund,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeRefund, // CCE9
+			wantErr:       false,
+		},
+		{
+			name:          "refund with ACH - FIXES ACH REFUND BUG",
+			operation:     ports.OperationRefund,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantType:      ports.TransactionTypeACHCredit, // CKC3 - THIS IS THE FIX!
+			wantErr:       false,
+		},
+		{
+			name:          "refund with PIN-less debit",
+			operation:     ports.OperationRefund,
+			paymentMethod: ports.PaymentMethodTypePINlessDebit,
+			wantType:      ports.TransactionTypePINlessDebitReturn, // DB0S
+			wantErr:       false,
+		},
+
+		// Void operations
+		{
+			name:          "void with credit card",
+			operation:     ports.OperationVoid,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeVoid, // CCEX
+			wantErr:       false,
+		},
+		{
+			name:          "void with ACH",
+			operation:     ports.OperationVoid,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantType:      ports.TransactionTypeACHVoid, // CKCX
+			wantErr:       false,
+		},
+		{
+			name:          "void with PIN-less debit",
+			operation:     ports.OperationVoid,
+			paymentMethod: ports.PaymentMethodTypePINlessDebit,
+			wantType:      ports.TransactionTypePINlessDebitVoid, // DB0V
+			wantErr:       false,
+		},
+
+		// Authorize - credit card only
+		{
+			name:          "authorize with credit card",
+			operation:     ports.OperationAuthorize,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeAuthOnly, // CCE2
+			wantErr:       false,
+		},
+		{
+			name:          "authorize with ACH - should error",
+			operation:     ports.OperationAuthorize,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantErr:       true,
+			errContains:   "authorize operation only supports credit cards",
+		},
+
+		// Capture - credit card only
+		{
+			name:          "capture with credit card",
+			operation:     ports.OperationCapture,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeCapture, // CCE4
+			wantErr:       false,
+		},
+		{
+			name:          "capture with ACH - should error",
+			operation:     ports.OperationCapture,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantErr:       true,
+			errContains:   "capture operation only supports credit cards",
+		},
+
+		// Storage (tokenization)
+		{
+			name:          "storage with credit card",
+			operation:     ports.OperationStorage,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeBRICStorageCC, // CCE8
+			wantErr:       false,
+		},
+		{
+			name:          "storage with ACH",
+			operation:     ports.OperationStorage,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantType:      ports.TransactionTypeBRICStorageACH, // CKC8
+			wantErr:       false,
+		},
+
+		// Error cases
+		{
+			name:          "unknown operation",
+			operation:     ports.Operation("invalid"),
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantErr:       true,
+			errContains:   "unknown operation",
+		},
+		{
+			name:          "unsupported payment method for sale",
+			operation:     ports.OperationSale,
+			paymentMethod: ports.PaymentMethodType("invalid"),
+			wantErr:       true,
+			errContains:   "unsupported payment method",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotType, err := adapter.determineTransactionType(tt.operation, tt.paymentMethod)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantType, gotType)
+			}
+		})
+	}
+}
+
+// TestProcessTransaction_WithOperation tests that ProcessTransaction properly uses Operation field
+func TestProcessTransaction_WithOperation(t *testing.T) {
+	adapter := newTestAdapter(t)
+
+	tests := []struct {
+		name              string
+		operation         ports.Operation
+		paymentMethod     ports.PaymentMethodType
+		expectedTranType  ports.TransactionType
+	}{
+		{
+			name:             "operation sale translates to correct type",
+			operation:        ports.OperationSale,
+			paymentMethod:    ports.PaymentMethodTypeCreditCard,
+			expectedTranType: ports.TransactionTypeSale, // CCE1
+		},
+		{
+			name:             "operation refund with ACH translates to ACH credit",
+			operation:        ports.OperationRefund,
+			paymentMethod:    ports.PaymentMethodTypeACH,
+			expectedTranType: ports.TransactionTypeACHCredit, // CKC3 - FIXES BUG
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &ports.ServerPostRequest{
+				CustNbr:     "9001",
+				MerchNbr:    "900300",
+				DBAnbr:      "2",
+				TerminalNbr: "77",
+				Operation:   tt.operation,
+				PaymentType: tt.paymentMethod,
+				Amount:      "10.00",
+				TranNbr:     generateTranNbr(),
+				TranGroup:   "TEST",
+			}
+
+			// Simulate what ProcessTransaction does - call determineTransactionType
+			transactionType, err := adapter.determineTransactionType(req.Operation, req.PaymentType)
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedTranType, transactionType)
+		})
+	}
+}
+
 // TestIsApprovedLogic tests approval determination
 func TestIsApprovedLogic(t *testing.T) {
 	tests := []struct {
