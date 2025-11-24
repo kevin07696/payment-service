@@ -48,6 +48,7 @@ type Querier interface {
 	CountMerchants(ctx context.Context, arg CountMerchantsParams) (int64, error)
 	// Count ACH payment methods pending verification
 	CountPendingACH(ctx context.Context) (int64, error)
+	CountServices(ctx context.Context, arg CountServicesParams) (int64, error)
 	CountSubscriptions(ctx context.Context, arg CountSubscriptionsParams) (int64, error)
 	// ACH Statistics Queries
 	// Count total ACH payment methods (not deleted)

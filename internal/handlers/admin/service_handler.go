@@ -229,6 +229,15 @@ func (h *ServiceHandler) ListServices(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to list services: %w", err))
 	}
 
+	// Get total count with same filters
+	totalCount, err := h.queries.CountServices(ctx, sqlc.CountServicesParams{
+		Environment: environment,
+		IsActive:    isActive,
+	})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to count services: %w", err))
+	}
+
 	// Convert to proto messages
 	protoServices := make([]*adminv1.Service, len(services))
 	for i, svc := range services {
@@ -248,7 +257,7 @@ func (h *ServiceHandler) ListServices(
 
 	return connect.NewResponse(&adminv1.ListServicesResponse{
 		Services: protoServices,
-		Total:    int64(len(services)), // TODO: Get actual count from DB
+		Total:    totalCount,
 	}), nil
 }
 

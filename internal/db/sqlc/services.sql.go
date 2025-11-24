@@ -23,6 +23,25 @@ func (q *Queries) ActivateService(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const countServices = `-- name: CountServices :one
+SELECT COUNT(*) FROM services
+WHERE
+    ($1::varchar IS NULL OR environment = $1) AND
+    ($2::boolean IS NULL OR is_active = $2)
+`
+
+type CountServicesParams struct {
+	Environment pgtype.Text `json:"environment"`
+	IsActive    pgtype.Bool `json:"is_active"`
+}
+
+func (q *Queries) CountServices(ctx context.Context, arg CountServicesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countServices, arg.Environment, arg.IsActive)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createService = `-- name: CreateService :one
 INSERT INTO services (
     id, service_id, service_name, public_key, public_key_fingerprint,

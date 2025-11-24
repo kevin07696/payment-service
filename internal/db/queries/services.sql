@@ -23,6 +23,12 @@ WHERE
 ORDER BY created_at DESC
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 
+-- name: CountServices :one
+SELECT COUNT(*) FROM services
+WHERE
+    (sqlc.narg(environment)::varchar IS NULL OR environment = sqlc.narg(environment)) AND
+    (sqlc.narg(is_active)::boolean IS NULL OR is_active = sqlc.narg(is_active));
+
 -- name: UpdateService :one
 UPDATE services
 SET
