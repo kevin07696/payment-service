@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2025-11-24 - CLI Simplification) ♻️
+
+**Admin CLI - Removed Authentication Logic**
+
+Completed admin CLI simplification by removing authentication and audit logging code:
+
+**Code Changes:**
+- `cmd/admin/main.go:516-519` - Made `autoLogin()` a no-op (no admin account checks)
+- `cmd/admin/main.go:522-525` - Made `createAuditLog()` a no-op (no audit trail writes)
+- Reduced file size by 66 lines, removing unnecessary complexity
+
+**Testing Results:**
+✅ `create-service`: Successfully creates services without authentication
+✅ `create-merchant`: Successfully creates merchants without authentication
+✅ `grant-access`: Successfully grants access without authentication
+✅ Database verification: All operations persist correctly
+✅ Error elimination: "No admin account found" error completely removed
+
+**Before:** CLI required admin table, autoLogin checks, audit log writes
+**After:** CLI works immediately with zero setup - just run commands
+
 ### Fixed (2025-11-24 - Test Failures) 🐛
 
 **Post-Audit-Removal Fixes**

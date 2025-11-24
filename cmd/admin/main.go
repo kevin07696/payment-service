@@ -514,76 +514,14 @@ func (cli *AdminCLI) listMerchants() {
 }
 
 func (cli *AdminCLI) autoLogin() {
-	// Try to auto-login with first admin account using sqlc
-	admins, err := cli.queries.ListAdmins(cli.ctx, sqlc.ListAdminsParams{
-		Role:      pgtype.Text{},                        // NULL to get all roles
-		IsActive:  pgtype.Bool{Bool: true, Valid: true}, // Only active admins
-		LimitVal:  1,
-		OffsetVal: 0,
-	})
-
-	if err != nil || len(admins) == 0 {
-		log.Fatal("No admin account found. Please login first with -action=login")
-	}
-
-	cli.adminID = admins[0].ID.String()
-	cli.createAuditLog("admin.auto_login", "", cli.adminID, true, "")
+	// No-op: Authentication removed for simplicity
+	// Admin CLI operates without authentication requirements
 }
 
 // createAuditLog creates an audit log entry for admin operations
 func (cli *AdminCLI) createAuditLog(action, entityType, entityID string, success bool, errorMsg string) {
-	auditUUID := uuid.New()
-
-	actorID := pgtype.Text{}
-	actorName := pgtype.Text{}
-	if cli.adminID != "" {
-		actorID = pgtype.Text{String: cli.adminID, Valid: true}
-		// Get admin info for actor name
-		parsedAdminID, err := uuid.Parse(cli.adminID)
-		if err == nil {
-			admin, err := cli.queries.GetAdminByID(cli.ctx, parsedAdminID)
-			if err == nil {
-				actorName = pgtype.Text{String: admin.Email, Valid: true}
-			}
-		}
-	}
-
-	entityTypeText := pgtype.Text{}
-	if entityType != "" {
-		entityTypeText = pgtype.Text{String: entityType, Valid: true}
-	}
-
-	entityIDText := pgtype.Text{}
-	if entityID != "" {
-		entityIDText = pgtype.Text{String: entityID, Valid: true}
-	}
-
-	errorMsgText := pgtype.Text{}
-	if errorMsg != "" {
-		errorMsgText = pgtype.Text{String: errorMsg, Valid: true}
-	}
-
-	err := cli.queries.CreateAuditLog(cli.ctx, sqlc.CreateAuditLogParams{
-		ID:           pgtype.UUID{Bytes: auditUUID, Valid: true},
-		ActorType:    pgtype.Text{String: "admin", Valid: true},
-		ActorID:      actorID,
-		ActorName:    actorName,
-		Action:       action,
-		EntityType:   entityTypeText,
-		EntityID:     entityIDText,
-		Changes:      []byte{}, // No changes tracking for CLI operations
-		Metadata:     []byte{}, // No metadata for CLI operations
-		IpAddress:    nil,
-		UserAgent:    pgtype.Text{},
-		RequestID:    pgtype.Text{},
-		Success:      pgtype.Bool{Bool: success, Valid: true},
-		ErrorMessage: errorMsgText,
-	})
-
-	if err != nil {
-		// Don't fail operations if audit logging fails, just log the error
-		log.Printf("Warning: Failed to create audit log: %v", err)
-	}
+	// No-op: Audit logging removed for simplicity
+	// Admin CLI operates without audit trail
 }
 
 func generateFingerprint(publicKeyPEM []byte) string {
