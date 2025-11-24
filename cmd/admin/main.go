@@ -49,6 +49,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Validate database URL
+	if *dbURL == "" {
+		log.Fatal("Database URL not provided. Set DATABASE_URL environment variable or use -db flag.")
+	}
+
 	// Connect to database
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, *dbURL)
