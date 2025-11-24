@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-11-24 - EPX Certification Analysis) 📋
+
+**EPX Certification Issues Report**
+
+Created comprehensive analysis of EPX certification feedback:
+- `docs/analysis/EPX_CERTIFICATION_ISSUES_REPORT.md` - Detailed status report on 6 certification issues
+- Analysis of KeyExchange INDUSTRY_TYPE=E requirement (not implemented)
+- Analysis of BrowserPost INDUSTRY_TYPE=E requirement (partially implemented)
+- Analysis of REDIRECT_URL_DECLINE/ERROR invalid field names
+- Analysis of BrowserPost form missing address fields
+- Confirmed CARD_ENT_METH=Z for BRIC transactions (already fixed)
+- Confirmed ACI_EXT for MIT transactions (infrastructure in place)
+
+**Summary:**
+- 2 of 6 issues already fixed (CARD_ENT_METH=Z, ACI_EXT infrastructure)
+- 4 issues require code changes (INDUSTRY_TYPE, redirect URLs, address fields)
+- Priority fixes identified: INDUSTRY_TYPE support in KeyExchange and BrowserPost
+
 ### Changed (2025-11-24 - Environment Variables) 🔧
 
 **Seed Command - Removed Hardcoded Database URL**
