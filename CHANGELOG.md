@@ -118,18 +118,42 @@ Fixed compilation error in cron integration tests:
 
 - `tests/integration/cron/audit_cleanup_validation_test.go:9` - Removed unused `fmt` import
 
+**Issue #4: STORAGE Transaction Status Case Sensitivity**
+
+Fixed critical bug where STORAGE (card tokenization) transactions completed successfully but payment methods weren't saved to database:
+
+- `internal/db/queries/transactions.sql:120` - Changed `status = 'PENDING'` to `status = 'pending'` (lowercase)
+- `internal/handlers/payment/browser_post_callback_handler.go:43-57` - Added missing `case "STORAGE"` to transaction type mapping
+- `internal/handlers/payment/browser_post_callback_handler.go:626` - Fixed error comparison from `sql.ErrNoRows` to `pgx.ErrNoRows`
+- `internal/handlers/payment/browser_post_callback_handler.go:11` - Added `pgx` import, removed unused `database/sql` import
+
+**Root Cause:**
+- Database schema uses generated column with lowercase status values: `'pending'`, `'approved'`, `'declined'`, `'failed'`
+- UPDATE query checked for uppercase `'PENDING'`, causing WHERE clause to never match
+- Result: Transaction exists but UPDATE fails with "no rows in result set"
+- Additionally, missing STORAGE case in mapping function caused transaction type to default to "SALE"
+
+**Solution:**
+1. Fixed status comparison to use lowercase `'pending'` matching database schema
+2. Added STORAGE case to `mapRequestTypeToTransactionType` function
+3. Fixed pgx error handling to use correct error type
+4. Regenerated sqlc code with corrected query
+
 **Impact:**
 - ✅ Integration tests can now retrieve merchant credentials successfully
 - ✅ Fixed "failed to retrieve merchant credentials" errors across all test suites
-- ✅ Fixed "invalid character '\\x1f' looking for beginning of value" gzip decoding errors
+- ✅ Fixed "invalid character '\\x1f' looking for beginning of value" gzip decoding errors (16 tests)
+- ✅ Fixed STORAGE transaction type mapping and status case sensitivity (7 tests)
 - ✅ Cron integration tests now compile successfully
-- ✅ ACH payment tests now pass (4/4 tests)
-- ✅ Test packages passing: admin (4/4), chargeback (2/2), connect (5/5), merchant (1/1), payment ACH (4/4)
-- 📊 Overall test success rate improved from 12% → 50%+ after fixes
+- ✅ Payment method tests: 5/5 passing (was 0/5)
+- ✅ Subscription tests: 2/2 passing (was 0/2)
+- ✅ ACH save account test: 1/1 passing
+- ✅ Test packages fully passing: admin (4/4), chargeback (2/2), connect (5/5), merchant (1/1), payment_method (5/5), subscription (2/2)
+- 📊 Overall test success rate improved from 12% → 75%+ after all fixes
 
 **Remaining Issues:**
-- Payment method STORAGE transactions complete but don't save to database (business logic issue)
-- Some Browser Post workflow tests fail on multi-step operations
+- ACH payment transactions (3 tests) - endpoints return "unimplemented: 404 Not Found" (feature not implemented)
+- Some Browser Post workflow tests fail on multi-step operations (AUTH→CAPTURE, SALE→REFUND)
 - WordPress integration tests timeout (requires full WordPress stack)
 
 ### Changed (2025-11-24 - EPX Certification Sheet) 📋
