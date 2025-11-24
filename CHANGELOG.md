@@ -8852,3 +8852,34 @@ credentials are also seeded in staging database via `003_agent_credentials.sql`.
   - **Status**: ✅ READY FOR PRODUCTION DEPLOYMENT
   - **Recommendation**: Deploy to staging for final verification, then production
 
+
+## [Unreleased] - 2025-11-23
+
+### Fixed
+- **Database Migrations**: Consolidated chargebacks table migrations
+  - Removed unnecessary rename migrations (023, 024)
+  - Updated base migration 004 to use `merchant_id` from the start
+  - Clean v1 migration structure without intermediate renames
+  
+- **Test Infrastructure**: Fixed service authentication for integration tests
+  - Seeded 3 test services (test-service-001, 002, 003) to database
+  - Server now recognizes test service issuers after restart
+  - JWT authentication working for test requests
+
+### In Progress
+- **Chargeback Tests**: Wire-format error on `ListChargebacksResponse`
+  - 3/6 chargeback integration tests passing
+  - `ListChargebacks` calls fail with protobuf unmarshal error
+  - Authentication works but response serialization broken
+  - Root cause: TBD - investigating ConnectRPC/protobuf layer
+
+### Technical Debt
+- **Test Architecture**: Refactor chargeback tests
+  - Move validation tests from integration to unit tests
+  - Convert integration tests to table-driven approach
+  - Reduce test count and improve maintainability
+
+### Notes
+- All skipped tests should be re-enabled and fixed
+- Chargeback seed data requires transaction fixtures to load
+

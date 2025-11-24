@@ -238,17 +238,18 @@ func automatedCheckout(t *testing.T, ctx context.Context, amount float64, isAuth
 		// Ignore error if field doesn't exist
 	}
 
-	// Submit order using setTimeout to avoid chromedp.Evaluate hanging
+	// Submit order using jQuery form submit to properly trigger WooCommerce validation
 	t.Log("Submitting order...")
 	err = chromedp.Run(ctx,
 		chromedp.Evaluate(`
 			setTimeout(function() {
-				document.getElementById('place_order').click();
+				// Trigger WooCommerce's submit handler directly
+				jQuery('form.checkout').submit();
 			}, 10);
-			'Click scheduled';
+			'Form submission scheduled';
 		`, nil),
 	)
-	require.NoError(t, err, "Should schedule place order click")
+	require.NoError(t, err, "Should schedule form submission")
 
 	// Wait for payment processing - this can take 10-20 seconds for EPX
 	// The page will show a blocking overlay during processing

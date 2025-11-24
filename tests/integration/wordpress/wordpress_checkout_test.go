@@ -156,17 +156,18 @@ func TestWordPressCheckoutFlow(t *testing.T) {
 	require.NoError(t, err, "Should fill card details")
 	t.Log("✅ Card details filled")
 
-	// Step 7: Submit order using setTimeout to avoid chromedp.Evaluate hanging
+	// Step 7: Submit order using jQuery form submit to properly trigger WooCommerce validation
 	t.Log("🚀 Submitting order...")
 	err = chromedp.Run(ctx,
 		chromedp.Evaluate(`
 			setTimeout(function() {
-				document.getElementById('place_order').click();
+				// Trigger WooCommerce's submit handler directly
+				jQuery('form.checkout').submit();
 			}, 10);
-			'Click scheduled';
+			'Form submission scheduled';
 		`, nil),
 	)
-	require.NoError(t, err, "Should schedule place order click")
+	require.NoError(t, err, "Should schedule form submission")
 
 	// Wait for payment processing outside chromedp.Run() to avoid context timeout issues
 	t.Log("⏳ Waiting for payment processing...")
