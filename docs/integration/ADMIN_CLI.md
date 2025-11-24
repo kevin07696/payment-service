@@ -19,54 +19,21 @@ The **admin CLI** (`cmd/admin/main.go`) is a command-line tool for managing:
 - service_merchants junction table defines which services can access which merchants
 - Private keys are returned ONCE and never stored in database
 
+**✨ Authentication-Free CLI:**
+- No admin accounts or login required
+- No authentication checks
+- Direct database access for administrative operations
+- Designed as a local development/operations tool
+
 ---
 
 ## Prerequisites
 
 Before using the admin CLI, you need:
-1. Payment service running ([Setup Guide](../development/SETUP.md))
-2. Database initialized with migrations
-3. **Admin account created** (first-time setup)
+1. Payment service database initialized with migrations
+2. Database connection URL (via `-db` flag or `DATABASE_URL` environment variable)
 
-### Creating the Initial Admin Account
-
-**First-time setup only** - Run the seed command to create the initial admin account:
-
-```bash
-# Build the seed command
-go build -o seed ./cmd/seed
-
-# Run it to create admin account and test data
-./seed
-```
-
-**Output:**
-```
-✅ Admin account created
-Email: admin@payment-service.local
-Password: [randomly generated secure password - SAVE THIS!]
-
-✅ Test service created: test-pos-system
-✅ Test merchant created: test-merchant-dev
-```
-
-**⚠️ IMPORTANT:** Save the admin password shown in the output! You'll need it to login.
-
-**Windows (PowerShell):**
-```powershell
-# Build seed command
-go build -o seed.exe .\cmd\seed
-
-# Run it
-.\seed.exe
-```
-
-**What the seed command creates:**
-- Admin account: `admin@payment-service.local` with random secure password
-- Test service: `test-pos-system` (for development/testing)
-- Test merchant: `test-merchant-dev` (for development/testing)
-
-**Note:** If you run the seed command again, it will update the admin password (generates a new random password).
+That's it! No authentication setup required.
 
 ---
 
@@ -77,37 +44,36 @@ go build -o seed.exe .\cmd\seed
 go build -o admin ./cmd/admin
 
 # Verify it works
-./admin -h
+./admin -help
 ```
 
 **Windows (PowerShell):**
 ```powershell
 go build -o admin.exe .\cmd\admin
-.\admin.exe -h
+.\admin.exe -help
 ```
 
-**Output:**
+**Flags:**
 ```
-Admin CLI for Payment Service
-
-Usage:
-  ./admin -action=<action> [flags]
-
-Actions:
-  create-service    Create a new service with RSA keypair
-  create-merchant   Create a new merchant with EPX credentials
-  grant-access      Grant a service access to a merchant
-  list-services     List all services
-  list-merchants    List all merchants
-  revoke-access     Revoke a service's access to a merchant
-
-Flags:
+Usage of ./admin:
   -action string
-        Action to perform (required)
-  -config string
-        Path to JSON config file (optional)
-  -database-url string
-        Database connection URL (default: from DATABASE_URL env var)
+        Action to perform: create-service, create-merchant, grant-access
+  -db string
+        Database URL (default: postgres://postgres:postgres@localhost:5432/payments?sslmode=disable)
+  -json string
+        JSON file with service/merchant details
+```
+
+**Quick Start:**
+```bash
+# Create a service
+./admin -action=create-service -json=service.json
+
+# Create a merchant
+./admin -action=create-merchant -json=merchant.json
+
+# Grant access (interactive prompts)
+./admin -action=grant-access
 ```
 
 ---
@@ -118,67 +84,70 @@ Flags:
 
 **Purpose:** Register a new service (POS system, e-commerce backend, mobile app)
 
-**Command:**
+**Using JSON Config:**
 ```bash
-./admin -action=create-service
-```
+# Create service.json
+cat > service.json <<EOF
+{
+  "service_id": "acme-pos-system",
+  "service_name": "ACME POS System",
+  "environment": "production",
+  "generate_keypair": true
+}
+EOF
 
-**Interactive Prompts:**
-```
-Enter Service ID (e.g., acme-pos-system): acme-pos-system
-Enter Service Name (e.g., ACME POS System): ACME POS System
-Enter Environment (production/staging): production
-Enter Requests Per Second (default 1000): 1000
-Enter Burst Limit (default 2000): 2000
+# Run with config
+./admin -action=create-service -json=service.json
 ```
 
 **Output:**
 ```
-✅ Service created successfully!
+========================================
+✅ SERVICE CREATED SUCCESSFULLY
+========================================
+Service ID: acme-pos-system
+Service Name: ACME POS System
+Environment: production
+Rate Limit: 0 req/s (burst: 0)
 
-Service Details:
-  Service ID: acme-pos-system
-  Service Name: ACME POS System
-  Environment: production
-  Rate Limits: 1000 req/s, burst 2000
+📁 Credentials saved to: service_acme-pos-system_credentials.json
+⚠️  Keep the private key secure!
+========================================
+```
 
-🔐 PRIVATE KEY (SAVE THIS - IT WILL NOT BE SHOWN AGAIN!):
------BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA1234567890...
------END RSA PRIVATE KEY-----
-
-Public Key Fingerprint: SHA256:abc123def456...
-
-⚠️  CRITICAL: Save the private key above immediately!
-This key is required for JWT token signing and will never be shown again.
-
-Store it securely:
-  1. Save to file: keys/acme-pos-system.pem
-  2. Set file permissions: chmod 600 keys/acme-pos-system.pem
-  3. Use in environment: PRIVATE_KEY_PATH=keys/acme-pos-system.pem
+**Generated Credentials File** (`service_acme-pos-system_credentials.json`):
+```json
+{
+  "service_id": "acme-pos-system",
+  "service_name": "ACME POS System",
+  "environment": "production",
+  "private_key": "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n",
+  "public_key": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
+  "note": "Keep the private key secure! Use it to sign JWT tokens."
+}
 ```
 
 **What Happens:**
 1. Generates 2048-bit RSA keypair
 2. Stores **public key** in database (`services` table)
-3. Returns **private key** ONCE (never stored in database)
+3. Returns **private key** in credentials JSON file (never stored in database)
 4. Service uses private key to sign JWT tokens
 
-**Using JSON Config (Non-Interactive):**
+**⚠️ CRITICAL SECURITY:**
 ```bash
-# Create config.json
-cat > service-config.json <<EOF
-{
-  "service_id": "acme-pos-system",
-  "service_name": "ACME POS System",
-  "environment": "production",
-  "requests_per_second": 1000,
-  "burst_limit": 2000
-}
-EOF
+# 1. Save credentials file securely
+chmod 600 service_acme-pos-system_credentials.json
 
-# Run with config
-./admin -action=create-service -config=service-config.json
+# 2. Extract private key for use
+jq -r '.private_key' service_acme-pos-system_credentials.json > keys/acme-pos-system.pem
+chmod 600 keys/acme-pos-system.pem
+
+# 3. Add to .gitignore
+echo "keys/*.pem" >> .gitignore
+echo "service_*_credentials.json" >> .gitignore
+
+# 4. Use in application
+export PRIVATE_KEY_PATH=keys/acme-pos-system.pem
 ```
 
 ---
@@ -187,73 +156,58 @@ EOF
 
 **Purpose:** Register a new merchant (business entity) with EPX credentials
 
-**Command:**
+**Using JSON Config:**
 ```bash
-./admin -action=create-merchant
-```
+# Create merchant.json
+cat > merchant.json <<EOF
+{
+  "name": "Downtown Pizza LLC",
+  "slug": "downtown-pizza",
+  "payment_gateway": "epx",
+  "is_active": true
+}
+EOF
 
-**Interactive Prompts:**
-```
-Enter Merchant Slug (e.g., downtown-pizza): downtown-pizza
-Enter Merchant Name (e.g., Downtown Pizza LLC): Downtown Pizza LLC
-Enter EPX CUST_NBR: 9001
-Enter EPX MERCH_NBR: 900300
-Enter EPX DBA_NBR: 2
-Enter EPX TERMINAL_NBR: 77
-Enter MAC Secret Path (e.g., /secrets/epx/prod/downtown-pizza): /secrets/epx/prod/downtown-pizza
-Enter Environment (production/staging): production
-Enter Tier (standard/premium/enterprise): standard
+# Run with config
+./admin -action=create-merchant -json=merchant.json
 ```
 
 **Output:**
 ```
-✅ Merchant created successfully!
-
-Merchant Details:
-  Merchant ID: 550e8400-e29b-41d4-a716-446655440000
-  Slug: downtown-pizza
-  Name: Downtown Pizza LLC
-  Environment: production
-  Tier: standard
-
-EPX Credentials:
-  CUST_NBR: 9001
-  MERCH_NBR: 900300
-  DBA_NBR: 2
-  TERMINAL_NBR: 77
+========================================
+✅ MERCHANT CREATED SUCCESSFULLY
+========================================
+Merchant ID: 550e8400-e29b-41d4-a716-446655440000
+Slug: downtown-pizza
+Name: Downtown Pizza LLC
+Environment:
+Tier:
+Rate Limit: 0 req/s
 
 📝 Next Steps:
   1. Create a Service: ./admin -action=create-service
   2. Grant access: ./admin -action=grant-access
   3. Service uses RSA private key to sign JWT tokens
 
-⚠️  IMPORTANT: Ensure MAC secret is stored in secret manager at:
-    /secrets/epx/prod/downtown-pizza
+📁 Info saved to: merchant_downtown-pizza_info.json
+========================================
 ```
 
 **What Happens:**
 1. Creates merchant record in database
-2. Stores EPX credentials (CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR)
-3. Stores **reference** to MAC secret (path in secret manager)
+2. Stores merchant information (name, slug, payment gateway)
+3. Merchant is now available for service access grants
 4. NO API keys generated (merchants don't authenticate directly)
 
-**Using JSON Config:**
-```bash
-cat > merchant-config.json <<EOF
+**Merchant Info File** (`merchant_downtown-pizza_info.json`):
+```json
 {
+  "merchant_id": "550e8400-e29b-41d4-a716-446655440000",
   "slug": "downtown-pizza",
   "name": "Downtown Pizza LLC",
-  "cust_nbr": "9001",
-  "merch_nbr": "900300",
-  "dba_nbr": "2",
-  "terminal_nbr": "77",
-  "mac_secret_path": "/secrets/epx/prod/downtown-pizza",
-  "environment": "production",
-  "tier": "standard"
+  "payment_gateway": "epx",
+  "is_active": true
 }
-EOF
-
-./admin -action=create-merchant -config=merchant-config.json
 ```
 
 ---
@@ -262,229 +216,132 @@ EOF
 
 **Purpose:** Allow a service to access a merchant with specific permissions
 
-**Command:**
+**Command (Interactive):**
 ```bash
+# Using stdin pipe for automation
+echo -e "acme-pos-system\ndowntown-pizza" | ./admin -action=grant-access
+
+# Or run interactively
 ./admin -action=grant-access
 ```
 
 **Interactive Prompts:**
 ```
-Enter Service ID: acme-pos-system
-Enter Merchant Slug: downtown-pizza
-Select scopes (comma-separated):
-  payment:create    - Create payment transactions
-  payment:read      - Read payment transactions
-  payment:update    - Update payment status
-  payment:refund    - Refund payments
-  payment:void      - Void payments
-  payment:capture   - Capture authorized payments
-  subscription:manage - Manage subscriptions
-  payment_method:manage - Manage saved payment methods
-
-Enter scopes: payment:create,payment:read,payment:refund,payment:void
+Service ID (e.g., wordpress-plugin): acme-pos-system
+Merchant slug: downtown-pizza
 ```
 
 **Output:**
 ```
+Granting scopes: [payment:create payment:read payment:update payment:refund subscription:manage payment_method:manage]
+
 ✅ Access granted successfully!
-
-Access Details:
-  Service: acme-pos-system (ACME POS System)
-  Merchant: downtown-pizza (Downtown Pizza LLC)
-  Scopes: [payment:create payment:read payment:refund payment:void]
-  Granted At: 2025-11-21 14:30:00 UTC
-
-The service can now:
-  ✅ Create payments for this merchant
-  ✅ Read payment transactions
-  ✅ Refund payments
-  ✅ Void payments
+Service 'acme-pos-system' now has access to merchant 'downtown-pizza'
 ```
 
 **What Happens:**
 1. Links service to merchant in `service_merchants` table
-2. Stores scopes (permissions)
+2. Grants default scopes for all payment operations
 3. Service can now generate JWT tokens for this merchant
 4. Payment API validates service has required scopes
 
-**Using JSON Config:**
-```bash
-cat > access-config.json <<EOF
-{
-  "service_id": "acme-pos-system",
-  "merchant_slug": "downtown-pizza",
-  "scopes": [
-    "payment:create",
-    "payment:read",
-    "payment:refund",
-    "payment:void"
-  ]
-}
-EOF
-
-./admin -action=grant-access -config=access-config.json
-```
-
----
-
-### 4. List Services
-
-```bash
-./admin -action=list-services
-```
-
-**Output:**
-```
-Services:
-┌─────────────────────┬──────────────────────┬─────────────┬────────────┐
-│ Service ID          │ Service Name         │ Environment │ Active     │
-├─────────────────────┼──────────────────────┼─────────────┼────────────┤
-│ acme-pos-system     │ ACME POS System      │ production  │ ✅ Yes     │
-│ wordpress-plugin    │ WordPress Plugin     │ production  │ ✅ Yes     │
-│ mobile-app          │ Mobile App           │ staging     │ ✅ Yes     │
-└─────────────────────┴──────────────────────┴─────────────┴────────────┘
-```
-
----
-
-### 5. List Merchants
-
-```bash
-./admin -action=list-merchants
-```
-
-**Output:**
-```
-Merchants:
-┌──────────────────┬──────────────────────┬─────────────┬────────┐
-│ Slug             │ Name                 │ Environment │ Status │
-├──────────────────┼──────────────────────┼─────────────┼────────┤
-│ downtown-pizza   │ Downtown Pizza LLC   │ production  │ active │
-│ main-street-cafe │ Main Street Cafe     │ production  │ active │
-│ test-merchant    │ Test Merchant (Dev)  │ staging     │ active │
-└──────────────────┴──────────────────────┴─────────────┴────────┘
-```
-
----
-
-### 6. Revoke Access
-
-```bash
-./admin -action=revoke-access
-```
-
-**Interactive Prompts:**
-```
-Enter Service ID: acme-pos-system
-Enter Merchant Slug: downtown-pizza
-Are you sure you want to revoke access? (yes/no): yes
-```
-
-**Output:**
-```
-✅ Access revoked successfully!
-
-Service 'acme-pos-system' no longer has access to merchant 'downtown-pizza'
-```
+**Default Scopes Granted:**
+- `payment:create` - Create payment transactions
+- `payment:read` - Read payment transactions
+- `payment:update` - Update payment status
+- `payment:refund` - Refund payments
+- `subscription:manage` - Manage subscriptions
+- `payment_method:manage` - Manage saved payment methods
 
 ---
 
 ## Complete Workflow Example
 
-### Scenario: Adding a New Restaurant
+### Scenario: Setting Up a New POS System for a Restaurant
 
-**1. Ensure MAC secret is in secret manager:**
-
-```bash
-# For GCP Secret Manager
-echo -n "your-mac-secret-here" | gcloud secrets create epx-prod-downtown-pizza \
-  --data-file=- \
-  --replication-policy="automatic"
-
-# For AWS Secrets Manager
-aws secretsmanager create-secret \
-  --name /secrets/epx/prod/downtown-pizza \
-  --secret-string "your-mac-secret-here"
-
-# For HashiCorp Vault
-vault kv put secret/epx/prod/downtown-pizza value="your-mac-secret-here"
-
-# For local file (development only)
-mkdir -p secrets/epx/prod
-echo "your-mac-secret-here" > secrets/epx/prod/downtown-pizza
-chmod 600 secrets/epx/prod/downtown-pizza
-```
-
-**2. Create the merchant:**
+**Step 1: Create the Service**
 
 ```bash
-./admin -action=create-merchant
+# Create service configuration
+cat > service.json <<EOF
+{
+  "service_id": "downtown-pos",
+  "service_name": "Downtown POS System",
+  "environment": "production",
+  "generate_keypair": true
+}
+EOF
 
-# Enter details:
-# - Slug: downtown-pizza
-# - Name: Downtown Pizza LLC
-# - CUST_NBR: 9001
-# - MERCH_NBR: 900300
-# - DBA_NBR: 2
-# - TERMINAL_NBR: 77
-# - MAC Secret Path: /secrets/epx/prod/downtown-pizza
-# - Environment: production
+# Create the service
+./admin -action=create-service -json=service.json
+
+# Output: service_downtown-pos_credentials.json created
+# Extract and secure the private key
+jq -r '.private_key' service_downtown-pos_credentials.json > keys/downtown-pos.pem
+chmod 600 keys/downtown-pos.pem
 ```
 
-**3. Create a service (if not exists):**
+**Step 2: Create the Merchant**
 
 ```bash
-./admin -action=create-service
+# Create merchant configuration
+cat > merchant.json <<EOF
+{
+  "name": "Downtown Pizza LLC",
+  "slug": "downtown-pizza",
+  "payment_gateway": "epx",
+  "is_active": true
+}
+EOF
 
-# Enter details:
-# - Service ID: acme-pos-system
-# - Service Name: ACME POS System
-# - Environment: production
+# Create the merchant
+./admin -action=create-merchant -json=merchant.json
 
-# ⚠️ SAVE THE PRIVATE KEY OUTPUT!
+# Output: merchant_downtown-pizza_info.json created
 ```
 
-**4. Grant service access to merchant:**
+**Step 3: Grant Service Access to Merchant**
 
 ```bash
-./admin -action=grant-access
+# Grant access (interactive)
+echo -e "downtown-pos\ndowntown-pizza" | ./admin -action=grant-access
 
-# Enter details:
-# - Service ID: acme-pos-system
-# - Merchant Slug: downtown-pizza
-# - Scopes: payment:create,payment:read,payment:refund,payment:void
+# Output: Access granted with all default scopes
 ```
 
-**5. Service generates JWT tokens:**
+**Step 4: Use in Application**
 
 ```go
 // In your POS application:
 import (
-    "github.com/kevin07696/payment-service/internal/auth"
+    "crypto/rsa"
+    "crypto/x509"
+    "encoding/pem"
+    "github.com/golang-jwt/jwt/v5"
+    "os"
+    "time"
 )
 
-// Load private key (from environment or secure storage)
-privateKeyPEM, _ := os.ReadFile("keys/acme-pos-system.pem")
+// Load private key
+privateKeyPEM, _ := os.ReadFile("keys/downtown-pos.pem")
+block, _ := pem.Decode(privateKeyPEM)
+privateKey, _ := x509.ParsePKCS1PrivateKey(block.Bytes)
 
-// Create JWT manager
-jwtManager, err := auth.NewJWTManager(
-    privateKeyPEM,
-    "acme-pos-system",  // service_id
-    8 * time.Hour,       // token expiry
-)
+// Generate JWT token
+token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+    "iss": "downtown-pos",           // service_id
+    "sub": merchantID,                // downtown-pizza merchant UUID
+    "merchant_id": merchantID,
+    "service_id": "downtown-pos",
+    "scopes": []string{"payment:create", "payment:read"},
+    "exp": time.Now().Add(8 * time.Hour).Unix(),
+    "iat": time.Now().Unix(),
+})
 
-// Generate token for merchant
-token, err := jwtManager.GenerateToken(
-    merchantID,  // downtown-pizza merchant ID
-    []string{"payment:create", "payment:read"},
-)
+tokenString, _ := token.SignedString(privateKey)
 
 // Use token in API requests
-client := payment.NewPaymentServiceClient(conn)
-ctx := metadata.AppendToOutgoingContext(
-    context.Background(),
-    "authorization", "Bearer "+token,
-)
+// Authorization: Bearer <tokenString>
 ```
 
 ---
@@ -688,8 +545,7 @@ CREATE TABLE services (
     requests_per_second INTEGER DEFAULT 1000,
     burst_limit INTEGER DEFAULT 2000,
     is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT NOW(),
-    created_by UUID REFERENCES admins(id)
+    created_at TIMESTAMP DEFAULT NOW()
 );
 ```
 
@@ -699,17 +555,12 @@ CREATE TABLE merchants (
     id UUID PRIMARY KEY,
     slug VARCHAR(100) UNIQUE NOT NULL,
     name VARCHAR(200) NOT NULL,
-    cust_nbr VARCHAR(50) NOT NULL,        -- EPX credentials
-    merch_nbr VARCHAR(50) NOT NULL,
-    dba_nbr VARCHAR(50) NOT NULL,
-    terminal_nbr VARCHAR(50) NOT NULL,
-    mac_secret_path VARCHAR(500) NOT NULL,  -- Secret manager path
-    environment VARCHAR(20) NOT NULL,
+    payment_gateway VARCHAR(50) NOT NULL,
+    environment VARCHAR(20),
     is_active BOOLEAN DEFAULT true,
     status VARCHAR(20) DEFAULT 'active',
     tier VARCHAR(20) DEFAULT 'standard',
-    created_at TIMESTAMP DEFAULT NOW(),
-    created_by UUID REFERENCES admins(id)
+    created_at TIMESTAMP DEFAULT NOW()
 );
 ```
 
@@ -720,10 +571,12 @@ CREATE TABLE service_merchants (
     merchant_id UUID REFERENCES merchants(id) ON DELETE CASCADE,
     scopes TEXT[] NOT NULL,
     granted_at TIMESTAMP DEFAULT NOW(),
-    granted_by UUID REFERENCES admins(id),
+    expires_at TIMESTAMP,
     PRIMARY KEY (service_id, merchant_id)
 );
 ```
+
+**Note:** Audit columns (`created_by`, `granted_by`, `approved_by`) have been removed for simplicity. The admin CLI operates without authentication or audit trail.
 
 ---
 

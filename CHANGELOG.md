@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (2025-11-24 - CLI Simplification) ♻️
 
+**Admin CLI Documentation Update**
+
+Updated ADMIN_CLI.md to reflect authentication-free workflow:
+- Removed all admin account and login documentation
+- Removed seed command prerequisites (no longer needed)
+- Updated command examples to match actual CLI implementation
+- Simplified workflow from 5 steps to 3 steps
+- Updated database schema to show removed audit columns
+- Reduced documentation by 334 lines, added 187 lines of accurate content
+
+File: `docs/integration/ADMIN_CLI.md` (net -147 lines)
+
 **Admin CLI - Removed Authentication Logic**
 
 Completed admin CLI simplification by removing authentication and audit logging code:
