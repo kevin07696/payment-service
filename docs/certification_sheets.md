@@ -38,7 +38,8 @@ curl -X POST "https://keyexch.epxuap.com" \
   -d "AMOUNT=50.00" \
   -d "MAC=2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y" \
   -d "TRAN_GROUP=SALE" \
-  -d "REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback"
+  -d "REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback" \
+  -d "INDUSTRY_TYPE=E"
 ```
 
 #### Request Body
@@ -49,6 +50,7 @@ AMOUNT=50.00
 MAC=2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y
 TRAN_GROUP=SALE
 REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback
+INDUSTRY_TYPE=E
 ```
 
 #### Response Body
@@ -75,7 +77,8 @@ curl -X POST "https://keyexch.epxuap.com" \
   -d "AMOUNT=50.00" \
   -d "MAC=2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y" \
   -d "TRAN_GROUP=AUTH" \
-  -d "REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback"
+  -d "REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback" \
+  -d "INDUSTRY_TYPE=E"
 ```
 
 #### Request Body
@@ -86,6 +89,7 @@ AMOUNT=50.00
 MAC=2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y
 TRAN_GROUP=AUTH
 REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback
+INDUSTRY_TYPE=E
 ```
 
 #### Response Body
@@ -112,7 +116,8 @@ curl -X POST "https://keyexch.epxuap.com" \
   -d "AMOUNT=0.00" \
   -d "MAC=2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y" \
   -d "TRAN_GROUP=STORAGE" \
-  -d "REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback"
+  -d "REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback" \
+  -d "INDUSTRY_TYPE=E"
 ```
 
 #### Request Body
@@ -123,6 +128,7 @@ AMOUNT=0.00
 MAC=2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y
 TRAN_GROUP=STORAGE
 REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback
+INDUSTRY_TYPE=E
 ```
 
 #### Response Body
@@ -148,13 +154,30 @@ EPX Browser Post requires submitting an HTML form to EPX's hosted payment page w
 
 ```html
 <form method="POST" action="https://services.epxuap.com/browserpost/">
+  <!-- Authentication -->
   <input type="hidden" name="TAC" value="dGVzdHRhY3ZhbHVlZm9yc2FsZXRyYW5zYWN0aW9u..." />
+
+  <!-- Transaction Details -->
   <input type="hidden" name="AMOUNT" value="50.00" />
   <input type="hidden" name="TRAN_NBR" value="1000028096" />
-  <input type="hidden" name="TRAN_CODE" value="SALE" />
+  <input type="hidden" name="TRAN_GROUP" value="SALE" />
+  <input type="hidden" name="INDUSTRY_TYPE" value="E" />
+
+  <!-- Card Data (required by EPX) -->
+  <input type="hidden" name="CARD_NBR" value="4111111111111111" />
+  <input type="hidden" name="EXP_DATE" value="1225" />
+  <input type="hidden" name="CVV" value="123" />
+
+  <!-- Billing Address (required for AVS) -->
+  <input type="hidden" name="ADDRESS" value="123 Main St" />
+  <input type="hidden" name="CITY" value="New York" />
+  <input type="hidden" name="STATE" value="NY" />
+  <input type="hidden" name="ZIP_CODE" value="10001" />
+
+  <!-- Redirect URLs -->
   <input type="hidden" name="REDIRECT_URL" value="http://localhost:8081/api/v1/payments/browser-post/callback" />
-  <input type="hidden" name="REDIRECT_URL_DECLINE" value="http://localhost:8081/api/v1/payments/browser-post/callback" />
-  <input type="hidden" name="REDIRECT_URL_ERROR" value="http://localhost:8081/api/v1/payments/browser-post/callback" />
+  <input type="hidden" name="INVALID_REDIRECT_URL" value="http://localhost:8081/api/v1/payments/browser-post/callback" />
+
   <input type="submit" value="Pay Now" />
 </form>
 ```
@@ -167,10 +190,17 @@ curl -X POST "https://services.epxuap.com/browserpost/" \
   -d "TAC=dGVzdHRhY3ZhbHVlZm9yc2FsZXRyYW5zYWN0aW9u..." \
   -d "AMOUNT=50.00" \
   -d "TRAN_NBR=1000028096" \
-  -d "TRAN_CODE=SALE" \
+  -d "TRAN_GROUP=SALE" \
+  -d "INDUSTRY_TYPE=E" \
+  -d "CARD_NBR=4111111111111111" \
+  -d "EXP_DATE=1225" \
+  -d "CVV=123" \
+  -d "ADDRESS=123 Main St" \
+  -d "CITY=New York" \
+  -d "STATE=NY" \
+  -d "ZIP_CODE=10001" \
   -d "REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback" \
-  -d "REDIRECT_URL_DECLINE=http://localhost:8081/api/v1/payments/browser-post/callback" \
-  -d "REDIRECT_URL_ERROR=http://localhost:8081/api/v1/payments/browser-post/callback"
+  -d "INVALID_REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback"
 ```
 
 #### Request Body
@@ -179,10 +209,17 @@ curl -X POST "https://services.epxuap.com/browserpost/" \
 TAC=dGVzdHRhY3ZhbHVlZm9yc2FsZXRyYW5zYWN0aW9u...
 AMOUNT=50.00
 TRAN_NBR=1000028096
-TRAN_CODE=SALE
+TRAN_GROUP=SALE
+INDUSTRY_TYPE=E
+CARD_NBR=4111111111111111
+EXP_DATE=1225
+CVV=123
+ADDRESS=123 Main St
+CITY=New York
+STATE=NY
+ZIP_CODE=10001
 REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback
-REDIRECT_URL_DECLINE=http://localhost:8081/api/v1/payments/browser-post/callback
-REDIRECT_URL_ERROR=http://localhost:8081/api/v1/payments/browser-post/callback
+INVALID_REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback
 ```
 
 #### Response
@@ -240,9 +277,11 @@ curl -X POST "https://secure.epxuap.com" \
   -d "BATCH_ID=20251122" \
   -d "LOCAL_DATE=112225" \
   -d "LOCAL_TIME=103000" \
-  -d "ORIG_AUTH_GUID=abc123def456..." \
+  -d "CARD_NBR=4111111111111111" \
+  -d "EXP_DATE=1225" \
+  -d "CVV2=123" \
   -d "CARD_ENT_METH=M" \
-  -d "INDUSTRY_TYPE=RE"
+  -d "INDUSTRY_TYPE=E"
 ```
 
 #### Request Body
@@ -258,9 +297,11 @@ TRAN_NBR=1000030001
 BATCH_ID=20251122
 LOCAL_DATE=112225
 LOCAL_TIME=103000
-ORIG_AUTH_GUID=abc123def456...
+CARD_NBR=4111111111111111
+EXP_DATE=1225
+CVV2=123
 CARD_ENT_METH=M
-INDUSTRY_TYPE=RE
+INDUSTRY_TYPE=E
 ```
 
 #### Response Body
@@ -299,9 +340,11 @@ curl -X POST "https://secure.epxuap.com" \
   -d "BATCH_ID=20251122" \
   -d "LOCAL_DATE=112225" \
   -d "LOCAL_TIME=103100" \
-  -d "ORIG_AUTH_GUID=abc123def456..." \
+  -d "CARD_NBR=4111111111111111" \
+  -d "EXP_DATE=1225" \
+  -d "CVV2=123" \
   -d "CARD_ENT_METH=M" \
-  -d "INDUSTRY_TYPE=RE"
+  -d "INDUSTRY_TYPE=E"
 ```
 
 #### Request Body
@@ -317,9 +360,11 @@ TRAN_NBR=1000030002
 BATCH_ID=20251122
 LOCAL_DATE=112225
 LOCAL_TIME=103100
-ORIG_AUTH_GUID=abc123def456...
+CARD_NBR=4111111111111111
+EXP_DATE=1225
+CVV2=123
 CARD_ENT_METH=M
-INDUSTRY_TYPE=RE
+INDUSTRY_TYPE=E
 ```
 
 #### Response Body
@@ -358,7 +403,9 @@ curl -X POST "https://secure.epxuap.com" \
   -d "BATCH_ID=20251122" \
   -d "LOCAL_DATE=112225" \
   -d "LOCAL_TIME=103200" \
-  -d "ORIG_AUTH_GUID=xyz789ghi012..."
+  -d "ORIG_AUTH_GUID=xyz789ghi012..." \
+  -d "CARD_ENT_METH=Z" \
+  -d "INDUSTRY_TYPE=E"
 ```
 
 #### Request Body
@@ -375,6 +422,8 @@ BATCH_ID=20251122
 LOCAL_DATE=112225
 LOCAL_TIME=103200
 ORIG_AUTH_GUID=xyz789ghi012...
+CARD_ENT_METH=Z
+INDUSTRY_TYPE=E
 ```
 
 #### Response Body
@@ -409,7 +458,9 @@ curl -X POST "https://secure.epxuap.com" \
   -d "BATCH_ID=20251122" \
   -d "LOCAL_DATE=112225" \
   -d "LOCAL_TIME=103300" \
-  -d "ORIG_AUTH_GUID=xyz789ghi012..."
+  -d "ORIG_AUTH_GUID=xyz789ghi012..." \
+  -d "CARD_ENT_METH=Z" \
+  -d "INDUSTRY_TYPE=E"
 ```
 
 #### Request Body
@@ -425,6 +476,8 @@ BATCH_ID=20251122
 LOCAL_DATE=112225
 LOCAL_TIME=103300
 ORIG_AUTH_GUID=xyz789ghi012...
+CARD_ENT_METH=Z
+INDUSTRY_TYPE=E
 ```
 
 #### Response Body
@@ -459,7 +512,9 @@ curl -X POST "https://secure.epxuap.com" \
   -d "BATCH_ID=20251122" \
   -d "LOCAL_DATE=112225" \
   -d "LOCAL_TIME=103400" \
-  -d "ORIG_AUTH_GUID=xyz789ghi013..."
+  -d "ORIG_AUTH_GUID=xyz789ghi013..." \
+  -d "CARD_ENT_METH=Z" \
+  -d "INDUSTRY_TYPE=E"
 ```
 
 #### Request Body
@@ -476,6 +531,8 @@ BATCH_ID=20251122
 LOCAL_DATE=112225
 LOCAL_TIME=103400
 ORIG_AUTH_GUID=xyz789ghi013...
+CARD_ENT_METH=Z
+INDUSTRY_TYPE=E
 ```
 
 #### Response Body

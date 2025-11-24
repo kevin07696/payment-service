@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2025-11-24 - EPX Certification Sheet) 📋
+
+**Updated Certification Sheet with EPX-Compliant Examples**
+
+Updated `docs/certification_sheets.md` to match implemented fixes and EPX requirements:
+
+**Key Exchange Updates:**
+- Added INDUSTRY_TYPE=E to all Key Exchange requests (SALE, AUTH, STORAGE)
+- Lines 42, 81, 120: Include industry type in curl commands and request bodies
+
+**Browser Post Form Updates:**
+- Added INDUSTRY_TYPE=E field (line 164)
+- Added card data fields: CARD_NBR, EXP_DATE, CVV (lines 167-169)
+- Added billing address fields: ADDRESS, CITY, STATE, ZIP_CODE (lines 172-175)
+- Replaced invalid REDIRECT_URL_DECLINE/ERROR with INVALID_REDIRECT_URL (line 179)
+- Changed TRAN_CODE to TRAN_GROUP (correct EPX field name, line 163)
+
+**ServerPost Updates:**
+- Changed INDUSTRY_TYPE from RE to E for all ecommerce requests
+- Added CARD_ENT_METH=Z for BRIC transactions (Capture, Void, Refund use ORIG_AUTH_GUID)
+- Added card data to Authorize/Sale examples for non-BRIC transactions
+- Valid TRAN_TYPE values maintained (A, U, T, V, C)
+
+**Impact:**
+- Certification sheet now reflects actual implementation
+- All 6 EPX certification requirements addressed in documentation
+- Ready for sandbox testing and resubmission to EPX
+
 ### Fixed (2025-11-24 - EPX Certification Issues) ✅
 
 **KeyExchange INDUSTRY_TYPE=E Support**
