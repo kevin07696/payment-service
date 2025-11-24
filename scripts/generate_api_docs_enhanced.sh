@@ -43,7 +43,7 @@ This service provides ConnectRPC and gRPC APIs for payment processing, subscript
 ### Integration Guides
 
 For detailed integration examples:
-- **[PAYMENT_CLI.md](./PAYMENT_CLI.md)** - Service and merchant management
+- **[ADMIN_CLI.md](./ADMIN_CLI.md)** - Service and merchant management
 - **[REACT_INTEGRATION.md](./REACT_INTEGRATION.md)** - React/TypeScript integration
 - **[BROWSER_POST_FORM_SETUP.md](./BROWSER_POST_FORM_SETUP.md)** - PCI-compliant tokenization
 - **[TOKEN_GENERATION.md](./TOKEN_GENERATION.md)** - JWT authentication
@@ -541,7 +541,7 @@ fmt.Println("Approved:", response.IsApproved)
 
 - **[Authentication](../development/AUTH.md)** - JWT token authentication
 - **[Error Handling Guide](../development/ERROR_HANDLING.md)** - Error types and handling patterns
-- **[PAYMENT_CLI.md](./PAYMENT_CLI.md)** - Creating services and obtaining credentials
+- **[ADMIN_CLI.md](./ADMIN_CLI.md)** - Creating services and obtaining credentials
 - **[REACT_INTEGRATION.md](./REACT_INTEGRATION.md)** - Frontend integration guide
 - **[Testing Guide](../development/TESTING_GUIDE.md)** - Testing your integration
 
