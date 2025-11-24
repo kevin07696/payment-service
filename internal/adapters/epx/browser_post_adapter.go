@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -236,28 +235,6 @@ func computeHMAC(message, key string) string {
 	h := hmac.New(sha256.New, []byte(key))
 	h.Write([]byte(message))
 	return hex.EncodeToString(h.Sum(nil))
-}
-
-// sortedKeys returns sorted keys from a map (for deterministic signing)
-func sortedKeys(m map[string][]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-// buildSignatureString builds a canonical signature string from parameters
-// Used for MAC validation - must match EPX's signing algorithm
-func buildSignatureString(params map[string][]string, fieldsToSign []string) string {
-	var parts []string
-	for _, field := range fieldsToSign {
-		if values, ok := params[field]; ok && len(values) > 0 {
-			parts = append(parts, values[0])
-		}
-	}
-	return strings.Join(parts, "")
 }
 
 // ValidateRedirectURL validates that the redirect URL matches expected format

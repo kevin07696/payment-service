@@ -373,9 +373,3 @@ func (c *secretCache) invalidate(key string) {
 	defer c.mu.Unlock()
 	delete(c.entries, key)
 }
-
-func (c *secretCache) clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries = make(map[string]*cacheEntry)
-}

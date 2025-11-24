@@ -479,17 +479,6 @@ func stringPtrToString(s *string) string {
 	return *s
 }
 
-func convertMetadataToProto(meta map[string]interface{}) map[string]string {
-	if meta == nil {
-		return nil
-	}
-	result := make(map[string]string, len(meta))
-	for k, v := range meta {
-		result[k] = fmt.Sprintf("%v", v)
-	}
-	return result
-}
-
 // Error handling
 
 func handleServiceError(err error) error {
