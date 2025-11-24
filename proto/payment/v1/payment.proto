@@ -23,15 +23,10 @@ service PaymentService {
   // Refund returns funds to the customer
   rpc Refund(RefundRequest) returns (PaymentResponse);
 
-  // ACH Operations - all require Storage BRIC (payment_method_id)
-  // ACHDebit pulls money from a bank account
-  rpc ACHDebit(ACHDebitRequest) returns (PaymentResponse);
-
-  // ACHCredit sends money to a bank account
-  rpc ACHCredit(ACHCreditRequest) returns (PaymentResponse);
-
-  // ACHVoid cancels an ACH transaction
-  rpc ACHVoid(ACHVoidRequest) returns (PaymentResponse);
+  // NOTE: ACH operations use the standard methods above:
+  // - ACH Debit: Use Sale() with ACH payment method
+  // - ACH Credit/Refund: Use Refund() with ACH payment method
+  // - ACH Void: Use Void() with ACH payment method
 
   // GetTransaction retrieves transaction details
   rpc GetTransaction(GetTransactionRequest) returns (Transaction);
@@ -93,35 +88,6 @@ message RefundRequest {
   int64 amount_cents = 2; // Optional: partial refund amount in cents
   string reason = 3;
   string idempotency_key = 4;
-}
-
-// ACHDebitRequest pulls money from a bank account
-message ACHDebitRequest {
-  string merchant_id = 1;
-  string customer_id = 2; // Optional: for guest/one-time transactions
-  string payment_method_id = 3; // ACH Storage BRIC (required)
-  int64 amount_cents = 4; // Amount in cents (e.g., 2999 = $29.99)
-  string currency = 5; // ISO 4217 code (e.g., "USD")
-  string idempotency_key = 6;
-  map<string, string> metadata = 7;
-}
-
-// ACHCreditRequest sends money to a bank account
-message ACHCreditRequest {
-  string merchant_id = 1;
-  string customer_id = 2; // Optional
-  string payment_method_id = 3; // ACH Storage BRIC (required)
-  int64 amount_cents = 4; // Amount in cents (e.g., 2999 = $29.99)
-  string currency = 5; // ISO 4217 code
-  string reason = 6; // Reason for credit (e.g., "refund", "payout")
-  string idempotency_key = 7;
-  map<string, string> metadata = 8;
-}
-
-// ACHVoidRequest cancels an ACH transaction
-message ACHVoidRequest {
-  string transaction_id = 1; // Original ACH transaction to void
-  string idempotency_key = 2;
 }
 
 // GetTransactionRequest retrieves a transaction

@@ -636,253 +636,6 @@ func (x *RefundRequest) GetIdempotencyKey() string {
 	return ""
 }
 
-// ACHDebitRequest pulls money from a bank account
-type ACHDebitRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	MerchantId      string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
-	CustomerId      string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`                  // Optional: for guest/one-time transactions
-	PaymentMethodId string                 `protobuf:"bytes,3,opt,name=payment_method_id,json=paymentMethodId,proto3" json:"payment_method_id,omitempty"` // ACH Storage BRIC (required)
-	AmountCents     int64                  `protobuf:"varint,4,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"`              // Amount in cents (e.g., 2999 = $29.99)
-	Currency        string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`                                        // ISO 4217 code (e.g., "USD")
-	IdempotencyKey  string                 `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	Metadata        map[string]string      `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *ACHDebitRequest) Reset() {
-	*x = ACHDebitRequest{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ACHDebitRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ACHDebitRequest) ProtoMessage() {}
-
-func (x *ACHDebitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ACHDebitRequest.ProtoReflect.Descriptor instead.
-func (*ACHDebitRequest) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *ACHDebitRequest) GetMerchantId() string {
-	if x != nil {
-		return x.MerchantId
-	}
-	return ""
-}
-
-func (x *ACHDebitRequest) GetCustomerId() string {
-	if x != nil {
-		return x.CustomerId
-	}
-	return ""
-}
-
-func (x *ACHDebitRequest) GetPaymentMethodId() string {
-	if x != nil {
-		return x.PaymentMethodId
-	}
-	return ""
-}
-
-func (x *ACHDebitRequest) GetAmountCents() int64 {
-	if x != nil {
-		return x.AmountCents
-	}
-	return 0
-}
-
-func (x *ACHDebitRequest) GetCurrency() string {
-	if x != nil {
-		return x.Currency
-	}
-	return ""
-}
-
-func (x *ACHDebitRequest) GetIdempotencyKey() string {
-	if x != nil {
-		return x.IdempotencyKey
-	}
-	return ""
-}
-
-func (x *ACHDebitRequest) GetMetadata() map[string]string {
-	if x != nil {
-		return x.Metadata
-	}
-	return nil
-}
-
-// ACHCreditRequest sends money to a bank account
-type ACHCreditRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	MerchantId      string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
-	CustomerId      string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`                  // Optional
-	PaymentMethodId string                 `protobuf:"bytes,3,opt,name=payment_method_id,json=paymentMethodId,proto3" json:"payment_method_id,omitempty"` // ACH Storage BRIC (required)
-	AmountCents     int64                  `protobuf:"varint,4,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"`              // Amount in cents (e.g., 2999 = $29.99)
-	Currency        string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`                                        // ISO 4217 code
-	Reason          string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`                                            // Reason for credit (e.g., "refund", "payout")
-	IdempotencyKey  string                 `protobuf:"bytes,7,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	Metadata        map[string]string      `protobuf:"bytes,8,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *ACHCreditRequest) Reset() {
-	*x = ACHCreditRequest{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ACHCreditRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ACHCreditRequest) ProtoMessage() {}
-
-func (x *ACHCreditRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ACHCreditRequest.ProtoReflect.Descriptor instead.
-func (*ACHCreditRequest) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *ACHCreditRequest) GetMerchantId() string {
-	if x != nil {
-		return x.MerchantId
-	}
-	return ""
-}
-
-func (x *ACHCreditRequest) GetCustomerId() string {
-	if x != nil {
-		return x.CustomerId
-	}
-	return ""
-}
-
-func (x *ACHCreditRequest) GetPaymentMethodId() string {
-	if x != nil {
-		return x.PaymentMethodId
-	}
-	return ""
-}
-
-func (x *ACHCreditRequest) GetAmountCents() int64 {
-	if x != nil {
-		return x.AmountCents
-	}
-	return 0
-}
-
-func (x *ACHCreditRequest) GetCurrency() string {
-	if x != nil {
-		return x.Currency
-	}
-	return ""
-}
-
-func (x *ACHCreditRequest) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-func (x *ACHCreditRequest) GetIdempotencyKey() string {
-	if x != nil {
-		return x.IdempotencyKey
-	}
-	return ""
-}
-
-func (x *ACHCreditRequest) GetMetadata() map[string]string {
-	if x != nil {
-		return x.Metadata
-	}
-	return nil
-}
-
-// ACHVoidRequest cancels an ACH transaction
-type ACHVoidRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	TransactionId  string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // Original ACH transaction to void
-	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *ACHVoidRequest) Reset() {
-	*x = ACHVoidRequest{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ACHVoidRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ACHVoidRequest) ProtoMessage() {}
-
-func (x *ACHVoidRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ACHVoidRequest.ProtoReflect.Descriptor instead.
-func (*ACHVoidRequest) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *ACHVoidRequest) GetTransactionId() string {
-	if x != nil {
-		return x.TransactionId
-	}
-	return ""
-}
-
-func (x *ACHVoidRequest) GetIdempotencyKey() string {
-	if x != nil {
-		return x.IdempotencyKey
-	}
-	return ""
-}
-
 // GetTransactionRequest retrieves a transaction
 type GetTransactionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -893,7 +646,7 @@ type GetTransactionRequest struct {
 
 func (x *GetTransactionRequest) Reset() {
 	*x = GetTransactionRequest{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[8]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -905,7 +658,7 @@ func (x *GetTransactionRequest) String() string {
 func (*GetTransactionRequest) ProtoMessage() {}
 
 func (x *GetTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[8]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -918,7 +671,7 @@ func (x *GetTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTransactionRequest.ProtoReflect.Descriptor instead.
 func (*GetTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{8}
+	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetTransactionRequest) GetTransactionId() string {
@@ -943,7 +696,7 @@ type ListTransactionsRequest struct {
 
 func (x *ListTransactionsRequest) Reset() {
 	*x = ListTransactionsRequest{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[9]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -955,7 +708,7 @@ func (x *ListTransactionsRequest) String() string {
 func (*ListTransactionsRequest) ProtoMessage() {}
 
 func (x *ListTransactionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[9]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -968,7 +721,7 @@ func (x *ListTransactionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTransactionsRequest.ProtoReflect.Descriptor instead.
 func (*ListTransactionsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{9}
+	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListTransactionsRequest) GetMerchantId() string {
@@ -1024,7 +777,7 @@ type ListTransactionsResponse struct {
 
 func (x *ListTransactionsResponse) Reset() {
 	*x = ListTransactionsResponse{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[10]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1036,7 +789,7 @@ func (x *ListTransactionsResponse) String() string {
 func (*ListTransactionsResponse) ProtoMessage() {}
 
 func (x *ListTransactionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[10]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1049,7 +802,7 @@ func (x *ListTransactionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTransactionsResponse.ProtoReflect.Descriptor instead.
 func (*ListTransactionsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{10}
+	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListTransactionsResponse) GetTransactions() []*Transaction {
@@ -1077,7 +830,7 @@ type CardInfo struct {
 
 func (x *CardInfo) Reset() {
 	*x = CardInfo{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[11]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1089,7 +842,7 @@ func (x *CardInfo) String() string {
 func (*CardInfo) ProtoMessage() {}
 
 func (x *CardInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[11]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1102,7 +855,7 @@ func (x *CardInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CardInfo.ProtoReflect.Descriptor instead.
 func (*CardInfo) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{11}
+	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CardInfo) GetBrand() string {
@@ -1144,7 +897,7 @@ type PaymentResponse struct {
 
 func (x *PaymentResponse) Reset() {
 	*x = PaymentResponse{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[12]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1156,7 +909,7 @@ func (x *PaymentResponse) String() string {
 func (*PaymentResponse) ProtoMessage() {}
 
 func (x *PaymentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[12]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1169,7 +922,7 @@ func (x *PaymentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaymentResponse.ProtoReflect.Descriptor instead.
 func (*PaymentResponse) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{12}
+	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PaymentResponse) GetTransactionId() string {
@@ -1277,7 +1030,7 @@ type Transaction struct {
 
 func (x *Transaction) Reset() {
 	*x = Transaction{}
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[13]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1289,7 +1042,7 @@ func (x *Transaction) String() string {
 func (*Transaction) ProtoMessage() {}
 
 func (x *Transaction) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_payment_v1_payment_proto_msgTypes[13]
+	mi := &file_proto_payment_v1_payment_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1302,7 +1055,7 @@ func (x *Transaction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Transaction.ProtoReflect.Descriptor instead.
 func (*Transaction) Descriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{13}
+	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Transaction) GetId() string {
@@ -1464,37 +1217,7 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12!\n" +
 	"\famount_cents\x18\x02 \x01(\x03R\vamountCents\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12'\n" +
-	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\"\xeb\x02\n" +
-	"\x0fACHDebitRequest\x12\x1f\n" +
-	"\vmerchant_id\x18\x01 \x01(\tR\n" +
-	"merchantId\x12\x1f\n" +
-	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12*\n" +
-	"\x11payment_method_id\x18\x03 \x01(\tR\x0fpaymentMethodId\x12!\n" +
-	"\famount_cents\x18\x04 \x01(\x03R\vamountCents\x12\x1a\n" +
-	"\bcurrency\x18\x05 \x01(\tR\bcurrency\x12'\n" +
-	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\x12E\n" +
-	"\bmetadata\x18\a \x03(\v2).payment.v1.ACHDebitRequest.MetadataEntryR\bmetadata\x1a;\n" +
-	"\rMetadataEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x85\x03\n" +
-	"\x10ACHCreditRequest\x12\x1f\n" +
-	"\vmerchant_id\x18\x01 \x01(\tR\n" +
-	"merchantId\x12\x1f\n" +
-	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12*\n" +
-	"\x11payment_method_id\x18\x03 \x01(\tR\x0fpaymentMethodId\x12!\n" +
-	"\famount_cents\x18\x04 \x01(\x03R\vamountCents\x12\x1a\n" +
-	"\bcurrency\x18\x05 \x01(\tR\bcurrency\x12\x16\n" +
-	"\x06reason\x18\x06 \x01(\tR\x06reason\x12'\n" +
-	"\x0fidempotency_key\x18\a \x01(\tR\x0eidempotencyKey\x12F\n" +
-	"\bmetadata\x18\b \x03(\v2*.payment.v1.ACHCreditRequest.MetadataEntryR\bmetadata\x1a;\n" +
-	"\rMetadataEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"`\n" +
-	"\x0eACHVoidRequest\x12%\n" +
-	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12'\n" +
-	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\">\n" +
+	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\">\n" +
 	"\x15GetTransactionRequest\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\"\xf4\x01\n" +
 	"\x17ListTransactionsRequest\x12\x1f\n" +
@@ -1565,16 +1288,13 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x11PaymentMethodType\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fPAYMENT_METHOD_TYPE_CREDIT_CARD\x10\x01\x12\x1b\n" +
-	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\xd9\x05\n" +
+	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\x87\x04\n" +
 	"\x0ePaymentService\x12F\n" +
 	"\tAuthorize\x12\x1c.payment.v1.AuthorizeRequest\x1a\x1b.payment.v1.PaymentResponse\x12B\n" +
 	"\aCapture\x12\x1a.payment.v1.CaptureRequest\x1a\x1b.payment.v1.PaymentResponse\x12<\n" +
 	"\x04Sale\x12\x17.payment.v1.SaleRequest\x1a\x1b.payment.v1.PaymentResponse\x12<\n" +
 	"\x04Void\x12\x17.payment.v1.VoidRequest\x1a\x1b.payment.v1.PaymentResponse\x12@\n" +
-	"\x06Refund\x12\x19.payment.v1.RefundRequest\x1a\x1b.payment.v1.PaymentResponse\x12D\n" +
-	"\bACHDebit\x12\x1b.payment.v1.ACHDebitRequest\x1a\x1b.payment.v1.PaymentResponse\x12F\n" +
-	"\tACHCredit\x12\x1c.payment.v1.ACHCreditRequest\x1a\x1b.payment.v1.PaymentResponse\x12B\n" +
-	"\aACHVoid\x12\x1a.payment.v1.ACHVoidRequest\x1a\x1b.payment.v1.PaymentResponse\x12L\n" +
+	"\x06Refund\x12\x19.payment.v1.RefundRequest\x1a\x1b.payment.v1.PaymentResponse\x12L\n" +
 	"\x0eGetTransaction\x12!.payment.v1.GetTransactionRequest\x1a\x17.payment.v1.Transaction\x12]\n" +
 	"\x10ListTransactions\x12#.payment.v1.ListTransactionsRequest\x1a$.payment.v1.ListTransactionsResponseBBZ@github.com/kevin07696/payment-service/proto/payment/v1;paymentv1b\x06proto3"
 
@@ -1591,7 +1311,7 @@ func file_proto_payment_v1_payment_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_payment_v1_payment_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_proto_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_proto_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_proto_payment_v1_payment_proto_goTypes = []any{
 	(TransactionStatus)(0),           // 0: payment.v1.TransactionStatus
 	(TransactionType)(0),             // 1: payment.v1.TransactionType
@@ -1601,63 +1321,50 @@ var file_proto_payment_v1_payment_proto_goTypes = []any{
 	(*SaleRequest)(nil),              // 5: payment.v1.SaleRequest
 	(*VoidRequest)(nil),              // 6: payment.v1.VoidRequest
 	(*RefundRequest)(nil),            // 7: payment.v1.RefundRequest
-	(*ACHDebitRequest)(nil),          // 8: payment.v1.ACHDebitRequest
-	(*ACHCreditRequest)(nil),         // 9: payment.v1.ACHCreditRequest
-	(*ACHVoidRequest)(nil),           // 10: payment.v1.ACHVoidRequest
-	(*GetTransactionRequest)(nil),    // 11: payment.v1.GetTransactionRequest
-	(*ListTransactionsRequest)(nil),  // 12: payment.v1.ListTransactionsRequest
-	(*ListTransactionsResponse)(nil), // 13: payment.v1.ListTransactionsResponse
-	(*CardInfo)(nil),                 // 14: payment.v1.CardInfo
-	(*PaymentResponse)(nil),          // 15: payment.v1.PaymentResponse
-	(*Transaction)(nil),              // 16: payment.v1.Transaction
-	nil,                              // 17: payment.v1.AuthorizeRequest.MetadataEntry
-	nil,                              // 18: payment.v1.SaleRequest.MetadataEntry
-	nil,                              // 19: payment.v1.ACHDebitRequest.MetadataEntry
-	nil,                              // 20: payment.v1.ACHCreditRequest.MetadataEntry
-	(*timestamppb.Timestamp)(nil),    // 21: google.protobuf.Timestamp
+	(*GetTransactionRequest)(nil),    // 8: payment.v1.GetTransactionRequest
+	(*ListTransactionsRequest)(nil),  // 9: payment.v1.ListTransactionsRequest
+	(*ListTransactionsResponse)(nil), // 10: payment.v1.ListTransactionsResponse
+	(*CardInfo)(nil),                 // 11: payment.v1.CardInfo
+	(*PaymentResponse)(nil),          // 12: payment.v1.PaymentResponse
+	(*Transaction)(nil),              // 13: payment.v1.Transaction
+	nil,                              // 14: payment.v1.AuthorizeRequest.MetadataEntry
+	nil,                              // 15: payment.v1.SaleRequest.MetadataEntry
+	(*timestamppb.Timestamp)(nil),    // 16: google.protobuf.Timestamp
 }
 var file_proto_payment_v1_payment_proto_depIdxs = []int32{
-	17, // 0: payment.v1.AuthorizeRequest.metadata:type_name -> payment.v1.AuthorizeRequest.MetadataEntry
-	18, // 1: payment.v1.SaleRequest.metadata:type_name -> payment.v1.SaleRequest.MetadataEntry
-	19, // 2: payment.v1.ACHDebitRequest.metadata:type_name -> payment.v1.ACHDebitRequest.MetadataEntry
-	20, // 3: payment.v1.ACHCreditRequest.metadata:type_name -> payment.v1.ACHCreditRequest.MetadataEntry
-	0,  // 4: payment.v1.ListTransactionsRequest.status:type_name -> payment.v1.TransactionStatus
-	16, // 5: payment.v1.ListTransactionsResponse.transactions:type_name -> payment.v1.Transaction
-	0,  // 6: payment.v1.PaymentResponse.status:type_name -> payment.v1.TransactionStatus
-	1,  // 7: payment.v1.PaymentResponse.type:type_name -> payment.v1.TransactionType
-	14, // 8: payment.v1.PaymentResponse.card:type_name -> payment.v1.CardInfo
-	21, // 9: payment.v1.PaymentResponse.created_at:type_name -> google.protobuf.Timestamp
-	0,  // 10: payment.v1.Transaction.status:type_name -> payment.v1.TransactionStatus
-	1,  // 11: payment.v1.Transaction.type:type_name -> payment.v1.TransactionType
-	2,  // 12: payment.v1.Transaction.payment_method_type:type_name -> payment.v1.PaymentMethodType
-	14, // 13: payment.v1.Transaction.card:type_name -> payment.v1.CardInfo
-	21, // 14: payment.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
-	21, // 15: payment.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
-	3,  // 16: payment.v1.PaymentService.Authorize:input_type -> payment.v1.AuthorizeRequest
-	4,  // 17: payment.v1.PaymentService.Capture:input_type -> payment.v1.CaptureRequest
-	5,  // 18: payment.v1.PaymentService.Sale:input_type -> payment.v1.SaleRequest
-	6,  // 19: payment.v1.PaymentService.Void:input_type -> payment.v1.VoidRequest
-	7,  // 20: payment.v1.PaymentService.Refund:input_type -> payment.v1.RefundRequest
-	8,  // 21: payment.v1.PaymentService.ACHDebit:input_type -> payment.v1.ACHDebitRequest
-	9,  // 22: payment.v1.PaymentService.ACHCredit:input_type -> payment.v1.ACHCreditRequest
-	10, // 23: payment.v1.PaymentService.ACHVoid:input_type -> payment.v1.ACHVoidRequest
-	11, // 24: payment.v1.PaymentService.GetTransaction:input_type -> payment.v1.GetTransactionRequest
-	12, // 25: payment.v1.PaymentService.ListTransactions:input_type -> payment.v1.ListTransactionsRequest
-	15, // 26: payment.v1.PaymentService.Authorize:output_type -> payment.v1.PaymentResponse
-	15, // 27: payment.v1.PaymentService.Capture:output_type -> payment.v1.PaymentResponse
-	15, // 28: payment.v1.PaymentService.Sale:output_type -> payment.v1.PaymentResponse
-	15, // 29: payment.v1.PaymentService.Void:output_type -> payment.v1.PaymentResponse
-	15, // 30: payment.v1.PaymentService.Refund:output_type -> payment.v1.PaymentResponse
-	15, // 31: payment.v1.PaymentService.ACHDebit:output_type -> payment.v1.PaymentResponse
-	15, // 32: payment.v1.PaymentService.ACHCredit:output_type -> payment.v1.PaymentResponse
-	15, // 33: payment.v1.PaymentService.ACHVoid:output_type -> payment.v1.PaymentResponse
-	16, // 34: payment.v1.PaymentService.GetTransaction:output_type -> payment.v1.Transaction
-	13, // 35: payment.v1.PaymentService.ListTransactions:output_type -> payment.v1.ListTransactionsResponse
-	26, // [26:36] is the sub-list for method output_type
-	16, // [16:26] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	14, // 0: payment.v1.AuthorizeRequest.metadata:type_name -> payment.v1.AuthorizeRequest.MetadataEntry
+	15, // 1: payment.v1.SaleRequest.metadata:type_name -> payment.v1.SaleRequest.MetadataEntry
+	0,  // 2: payment.v1.ListTransactionsRequest.status:type_name -> payment.v1.TransactionStatus
+	13, // 3: payment.v1.ListTransactionsResponse.transactions:type_name -> payment.v1.Transaction
+	0,  // 4: payment.v1.PaymentResponse.status:type_name -> payment.v1.TransactionStatus
+	1,  // 5: payment.v1.PaymentResponse.type:type_name -> payment.v1.TransactionType
+	11, // 6: payment.v1.PaymentResponse.card:type_name -> payment.v1.CardInfo
+	16, // 7: payment.v1.PaymentResponse.created_at:type_name -> google.protobuf.Timestamp
+	0,  // 8: payment.v1.Transaction.status:type_name -> payment.v1.TransactionStatus
+	1,  // 9: payment.v1.Transaction.type:type_name -> payment.v1.TransactionType
+	2,  // 10: payment.v1.Transaction.payment_method_type:type_name -> payment.v1.PaymentMethodType
+	11, // 11: payment.v1.Transaction.card:type_name -> payment.v1.CardInfo
+	16, // 12: payment.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
+	16, // 13: payment.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
+	3,  // 14: payment.v1.PaymentService.Authorize:input_type -> payment.v1.AuthorizeRequest
+	4,  // 15: payment.v1.PaymentService.Capture:input_type -> payment.v1.CaptureRequest
+	5,  // 16: payment.v1.PaymentService.Sale:input_type -> payment.v1.SaleRequest
+	6,  // 17: payment.v1.PaymentService.Void:input_type -> payment.v1.VoidRequest
+	7,  // 18: payment.v1.PaymentService.Refund:input_type -> payment.v1.RefundRequest
+	8,  // 19: payment.v1.PaymentService.GetTransaction:input_type -> payment.v1.GetTransactionRequest
+	9,  // 20: payment.v1.PaymentService.ListTransactions:input_type -> payment.v1.ListTransactionsRequest
+	12, // 21: payment.v1.PaymentService.Authorize:output_type -> payment.v1.PaymentResponse
+	12, // 22: payment.v1.PaymentService.Capture:output_type -> payment.v1.PaymentResponse
+	12, // 23: payment.v1.PaymentService.Sale:output_type -> payment.v1.PaymentResponse
+	12, // 24: payment.v1.PaymentService.Void:output_type -> payment.v1.PaymentResponse
+	12, // 25: payment.v1.PaymentService.Refund:output_type -> payment.v1.PaymentResponse
+	13, // 26: payment.v1.PaymentService.GetTransaction:output_type -> payment.v1.Transaction
+	10, // 27: payment.v1.PaymentService.ListTransactions:output_type -> payment.v1.ListTransactionsResponse
+	21, // [21:28] is the sub-list for method output_type
+	14, // [14:21] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_proto_payment_v1_payment_proto_init() }
@@ -1679,7 +1386,7 @@ func file_proto_payment_v1_payment_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_payment_v1_payment_proto_rawDesc), len(file_proto_payment_v1_payment_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   18,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

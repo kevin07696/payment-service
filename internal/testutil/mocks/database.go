@@ -208,6 +208,11 @@ func (m *MockQuerier) ListServices(ctx context.Context, arg sqlc.ListServicesPar
 	return args.Get(0).([]sqlc.Service), args.Error(1)
 }
 
+func (m *MockQuerier) CountServices(ctx context.Context, arg sqlc.CountServicesParams) (int64, error) {
+	args := m.Called(ctx, arg)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 func (m *MockQuerier) ActivateService(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
