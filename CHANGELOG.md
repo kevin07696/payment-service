@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2025-11-24 - Documentation Improvements) 📚
+
+**React Integration Guide - Rewrite to Reference Payment Service Architecture**
+
+Completely rewrote `docs/integration/REACT_INTEGRATION.md` to properly reference the payment service architecture instead of generic JWT implementations:
+
+- **Service-Specific Integration Flow**: References actual payment service components
+  - Payment service running at localhost:8080 (gRPC) and localhost:8081 (HTTP)
+  - Admin CLI (`./admin -action=create-service`) for service registration
+  - RSA keypair generation and management
+  - service_merchants junction table for access control
+
+- **Cross-References Instead of Duplication**: Links to existing documentation
+  - [Setup Guide](SETUP.md) - Running the payment service (not duplicated)
+  - [Admin CLI Guide](ADMIN_CLI.md) - Service and merchant management (not duplicated)
+  - [Authentication Architecture](AUTH.md) - JWT implementation details (not duplicated)
+  - [Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md) - PCI compliance (not duplicated)
+  - References actual proto files: payment.v1.PaymentService, payment_method.v1.PaymentMethodService
+
+- **React-Specific Content Only**: Focused on React integration, not generic setup
+  - Backend JWT token generation (Node.js/Express) using RSA private key from admin CLI
+  - ConnectRPC client setup with automatic JWT authentication
+  - React hooks for payment operations (usePayment)
+  - Payment form components
+  - Browser Post integration example
+
+- **Accurate API References**: Uses actual proto definitions
+  - `payment.v1.PaymentService` operations: authorize, capture, sale, void, refund, achDebit, achCredit
+  - Links to [proto/payment/v1/payment.proto](../../proto/payment/v1/payment.proto)
+  - Shows ConnectRPC TypeScript client generation from proto files
+
+- **curl Testing Examples**: Test payment service before React integration
+  - Generate JWT from backend endpoint
+  - Test Sale transactions
+  - Test ListTransactions
+  - All curl examples reference localhost:8080 (actual service URL)
+
+**Why This Matters:**
+The previous version was generic and didn't reference how THIS payment service actually works. The new version:
+1. Assumes payment service is already running (links to SETUP.md)
+2. Uses admin CLI for service/merchant setup (links to ADMIN_CLI.md)
+3. References actual proto APIs instead of generic examples
+4. Follows documentation style guide principle: "Don't repeat yourself - reference other files"
+
+**Files Modified:**
+- `docs/integration/REACT_INTEGRATION.md` (complete rewrite, ~580 lines, focused on React only)
+
+**Impact**: React developers get accurate, service-specific integration guidance with proper cross-references to setup documentation instead of duplicated generic content.
+
 ### Fixed (2025-11-24 - ConnectRPC Wire-Format Error) 🐛
 
 **Fixed critical wire-format error affecting all List* endpoints in ConnectRPC**

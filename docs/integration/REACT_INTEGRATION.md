@@ -1,220 +1,99 @@
 # React Integration Guide
 
 **Target Audience:** React developers integrating payment functionality into web applications
-**Topic:** Complete React integration using ConnectRPC with TypeScript type safety
-**Goal:** Accept payments in a React application within 30 minutes, from API testing to production-ready components
+**Topic:** Building type-safe React payment components using ConnectRPC with your payment service
+**Goal:** Accept payments in React applications within 30 minutes using JWT authentication and ConnectRPC
 
 ---
 
 ## Overview
 
-This guide provides a complete path to integrating payment functionality into React applications. You'll learn to test APIs with curl first, then build type-safe React components using ConnectRPC.
+This guide shows how to integrate **your payment service** into React applications using ConnectRPC for type-safe API calls.
 
 **What you'll build:**
-- Authentication with JWT tokens
-- Payment form components with idempotency
+- JWT-authenticated API client
+- Payment form components
 - Saved payment method management
-- Subscription billing interfaces
-- Browser Post PCI-compliant forms
+- PCI-compliant Browser Post integration
+
+**Prerequisites completed:**
+- ✅ Payment service running ([Setup Guide](../development/SETUP.md))
+- ✅ Service registered via admin CLI ([Admin CLI Guide](ADMIN_CLI.md))
+- ✅ Merchant created and access granted ([Admin CLI Guide](ADMIN_CLI.md#complete-workflow-example))
+- ✅ RSA private key saved securely
 
 **Integration Flow:**
 ```
-1. Test APIs with curl → Understand responses
-2. Set up authentication → Generate JWT tokens
-3. Generate TypeScript types → Type-safe client
-4. Build React components → Payment UI
-5. Handle errors → User-friendly messages
-6. Go to production → Security checklist
+1. Payment Service Running → localhost:8080 (gRPC), localhost:8081 (HTTP)
+2. Service Registered → RSA keypair (private key saved)
+3. React Backend → Generates JWT tokens using private key
+4. React Frontend → Calls payment APIs with JWT auth
+5. Production → Deploy with proper secret management
 ```
-
-**Time to First Payment:** ~30 minutes
-
-**Key Concepts:**
-- **ConnectRPC**: Modern RPC framework over HTTP/2 or HTTP/1.1
-- **JWT Authentication**: RSA-signed tokens for API access
-- **Idempotency**: Preventing duplicate charges with unique keys
-- **Browser Post**: PCI-compliant card tokenization (card data never touches your server)
 
 ---
 
-## Prerequisites
+## Table of Contents
 
-Before you begin, ensure you have:
-
-### 1. Service Registration and Keys
-
-You need a registered service with JWT authentication credentials.
-
-**📖 See:** [Token Generation Guide](TOKEN_GENERATION.md) - Complete service registration and JWT setup
-
-**What you'll receive:**
-- `service_id` - Your application identifier (e.g., `acme-web-app`)
-- `private_key.pem` - RSA private key for signing JWT tokens
-- `merchant_id` - Your merchant identifier for transactions
-
-### 2. Development Environment
-
-- Node.js 18+ or 20+
-- React 18+
-- TypeScript 5+
-- Package manager (npm, yarn, or pnpm)
-
-### 3. Payment Service Access
-
-- API endpoint URL (e.g., `http://localhost:8080` for development)
-- EPX credentials configured in payment service (handled by admin)
+1. [Quick Start](#quick-start)
+2. [Project Setup](#project-setup)
+3. [Backend: JWT Token Generation](#backend-jwt-token-generation)
+4. [Frontend: ConnectRPC Client](#frontend-connectrpc-client)
+5. [Payment Operations](#payment-operations)
+6. [Browser Post Integration](#browser-post-integration)
+7. [Testing with curl](#testing-with-curl)
+8. [Best Practices](#best-practices)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Quick Start (5 Minutes)
+## Quick Start
 
-### Step 1: Test the API with curl
+### Prerequisites Check
 
-Before writing any React code, verify the API works with curl.
-
-**Generate a JWT token:**
-
+**1. Payment service running:**
 ```bash
-# Save your private key to a file
-cat > /tmp/private_key.pem <<'EOF'
------BEGIN RSA PRIVATE KEY-----
-[Your private key from service registration]
------END RSA PRIVATE KEY-----
-EOF
-
-chmod 600 /tmp/private_key.pem
+curl http://localhost:8081/cron/health
+# Expected: {"status":"healthy","database":"connected"}
 ```
 
-**Use this Node.js script to generate a token:**
-
-```javascript
-// generate-token.js
-const jwt = require('jsonwebtoken');
-const fs = require('fs');
-
-const privateKey = fs.readFileSync('/tmp/private_key.pem');
-const now = Math.floor(Date.now() / 1000);
-
-const token = jwt.sign({
-  iss: 'your-service-id',           // Replace with your service_id
-  sub: 'your-merchant-id',           // Replace with your merchant_id
-  merchant_id: 'your-merchant-id',
-  service_id: 'your-service-id',
-  scopes: ['payment:create', 'payment:read'],
-  env: 'production',
-  exp: now + 300,  // 5 minutes
-  iat: now,
-  nbf: now,
-  jti: require('crypto').randomUUID()
-}, privateKey, { algorithm: 'RS256' });
-
-console.log(token);
-```
-
+**2. Service registered:**
 ```bash
-# Install jsonwebtoken
-npm install jsonwebtoken
-
-# Generate token
-TOKEN=$(node generate-token.js)
-
-# Save token for testing
-echo $TOKEN
+# Should have completed via admin CLI:
+./admin -action=create-service
+# Output: RSA private key (saved to keys/your-service.pem)
 ```
 
-**Test the API:**
+**3. Have credentials:**
+- `service_id` - Your service identifier (e.g., `react-app`)
+- `private_key.pem` - RSA private key from admin CLI
+- `merchant_id` - Merchant UUID from admin CLI
 
-```bash
-# Test 1: Authorize payment (hold funds)
-curl -X POST http://localhost:8080/payment.v1.PaymentService/Authorize \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "merchant_id": "your-merchant-id",
-    "customer_id": "customer_test_123",
-    "amount_cents": "9999",
-    "currency": "USD",
-    "payment_method_id": "pm-test-uuid",
-    "idempotency_key": "auth_test_001"
-  }'
-
-# Expected response (200 OK):
-{
-  "transaction": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "merchant_id": "your-merchant-id",
-    "customer_id": "customer_test_123",
-    "amount_cents": "9999",
-    "currency": "USD",
-    "status": "approved",
-    "transaction_type": "auth",
-    "auth_code": "123456",
-    "created_at": "2025-01-20T12:00:00Z"
-  }
-}
-```
-
-```bash
-# Test 2: Sale (authorize + capture in one step)
-curl -X POST http://localhost:8080/payment.v1.PaymentService/Sale \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "merchant_id": "your-merchant-id",
-    "customer_id": "customer_test_123",
-    "amount_cents": "9999",
-    "currency": "USD",
-    "payment_method_id": "pm-test-uuid",
-    "idempotency_key": "sale_test_001"
-  }'
-```
-
-```bash
-# Test 3: List transactions
-curl -X POST http://localhost:8080/payment.v1.PaymentService/ListTransactions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "merchant_id": "your-merchant-id",
-    "customer_id": "customer_test_123",
-    "limit": 10
-  }'
-```
-
-**If curl tests work, you're ready for React integration!**
-
-**📖 For more curl examples:** [API Specs](API_SPECS.md), [Token Generation](TOKEN_GENERATION.md)
+📖 **Missing these?** See [Admin CLI Guide](ADMIN_CLI.md#complete-workflow-example)
 
 ---
 
-### Step 2: Install React Dependencies
+## Project Setup
+
+### Install Dependencies
 
 ```bash
 npm install @connectrpc/connect @connectrpc/connect-web
 npm install --save-dev @bufbuild/protoc-gen-es @connectrpc/protoc-gen-connect-es
 ```
 
-### Step 3: Download Proto Files
+### Download Proto Files
 
 ```bash
-# Create proto directory
-mkdir -p proto/payment/v1 proto/payment_method/v1 proto/subscription/v1
-
-# Download proto files from payment service
-curl -o proto/payment/v1/payment.proto \
-  http://localhost:8080/proto/payment/v1/payment.proto
-
-curl -o proto/payment_method/v1/payment_method.proto \
-  http://localhost:8080/proto/payment_method/v1/payment_method.proto
-
-curl -o proto/subscription/v1/subscription.proto \
-  http://localhost:8080/proto/subscription/v1/subscription.proto
+# Your payment service exposes proto files at these endpoints:
+curl http://localhost:8080/proto/payment/v1/payment.proto -o proto/payment/v1/payment.proto
+curl http://localhost:8080/proto/payment_method/v1/payment_method.proto -o proto/payment_method/v1/payment_method.proto
+curl http://localhost:8080/proto/subscription/v1/subscription.proto -o proto/subscription/v1/subscription.proto
 ```
 
-### Step 4: Generate TypeScript Clients
+### Generate TypeScript Types
 
 **Create `buf.gen.yaml`:**
-
 ```yaml
 version: v1
 plugins:
@@ -226,10 +105,8 @@ plugins:
     opt: target=ts
 ```
 
-**Generate clients:**
-
+**Generate:**
 ```bash
-# Using buf (recommended)
 npx buf generate
 
 # Output:
@@ -241,98 +118,15 @@ npx buf generate
 # ✅ src/gen/subscription/v1/subscription_connect.ts
 ```
 
-### Step 5: Create Your First Payment
-
-**File:** `src/App.tsx`
-
-```typescript
-import { createPromiseClient } from '@connectrpc/connect';
-import { createConnectTransport } from '@connectrpc/connect-web';
-import { PaymentService } from './gen/payment/v1/payment_connect';
-
-const transport = createConnectTransport({
-  baseUrl: 'http://localhost:8080',
-  interceptors: [(next) => async (req) => {
-    // TODO: Add JWT token here (see Authentication section)
-    req.header.set('Authorization', 'Bearer YOUR_JWT_TOKEN');
-    return next(req);
-  }],
-});
-
-const client = createPromiseClient(PaymentService, transport);
-
-async function processPayment() {
-  const response = await client.sale({
-    merchantId: 'your-merchant-id',
-    customerId: 'customer_123',
-    amountCents: BigInt(9999), // $99.99
-    currency: 'USD',
-    paymentMethodId: 'pm-saved-card',
-    idempotencyKey: `sale_${Date.now()}_${crypto.randomUUID()}`,
-  });
-
-  if (response.transaction.status === 'approved') {
-    console.log('✅ Payment successful!', response.transaction.id);
-  }
-}
-```
-
-**📖 Next:** Continue to [Authentication](#authentication) to set up JWT token management properly.
-
 ---
 
-## Project Structure
+## Backend: JWT Token Generation
 
-Recommended file organization for React payment integration:
+**⚠️ SECURITY:** Generate JWT tokens on your backend (Node.js/Express), NOT in the browser.
 
-```
-src/
-├── lib/
-│   ├── payment-client.ts      # ConnectRPC client setup
-│   ├── auth.ts                # JWT token generation/management
-│   ├── error-handler.ts       # Payment error parsing
-│   └── types.ts               # Common TypeScript types
-├── hooks/
-│   ├── usePayment.ts          # Payment operations hook
-│   ├── usePaymentMethods.ts   # Payment methods hook
-│   ├── useSubscription.ts     # Subscription billing hook
-│   └── useAuth.ts             # Authentication hook
-├── components/
-│   ├── PaymentForm.tsx        # Payment form component
-│   ├── BrowserPost.tsx        # Browser Post integration
-│   ├── PaymentMethodList.tsx  # Saved payment methods
-│   └── ErrorDisplay.tsx       # Error message component
-├── gen/                       # Generated proto types (from buf)
-│   ├── payment/v1/
-│   ├── payment_method/v1/
-│   └── subscription/v1/
-└── config/
-    └── payment.config.ts      # Payment service configuration
-```
+📖 **Complete JWT guide:** [Authentication Architecture](../development/AUTH.md)
 
----
-
-## Authentication
-
-### JWT Token Management
-
-The payment service requires JWT tokens for all API requests. Here's how to generate and manage them in React.
-
-**📖 Complete guide:** [Token Generation](TOKEN_GENERATION.md#step-3-generate-jwt-tokens)
-
-### Backend Token Generation (Recommended)
-
-**Security best practice:** Generate JWT tokens on your backend, not in the browser.
-
-**Why?** Private keys should never be in client-side code (security risk).
-
-**Architecture:**
-```
-React App → Your Backend → Payment Service
-           (generates JWT)
-```
-
-**Backend endpoint example (Node.js/Express):**
+### Backend Endpoint (Node.js/Express)
 
 ```typescript
 // backend/routes/auth.ts
@@ -342,11 +136,14 @@ import fs from 'fs';
 
 const router = express.Router();
 
-const privateKey = fs.readFileSync(process.env.JWT_PRIVATE_KEY_PATH!);
-const serviceId = process.env.SERVICE_ID!;
+// Load RSA private key from admin CLI
+const privateKey = fs.readFileSync(
+  process.env.PRIVATE_KEY_PATH || 'keys/react-app.pem'
+);
+const serviceId = process.env.SERVICE_ID || 'react-app';
+const merchantId = process.env.MERCHANT_ID!;
 
-router.post('/api/auth/payment-token', (req, res) => {
-  const { merchantId } = req.body;
+router.post('/api/payment-token', (req, res) => {
   const now = Math.floor(Date.now() / 1000);
 
   const token = jwt.sign({
@@ -354,7 +151,7 @@ router.post('/api/auth/payment-token', (req, res) => {
     sub: merchantId,
     merchant_id: merchantId,
     service_id: serviceId,
-    scopes: ['payment:create', 'payment:read', 'payment:refund'],
+    scopes: ['payment:create', 'payment:read', 'payment:refund', 'payment:void'],
     env: 'production',
     exp: now + 300, // 5 minutes
     iat: now,
@@ -368,144 +165,19 @@ router.post('/api/auth/payment-token', (req, res) => {
 export default router;
 ```
 
-### Frontend Token Management
-
-**File:** `src/lib/auth.ts`
-
-```typescript
-import { jwtDecode } from 'jwt-decode';
-
-interface JWTClaims {
-  merchant_id: string;
-  service_id: string;
-  scopes: string[];
-  exp: number;
-  iat: number;
-}
-
-interface TokenCache {
-  token: string;
-  expiresAt: number;
-}
-
-class PaymentAuth {
-  private cache: TokenCache | null = null;
-  private merchantId: string;
-  private backendUrl: string;
-
-  constructor(merchantId: string, backendUrl: string = '/api') {
-    this.merchantId = merchantId;
-    this.backendUrl = backendUrl;
-  }
-
-  /**
-   * Get valid JWT token (from cache or fetch new)
-   */
-  async getToken(): Promise<string> {
-    // Return cached token if still valid (with 30s buffer)
-    const now = Date.now();
-    if (this.cache && this.cache.expiresAt > now + 30000) {
-      return this.cache.token;
-    }
-
-    // Fetch new token from backend
-    const response = await fetch(`${this.backendUrl}/auth/payment-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        merchantId: this.merchantId,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch payment token');
-    }
-
-    const { token, expiresIn } = await response.json();
-    const decoded = jwtDecode<JWTClaims>(token);
-
-    // Cache token with expiry
-    this.cache = {
-      token,
-      expiresAt: decoded.exp * 1000,
-    };
-
-    return token;
-  }
-
-  /**
-   * Clear cached token (use on logout)
-   */
-  clearToken() {
-    this.cache = null;
-  }
-
-  /**
-   * Get merchant ID
-   */
-  getMerchantId(): string {
-    return this.merchantId;
-  }
-}
-
-// Export singleton instance
-export const paymentAuth = new PaymentAuth(
-  process.env.REACT_APP_MERCHANT_ID || ''
-);
-
-export async function getAuthToken(): Promise<string> {
-  return paymentAuth.getToken();
-}
-
-export function clearAuthToken() {
-  paymentAuth.clearToken();
-}
+**Environment variables:**
+```bash
+# .env (backend)
+PRIVATE_KEY_PATH=keys/react-app.pem
+SERVICE_ID=react-app
+MERCHANT_ID=550e8400-e29b-41d4-a716-446655440000
 ```
 
-### React Hook for Authentication
-
-**File:** `src/hooks/useAuth.ts`
-
-```typescript
-import { useState, useEffect } from 'react';
-import { getAuthToken, clearAuthToken } from '../lib/auth';
-
-export function useAuth() {
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    loadToken();
-  }, []);
-
-  const loadToken = async () => {
-    try {
-      setLoading(true);
-      const newToken = await getAuthToken();
-      setToken(newToken);
-      setError(null);
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const logout = () => {
-    clearAuthToken();
-    setToken(null);
-  };
-
-  return { token, loading, error, logout, refreshToken: loadToken };
-}
-```
-
-**📖 For backend JWT generation examples:** [Token Generation - Step 3](TOKEN_GENERATION.md#step-3-generate-jwt-tokens)
+📖 **More languages:** See [Admin CLI Guide](ADMIN_CLI.md#complete-workflow-example) for Go example
 
 ---
 
-## Setup and Configuration
+## Frontend: ConnectRPC Client
 
 ### Payment Client Setup
 
@@ -516,31 +188,44 @@ import { createPromiseClient } from '@connectrpc/connect';
 import { createConnectTransport } from '@connectrpc/connect-web';
 import { PaymentService } from '../gen/payment/v1/payment_connect';
 import { PaymentMethodService } from '../gen/payment_method/v1/payment_method_connect';
-import { SubscriptionService } from '../gen/subscription/v1/subscription_connect';
-import { getAuthToken } from './auth';
 
-const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+
+/**
+ * Fetch JWT token from your backend
+ */
+async function getAuthToken(): Promise<string> {
+  const response = await fetch('http://localhost:3001/api/payment-token', {
+    method: 'POST',
+    credentials: 'include', // Send cookies if using session auth
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch payment token');
+  }
+
+  const { token } = await response.json();
+  return token;
+}
 
 /**
  * Create transport with automatic JWT authentication
  */
 function createAuthTransport() {
   return createConnectTransport({
-    baseUrl: BASE_URL,
+    baseUrl: API_URL,
     interceptors: [
       (next) => async (req) => {
-        // Automatically add JWT token to all requests
+        // Fetch fresh token for each request
         const token = await getAuthToken();
-        if (token) {
-          req.header.set('Authorization', `Bearer ${token}`);
-        }
+        req.header.set('Authorization', `Bearer ${token}`);
         return next(req);
       },
     ],
   });
 }
 
-// Create typed clients
+// Export typed clients
 export const paymentClient = createPromiseClient(
   PaymentService,
   createAuthTransport()
@@ -550,27 +235,13 @@ export const paymentMethodClient = createPromiseClient(
   PaymentMethodService,
   createAuthTransport()
 );
-
-export const subscriptionClient = createPromiseClient(
-  SubscriptionService,
-  createAuthTransport()
-);
 ```
 
-### Environment Configuration
-
-**File:** `.env`
-
+**Environment variables:**
 ```bash
-# Payment Service Configuration
+# .env (React frontend)
 REACT_APP_API_URL=http://localhost:8080
-REACT_APP_MERCHANT_ID=550e8400-e29b-41d4-a716-446655440000
-
-# Backend API for JWT generation
-REACT_APP_BACKEND_URL=http://localhost:3001/api
 ```
-
-**⚠️ SECURITY:** Never put private keys in `.env` files in React projects (they're exposed in the browser).
 
 ---
 
@@ -583,87 +254,16 @@ REACT_APP_BACKEND_URL=http://localhost:3001/api
 ```typescript
 import { useState } from 'react';
 import { paymentClient } from '../lib/payment-client';
-import { PaymentResponse } from '../gen/payment/v1/payment_pb';
 
 export function usePayment(merchantId: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  /**
-   * Generate unique idempotency key
-   */
-  const generateIdempotencyKey = (prefix: string): string => {
-    return `${prefix}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
-  };
-
-  /**
-   * Authorize payment (hold funds)
-   */
-  const authorize = async (
-    customerId: string,
-    amountCents: bigint,
-    paymentMethodId: string,
-    metadata?: Record<string, string>
-  ): Promise<PaymentResponse | null> => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await paymentClient.authorize({
-        merchantId,
-        customerId,
-        amountCents,
-        currency: 'USD',
-        paymentMethodId,
-        idempotencyKey: generateIdempotencyKey('auth'),
-        metadata,
-      });
-
-      return response;
-    } catch (err) {
-      setError(err as Error);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * Capture authorized payment
-   */
-  const capture = async (
-    transactionId: string,
-    amountCents?: bigint
-  ): Promise<PaymentResponse | null> => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await paymentClient.capture({
-        merchantId,
-        transactionId,
-        amountCents, // Optional for partial capture
-        idempotencyKey: generateIdempotencyKey('capture'),
-      });
-
-      return response;
-    } catch (err) {
-      setError(err as Error);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * Sale (authorize + capture in one step)
-   */
   const sale = async (
     customerId: string,
     amountCents: bigint,
-    paymentMethodId: string,
-    metadata?: Record<string, string>
-  ): Promise<PaymentResponse | null> => {
+    paymentMethodId: string
+  ) => {
     setLoading(true);
     setError(null);
 
@@ -674,8 +274,7 @@ export function usePayment(merchantId: string) {
         amountCents,
         currency: 'USD',
         paymentMethodId,
-        idempotencyKey: generateIdempotencyKey('sale'),
-        metadata,
+        idempotencyKey: `sale_${Date.now()}_${crypto.randomUUID()}`,
       });
 
       return response;
@@ -687,24 +286,16 @@ export function usePayment(merchantId: string) {
     }
   };
 
-  /**
-   * Refund payment
-   */
-  const refund = async (
-    transactionId: string,
-    amountCents: bigint,
-    reason: string
-  ): Promise<PaymentResponse | null> => {
+  const refund = async (transactionId: string, amountCents: bigint, reason: string) => {
     setLoading(true);
     setError(null);
 
     try {
       const response = await paymentClient.refund({
-        merchantId,
         transactionId,
         amountCents,
         reason,
-        idempotencyKey: generateIdempotencyKey('refund'),
+        idempotencyKey: `refund_${Date.now()}_${crypto.randomUUID()}`,
       });
 
       return response;
@@ -716,40 +307,22 @@ export function usePayment(merchantId: string) {
     }
   };
 
-  /**
-   * Void payment (cancel authorization)
-   */
-  const voidPayment = async (transactionId: string): Promise<PaymentResponse | null> => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await paymentClient.void({
-        merchantId,
-        transactionId,
-        idempotencyKey: generateIdempotencyKey('void'),
-      });
-
-      return response;
-    } catch (err) {
-      setError(err as Error);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return {
-    authorize,
-    capture,
-    sale,
-    refund,
-    voidPayment,
-    loading,
-    error,
-  };
+  return { sale, refund, loading, error };
 }
 ```
+
+**Available operations** (from `payment.v1.PaymentService`):
+- `authorize` - Hold funds without capturing
+- `capture` - Complete a previous authorization
+- `sale` - Authorize + capture in one step
+- `void` - Cancel authorization
+- `refund` - Return funds to customer
+- `achDebit` - Pull money from bank account
+- `achCredit` - Send money to bank account
+- `getTransaction` - Retrieve transaction details
+- `listTransactions` - List transactions for merchant/customer
+
+📖 **Complete API reference:** [proto/payment/v1/payment.proto](../../proto/payment/v1/payment.proto)
 
 ### Payment Form Component
 
@@ -764,546 +337,243 @@ interface PaymentFormProps {
   customerId: string;
   paymentMethodId: string;
   onSuccess: (transactionId: string) => void;
-  onError: (error: Error) => void;
 }
 
-export function PaymentForm({
-  merchantId,
-  customerId,
-  paymentMethodId,
-  onSuccess,
-  onError,
-}: PaymentFormProps) {
+export function PaymentForm({ merchantId, customerId, paymentMethodId, onSuccess }: PaymentFormProps) {
   const { sale, loading, error } = usePayment(merchantId);
   const [amount, setAmount] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Convert dollars to cents (as bigint)
     const amountCents = BigInt(Math.round(parseFloat(amount) * 100));
+    const response = await sale(customerId, amountCents, paymentMethodId);
 
-    const response = await sale(
-      customerId,
-      amountCents,
-      paymentMethodId,
-      {
-        source: 'web-checkout',
-        user_agent: navigator.userAgent,
-      }
-    );
-
-    if (response?.transaction.status === 'approved') {
-      onSuccess(response.transaction.id);
-    } else if (error) {
-      onError(error);
+    if (response?.isApproved) {
+      onSuccess(response.transactionId);
     }
   };
 
   return (
     <form onSubmit={handleSubmit}>
-      <div>
-        <label htmlFor="amount">Amount (USD)</label>
-        <input
-          id="amount"
-          type="number"
-          step="0.01"
-          min="0.01"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          required
-          disabled={loading}
-          placeholder="99.99"
-        />
-      </div>
-
-      <button type="submit" disabled={loading || !amount}>
+      <input
+        type="number"
+        step="0.01"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        placeholder="Amount (USD)"
+        required
+      />
+      <button type="submit" disabled={loading}>
         {loading ? 'Processing...' : `Pay $${amount || '0.00'}`}
       </button>
-
-      {error && (
-        <div className="error">
-          {error.message}
-        </div>
-      )}
+      {error && <div className="error">{error.message}</div>}
     </form>
   );
 }
 ```
 
-**📖 For more payment operation examples:** [Getting Started](GETTING_STARTED.md#step-4-implement-payment-flow)
-
 ---
 
-## Testing Your APIs with curl
+## Browser Post Integration
 
-Before building React components, test each API endpoint with curl to understand the request/response format.
+For PCI-compliant card collection where card data never touches your server.
 
-### Test Sale Transaction
+📖 **Complete guide:** [Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md)
 
-```bash
-# Generate token (see Quick Start section)
-TOKEN=$(node generate-token.js)
-
-# Test sale
-curl -X POST http://localhost:8080/payment.v1.PaymentService/Sale \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "merchant_id": "your-merchant-id",
-    "customer_id": "customer_123",
-    "amount_cents": "9999",
-    "currency": "USD",
-    "payment_method_id": "pm-test-uuid",
-    "idempotency_key": "sale_test_001"
-  }'
-
-# Response:
-{
-  "transaction": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "status": "approved",
-    "auth_code": "123456",
-    "amount_cents": "9999"
-  }
-}
-```
-
-### Test Refund
-
-```bash
-curl -X POST http://localhost:8080/payment.v1.PaymentService/Refund \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "merchant_id": "your-merchant-id",
-    "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
-    "amount_cents": "9999",
-    "reason": "Customer requested refund",
-    "idempotency_key": "refund_test_001"
-  }'
-```
-
-### Test List Transactions
-
-```bash
-curl -X POST http://localhost:8080/payment.v1.PaymentService/ListTransactions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "merchant_id": "your-merchant-id",
-    "customer_id": "customer_123",
-    "limit": 10
-  }'
-```
-
-**📖 More curl examples:** [Browser Post Reference](BROWSER_POST_FORM_SETUP.md#getting-form-configuration)
-
----
-
-## Browser Post Integration (PCI-Compliant)
-
-Browser Post allows you to collect card details without touching your server, reducing PCI compliance scope.
-
-**📖 Complete guide:** [Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md)
-
-### Browser Post Component
-
-**File:** `src/components/BrowserPost.tsx`
+**Quick example:**
 
 ```typescript
 import React, { useState, useEffect } from 'react';
 
-interface BrowserPostFormConfig {
-  transactionId: string;
-  tac: string;
-  postURL: string;
-  custNbr: string;
-  merchNbr: string;
-  dbaName: string;
-  terminalNbr: string;
-  epxTranNbr: string;
-  redirectURL: string;
-  expiresAt: number;
-}
-
-interface BrowserPostProps {
-  merchantId: string;
-  amount: string;
-  transactionType: 'SALE' | 'AUTH' | 'STORAGE';
-  customerId?: string;
-  returnUrl: string;
-}
-
-export function BrowserPost({
-  merchantId,
-  amount,
-  transactionType,
-  customerId,
-  returnUrl,
-}: BrowserPostProps) {
-  const [formConfig, setFormConfig] = useState<BrowserPostFormConfig | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function BrowserPostForm({ merchantId, amount, returnUrl }: Props) {
+  const [formConfig, setFormConfig] = useState(null);
 
   useEffect(() => {
-    loadFormConfig();
+    // Call your payment service to get Browser Post config
+    fetch(`http://localhost:8081/api/v1/payments/browser-post/form?` +
+      `merchant_id=${merchantId}&amount=${amount}&transaction_type=SALE&return_url=${returnUrl}`)
+      .then(res => res.json())
+      .then(setFormConfig);
   }, []);
 
-  const loadFormConfig = async () => {
-    try {
-      const transactionId = crypto.randomUUID();
-      const params = new URLSearchParams({
-        transaction_id: transactionId,
-        merchant_id: merchantId,
-        amount: amount,
-        transaction_type: transactionType,
-        return_url: returnUrl,
-      });
-
-      if (customerId) {
-        params.append('customer_id', customerId);
-      }
-
-      const response = await fetch(
-        `http://localhost:8081/api/v1/payments/browser-post/form?${params}`
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to load payment form');
-      }
-
-      const config = await response.json();
-      setFormConfig(config);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) return <div>Loading payment form...</div>;
-  if (error) return <div>Error: {error}</div>;
-  if (!formConfig) return null;
+  if (!formConfig) return <div>Loading...</div>;
 
   return (
-    <div className="browser-post-container">
-      <h2>Enter Payment Information</h2>
-      <form method="POST" action={formConfig.postURL}>
-        {/* Hidden EPX fields */}
-        <input type="hidden" name="TAC" value={formConfig.tac} />
-        <input type="hidden" name="CUST_NBR" value={formConfig.custNbr} />
-        <input type="hidden" name="MERCH_NBR" value={formConfig.merchNbr} />
-        <input type="hidden" name="DBA_NBR" value={formConfig.dbaName} />
-        <input type="hidden" name="TERMINAL_NBR" value={formConfig.terminalNbr} />
-        <input type="hidden" name="TRAN_NBR" value={formConfig.epxTranNbr} />
-        <input type="hidden" name="TRAN_GROUP" value={transactionType === 'SALE' ? 'U' : transactionType === 'AUTH' ? 'A' : 'S'} />
-        <input type="hidden" name="AMOUNT" value={amount} />
-        <input type="hidden" name="INDUSTRY_TYPE" value="E" />
-        <input type="hidden" name="REDIRECT_URL" value={formConfig.redirectURL} />
+    <form method="POST" action={formConfig.postURL}>
+      <input type="hidden" name="TAC" value={formConfig.tac} />
+      <input type="hidden" name="CUST_NBR" value={formConfig.custNbr} />
+      {/* ...other hidden fields... */}
 
-        {/* Card input fields */}
-        <div className="form-group">
-          <label htmlFor="CARD_NBR">Card Number</label>
-          <input
-            id="CARD_NBR"
-            name="CARD_NBR"
-            type="text"
-            maxLength={16}
-            placeholder="4111111111111111"
-            required
-            autoComplete="cc-number"
-          />
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-            <label htmlFor="EXP_DATE">Expiration (MMYY)</label>
-            <input
-              id="EXP_DATE"
-              name="EXP_DATE"
-              type="text"
-              maxLength={4}
-              placeholder="1225"
-              required
-              autoComplete="cc-exp"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="CVV">CVV</label>
-            <input
-              id="CVV"
-              name="CVV"
-              type="text"
-              maxLength={4}
-              placeholder="123"
-              required
-              autoComplete="cc-csc"
-            />
-          </div>
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="AVS_ZIP">ZIP Code</label>
-          <input
-            id="AVS_ZIP"
-            name="AVS_ZIP"
-            type="text"
-            maxLength={10}
-            placeholder="12345"
-            required
-            autoComplete="postal-code"
-          />
-        </div>
-
-        <button type="submit" className="submit-button">
-          {transactionType === 'STORAGE' ? 'Save Card' : `Pay $${amount}`}
-        </button>
-      </form>
-
-      <p className="security-notice">
-        🔒 Your card information is sent directly to our secure payment processor
-        and never touches our servers.
-      </p>
-    </div>
+      <input name="CARD_NBR" placeholder="Card Number" required />
+      <input name="EXP_DATE" placeholder="MMYY" required />
+      <input name="CVV" placeholder="CVV" required />
+      <button type="submit">Pay ${amount}</button>
+    </form>
   );
 }
 ```
 
-**📖 See also:** [Browser Post Reference](BROWSER_POST_FORM_SETUP.md#complete-html-form-example)
+📖 **Complete implementation:** [Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md#complete-html-form-example)
 
 ---
 
-## Complete E-Commerce Example
+## Testing with curl
 
-**File:** `src/pages/Checkout.tsx`
+Test your payment service APIs before React integration:
 
-```typescript
-import React, { useState } from 'react';
-import { usePayment } from '../hooks/usePayment';
-import { BrowserPost } from '../components/BrowserPost';
+```bash
+# 1. Generate JWT token (using your backend endpoint)
+TOKEN=$(curl -s http://localhost:3001/api/payment-token | jq -r .token)
 
-interface CheckoutProps {
-  merchantId: string;
-  customerId: string;
-  orderTotal: number;
-  orderId: string;
-}
+# 2. Test Sale transaction
+curl -X POST http://localhost:8080/payment.v1.PaymentService/Sale \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "merchant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "customer_id": "customer_123",
+    "amount_cents": "9999",
+    "currency": "USD",
+    "payment_method_id": "pm-uuid-here",
+    "idempotency_key": "sale_test_001"
+  }'
 
-export function Checkout({ merchantId, customerId, orderTotal, orderId }: CheckoutProps) {
-  const { sale, loading } = usePayment(merchantId);
-  const [paymentMethod, setPaymentMethod] = useState<'new' | 'saved'>('new');
-  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string>('');
-
-  const handlePayWithSavedCard = async () => {
-    if (!selectedPaymentMethodId) return;
-
-    const amountCents = BigInt(Math.round(orderTotal * 100));
-    const response = await sale(
-      customerId,
-      amountCents,
-      selectedPaymentMethodId,
-      {
-        order_id: orderId,
-        source: 'web-checkout',
-      }
-    );
-
-    if (response?.transaction.status === 'approved') {
-      window.location.href = `/orders/${orderId}?success=true`;
-    }
-  };
-
-  return (
-    <div className="checkout">
-      <h1>Checkout</h1>
-
-      <div className="order-summary">
-        <h2>Order Total: ${orderTotal.toFixed(2)}</h2>
-        <p>Order ID: {orderId}</p>
-      </div>
-
-      <div className="payment-options">
-        <label>
-          <input
-            type="radio"
-            value="new"
-            checked={paymentMethod === 'new'}
-            onChange={() => setPaymentMethod('new')}
-          />
-          Add New Card
-        </label>
-        <label>
-          <input
-            type="radio"
-            value="saved"
-            checked={paymentMethod === 'saved'}
-            onChange={() => setPaymentMethod('saved')}
-          />
-          Use Saved Payment Method
-        </label>
-      </div>
-
-      {paymentMethod === 'new' && (
-        <BrowserPost
-          merchantId={merchantId}
-          amount={orderTotal.toFixed(2)}
-          transactionType="SALE"
-          customerId={customerId}
-          returnUrl={`${window.location.origin}/payment/callback?order_id=${orderId}`}
-        />
-      )}
-
-      {paymentMethod === 'saved' && (
-        <div>
-          {/* PaymentMethodList component here */}
-          <button
-            onClick={handlePayWithSavedCard}
-            disabled={!selectedPaymentMethodId || loading}
-          >
-            {loading ? 'Processing...' : 'Complete Purchase'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+# 3. Test List Transactions
+curl -X POST http://localhost:8080/payment.v1.PaymentService/ListTransactions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "merchant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "limit": 10
+  }'
 ```
 
 ---
 
 ## Best Practices
 
-### 1. Always Use Idempotency Keys
+### 1. Always Use BigInt for Amounts
 
 ```typescript
-// ✅ Good: Unique key per operation
-const idempotencyKey = `sale_${orderId}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
-
-// ❌ Bad: Reusing same key prevents duplicate operations (but also prevents ALL operations)
-const idempotencyKey = 'sale_key';
-```
-
-### 2. Handle BigInt for Amounts
-
-```typescript
-// ✅ Good: Use BigInt for precise amounts
+// ✅ Correct
 const amountCents = BigInt(9999); // $99.99
 
-// ❌ Bad: Using numbers may lose precision
-const amountCents = 9999.99; // Type error + precision issues
+// ❌ Wrong
+const amountCents = 9999; // Type error - proto expects bigint
 ```
 
-### 3. Cache JWT Tokens
+### 2. Generate Unique Idempotency Keys
 
 ```typescript
-// ✅ Good: Cache tokens and reuse until expiry
-const token = await getAuthToken(); // Returns cached token if valid
+// ✅ Good
+const idempotencyKey = `sale_${orderId}_${Date.now()}_${crypto.randomUUID()}`;
 
-// ❌ Bad: Generate new token for every request
-const token = jwt.sign(...); // Unnecessary overhead
+// ❌ Bad
+const idempotencyKey = 'sale_key'; // Reusing prevents ALL operations
 ```
 
-### 4. Use Environment Variables
+### 3. Token Caching
+
+Your backend should cache JWT tokens to avoid regenerating every request:
+
+```typescript
+let tokenCache: { token: string; expiresAt: number } | null = null;
+
+async function getAuthToken() {
+  if (tokenCache && tokenCache.expiresAt > Date.now() + 30000) {
+    return tokenCache.token;
+  }
+
+  // Generate new token...
+  tokenCache = { token, expiresAt: Date.now() + 300000 };
+  return token;
+}
+```
+
+### 4. Never Put Private Keys in Browser
 
 ```bash
-# .env
-REACT_APP_API_URL=http://localhost:8080
-REACT_APP_MERCHANT_ID=your-merchant-id
-REACT_APP_BACKEND_URL=http://localhost:3001/api
-```
+# ❌ WRONG - Never do this
+REACT_APP_PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----
 
-### 5. Implement Loading States
-
-```typescript
-{loading && <div className="spinner">Processing...</div>}
-{!loading && <button>Submit Payment</button>}
+# ✅ CORRECT - Private key stays on backend
+# Backend .env:
+PRIVATE_KEY_PATH=keys/react-app.pem
 ```
 
 ---
 
 ## Troubleshooting
 
-### Issue: "Unauthenticated" Error
+### "Unauthenticated" Error
 
-**Cause:** JWT token is invalid, expired, or missing.
+**Cause:** JWT token invalid, expired, or missing.
 
 **Solution:**
-1. Verify token is being added to request headers
-2. Check token hasn't expired (use jwt.io to decode and inspect)
-3. Ensure private key matches the public key registered with service
-4. Verify `Authorization: Bearer TOKEN` header format
-
 ```bash
-# Debug: Inspect token claims
-echo "YOUR_JWT_TOKEN" | cut -d. -f2 | base64 -d | jq
+# Decode token to inspect claims
+echo "$TOKEN" | cut -d. -f2 | base64 -d | jq
+
+# Check:
+# - exp (expiration) is in future
+# - service_id matches your admin CLI registration
+# - merchant_id is correct
 ```
 
-### Issue: "Permission Denied" Error
+📖 **More details:** [Authentication Architecture](../development/AUTH.md)
 
-**Cause:** Service lacks required scopes for the operation.
+### "Permission Denied" Error
 
-**Solution:**
-1. Check token includes necessary scopes (e.g., `payment:create`)
-2. Contact admin to update service permissions
-3. Verify merchant access in `service_merchants` table
-
-### Issue: Type Error with BigInt
-
-**Cause:** JavaScript number used instead of BigInt for amounts.
+**Cause:** Service lacks required scopes for operation.
 
 **Solution:**
-```typescript
-// ✅ Correct
-const amountCents = BigInt(9999);
+```bash
+# Grant additional scopes via admin CLI
+./admin -action=grant-access
 
-// ❌ Wrong
-const amountCents = 9999; // Type error
+# Or check current scopes:
+psql $DATABASE_URL -c "
+  SELECT s.service_id, m.slug, sm.scopes
+  FROM service_merchants sm
+  JOIN services s ON s.id = sm.service_id
+  JOIN merchants m ON m.id = sm.merchant_id
+  WHERE s.service_id = 'react-app'
+"
 ```
 
-### Issue: CORS Error
+### CORS Error
 
-**Cause:** Payment service doesn't allow requests from your origin.
+**Cause:** Payment service doesn't allow requests from your React app origin.
 
 **Solution:**
-1. Check payment service CORS configuration
-2. Ensure `REACT_APP_API_URL` is correct
-3. For development, use proxy in `package.json`:
+Configure CORS in payment service (server config) or use proxy:
 
 ```json
+// package.json (React development)
 {
   "proxy": "http://localhost:8080"
 }
 ```
 
-### Issue: Browser Post Callback Not Received
-
-**Cause:** EPX cannot reach your callback URL.
-
-**Solution:**
-1. Verify callback URL is publicly accessible
-2. Use ngrok for local development:
-
-```bash
-ngrok http 3000
-# Use ngrok URL as return_url
-```
-
-**📖 More troubleshooting:** [Browser Post Reference](BROWSER_POST_FORM_SETUP.md#common-issues)
-
 ---
 
 ## Related Documentation
 
-- **[Getting Started](GETTING_STARTED.md)** - Quick start integration guide
-- **[Token Generation](TOKEN_GENERATION.md)** - JWT authentication setup
-- **[Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md)** - PCI-compliant card tokenization
-- **[API Specs](API_SPECS.md)** - Complete API reference
-- **[Authentication Architecture](../development/AUTH.md)** - Detailed auth implementation
+**Setup & Configuration:**
+- [Setup Guide](../development/SETUP.md) - Running the payment service
+- [Admin CLI Guide](ADMIN_CLI.md) - Creating services and merchants
+- [Authentication Architecture](../development/AUTH.md) - JWT implementation details
+
+**Integration Guides:**
+- [Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md) - PCI-compliant card tokenization
+- [Getting Started](GETTING_STARTED.md) - Quick start overview
+
+**API Reference:**
+- [proto/payment/v1/payment.proto](../../proto/payment/v1/payment.proto) - Payment operations
+- [proto/payment_method/v1/payment_method.proto](../../proto/payment_method/v1/payment_method.proto) - Saved payment methods
+- [proto/subscription/v1/subscription.proto](../../proto/subscription/v1/subscription.proto) - Recurring billing
 
 ---
 
-**Questions?** Check the [FAQ](../wiki-templates/FAQ.md) or review other integration guides.
-
-**Last Updated:** 2025-01-20
+**Last Updated:** 2025-11-24
