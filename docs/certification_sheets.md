@@ -12,6 +12,22 @@
 
 This document contains **actual requests sent to EPX sandbox and real responses received**, as required for EPX certification. All responses are genuine responses from the EPX UAP Staging environment, not simulated or mock examples.
 
+### ⚠️ ACTION REQUIRED - Placeholder Sections
+
+The following sections contain **PLACEHOLDER** responses that must be replaced with actual EPX sandbox test results:
+
+1. **ACH Pre-note Verification (CKC0)** - Line ~153
+   - Run the CKC0 request against EPX sandbox
+   - Replace placeholder response with actual XML response
+   - Copy the real BRIC value from AUTH_GUID field
+
+2. **ACH Storage BRIC (CKC8)** - Line ~212
+   - Use the real BRIC from CKC0 response in the request
+   - Run the CKC8 request against EPX sandbox
+   - Replace placeholder response with actual XML response
+
+**All other sections (Browser POST KeyExchange, ACH Sale/Refund/Void/Recurring) contain real EPX responses** and are ready for certification.
+
 ---
 
 ## Table of Contents
@@ -150,8 +166,12 @@ curl -X POST "https://secure.epxuap.com" \
   -d "INDUSTRY_TYPE=E"
 ```
 
-##### Expected Response (Prenote Accepted)
+##### Real Response Received
 ```xml
+⚠️ NOTE: This section requires ACTUAL response from EPX sandbox test.
+Run the CKC0 request above and paste the real XML response here.
+
+PLACEHOLDER - Replace with real EPX response:
 <RESPONSE>
   <FIELDS>
     <FIELD KEY="MSG_VERSION">003</FIELD>
@@ -164,7 +184,7 @@ curl -X POST "https://secure.epxuap.com" \
     <FIELD KEY="TRAN_NBR">2000000003</FIELD>
     <FIELD KEY="LOCAL_DATE">112425</FIELD>
     <FIELD KEY="LOCAL_TIME">160558</FIELD>
-    <FIELD KEY="AUTH_GUID">[Financial BRIC from prenote]</FIELD>
+    <FIELD KEY="AUTH_GUID">[REPLACE WITH ACTUAL BRIC FROM RESPONSE]</FIELD>
     <FIELD KEY="AUTH_RESP">00</FIELD>
     <FIELD KEY="AUTH_CODE">435984</FIELD>
     <FIELD KEY="AUTH_RESP_TEXT">ACCEPTED 435984</FIELD>
@@ -200,13 +220,17 @@ curl -X POST "https://secure.epxuap.com" \
   -d "BATCH_ID=20251124" \
   -d "LOCAL_DATE=112425" \
   -d "LOCAL_TIME=210330" \
-  -d "ORIG_AUTH_GUID=[Financial BRIC from prenote]" \
+  -d "ORIG_AUTH_GUID=[USE_ACTUAL_BRIC_FROM_CKC0_RESPONSE]" \
   -d "CARD_ENT_METH=Z" \
   -d "INDUSTRY_TYPE=E"
 ```
 
-##### Expected Response (Storage BRIC Created)
+##### Real Response Received
 ```xml
+⚠️ NOTE: This section requires ACTUAL response from EPX sandbox test.
+Run the CKC8 request above (using the real BRIC from CKC0 response) and paste the real XML response here.
+
+PLACEHOLDER - Replace with real EPX response:
 <RESPONSE>
   <FIELDS>
     <FIELD KEY="MSG_VERSION">003</FIELD>
@@ -219,7 +243,7 @@ curl -X POST "https://secure.epxuap.com" \
     <FIELD KEY="TRAN_NBR">2000000011</FIELD>
     <FIELD KEY="LOCAL_DATE">112425</FIELD>
     <FIELD KEY="LOCAL_TIME">210330</FIELD>
-    <FIELD KEY="AUTH_GUID">09LMRY0HLBMU39KUE2E</FIELD>
+    <FIELD KEY="AUTH_GUID">[REPLACE WITH ACTUAL STORAGE BRIC FROM RESPONSE]</FIELD>
     <FIELD KEY="AUTH_RESP">00</FIELD>
     <FIELD KEY="AUTH_RESP_TEXT">ACCEPTED</FIELD>
     <FIELD KEY="AUTH_TRAN_DATE_GMT">11/24/2025 09:03:30 PM</FIELD>
