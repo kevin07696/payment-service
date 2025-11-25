@@ -510,6 +510,8 @@ func TestListServices_WithFilters(t *testing.T) {
 			params.IsActive.Bool == true
 	})).Return([]sqlc.Service{}, nil)
 
+	mockQuerier.On("CountServices", ctx, mock.Anything).Return(int64(0), nil)
+
 	resp, err := handler.ListServices(ctx, req)
 
 	require.NoError(t, err)
@@ -531,6 +533,8 @@ func TestListServices_DefaultLimit(t *testing.T) {
 		return params.LimitVal == 50 // Default limit
 	})).Return([]sqlc.Service{}, nil)
 
+	mockQuerier.On("CountServices", ctx, mock.Anything).Return(int64(0), nil)
+
 	resp, err := handler.ListServices(ctx, req)
 
 	require.NoError(t, err)
@@ -551,6 +555,8 @@ func TestListServices_MaxLimitEnforced(t *testing.T) {
 	mockQuerier.On("ListServices", ctx, mock.MatchedBy(func(params sqlc.ListServicesParams) bool {
 		return params.LimitVal == 100 // Max limit enforced
 	})).Return([]sqlc.Service{}, nil)
+
+	mockQuerier.On("CountServices", ctx, mock.Anything).Return(int64(0), nil)
 
 	resp, err := handler.ListServices(ctx, req)
 
