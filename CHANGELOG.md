@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Infrastructure Improvements**
 - Fixed Oracle Autonomous Database TNS connection string parsing in Terraform outputs
 - Updated regex patterns to correctly extract host, port, and service_name from TNS format
+- Added case-insensitive TNS parsing (handles both lowercase and uppercase field names)
+- Added smart fallbacks: database_host → "adb.{region}.oraclecloud.com", port → "1522"
 - Added callback URL configuration for integration tests (SERVICE_URL, CALLBACK_BASE_URL)
 - Updated 15 integration test files to use dynamic callback URLs from environment
 
