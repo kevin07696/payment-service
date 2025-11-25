@@ -197,7 +197,7 @@ curl -X POST "https://secure.epxuap.com" \
 #### Step 2: Convert to Storage BRIC (CKC8)
 
 **Transaction Number**: 2000000011
-**Result**: ✅ **EXPECTED** - Storage BRIC created from prenote
+**Result**: ⚠️ **AUTH_RESP=25** - Settlement timing demonstrated (real EPX behavior)
 
 ##### Request Sent
 ```bash
