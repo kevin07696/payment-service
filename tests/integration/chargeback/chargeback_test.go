@@ -22,9 +22,15 @@ const (
 	connectAddress = "http://localhost:8080"
 )
 
-// setupChargebackClient creates a Connect protocol client for ChargebackService
-func setupChargebackClient(t *testing.T) chargebackv1connect.ChargebackServiceClient {
+// setupChargebackTest initializes test environment and returns Connect client
+func setupChargebackTest(t *testing.T) (*testutil.Config, chargebackv1connect.ChargebackServiceClient) {
 	t.Helper()
+
+	// Use standard setup which seeds merchants and chargebacks
+	cfg, _ := testutil.Setup(t)
+
+	// Register cleanup functions to remove test data after tests complete
+	testutil.CleanupChargebacks(t)
 
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
@@ -35,7 +41,7 @@ func setupChargebackClient(t *testing.T) chargebackv1connect.ChargebackServiceCl
 		connectAddress,
 	)
 
-	return client
+	return cfg, client
 }
 
 // addAuthToRequest adds JWT authentication to a Connect request
@@ -65,9 +71,10 @@ func addAuthToRequest[T any](t *testing.T, req *connect.Request[T], merchantID s
 
 // TestChargeback_ListChargebacks tests listing chargebacks with various filters
 func TestChargeback_ListChargebacks(t *testing.T) {
-	client := setupChargebackClient(t)
-	merchantID := "00000000-0000-0000-0000-000000000001"
-	agentID := "test-merchant-staging"
+	_, client := setupChargebackTest(t)
+	// Use constants for merchant and agent IDs to ensure consistency
+	merchantID := testutil.TestMerchantUUID
+	agentID := testutil.TestMerchantSlug
 
 	tests := []struct {
 		name        string
@@ -131,13 +138,14 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 
 // TestChargeback_GetChargeback tests retrieving a specific chargeback
 func TestChargeback_GetChargeback(t *testing.T) {
-	client := setupChargebackClient(t)
+	_, client := setupChargebackTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	merchantID := "00000000-0000-0000-0000-000000000001"
-	agentID := "test-merchant-staging"
+	// Use constants for merchant and agent IDs to ensure consistency
+	merchantID := testutil.TestMerchantUUID
+	agentID := testutil.TestMerchantSlug
 
 	// First, list chargebacks to get a valid ID
 	listReq := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
@@ -173,13 +181,14 @@ func TestChargeback_GetChargeback(t *testing.T) {
 
 // TestChargeback_GetChargebackNotFound tests getting a non-existent chargeback
 func TestChargeback_GetChargebackNotFound(t *testing.T) {
-	client := setupChargebackClient(t)
+	_, client := setupChargebackTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	merchantID := "00000000-0000-0000-0000-000000000001"
-	agentID := "test-merchant-staging"
+	// Use constants for merchant and agent IDs to ensure consistency
+	merchantID := testutil.TestMerchantUUID
+	agentID := testutil.TestMerchantSlug
 	nonExistentID := uuid.New().String()
 
 	req := connect.NewRequest(&chargebackv1.GetChargebackRequest{
@@ -201,14 +210,14 @@ func TestChargeback_GetChargebackNotFound(t *testing.T) {
 
 // TestChargeback_UnauthorizedAccess tests that users can't access other merchants' chargebacks
 func TestChargeback_UnauthorizedAccess(t *testing.T) {
-	client := setupChargebackClient(t)
+	_, client := setupChargebackTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Correct merchant credentials
-	correctMerchantID := "00000000-0000-0000-0000-000000000001"
-	correctAgentID := "test-merchant-staging"
+	// Use constants for correct merchant credentials
+	correctMerchantID := testutil.TestMerchantUUID
+	correctAgentID := testutil.TestMerchantSlug
 
 	// Wrong agent ID to test access control
 	wrongAgentID := "wrong-merchant"

@@ -1,9 +1,10 @@
 package testutil
 
 import (
+	"context"
 	"database/sql"
-	"os"
 	"testing"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
@@ -31,79 +32,30 @@ func Setup(t *testing.T) (*Config, *Client) {
 	return cfg, client
 }
 
-// GetDB returns a database connection for direct SQL operations in tests
+// GetDB returns a shared database connection pool for direct SQL operations in tests
+// PERFORMANCE: Uses singleton pattern to reuse connections across tests
+// DO NOT call Close() on the returned *sql.DB - it's a shared pool
 func GetDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	dbHost := os.Getenv("DB_HOST")
-	if dbHost == "" {
-		dbHost = "localhost"
-	}
-	dbPort := os.Getenv("DB_PORT")
-	if dbPort == "" {
-		dbPort = "5432"
-	}
-	dbUser := os.Getenv("DB_USER")
-	if dbUser == "" {
-		dbUser = "postgres"
-	}
-	dbPassword := os.Getenv("DB_PASSWORD")
-	if dbPassword == "" {
-		dbPassword = "postgres"
-	}
-	dbName := os.Getenv("DB_NAME")
-	if dbName == "" {
-		dbName = "payment_service"
-	}
-
-	connStr := "host=" + dbHost + " port=" + dbPort + " user=" + dbUser +
-		" password=" + dbPassword + " dbname=" + dbName + " sslmode=disable"
-
-	db, err := sql.Open("pgx", connStr)
-	require.NoError(t, err, "Failed to connect to database")
-
-	// Test connection
-	err = db.Ping()
-	require.NoError(t, err, "Failed to ping database")
-
-	return db
+	// Use singleton pool instead of creating new connections
+	// This prevents connection exhaustion and improves test performance
+	return GetDBPool(t)
 }
 
 // seedTestMerchant ensures the test merchant exists with correct EPX credentials
 func seedTestMerchant(t *testing.T, cfg *Config) {
 	t.Helper()
 
-	// Connect to database
-	dbHost := os.Getenv("DB_HOST")
-	if dbHost == "" {
-		dbHost = "localhost"
-	}
-	dbPort := os.Getenv("DB_PORT")
-	if dbPort == "" {
-		dbPort = "5432"
-	}
-	dbUser := os.Getenv("DB_USER")
-	if dbUser == "" {
-		dbUser = "postgres"
-	}
-	dbPassword := os.Getenv("DB_PASSWORD")
-	if dbPassword == "" {
-		dbPassword = "postgres"
-	}
-	dbName := os.Getenv("DB_NAME")
-	if dbName == "" {
-		dbName = "payment_service"
-	}
-
-	connStr := "host=" + dbHost + " port=" + dbPort + " user=" + dbUser +
-		" password=" + dbPassword + " dbname=" + dbName + " sslmode=disable"
-
-	db, err := sql.Open("pgx", connStr)
-	require.NoError(t, err, "Failed to connect to database")
-	defer db.Close()
+	// Use shared database pool (no need to close)
+	db := GetDB(t)
 
 	// Insert or update test merchant with EPX credentials from environment
-	_, err = db.Exec(`
+	// Use constants for merchant ID, slug, and name for consistency across tests
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(DBInsertTimeout)*time.Second)
+	defer cancel()
+
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO merchants (
 			id,
 			slug,
@@ -118,56 +70,61 @@ func seedTestMerchant(t *testing.T, cfg *Config) {
 			created_at,
 			updated_at
 		) VALUES (
-			'00000000-0000-0000-0000-000000000001'::uuid,
-			'test-merchant-staging',
+			$1::uuid,
+			$2,
 			'epx/staging/mac_secret',
-			$1, $2, $3, $4,
+			$3, $4, $5, $6,
 			'staging',
-			'Test Merchant (Staging)',
+			$7,
 			true,
 			NOW(),
 			NOW()
 		) ON CONFLICT (id) DO UPDATE SET
-			slug = 'test-merchant-staging',
+			slug = $2,
 			mac_secret_path = EXCLUDED.mac_secret_path,
 			cust_nbr = EXCLUDED.cust_nbr,
 			merch_nbr = EXCLUDED.merch_nbr,
 			dba_nbr = EXCLUDED.dba_nbr,
 			terminal_nbr = EXCLUDED.terminal_nbr,
 			environment = 'staging',
-			name = 'Test Merchant (Staging)',
+			name = $7,
 			updated_at = NOW()
-	`, cfg.EPXCustNbr, cfg.EPXMerchNbr, cfg.EPXDBANbr, cfg.EPXTerminalNbr)
+	`, TestMerchantUUID, TestMerchantSlug, cfg.EPXCustNbr, cfg.EPXMerchNbr, cfg.EPXDBANbr, cfg.EPXTerminalNbr, TestMerchantName)
 
 	require.NoError(t, err, "Failed to seed test merchant")
 
-	t.Logf("✅ Test merchant seeded with EPX credentials: CUST_NBR=%s, MERCH_NBR=%s, DBA_NBR=%s, TERMINAL_NBR=%s",
-		cfg.EPXCustNbr, cfg.EPXMerchNbr, cfg.EPXDBANbr, cfg.EPXTerminalNbr)
+	t.Logf("✅ Test merchant seeded: %s (%s) - EPX: CUST_NBR=%s, MERCH_NBR=%s, DBA_NBR=%s, TERMINAL_NBR=%s",
+		TestMerchantSlug, TestMerchantName, cfg.EPXCustNbr, cfg.EPXMerchNbr, cfg.EPXDBANbr, cfg.EPXTerminalNbr)
 }
 
 // SeedChargebacks seeds test chargeback data for integration tests
 // This function is idempotent - it can be called multiple times safely
+// Uses constants from constants.go for merchant IDs, customer IDs, and case numbers
 func SeedChargebacks(t *testing.T) {
 	t.Helper()
 
+	// Use shared database pool (no need to close)
 	db := GetDB(t)
-	defer db.Close()
-
-	testMerchantUUID := "00000000-0000-0000-0000-000000000001"
-	testMerchantSlug := "test-merchant-staging" // Merchant slug for chargebacks.merchant_id
 
 	// Step 1: Get or create a test transaction
+	// Add context timeout for database query (10 seconds)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(DBQueryTimeout)*time.Second)
+	defer cancel()
+
 	var testTxnID string
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		SELECT id FROM transactions
 		WHERE merchant_id = $1::uuid
 		AND status = 'approved'
 		LIMIT 1
-	`, testMerchantUUID).Scan(&testTxnID)
+	`, TestMerchantUUID).Scan(&testTxnID)
 
 	if err == sql.ErrNoRows {
-		// Create a test transaction
-		err = db.QueryRow(`
+		// Create a test transaction with context timeout (15 seconds for insert)
+		insertCtx, insertCancel := context.WithTimeout(context.Background(), time.Duration(DBInsertTimeout)*time.Second)
+		defer insertCancel()
+
+		err = db.QueryRowContext(insertCtx, `
 			INSERT INTO transactions (
 				id, merchant_id, customer_id,
 				amount_cents, currency, type, payment_method_type,
@@ -181,7 +138,7 @@ func SeedChargebacks(t *testing.T) {
 				'00', 'AUTH123',
 				NOW(), NOW(), NOW()
 			) RETURNING id
-		`, testMerchantUUID).Scan(&testTxnID)
+		`, TestMerchantUUID).Scan(&testTxnID)
 		require.NoError(t, err, "Failed to create test transaction for chargebacks")
 		t.Logf("✅ Created test transaction for chargebacks: %s", testTxnID)
 	} else {
@@ -191,7 +148,12 @@ func SeedChargebacks(t *testing.T) {
 
 	// Step 2: Seed test chargebacks with various statuses
 	// Use INSERT ... ON CONFLICT to make it idempotent
-	result, err := db.Exec(`
+	// Use constants for merchant slug, customer ID, and case numbers for consistency
+	seedCtx, seedCancel := context.WithTimeout(context.Background(), time.Duration(DBInsertTimeout)*time.Second)
+	defer seedCancel()
+
+	var result sql.Result
+	result, err = db.ExecContext(seedCtx, `
 		INSERT INTO chargebacks (
 			transaction_id, merchant_id, customer_id,
 			case_number, dispute_date, chargeback_date,
@@ -200,41 +162,46 @@ func SeedChargebacks(t *testing.T) {
 		) VALUES
 		-- NEW chargeback
 		(
-			$1::uuid, $2, 'cust_test_001',
-			'CB-NEW-TEST', NOW() - INTERVAL '5 days', NOW() - INTERVAL '3 days',
+			$1::uuid, $2, $3,
+			$4, NOW() - INTERVAL '5 days', NOW() - INTERVAL '3 days',
 			'50.00', 'USD', 'P22', 'Cardholder disputes quality of goods or services',
 			'new', '{"status": "NEW", "source": "test_seed", "test": true}'::jsonb
 		),
 		-- PENDING chargeback
 		(
-			$1::uuid, $2, 'cust_test_001',
-			'CB-PENDING-TEST', NOW() - INTERVAL '10 days', NOW() - INTERVAL '7 days',
+			$1::uuid, $2, $3,
+			$5, NOW() - INTERVAL '10 days', NOW() - INTERVAL '7 days',
 			'75.50', 'USD', 'F10', 'Fraudulent transaction - card absent environment',
 			'pending', '{"status": "PENDING", "source": "test_seed", "test": true}'::jsonb
 		),
 		-- RESPONDED chargeback
 		(
-			$1::uuid, $2, 'cust_test_001',
-			'CB-RESPONDED-TEST', NOW() - INTERVAL '20 days', NOW() - INTERVAL '15 days',
+			$1::uuid, $2, $3,
+			$6, NOW() - INTERVAL '20 days', NOW() - INTERVAL '15 days',
 			'100.00', 'USD', 'C08', 'Goods/Services not received',
 			'responded', '{"status": "RESPONDED", "source": "test_seed", "test": true}'::jsonb
 		),
 		-- WON chargeback
 		(
-			$1::uuid, $2, 'cust_test_001',
-			'CB-WON-TEST', NOW() - INTERVAL '30 days', NOW() - INTERVAL '25 days',
+			$1::uuid, $2, $3,
+			$7, NOW() - INTERVAL '30 days', NOW() - INTERVAL '25 days',
 			'125.00', 'USD', 'P08', 'Credit not processed',
 			'won', '{"status": "WON", "source": "test_seed", "test": true}'::jsonb
 		),
 		-- LOST chargeback
 		(
-			$1::uuid, $2, 'cust_test_001',
-			'CB-LOST-TEST', NOW() - INTERVAL '35 days', NOW() - INTERVAL '30 days',
+			$1::uuid, $2, $3,
+			$8, NOW() - INTERVAL '35 days', NOW() - INTERVAL '30 days',
 			'200.00', 'USD', 'F29', 'Card not present fraud',
 			'lost', '{"status": "LOST", "source": "test_seed", "test": true}'::jsonb
 		)
 		ON CONFLICT (case_number) DO NOTHING
-	`, testTxnID, testMerchantSlug)
+	`, testTxnID, TestMerchantSlug, TestCustomerID,
+		ChargebackCaseNumberNew,
+		ChargebackCaseNumberPending,
+		ChargebackCaseNumberResponded,
+		ChargebackCaseNumberWon,
+		ChargebackCaseNumberLost)
 
 	require.NoError(t, err, "Failed to seed test chargebacks")
 
@@ -244,4 +211,72 @@ func SeedChargebacks(t *testing.T) {
 	} else {
 		t.Logf("✅ Test chargebacks already exist (skipped seeding)")
 	}
+}
+
+// CleanupChargebacks removes all test chargeback data from the database
+// Uses t.Cleanup() pattern for automatic cleanup after test execution
+// SECURITY NOTE: Only deletes chargebacks marked with raw_data->>'test' = 'true'
+func CleanupChargebacks(t *testing.T) {
+	t.Helper()
+
+	// Register cleanup function to run after test completion
+	t.Cleanup(func() {
+		// Use shared database pool (no need to close)
+		db := GetDB(t)
+
+		// Use context timeout for cleanup operations
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(DBInsertTimeout)*time.Second)
+		defer cancel()
+
+		// Delete only test chargebacks (marked with test: true in raw_data)
+		// This prevents accidental deletion of real data
+		result, err := db.ExecContext(ctx, `
+			DELETE FROM chargebacks
+			WHERE raw_data->>'test' = 'true'
+		`)
+
+		if err != nil {
+			t.Logf("⚠️  Warning: Failed to cleanup test chargebacks: %v", err)
+			return
+		}
+
+		rowsDeleted, _ := result.RowsAffected()
+		if rowsDeleted > 0 {
+			t.Logf("🧹 Cleaned up %d test chargebacks", rowsDeleted)
+		}
+	})
+}
+
+// CleanupTestTransactions removes test transactions for the test merchant
+// Uses t.Cleanup() pattern for automatic cleanup after test execution
+// SECURITY NOTE: Only deletes transactions for the test merchant UUID
+func CleanupTestTransactions(t *testing.T) {
+	t.Helper()
+
+	// Register cleanup function to run after test completion
+	t.Cleanup(func() {
+		// Use shared database pool (no need to close)
+		db := GetDB(t)
+
+		// Use context timeout for cleanup operations
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(DBInsertTimeout)*time.Second)
+		defer cancel()
+
+		// Delete only test merchant transactions
+		// This prevents accidental deletion of real data
+		result, err := db.ExecContext(ctx, `
+			DELETE FROM transactions
+			WHERE merchant_id = $1::uuid
+		`, TestMerchantUUID)
+
+		if err != nil {
+			t.Logf("⚠️  Warning: Failed to cleanup test transactions: %v", err)
+			return
+		}
+
+		rowsDeleted, _ := result.RowsAffected()
+		if rowsDeleted > 0 {
+			t.Logf("🧹 Cleaned up %d test transactions", rowsDeleted)
+		}
+	})
 }

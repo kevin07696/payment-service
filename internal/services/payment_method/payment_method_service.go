@@ -318,6 +318,8 @@ func (s *paymentMethodService) StoreACHAccount(ctx context.Context, req *ports.S
 	tranNbr := util.UUIDToEPXTranNbr(idempotencyUUID)
 	tranGroup := idempotencyUUID.String()
 
+	industryType := "E" // Ecommerce (required for EPX certification)
+
 	// Build Server Post request for Pre-Note Debit
 	epxReq := &adapterports.ServerPostRequest{
 		CustNbr:         merchant.CustNbr,
@@ -338,6 +340,7 @@ func (s *paymentMethodService) StoreACHAccount(ctx context.Context, req *ports.S
 		City:            &req.City,
 		State:           &req.State,
 		ZipCode:         &req.ZipCode,
+		IndustryType:    &industryType, // "E" for Ecommerce
 	}
 
 	// Send Pre-Note transaction to EPX
@@ -476,6 +479,8 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 		return fmt.Errorf("failed to get MAC secret: %w", err)
 	}
 
+	industryType := "E" // Ecommerce (required for EPX certification)
+
 	// Send pre-note transaction through EPX
 	epxReq := &adapterports.ServerPostRequest{
 		CustNbr:         merchant.CustNbr,
@@ -489,6 +494,7 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 		TranNbr:         uuid.New().String(),
 		TranGroup:       uuid.New().String(),
 		CustomerID:      req.CustomerID,
+		IndustryType:    &industryType, // "E" for Ecommerce
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
