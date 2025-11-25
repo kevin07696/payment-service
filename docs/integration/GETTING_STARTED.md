@@ -41,25 +41,37 @@ Contact your payment service administrator to register your merchant account usi
 
 **All API requests require JWT authentication.**
 
-**Quick setup:**
-```bash
-# Generate JWT token using your service credentials
-curl -X POST http://localhost:8080/api/v1/auth/token \
-  -H "Content-Type: application/json" \
-  -d '{
-    "service_id": "your-service-id",
-    "private_key": "your-private-key"
-  }'
+JWT tokens are generated **client-side** using your RSA private key. The payment service validates tokens using the public key registered during service creation.
+
+**Quick setup (Node.js example):**
+```javascript
+const jwt = require('jsonwebtoken');
+const fs = require('fs');
+
+// Load private key from service credentials file
+const credentials = JSON.parse(fs.readFileSync('service_my-app_credentials.json'));
+const privateKey = credentials.private_key;
+
+// Generate JWT token
+const token = jwt.sign({
+  iss: 'my-app',                    // Your service_id
+  sub: 'merchant-uuid-here',        // Merchant ID
+  merchant_id: 'merchant-uuid-here',
+  service_id: 'my-app',
+  scopes: ['payment:create', 'payment:read'],
+  exp: Math.floor(Date.now() / 1000) + 300,  // 5 minutes
+  iat: Math.floor(Date.now() / 1000),
+}, privateKey, { algorithm: 'RS256' });
 ```
 
 **Use token in all requests:**
 ```bash
 curl -X POST http://localhost:8080/payment.v1.PaymentService/Sale \
-  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json"
 ```
 
-📖 **See:** [Authentication Architecture](../development/AUTH.md) - JWT implementation, token generation, and security
+📖 **See:** [Token Generation Guide](TOKEN_GENERATION.md) - Complete examples in Node.js, Go, Python, PHP
 
 ---
 

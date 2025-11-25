@@ -49,47 +49,60 @@ The payment service uses **RSA-signed JWT tokens** for authentication. Each exte
 
 ## Step 1: Service Registration
 
-### Via Admin API
+### Via Admin CLI
 
 An administrator must register your application as a service before you can generate tokens.
 
-**Request to Admin:**
+**Docker (recommended):**
 
 ```bash
-curl -X POST http://localhost:8081/admin/services \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <admin-token>" \
-  -d '{
-    "service_id": "acme-web-app",
-    "service_name": "ACME Corp Web Application",
-    "environment": "production",
-    "requests_per_second": 100,
-    "burst_limit": 200
-  }'
+# Create service interactively
+podman exec -it payment-server ./admin -action=create-service
+
+# Or with JSON file
+podman exec payment-server sh -c 'cat > service.json << EOF
+{
+  "service_id": "acme-web-app",
+  "service_name": "ACME Corp Web Application",
+  "environment": "production",
+  "generate_keypair": true
+}
+EOF'
+podman exec payment-server ./admin -action=create-service -json=service.json
+
+# Copy credentials to host
+podman cp payment-server:/home/appuser/service_acme-web-app_credentials.json .
 ```
 
-**Response:**
+**Local:**
+
+```bash
+# Build CLI
+go build -o bin/admin ./cmd/admin
+
+# Set database URL
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable"
+
+# Create service
+./bin/admin -action=create-service
+```
+
+**Output file** (`service_acme-web-app_credentials.json`):
 
 ```json
 {
-  "service": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "service_id": "acme-web-app",
-    "service_name": "ACME Corp Web Application",
-    "public_key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...",
-    "public_key_fingerprint": "sha256:abc123...",
-    "environment": "production",
-    "requests_per_second": 100,
-    "burst_limit": 200,
-    "is_active": true,
-    "created_at": "2025-01-20T12:00:00Z"
-  },
+  "service_id": "acme-web-app",
+  "service_name": "ACME Corp Web Application",
+  "environment": "production",
   "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...",
-  "message": "Service created successfully. SAVE THE PRIVATE KEY - it will not be shown again."
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...",
+  "note": "Keep the private key secure! Use it to sign JWT tokens."
 }
 ```
 
-**⚠️ CRITICAL:** Save the `private_key` immediately. It will **never be shown again**.
+**⚠️ CRITICAL:** Save the credentials file immediately. The private key will **never be shown again**.
+
+📖 **See:** [Admin CLI Guide](ADMIN_CLI.md) - Complete service and merchant management
 
 ### What You Receive
 

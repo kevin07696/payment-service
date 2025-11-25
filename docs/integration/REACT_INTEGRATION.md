@@ -82,13 +82,25 @@ npm install @connectrpc/connect @connectrpc/connect-web
 npm install --save-dev @bufbuild/protoc-gen-es @connectrpc/protoc-gen-connect-es
 ```
 
-### Download Proto Files
+### Get Proto Files
+
+Proto files are in the payment service repository. Copy them to your project:
 
 ```bash
-# Your payment service exposes proto files at these endpoints:
-curl http://localhost:8080/proto/payment/v1/payment.proto -o proto/payment/v1/payment.proto
-curl http://localhost:8080/proto/payment_method/v1/payment_method.proto -o proto/payment_method/v1/payment_method.proto
-curl http://localhost:8080/proto/subscription/v1/subscription.proto -o proto/subscription/v1/subscription.proto
+# Clone or copy proto files from payment service repo
+mkdir -p proto/payment/v1 proto/payment_method/v1 proto/subscription/v1
+
+# From payment service repo:
+cp payment-service/proto/payment/v1/payment.proto proto/payment/v1/
+cp payment-service/proto/payment_method/v1/payment_method.proto proto/payment_method/v1/
+cp payment-service/proto/subscription/v1/subscription.proto proto/subscription/v1/
+```
+
+Or fetch from GitHub (if public):
+```bash
+# Replace with your actual repo URL
+curl -o proto/payment/v1/payment.proto \
+  https://raw.githubusercontent.com/your-org/payment-service/main/proto/payment/v1/payment.proto
 ```
 
 ### Generate TypeScript Types
