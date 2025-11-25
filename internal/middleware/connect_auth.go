@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rsa"
 	"fmt"
-	"net"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -578,28 +577,4 @@ func extractClientIP(headers http.Header) string {
 	// If neither proxy header is present, IP extraction may require
 	// additional middleware at the HTTP layer
 	return ""
-}
-
-func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header first
-	xff := r.Header.Get("X-Forwarded-For")
-	if xff != "" {
-		ips := strings.Split(xff, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
-		}
-	}
-
-	// Check X-Real-IP
-	xri := r.Header.Get("X-Real-IP")
-	if xri != "" {
-		return xri
-	}
-
-	// Fall back to RemoteAddr
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
