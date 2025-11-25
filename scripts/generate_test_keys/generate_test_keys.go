@@ -1,16 +1,20 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
+	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
-
-	"github.com/kevin07696/payment-service/pkg/crypto"
 )
 
-// TestService represents a test service with credentials
-type TestService struct {
+// TestServiceCredentials represents a test service with RSA keys
+type TestServiceCredentials struct {
 	ServiceID            string `json:"service_id"`
 	ServiceName          string `json:"service_name"`
 	Environment          string `json:"environment"`
@@ -20,81 +24,77 @@ type TestService struct {
 }
 
 func main() {
-	// Define test services to generate
-	services := []struct {
-		id   string
-		name string
-		env  string
-	}{
-		{"test-service-001", "Test Service 1", "test"},
-		{"test-service-002", "Test Service 2", "test"},
-		{"test-service-003", "Test Service 3", "test"},
-	}
+	outputPath := flag.String("output", "", "Output file path for test_services.json")
+	flag.Parse()
 
-	// Create output directory
-	outputDir := "tests/fixtures/auth"
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create output directory: %v\n", err)
+	if *outputPath == "" {
+		fmt.Fprintf(os.Stderr, "Error: -output flag is required\n")
 		os.Exit(1)
 	}
 
-	var testServices []TestService
-
-	// Generate keys for each service
-	for _, svc := range services {
-		fmt.Printf("Generating RSA key pair for %s...\n", svc.name)
-
-		keyPair, err := crypto.GenerateRSAKeyPair()
+	// Generate 3 test services with unique keys
+	services := []TestServiceCredentials{}
+	for i := 1; i <= 3; i++ {
+		service, err := generateTestService(i)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to generate key pair for %s: %v\n", svc.name, err)
+			fmt.Fprintf(os.Stderr, "Error generating service %d: %v\n", i, err)
 			os.Exit(1)
 		}
-
-		testService := TestService{
-			ServiceID:            svc.id,
-			ServiceName:          svc.name,
-			Environment:          svc.env,
-			PrivateKeyPEM:        keyPair.PrivateKeyPEM,
-			PublicKeyPEM:         keyPair.PublicKeyPEM,
-			PublicKeyFingerprint: keyPair.Fingerprint,
-		}
-
-		testServices = append(testServices, testService)
-
-		// Write individual key files
-		privateKeyPath := filepath.Join(outputDir, fmt.Sprintf("%s_private.pem", svc.id))
-		if err := os.WriteFile(privateKeyPath, []byte(keyPair.PrivateKeyPEM), 0600); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to write private key: %v\n", err)
-			os.Exit(1)
-		}
-
-		publicKeyPath := filepath.Join(outputDir, fmt.Sprintf("%s_public.pem", svc.id))
-		if err := os.WriteFile(publicKeyPath, []byte(keyPair.PublicKeyPEM), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to write public key: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("  ✓ Generated keys for %s\n", svc.name)
-		fmt.Printf("    Service ID: %s\n", svc.id)
-		fmt.Printf("    Fingerprint: %s\n", keyPair.Fingerprint)
-		fmt.Printf("    Private key: %s\n", privateKeyPath)
-		fmt.Printf("    Public key: %s\n\n", publicKeyPath)
+		services = append(services, service)
+		fmt.Printf("✅ Generated test-service-%03d\n", i)
 	}
 
-	// Write JSON file with all services
-	jsonPath := filepath.Join(outputDir, "test_services.json")
-	jsonData, err := json.MarshalIndent(testServices, "", "  ")
+	// Marshal to JSON with indentation
+	jsonData, err := json.MarshalIndent(services, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to marshal JSON: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := os.WriteFile(jsonPath, jsonData, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to write JSON file: %v\n", err)
+	// Write to file
+	if err := os.WriteFile(*outputPath, jsonData, 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("✅ Successfully generated %d test service key pairs\n", len(testServices))
-	fmt.Printf("   Output directory: %s\n", outputDir)
-	fmt.Printf("   JSON manifest: %s\n", jsonPath)
+	fmt.Printf("✅ Successfully wrote %d test services to %s\n", len(services), *outputPath)
+}
+
+// generateTestService creates a test service with fresh RSA keys
+func generateTestService(index int) (TestServiceCredentials, error) {
+	// Generate 2048-bit RSA key pair
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return TestServiceCredentials{}, fmt.Errorf("failed to generate RSA key: %w", err)
+	}
+
+	// Encode private key to PEM
+	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privateKeyBytes,
+	})
+
+	// Encode public key to PEM
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return TestServiceCredentials{}, fmt.Errorf("failed to marshal public key: %w", err)
+	}
+	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: publicKeyBytes,
+	})
+
+	// Calculate public key fingerprint (SHA-256 hash)
+	hash := sha256.Sum256(publicKeyBytes)
+	fingerprint := hex.EncodeToString(hash[:])
+
+	return TestServiceCredentials{
+		ServiceID:            fmt.Sprintf("test-service-%03d", index),
+		ServiceName:          fmt.Sprintf("Test Service %d", index),
+		Environment:          "test",
+		PrivateKeyPEM:        string(privateKeyPEM),
+		PublicKeyPEM:         string(publicKeyPEM),
+		PublicKeyFingerprint: fingerprint,
+	}, nil
 }

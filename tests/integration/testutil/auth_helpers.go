@@ -4,6 +4,7 @@ import (
 	cryptoRand "crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -22,13 +23,19 @@ type TestServiceCredentials struct {
 	PublicKeyFingerprint string `json:"public_key_fingerprint"`
 }
 
-// LoadTestServices loads pre-generated test service credentials from JSON
+// LoadTestServices loads test service credentials from JSON
+// If the file doesn't exist, it returns an error prompting to generate keys
 func LoadTestServices() ([]TestServiceCredentials, error) {
 	// Path is relative to test package directory (e.g., tests/integration/auth/)
 	// Go up 2 levels to tests/, then into fixtures/auth/
 	jsonPath := "../../fixtures/auth/test_services.json"
 	jsonData, err := os.ReadFile(jsonPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, &TestKeysNotFoundError{
+				Path: jsonPath,
+			}
+		}
 		return nil, err
 	}
 
@@ -38,6 +45,26 @@ func LoadTestServices() ([]TestServiceCredentials, error) {
 	}
 
 	return services, nil
+}
+
+// TestKeysNotFoundError is returned when test service keys are not found
+type TestKeysNotFoundError struct {
+	Path string
+}
+
+func (e *TestKeysNotFoundError) Error() string {
+	return fmt.Sprintf(
+		"test service keys not found at %s\n\n"+
+			"SOLUTION: Generate ephemeral test keys by running:\n"+
+			"  ./scripts/generate_test_keys.sh\n\n"+
+			"This generates fresh RSA keys for testing without committing secrets to Git.",
+		e.Path,
+	)
+}
+
+func (e *TestKeysNotFoundError) Is(target error) bool {
+	_, ok := target.(*TestKeysNotFoundError)
+	return ok
 }
 
 // GenerateJWT creates a JWT signed with the service's private key

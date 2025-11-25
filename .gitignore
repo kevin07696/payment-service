@@ -79,3 +79,7 @@ tmp-secrets/
 *auth*.txt
 keys/
 *.backup
+
+# Test credentials (NEVER COMMIT!)
+# These are generated dynamically during test execution
+tests/fixtures/auth/test_services.json
