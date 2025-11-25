@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (2025-11-25 - Infrastructure & CI/CD Improvements)
 
+**Configuration Fixes**
+- Fixed `.env.example` CRON_SECRET being 31 characters (now 32) - was causing startup failures when copied directly
+
 **CI/CD Pipeline Fixes**
 - Fixed unit test failures by adding CountServices mock to all ListServices tests
 - Fixed Go formatting issues across entire codebase (gofmt -w .)
