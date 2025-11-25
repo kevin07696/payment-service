@@ -6,6 +6,7 @@ package wordpress
 import (
 	"context"
 	"database/sql"
+	"os"
 	"testing"
 	"time"
 
@@ -24,19 +25,30 @@ type WordPressConfig struct {
 }
 
 // DefaultWordPressConfig returns default configuration for WordPress testing
-func DefaultWordPressConfig() *WordPressConfig {
+func DefaultWordPressConfig(t *testing.T) *WordPressConfig {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Fatal("TEST_DATABASE_URL environment variable is required")
+	}
 	return &WordPressConfig{
-		BaseURL:      "http://localhost:8082",
-		AdminUser:    "admin",
-		AdminPass:    "admin",
-		DatabaseURL:  "postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable",
+		BaseURL:      getEnvOrDefault("WORDPRESS_BASE_URL", "http://localhost:8082"),
+		AdminUser:    getEnvOrDefault("WORDPRESS_ADMIN_USER", "admin"),
+		AdminPass:    getEnvOrDefault("WORDPRESS_ADMIN_PASS", "admin"),
+		DatabaseURL:  dbURL,
 		CacheDisable: true,
 	}
 }
 
+func getEnvOrDefault(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultVal
+}
+
 // TestWordPressCheckoutFlow tests the complete WordPress WooCommerce checkout with North Payments
 func TestWordPressCheckoutFlow(t *testing.T) {
-	cfg := DefaultWordPressConfig()
+	cfg := DefaultWordPressConfig(t)
 
 	// Create headless Chrome context with cache disabled
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -223,7 +235,7 @@ func TestWordPressCheckoutFlow(t *testing.T) {
 
 // TestWordPressCheckoutWithConsoleLogging tests checkout with browser console logging
 func TestWordPressCheckoutWithConsoleLogging(t *testing.T) {
-	cfg := DefaultWordPressConfig()
+	cfg := DefaultWordPressConfig(t)
 
 	// Create Chrome context with console logging enabled
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
