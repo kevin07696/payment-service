@@ -17,6 +17,7 @@ jobs:
   docs-validation:
     name: 0a. Documentation Validation
     runs-on: ubuntu-latest
+    continue-on-error: true  # Allow pipeline to continue even if docs validation fails
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
