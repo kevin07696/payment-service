@@ -58,5 +58,29 @@ fi
 echo -e "${GREEN}✅ Test service keys generated successfully!${NC}"
 echo "📁 Location: $OUTPUT_FILE"
 echo ""
+
+# Seed test services into database if DATABASE_URL is set
+if [ -n "${DATABASE_URL:-}" ]; then
+    echo "🔄 Seeding test services into database..."
+
+    # Build seed program
+    go build -o /tmp/seed_test_services "$SCRIPT_DIR/seed_test_services/seed_test_services.go"
+
+    # Seed services
+    /tmp/seed_test_services -input "$OUTPUT_FILE" -db "$DATABASE_URL"
+
+    # Clean up
+    rm -f /tmp/seed_test_services
+
+    echo ""
+elif [ -f /home/kevinlam/Documents/projects/payments/.env ]; then
+    echo "⚠️  To automatically seed services into database, set DATABASE_URL environment variable"
+    echo "    Example: export DATABASE_URL=\"postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable\""
+    echo ""
+    echo "    Or run manually:"
+    echo "    go run scripts/seed_test_services/seed_test_services.go -input \"$OUTPUT_FILE\" -db \"\$DATABASE_URL\""
+    echo ""
+fi
+
 echo "ℹ️  These keys are for TESTING ONLY and should never be committed to Git."
 echo "ℹ️  The file is listed in .gitignore to prevent accidental commits."
