@@ -24,6 +24,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o payment-server \
     ./cmd/server
 
+# Build the admin CLI
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-w -s" \
+    -o admin \
+    ./cmd/admin
+
 # Install goose for database migrations
 RUN go install github.com/pressly/goose/v3/cmd/goose@latest
 
@@ -43,6 +49,9 @@ WORKDIR /home/appuser
 
 # Copy binary from builder with correct ownership
 COPY --from=builder --chown=appuser:appuser /app/payment-server .
+
+# Copy admin CLI from builder
+COPY --from=builder --chown=appuser:appuser /app/admin .
 
 # Copy goose binary from builder
 COPY --from=builder --chown=appuser:appuser /go/bin/goose /usr/local/bin/goose

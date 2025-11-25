@@ -30,7 +30,7 @@ type AdminCLI struct {
 
 func main() {
 	var (
-		dbURL    = flag.String("db", os.Getenv("DATABASE_URL"), "Database URL")
+		dbURL    = flag.String("db", getDefaultDBURL(), "Database URL")
 		action   = flag.String("action", "", "Action to perform: login, create-service, create-merchant, grant-access")
 		email    = flag.String("email", "", "Admin email for login")
 		jsonFile = flag.String("json", "", "JSON file with service/merchant details")
@@ -534,4 +534,41 @@ func generateFingerprint(publicKeyPEM []byte) string {
 	h := sha256.New()
 	h.Write(publicKeyPEM)
 	return fmt.Sprintf("SHA256:%x", h.Sum(nil))[:50]
+}
+
+// getDefaultDBURL returns database URL from environment variables.
+// First checks DATABASE_URL, then constructs from individual DB_* variables.
+func getDefaultDBURL() string {
+	// Check for DATABASE_URL first
+	if url := os.Getenv("DATABASE_URL"); url != "" {
+		return url
+	}
+
+	// Construct from individual DB_* environment variables (used in Docker)
+	host := os.Getenv("DB_HOST")
+	port := os.Getenv("DB_PORT")
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	name := os.Getenv("DB_NAME")
+	sslMode := os.Getenv("DB_SSL_MODE")
+
+	// Only construct if we have the minimum required variables
+	if host != "" && name != "" {
+		if port == "" {
+			port = "5432"
+		}
+		if user == "" {
+			user = "postgres"
+		}
+		if sslMode == "" {
+			sslMode = "disable"
+		}
+
+		if password != "" {
+			return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", user, password, host, port, name, sslMode)
+		}
+		return fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=%s", user, host, port, name, sslMode)
+	}
+
+	return ""
 }

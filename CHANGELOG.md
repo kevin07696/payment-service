@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-11-25)
+
+**Admin CLI in Docker Image**
+- Added admin CLI binary to Docker image (`Dockerfile`)
+- Admin CLI now available inside container at `/home/appuser/admin`
+- Eliminates timing issues with migrations - CLI runs after migrations complete
+- CLI auto-detects database connection from `DB_*` environment variables (no `-db` flag needed)
+- Simple usage: `./admin -action=create-service -json=service.json`
+
+**Admin CLI Quick Start Guide**
+- Updated `docs/integration/ADMIN_CLI.md` with simplified container-based usage
+- Step-by-step instructions using `podman exec` / `docker exec`
+- No `-db` flag required inside container (auto-detected from environment)
+- Includes command to copy credentials file from container to host
+
 ### Fixed (2025-11-25 - Infrastructure & CI/CD Improvements)
 
 **Configuration Fixes**
