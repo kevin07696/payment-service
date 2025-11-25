@@ -386,7 +386,7 @@ func (s *paymentMethodService) StoreACHAccount(ctx context.Context, req *ports.S
 			PaymentType:        string(domain.PaymentMethodTypeACH),
 			Bric:               epxResp.AuthGUID,
 			LastFour:           lastFour,
-			BankName:           pgtype.Text{Valid: false}, // Bank name not provided in request
+			BankName:           pgtype.Text{Valid: false},                                          // Bank name not provided in request
 			AccountType:        pgtype.Text{String: strings.ToLower(req.AccountType), Valid: true}, // Database expects lowercase
 			IsDefault:          pgtype.Bool{Bool: false, Valid: true},
 			IsActive:           pgtype.Bool{Bool: false, Valid: true}, // Not active until verified
@@ -603,4 +603,3 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 
 	return pm
 }
-

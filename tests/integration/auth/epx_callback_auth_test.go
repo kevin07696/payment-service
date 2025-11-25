@@ -252,20 +252,21 @@ func TestEPXCallbackAuthentication_ReplayAttack(t *testing.T) {
 // ✅ IMPLEMENTED - IP whitelist enforcement is active
 //
 // Current security measures:
-//   ✅ MAC signature validation (HMAC-SHA256)
-//   ✅ Transaction idempotency (prevents replay attacks)
-//   ✅ HTTPS-only (TLS encryption)
-//   ✅ IP whitelist (implemented in internal/middleware/epx_callback_auth.go)
+//
+//	✅ MAC signature validation (HMAC-SHA256)
+//	✅ Transaction idempotency (prevents replay attacks)
+//	✅ HTTPS-only (TLS encryption)
+//	✅ IP whitelist (implemented in internal/middleware/epx_callback_auth.go)
 //
 // Implementation details:
-//   1. IP whitelist loaded from database table 'services' (admin IPs)
-//   2. EPXCallbackAuth middleware checks client IP using getClientIP() which:
-//      - Checks X-Forwarded-For header first (uses first IP from comma-separated list)
-//      - Falls back to X-Real-IP header
-//      - Falls back to CF-Connecting-IP header (Cloudflare support)
-//      - Falls back to RemoteAddr (with port stripping)
-//   3. Returns HTTP 403 Forbidden for non-whitelisted IPs (before MAC validation)
-//   4. Logs rejected requests to audit table for security monitoring
+//  1. IP whitelist loaded from database table 'services' (admin IPs)
+//  2. EPXCallbackAuth middleware checks client IP using getClientIP() which:
+//     - Checks X-Forwarded-For header first (uses first IP from comma-separated list)
+//     - Falls back to X-Real-IP header
+//     - Falls back to CF-Connecting-IP header (Cloudflare support)
+//     - Falls back to RemoteAddr (with port stripping)
+//  3. Returns HTTP 403 Forbidden for non-whitelisted IPs (before MAC validation)
+//  4. Logs rejected requests to audit table for security monitoring
 //
 // IP extraction security:
 //   - getClientIP() prevents IP spoofing by checking proxy headers in priority order

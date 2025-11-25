@@ -38,7 +38,7 @@ var (
 // TrackedGoroutine represents a tracked goroutine
 type TrackedGoroutine struct {
 	ID        string
-	Type      string    // "webhook_delivery", "cron_job", "subscription_billing", etc.
+	Type      string // "webhook_delivery", "cron_job", "subscription_billing", etc.
 	StartTime time.Time
 	Done      chan struct{}
 }
@@ -261,11 +261,11 @@ func (gt *GoroutineTracker) GoWithContext(ctx context.Context, goroutineType str
 
 // Stats returns current tracking statistics
 type Stats struct {
-	TotalGoroutines   int
+	TotalGoroutines    int
 	BaselineGoroutines int
-	Increase          int
-	TrackedCount      int
-	ByType            map[string]int
+	Increase           int
+	TrackedCount       int
+	ByType             map[string]int
 }
 
 // GetStats returns current goroutine statistics

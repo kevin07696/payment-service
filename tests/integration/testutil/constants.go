@@ -15,8 +15,8 @@ const (
 	// These identify the test merchant used across all integration tests
 	// The merchant is automatically seeded during test setup with EPX credentials
 	TestMerchantUUID = "00000000-0000-0000-0000-000000000001" // UUID format for database queries
-	TestMerchantSlug = "test-merchant-staging"                 // Human-readable slug for API requests
-	TestMerchantName = "Test Merchant (Staging)"               // Display name
+	TestMerchantSlug = "test-merchant-staging"                // Human-readable slug for API requests
+	TestMerchantName = "Test Merchant (Staging)"              // Display name
 
 	// Test Customer Identifiers
 	// Used for creating test transactions and chargebacks

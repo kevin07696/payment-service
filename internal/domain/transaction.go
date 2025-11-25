@@ -54,8 +54,8 @@ type Transaction struct {
 	MerchantID        string            `json:"merchant_id"`
 	AuthGUID          string            `json:"auth_guid"`
 	Currency          string            `json:"currency"`
-	Status            TransactionStatus `json:"status"` // string alias
-	Type              TransactionType   `json:"type"`   // string alias
+	Status            TransactionStatus `json:"status"`              // string alias
+	Type              TransactionType   `json:"type"`                // string alias
 	PaymentMethodType PaymentMethodType `json:"payment_method_type"` // string alias
 
 	// Pointers (8 bytes each) grouped together

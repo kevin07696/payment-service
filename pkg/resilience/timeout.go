@@ -8,13 +8,14 @@ import (
 // TimeoutConfig defines timeout values for the application's timeout hierarchy
 //
 // Timeout Hierarchy (from outermost to innermost):
-//   HTTP Handler (60s)
-//     ↓
-//   Service Layer (50s)
-//     ↓
-//   External API (30s - EPX Gateway)
-//     ↓
-//   Database Query (2s/5s/30s - based on complexity)
+//
+//	HTTP Handler (60s)
+//	  ↓
+//	Service Layer (50s)
+//	  ↓
+//	External API (30s - EPX Gateway)
+//	  ↓
+//	Database Query (2s/5s/30s - based on complexity)
 //
 // This hierarchy ensures each layer completes before its parent times out,
 // preventing cascading timeout failures and providing predictable behavior.
@@ -24,13 +25,13 @@ type TimeoutConfig struct {
 	CronJob     time.Duration // Cron job execution timeout (default: 5 minutes)
 
 	// Service layer timeouts
-	Service          time.Duration // Service operation timeout (default: 50s)
-	ServiceCritical  time.Duration // Critical path operations (default: 45s)
+	Service           time.Duration // Service operation timeout (default: 50s)
+	ServiceCritical   time.Duration // Critical path operations (default: 45s)
 	ServiceNonCritial time.Duration // Non-critical operations like webhooks (default: 30s)
 
 	// External API timeouts (adapters)
-	ExternalAPI    time.Duration // EPX gateway calls (default: 30s)
-	SingleRetry    time.Duration // Individual retry attempt (default: 10s)
+	ExternalAPI     time.Duration // EPX gateway calls (default: 30s)
+	SingleRetry     time.Duration // Individual retry attempt (default: 10s)
 	WebhookDelivery time.Duration // Webhook delivery per attempt (default: 10s)
 
 	// Database timeouts (already implemented in postgres adapter)

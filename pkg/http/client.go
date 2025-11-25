@@ -68,9 +68,9 @@ func EPXClientConfig() *HTTPClientConfig {
 func WebhookClientConfig() *HTTPClientConfig {
 	return &HTTPClientConfig{
 		// Webhooks go to many different hosts
-		MaxIdleConns:        200, // Large pool for many hosts
-		MaxIdleConnsPerHost: 2,   // Only 2 per host (don't overwhelm endpoints)
-		MaxConnsPerHost:     5,   // Limit concurrent per endpoint
+		MaxIdleConns:        200,              // Large pool for many hosts
+		MaxIdleConnsPerHost: 2,                // Only 2 per host (don't overwhelm endpoints)
+		MaxConnsPerHost:     5,                // Limit concurrent per endpoint
 		IdleConnTimeout:     30 * time.Second, // Short timeout (many hosts)
 
 		// Timeouts tuned for webhooks

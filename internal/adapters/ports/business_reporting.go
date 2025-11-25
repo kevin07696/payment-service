@@ -31,11 +31,11 @@ type TransactionDetails struct {
 	AuthRespText string // Human-readable response message
 
 	// ACH-specific return information
-	IsACHReturn       bool   // True if this is an ACH return
-	ACHReturnCode     string // NACHA return code (R01, R02, R03, etc.)
-	ACHReturnReason   string // Human-readable return reason
-	ACHReturnDate     *time.Time
-	OriginalAuthGUID  string // Original transaction if this is a return
+	IsACHReturn      bool   // True if this is an ACH return
+	ACHReturnCode    string // NACHA return code (R01, R02, R03, etc.)
+	ACHReturnReason  string // Human-readable return reason
+	ACHReturnDate    *time.Time
+	OriginalAuthGUID string // Original transaction if this is a return
 
 	// Transaction amounts
 	Amount       string // Transaction amount
@@ -46,9 +46,9 @@ type TransactionDetails struct {
 	SettlementDate  *time.Time
 
 	// Payment method information
-	PaymentMethod     string // credit_card, ach_checking, ach_savings
-	MaskedAccountNbr  string // Last 4 digits
-	CardType          string // V, M, A, D (for cards) or empty (for ACH)
+	PaymentMethod    string // credit_card, ach_checking, ach_savings
+	MaskedAccountNbr string // Last 4 digits
+	CardType         string // V, M, A, D (for cards) or empty (for ACH)
 
 	// Merchant information
 	CustNbr     string

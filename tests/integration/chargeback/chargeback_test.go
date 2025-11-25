@@ -94,9 +94,12 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 			name: "Filter by NEW status",
 			request: &chargebackv1.ListChargebacksRequest{
 				AgentId: agentID,
-				Status:  func() *chargebackv1.ChargebackStatus { s := chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_NEW; return &s }(),
-				Limit:   10,
-				Offset:  0,
+				Status: func() *chargebackv1.ChargebackStatus {
+					s := chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_NEW
+					return &s
+				}(),
+				Limit:  10,
+				Offset: 0,
 			},
 			description: "List with status filter",
 		},

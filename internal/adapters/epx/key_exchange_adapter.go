@@ -70,8 +70,8 @@ func NewKeyExchangeAdapter(config *KeyExchangeConfig, logger *zap.Logger) ports.
 		// Connection Pooling (already configured)
 		// At 1000 TPS: reuses ~950 connections vs creating new ones
 		// Saves ~50ms handshake per reused connection
-		MaxIdleConns:        100, // Total pool size across all hosts
-		MaxIdleConnsPerHost: 100, // Per-host pool (EPX is single host)
+		MaxIdleConns:        100,              // Total pool size across all hosts
+		MaxIdleConnsPerHost: 100,              // Per-host pool (EPX is single host)
 		IdleConnTimeout:     90 * time.Second, // Keep-alive duration
 	}
 

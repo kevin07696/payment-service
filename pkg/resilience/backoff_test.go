@@ -75,8 +75,8 @@ func TestExponentialBackoff_WithJitter(t *testing.T) {
 	// Expected delay for attempt 3: 800ms
 	// With ±10% jitter: 720ms - 880ms
 	expectedDelay := 800 * time.Millisecond
-	minExpected := time.Duration(float64(expectedDelay) * 0.9)  // 720ms
-	maxExpected := time.Duration(float64(expectedDelay) * 1.1)  // 880ms
+	minExpected := time.Duration(float64(expectedDelay) * 0.9) // 720ms
+	maxExpected := time.Duration(float64(expectedDelay) * 1.1) // 880ms
 
 	// Check all delays are within jitter range
 	for i, delay := range delays {

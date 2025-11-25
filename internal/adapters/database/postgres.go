@@ -38,8 +38,8 @@ type PostgreSQLConfig struct {
 func DefaultPostgreSQLConfig(databaseURL string) *PostgreSQLConfig {
 	return &PostgreSQLConfig{
 		DatabaseURL:     databaseURL,
-		MaxConns:        50, // Increased for production workload (was 25)
-		MinConns:        10, // Increased to 20% of max (was 5)
+		MaxConns:        50,    // Increased for production workload (was 25)
+		MinConns:        10,    // Increased to 20% of max (was 5)
 		MaxConnLifetime: "30m", // Reduced from 1h - PostgreSQL best practice
 		MaxConnIdleTime: "15m", // Reduced to release idle connections faster (was 30m)
 		// Query timeouts - tiered based on complexity

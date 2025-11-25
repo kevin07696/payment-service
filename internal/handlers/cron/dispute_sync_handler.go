@@ -33,7 +33,7 @@ type DisputeSyncHandler struct {
 	cronSecret        string
 	webhookJobs       chan webhookJob // Buffered channel for webhook delivery jobs
 	stopCh            chan struct{}   // Channel to signal worker shutdown
-	workerCount       int              // Number of webhook delivery workers
+	workerCount       int             // Number of webhook delivery workers
 }
 
 // NewDisputeSyncHandler creates a new dispute sync cron handler
@@ -44,8 +44,8 @@ func NewDisputeSyncHandler(
 	logger *zap.Logger,
 	cronSecret string,
 ) *DisputeSyncHandler {
-	const workerCount = 5     // Max 5 concurrent webhook deliveries
-	const queueSize = 100     // Max 100 pending webhooks in queue
+	const workerCount = 5 // Max 5 concurrent webhook deliveries
+	const queueSize = 100 // Max 100 pending webhooks in queue
 
 	h := &DisputeSyncHandler{
 		merchantReporting: merchantReporting,
@@ -351,10 +351,10 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID strin
 
 	chargebackID := uuid.New()
 	params := sqlc.CreateChargebackParams{
-		ID:            chargebackID,
-		TransactionID: transactionID,
-		MerchantID:    agentID,
-		CustomerID:    pgtype.Text{Valid: false}, // Not available from North API
+		ID:                chargebackID,
+		TransactionID:     transactionID,
+		MerchantID:        agentID,
+		CustomerID:        pgtype.Text{Valid: false}, // Not available from North API
 		CaseNumber:        dispute.CaseNumber,
 		DisputeDate:       disputeDate,
 		ChargebackDate:    chargebackDate,

@@ -268,9 +268,9 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 	}
 
 	var merchantData struct {
-		Slug                string `json:"slug"`
-		Name                string `json:"name"`
-		CustNbr             string `json:"cust_nbr"`
+		Slug              string `json:"slug"`
+		Name              string `json:"name"`
+		CustNbr           string `json:"cust_nbr"`
 		MerchNbr          string `json:"merch_nbr"`
 		DbaNbr            string `json:"dba_nbr"`
 		TerminalNbr       string `json:"terminal_nbr"`
@@ -476,7 +476,7 @@ func (cli *AdminCLI) listServices() {
 	// List services using sqlc
 	services, err := cli.queries.ListServices(cli.ctx, sqlc.ListServicesParams{
 		Environment: pgtype.Text{}, // NULL to get all
-		IsActive:    pgtype.Bool{},  // NULL to get all
+		IsActive:    pgtype.Bool{}, // NULL to get all
 		LimitVal:    100,
 		OffsetVal:   0,
 	})
@@ -499,7 +499,7 @@ func (cli *AdminCLI) listMerchants() {
 	// List merchants using sqlc
 	merchants, err := cli.queries.ListMerchants(cli.ctx, sqlc.ListMerchantsParams{
 		Environment: pgtype.Text{}, // NULL to get all
-		IsActive:    pgtype.Bool{},  // NULL to get all
+		IsActive:    pgtype.Bool{}, // NULL to get all
 		LimitVal:    100,
 		OffsetVal:   0,
 	})

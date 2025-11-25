@@ -69,10 +69,10 @@ func NewManager(logger *zap.Logger, timeout time.Duration) *Manager {
 // Register adds a shutdown function to be called during graceful shutdown
 // Components are shut down in REVERSE order of registration (LIFO)
 // Example registration order:
-//   1. Background workers (shutdown first - stop generating new work)
-//   2. HTTP servers (stop accepting new requests)
-//   3. Services (finish in-flight requests)
-//   4. Database (close connections last)
+//  1. Background workers (shutdown first - stop generating new work)
+//  2. HTTP servers (stop accepting new requests)
+//  3. Services (finish in-flight requests)
+//  4. Database (close connections last)
 func (sm *Manager) Register(name string, fn ShutdownFunc) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

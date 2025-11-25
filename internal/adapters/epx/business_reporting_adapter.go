@@ -432,25 +432,25 @@ func (a *businessReportingAdapter) mapPaymentMethod(method string) string {
 // The actual structure may differ - check North Developer documentation
 
 type apiTransactionResponse struct {
-	AuthGUID        string  `json:"auth_guid"`
-	TranNbr         string  `json:"tran_nbr"`
-	TranType        string  `json:"tran_type"`
-	Status          string  `json:"status"`
-	AuthResp        string  `json:"auth_resp"`
-	AuthRespText    string  `json:"auth_resp_text"`
-	Amount          string  `json:"amount"`
-	CurrencyCode    string  `json:"currency_code"`
-	TransactionDate string  `json:"transaction_date"`
-	SettlementDate  string  `json:"settlement_date,omitempty"`
-	PaymentMethod   string  `json:"payment_method"`
-	MaskedAccountNbr string `json:"masked_account_nbr"`
-	CardType        string  `json:"card_type,omitempty"`
-	CustNbr         string  `json:"cust_nbr"`
-	MerchNbr        string  `json:"merch_nbr"`
-	DBAnbr          string  `json:"dba_nbr"`
-	TerminalNbr     string  `json:"terminal_nbr"`
-	BatchID         string  `json:"batch_id"`
-	ACHReturn       *apiACHReturn `json:"ach_return,omitempty"`
+	AuthGUID         string        `json:"auth_guid"`
+	TranNbr          string        `json:"tran_nbr"`
+	TranType         string        `json:"tran_type"`
+	Status           string        `json:"status"`
+	AuthResp         string        `json:"auth_resp"`
+	AuthRespText     string        `json:"auth_resp_text"`
+	Amount           string        `json:"amount"`
+	CurrencyCode     string        `json:"currency_code"`
+	TransactionDate  string        `json:"transaction_date"`
+	SettlementDate   string        `json:"settlement_date,omitempty"`
+	PaymentMethod    string        `json:"payment_method"`
+	MaskedAccountNbr string        `json:"masked_account_nbr"`
+	CardType         string        `json:"card_type,omitempty"`
+	CustNbr          string        `json:"cust_nbr"`
+	MerchNbr         string        `json:"merch_nbr"`
+	DBAnbr           string        `json:"dba_nbr"`
+	TerminalNbr      string        `json:"terminal_nbr"`
+	BatchID          string        `json:"batch_id"`
+	ACHReturn        *apiACHReturn `json:"ach_return,omitempty"`
 }
 
 type apiACHReturn struct {

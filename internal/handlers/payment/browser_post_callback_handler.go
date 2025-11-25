@@ -404,8 +404,8 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		"terminalNbr": merchant.TerminalNbr,
 
 		// EPX transaction configuration
-		"industryType": "E",              // E-commerce
-		"tranType":     transactionType,  // SALE, AUTH, or STORAGE - must match Key Exchange
+		"industryType": "E",             // E-commerce
+		"tranType":     transactionType, // SALE, AUTH, or STORAGE - must match Key Exchange
 
 		// Pass-through data (EPX will echo these back in callback via USER_DATA_* fields)
 		// Note: Frontend should map returnUrl → USER_DATA_1, merchantId → USER_DATA_3
@@ -786,7 +786,7 @@ func (h *BrowserPostCallbackHandler) renderReceiptPage(w http.ResponseWriter, re
 	tmpl := template.Must(template.New("receipt").Parse(receiptTemplate))
 
 	data := map[string]interface{}{
-		"Approved":      approved,
+		"Approved":            approved,
 		"Amount":              response.Amount,
 		"Currency":            "USD",
 		"CardType":            getCardTypeName(response.AuthCardType),

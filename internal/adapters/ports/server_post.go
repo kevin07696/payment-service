@@ -46,12 +46,12 @@ const (
 type Operation string
 
 const (
-	OperationSale      Operation = "sale"       // Take payment (debit customer account)
-	OperationRefund    Operation = "refund"     // Return payment (credit customer account)
-	OperationVoid      Operation = "void"       // Cancel/reverse a transaction
-	OperationAuthorize Operation = "authorize"  // Hold funds (credit card only)
-	OperationCapture   Operation = "capture"    // Capture previously authorized funds (credit card only)
-	OperationStorage   Operation = "storage"    // Store payment method (tokenization/BRIC)
+	OperationSale      Operation = "sale"      // Take payment (debit customer account)
+	OperationRefund    Operation = "refund"    // Return payment (credit customer account)
+	OperationVoid      Operation = "void"      // Cancel/reverse a transaction
+	OperationAuthorize Operation = "authorize" // Hold funds (credit card only)
+	OperationCapture   Operation = "capture"   // Capture previously authorized funds (credit card only)
+	OperationStorage   Operation = "storage"   // Store payment method (tokenization/BRIC)
 )
 
 // PaymentMethodType represents the payment method

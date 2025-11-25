@@ -444,21 +444,21 @@ type Config struct {
 
 // Dependencies holds all initialized services and handlers
 type Dependencies struct {
-	dbAdapter                  *database.PostgreSQLAdapter
-	goroutineTracker           *resourcemgmt.GoroutineTracker
-	merchantCache              *merchantService.MerchantCredentialCache
-	paymentMethodCache         *paymentmethodService.PaymentMethodCache
-	paymentHandler             *paymentHandler.ConnectHandler
-	subscriptionHandler        *subscriptionHandler.ConnectHandler
-	paymentMethodHandler       *paymentmethodHandler.ConnectHandler
-	chargebackHandler          *chargebackHandler.ConnectHandler
-	merchantHandler            *merchantHandler.ConnectHandler
-	billingCronHandler         *cronHandler.BillingHandler
-	disputeSyncCronHandler     *cronHandler.DisputeSyncHandler
-	achVerificationCronHandler *cronHandler.ACHVerificationHandler
-	auditCleanupCronHandler    *cronHandler.AuditCleanupHandler
+	dbAdapter                   *database.PostgreSQLAdapter
+	goroutineTracker            *resourcemgmt.GoroutineTracker
+	merchantCache               *merchantService.MerchantCredentialCache
+	paymentMethodCache          *paymentmethodService.PaymentMethodCache
+	paymentHandler              *paymentHandler.ConnectHandler
+	subscriptionHandler         *subscriptionHandler.ConnectHandler
+	paymentMethodHandler        *paymentmethodHandler.ConnectHandler
+	chargebackHandler           *chargebackHandler.ConnectHandler
+	merchantHandler             *merchantHandler.ConnectHandler
+	billingCronHandler          *cronHandler.BillingHandler
+	disputeSyncCronHandler      *cronHandler.DisputeSyncHandler
+	achVerificationCronHandler  *cronHandler.ACHVerificationHandler
+	auditCleanupCronHandler     *cronHandler.AuditCleanupHandler
 	rateLimitCleanupCronHandler *cronHandler.RateLimitCleanupHandler
-	browserPostCallbackHandler *paymentHandler.BrowserPostCallbackHandler
+	browserPostCallbackHandler  *paymentHandler.BrowserPostCallbackHandler
 }
 
 // loadConfig loads configuration from environment variables
@@ -737,7 +737,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		dbAdapter,
 		browserPost,
 		keyExchange,
-		secretManager,      // Secret manager for fetching merchant-specific MACs
+		secretManager, // Secret manager for fetching merchant-specific MACs
 		logger,
 		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
 		cfg.CallbackBaseURL,    // Base URL for callbacks

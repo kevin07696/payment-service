@@ -537,7 +537,7 @@ func (h *ServiceHandler) auditServiceDeactivation(
 		IpAddress:    ipAddr,
 		UserAgent:    userAgent,
 		RequestID:    requestID, // From JWT middleware
-		Success:    pgtype.Bool{Bool: true, Valid: true},
+		Success:      pgtype.Bool{Bool: true, Valid: true},
 		ErrorMessage: pgtype.Text{Valid: false},
 	})
 }

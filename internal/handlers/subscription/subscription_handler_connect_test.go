@@ -244,7 +244,7 @@ func TestUpdateSubscription_Validation(t *testing.T) {
 	handler := NewConnectHandler(mockService, logger)
 
 	tests := []struct {
-		name          string
+		name           string
 		subscriptionID string
 		expectedCode   connect.Code
 		expectedError  string

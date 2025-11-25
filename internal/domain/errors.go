@@ -63,18 +63,18 @@ const (
 	ErrorCodeMerchantInvalidEnv    ErrorCode = "MERCHANT_INVALID_ENVIRONMENT"
 
 	// Validation Errors (VALIDATION_*)
-	ErrorCodeValidationFailed        ErrorCode = "VALIDATION_FAILED"
-	ErrorCodeValidationAmountInvalid ErrorCode = "VALIDATION_AMOUNT_INVALID"
-	ErrorCodeValidationMissingField  ErrorCode = "VALIDATION_MISSING_FIELD"
-	ErrorCodeValidationInvalidAmount ErrorCode = "VALIDATION_INVALID_AMOUNT"
+	ErrorCodeValidationFailed          ErrorCode = "VALIDATION_FAILED"
+	ErrorCodeValidationAmountInvalid   ErrorCode = "VALIDATION_AMOUNT_INVALID"
+	ErrorCodeValidationMissingField    ErrorCode = "VALIDATION_MISSING_FIELD"
+	ErrorCodeValidationInvalidAmount   ErrorCode = "VALIDATION_INVALID_AMOUNT"
 	ErrorCodeValidationInvalidCurrency ErrorCode = "VALIDATION_INVALID_CURRENCY"
 
 	// Payment Gateway Errors (GATEWAY_*)
-	ErrorCodeGatewayError        ErrorCode = "GATEWAY_ERROR"
-	ErrorCodeGatewayTimeout      ErrorCode = "GATEWAY_TIMEOUT"
-	ErrorCodeGatewayDeclined     ErrorCode = "GATEWAY_DECLINED"
-	ErrorCodeGatewayUnavailable  ErrorCode = "GATEWAY_UNAVAILABLE"
-	ErrorCodeGatewayInvalidResp  ErrorCode = "GATEWAY_INVALID_RESPONSE"
+	ErrorCodeGatewayError       ErrorCode = "GATEWAY_ERROR"
+	ErrorCodeGatewayTimeout     ErrorCode = "GATEWAY_TIMEOUT"
+	ErrorCodeGatewayDeclined    ErrorCode = "GATEWAY_DECLINED"
+	ErrorCodeGatewayUnavailable ErrorCode = "GATEWAY_UNAVAILABLE"
+	ErrorCodeGatewayInvalidResp ErrorCode = "GATEWAY_INVALID_RESPONSE"
 
 	// Idempotency Errors (IDEMPOTENCY_*)
 	ErrorCodeIdempotencyConflict ErrorCode = "IDEMPOTENCY_CONFLICT"
@@ -197,13 +197,13 @@ var (
 	ErrMerchantInactiveTyped = NewDomainError(ErrorCodeMerchantInactive, "merchant is not active")
 	ErrMerchantRequired      = NewDomainError(ErrorCodeMerchantRequired, "merchant_id is required")
 
-	ErrTxnNotFound          = NewDomainError(ErrorCodeTxnNotFound, "transaction not found")
-	ErrTxnInvalidState      = NewDomainError(ErrorCodeTxnInvalidState, "transaction is in invalid state for this operation")
-	ErrTxnAlreadyProcessed  = NewDomainError(ErrorCodeTxnAlreadyProcessed, "transaction already processed")
-	ErrTxnCannotBeVoided    = NewDomainError(ErrorCodeTxnCannotBeVoided, "transaction cannot be voided")
-	ErrTxnCannotBeCaptured  = NewDomainError(ErrorCodeTxnCannotBeCaptured, "transaction cannot be captured")
-	ErrTxnCannotBeRefunded  = NewDomainError(ErrorCodeTxnCannotBeRefunded, "transaction cannot be refunded")
-	ErrTxnInvalidAmount     = NewDomainError(ErrorCodeTxnInvalidAmount, "invalid transaction amount")
+	ErrTxnNotFound         = NewDomainError(ErrorCodeTxnNotFound, "transaction not found")
+	ErrTxnInvalidState     = NewDomainError(ErrorCodeTxnInvalidState, "transaction is in invalid state for this operation")
+	ErrTxnAlreadyProcessed = NewDomainError(ErrorCodeTxnAlreadyProcessed, "transaction already processed")
+	ErrTxnCannotBeVoided   = NewDomainError(ErrorCodeTxnCannotBeVoided, "transaction cannot be voided")
+	ErrTxnCannotBeCaptured = NewDomainError(ErrorCodeTxnCannotBeCaptured, "transaction cannot be captured")
+	ErrTxnCannotBeRefunded = NewDomainError(ErrorCodeTxnCannotBeRefunded, "transaction cannot be refunded")
+	ErrTxnInvalidAmount    = NewDomainError(ErrorCodeTxnInvalidAmount, "invalid transaction amount")
 
 	ErrPMNotFound    = NewDomainError(ErrorCodePMNotFound, "payment method not found")
 	ErrPMRequired    = NewDomainError(ErrorCodePMRequired, "payment method required")
@@ -227,9 +227,9 @@ var (
 	ErrMerchantAlreadyExists = NewDomainError(ErrorCodeMerchantAlreadyExists, "merchant already exists")
 	ErrMerchantInvalidEnv    = NewDomainError(ErrorCodeMerchantInvalidEnv, "invalid environment")
 
-	ErrGatewayUnavailable  = NewDomainError(ErrorCodeGatewayUnavailable, "gateway is unavailable")
-	ErrGatewayInvalidResp  = NewDomainError(ErrorCodeGatewayInvalidResp, "invalid gateway response")
-	ErrTxnDeclined         = NewDomainError(ErrorCodeGatewayDeclined, "transaction was declined by gateway")
+	ErrGatewayUnavailable = NewDomainError(ErrorCodeGatewayUnavailable, "gateway is unavailable")
+	ErrGatewayInvalidResp = NewDomainError(ErrorCodeGatewayInvalidResp, "invalid gateway response")
+	ErrTxnDeclined        = NewDomainError(ErrorCodeGatewayDeclined, "transaction was declined by gateway")
 
 	ErrDuplicateIdempotencyKey = NewDomainError(ErrorCodeIdempotencyConflict, "duplicate idempotency key")
 
@@ -256,38 +256,39 @@ var (
 // These are kept for backward compatibility but should not be used in new code
 //
 // Migration guide:
-//   ErrTransactionNotFound         -> ErrTxnNotFound
-//   ErrTransactionCannotBeVoided   -> ErrTxnCannotBeVoided
-//   ErrTransactionCannotBeCaptured -> ErrTxnCannotBeCaptured
-//   ErrTransactionCannotBeRefunded -> ErrTxnCannotBeRefunded
-//   ErrInvalidTransactionStatus    -> ErrTxnInvalidState
-//   ErrInvalidTransactionAmount    -> ErrTxnInvalidAmount
-//   ErrSubscriptionNotFound         -> (use DomainError above)
-//   ErrSubscriptionNotActive        -> (use DomainError above)
-//   ErrSubscriptionAlreadyCancelled -> (use DomainError above)
-//   ErrInvalidBillingInterval       -> ErrSubscriptionInvalidInterval
-//   ErrMaxRetriesExceeded           -> ErrSubscriptionMaxRetries
-//   ErrPaymentMethodNotFound        -> ErrPMNotFound
-//   ErrPaymentMethodExpired         -> ErrPMExpired
-//   ErrPaymentMethodNotVerified     -> ErrPMNotVerified
-//   ErrPaymentMethodInactive        -> ErrPMInactive
-//   ErrInvalidPaymentMethodType     -> ErrPMInvalidType
-//   ErrChargebackNotFound           -> (use DomainError above)
-//   ErrChargebackCannotRespond      -> (use DomainError above)
-//   ErrChargebackAlreadyResolved    -> (use DomainError above)
-//   ErrInvalidChargebackStatus      -> (use DomainError above)
-//   ErrMerchantNotFound             -> ErrMerchantNotFoundTyped
-//   ErrMerchantInactive             -> ErrMerchantInactiveTyped
-//   ErrMerchantAlreadyExists        -> (use DomainError above)
-//   ErrInvalidEnvironment           -> ErrMerchantInvalidEnv
-//   ErrGatewayTimeout               -> ErrGatewayTimedOut
-//   ErrGatewayUnavailable           -> (use DomainError above)
-//   ErrInvalidGatewayResponse       -> ErrGatewayInvalidResp
-//   ErrTransactionDeclined          -> ErrTxnDeclined
-//   ErrDuplicateIdempotencyKey      -> (use DomainError above)
-//   ErrInvalidAmount                -> (use DomainError above)
-//   ErrInvalidCurrency              -> (use DomainError above)
-//   ErrMissingRequiredField         -> ErrValidationMissingField
+//
+//	ErrTransactionNotFound         -> ErrTxnNotFound
+//	ErrTransactionCannotBeVoided   -> ErrTxnCannotBeVoided
+//	ErrTransactionCannotBeCaptured -> ErrTxnCannotBeCaptured
+//	ErrTransactionCannotBeRefunded -> ErrTxnCannotBeRefunded
+//	ErrInvalidTransactionStatus    -> ErrTxnInvalidState
+//	ErrInvalidTransactionAmount    -> ErrTxnInvalidAmount
+//	ErrSubscriptionNotFound         -> (use DomainError above)
+//	ErrSubscriptionNotActive        -> (use DomainError above)
+//	ErrSubscriptionAlreadyCancelled -> (use DomainError above)
+//	ErrInvalidBillingInterval       -> ErrSubscriptionInvalidInterval
+//	ErrMaxRetriesExceeded           -> ErrSubscriptionMaxRetries
+//	ErrPaymentMethodNotFound        -> ErrPMNotFound
+//	ErrPaymentMethodExpired         -> ErrPMExpired
+//	ErrPaymentMethodNotVerified     -> ErrPMNotVerified
+//	ErrPaymentMethodInactive        -> ErrPMInactive
+//	ErrInvalidPaymentMethodType     -> ErrPMInvalidType
+//	ErrChargebackNotFound           -> (use DomainError above)
+//	ErrChargebackCannotRespond      -> (use DomainError above)
+//	ErrChargebackAlreadyResolved    -> (use DomainError above)
+//	ErrInvalidChargebackStatus      -> (use DomainError above)
+//	ErrMerchantNotFound             -> ErrMerchantNotFoundTyped
+//	ErrMerchantInactive             -> ErrMerchantInactiveTyped
+//	ErrMerchantAlreadyExists        -> (use DomainError above)
+//	ErrInvalidEnvironment           -> ErrMerchantInvalidEnv
+//	ErrGatewayTimeout               -> ErrGatewayTimedOut
+//	ErrGatewayUnavailable           -> (use DomainError above)
+//	ErrInvalidGatewayResponse       -> ErrGatewayInvalidResp
+//	ErrTransactionDeclined          -> ErrTxnDeclined
+//	ErrDuplicateIdempotencyKey      -> (use DomainError above)
+//	ErrInvalidAmount                -> (use DomainError above)
+//	ErrInvalidCurrency              -> (use DomainError above)
+//	ErrMissingRequiredField         -> ErrValidationMissingField
 //
 // TODO: Remove these after migrating all usages to DomainError
 var (

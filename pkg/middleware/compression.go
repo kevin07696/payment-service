@@ -131,10 +131,10 @@ func CompressibleContentType(contentType string) bool {
 
 // GzipHandlerWithConfig creates a gzip handler with custom configuration
 type GzipConfig struct {
-	Level            int      // Compression level (1-9)
-	MinSize          int      // Minimum response size to compress (bytes)
-	ExcludedPaths    []string // Paths to exclude from compression
-	ExcludedMethods  []string // HTTP methods to exclude
+	Level             int      // Compression level (1-9)
+	MinSize           int      // Minimum response size to compress (bytes)
+	ExcludedPaths     []string // Paths to exclude from compression
+	ExcludedMethods   []string // HTTP methods to exclude
 	CompressibleTypes []string // Additional compressible content types
 }
 

@@ -16,9 +16,10 @@ import (
 // - At 1000 TPS: Saves ~620 allocations/sec
 //
 // Usage:
-//   tx := pool.TransactionPool.Get()
-//   defer pool.TransactionPool.Put(tx)
-//   // Use tx...
+//
+//	tx := pool.TransactionPool.Get()
+//	defer pool.TransactionPool.Put(tx)
+//	// Use tx...
 var TransactionPool = sync.Pool{
 	New: func() interface{} {
 		return &domain.Transaction{

@@ -20,7 +20,7 @@ func TestStorePaymentMethod_CreditCard(t *testing.T) {
 	cfg, client := testutil.Setup(t)
 	merchantID := "00000000-0000-0000-0000-000000000001" // Use seeded merchant from Setup()
 	customerID := "00000000-0000-0000-0000-000000000101" // UUID format required
-	time.Sleep(2 * time.Second) // EPX rate limiting
+	time.Sleep(2 * time.Second)                          // EPX rate limiting
 
 	// Generate JWT token for authentication
 	jwtToken := generateJWTToken(t, merchantID)
@@ -42,7 +42,6 @@ func TestStorePaymentMethod_CreditCard(t *testing.T) {
 
 	t.Logf("Stored payment method: %s", paymentMethodID)
 }
-
 
 // TestGetPaymentMethod retrieves a stored payment method
 // Uses Browser Post STORAGE flow to create payment method first

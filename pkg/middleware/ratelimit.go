@@ -18,13 +18,13 @@ type ipLimiter struct {
 
 // RateLimiter provides rate limiting functionality with automatic cleanup
 type RateLimiter struct {
-	limiters  map[string]*ipLimiter
-	mu        sync.RWMutex
-	rate      rate.Limit
-	burst     int
-	maxSize   int           // Maximum number of IP limiters to cache
+	limiters        map[string]*ipLimiter
+	mu              sync.RWMutex
+	rate            rate.Limit
+	burst           int
+	maxSize         int           // Maximum number of IP limiters to cache
 	cleanupInterval time.Duration // How often to cleanup stale entries
-	stopCh    chan struct{} // Channel to signal cleanup goroutine shutdown
+	stopCh          chan struct{} // Channel to signal cleanup goroutine shutdown
 }
 
 // NewRateLimiter creates a new rate limiter
@@ -35,8 +35,8 @@ func NewRateLimiter(requestsPerSecond float64, burst int) *RateLimiter {
 		limiters:        make(map[string]*ipLimiter),
 		rate:            rate.Limit(requestsPerSecond),
 		burst:           burst,
-		maxSize:         10000,              // Max 10k unique IPs in cache
-		cleanupInterval: 5 * time.Minute,    // Cleanup every 5 minutes
+		maxSize:         10000,           // Max 10k unique IPs in cache
+		cleanupInterval: 5 * time.Minute, // Cleanup every 5 minutes
 		stopCh:          make(chan struct{}),
 	}
 

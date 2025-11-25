@@ -74,7 +74,7 @@ func TestRequestSizeLimits(t *testing.T) {
 		// (depending on where the limit is enforced)
 		acceptableStatuses := []int{
 			http.StatusRequestEntityTooLarge, // 413
-			http.StatusBadRequest,             // 400
+			http.StatusBadRequest,            // 400
 		}
 
 		statusAcceptable := false
@@ -103,7 +103,7 @@ func TestRequestSizeLimits(t *testing.T) {
 		// Should reject
 		acceptableStatuses := []int{
 			http.StatusRequestEntityTooLarge, // 413
-			http.StatusBadRequest,             // 400
+			http.StatusBadRequest,            // 400
 		}
 
 		statusAcceptable := false
@@ -133,7 +133,7 @@ func TestRequestSizeLimits(t *testing.T) {
 		// Should reject
 		acceptableStatuses := []int{
 			http.StatusRequestEntityTooLarge, // 413
-			http.StatusBadRequest,             // 400
+			http.StatusBadRequest,            // 400
 		}
 
 		statusAcceptable := false

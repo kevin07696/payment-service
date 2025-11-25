@@ -319,9 +319,9 @@ func Test_NewHTTPClient_CompressionSettings(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                   string
-		disableCompression     bool
-		expectedCompression    bool
+		name                string
+		disableCompression  bool
+		expectedCompression bool
 	}{
 		{"Compression enabled", false, false},
 		{"Compression disabled", true, true},

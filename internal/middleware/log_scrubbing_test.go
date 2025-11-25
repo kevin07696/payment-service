@@ -69,8 +69,8 @@ func TestScrubString(t *testing.T) {
 
 func TestScrubField(t *testing.T) {
 	tests := []struct {
-		name      string
-		fieldName string
+		name        string
+		fieldName   string
 		shouldScrub bool
 	}{
 		// Payment card fields

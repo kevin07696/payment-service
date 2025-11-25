@@ -562,10 +562,10 @@ func TestProcessTransaction_WithOperation(t *testing.T) {
 	adapter := newTestAdapter(t)
 
 	tests := []struct {
-		name              string
-		operation         ports.Operation
-		paymentMethod     ports.PaymentMethodType
-		expectedTranType  ports.TransactionType
+		name             string
+		operation        ports.Operation
+		paymentMethod    ports.PaymentMethodType
+		expectedTranType ports.TransactionType
 	}{
 		{
 			name:             "operation sale translates to correct type",

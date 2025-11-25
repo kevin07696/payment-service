@@ -16,12 +16,12 @@ func TestResolveMerchantID(t *testing.T) {
 	service := NewMerchantAuthorizationService(logger)
 
 	tests := []struct {
-		name               string
-		authInfo           *auth.AuthInfo
+		name                string
+		authInfo            *auth.AuthInfo
 		requestedMerchantID string
-		expectedMerchantID string
-		expectError        bool
-		errorContains      string
+		expectedMerchantID  string
+		expectError         bool
+		errorContains       string
 	}{
 		{
 			name: "no auth mode with requested merchant",

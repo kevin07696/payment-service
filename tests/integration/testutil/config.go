@@ -20,7 +20,7 @@ type Config struct {
 // LoadConfig loads test configuration from environment variables
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
-		ServiceURL:      getEnv("SERVICE_URL", "http://localhost:8080"),      // ConnectRPC server port
+		ServiceURL:      getEnv("SERVICE_URL", "http://localhost:8080"),       // ConnectRPC server port
 		CallbackBaseURL: getEnv("CALLBACK_BASE_URL", "http://localhost:8081"), // Browser Post callback URL
 		EPXMac:          getEnv("EPX_MAC_STAGING", ""),
 		EPXCustNbr:      getEnv("EPX_CUST_NBR", "9001"), // EPX sandbox defaults

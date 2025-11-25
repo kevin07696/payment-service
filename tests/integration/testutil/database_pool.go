@@ -36,7 +36,10 @@ var (
 //	db := testutil.GetDBPool(t)
 //	// Use db for queries - DO NOT call db.Close()
 //	// The pool is shared and will be cleaned up automatically
-func GetDBPool(t interface{ Helper(); Fatalf(format string, args ...interface{}) }) *sql.DB {
+func GetDBPool(t interface {
+	Helper()
+	Fatalf(format string, args ...interface{})
+}) *sql.DB {
 	t.Helper()
 
 	// Initialize pool exactly once using sync.Once
@@ -76,10 +79,10 @@ func initDBPool() (*sql.DB, error) {
 
 	// Configure connection pool for test environment
 	// These settings balance performance with resource usage
-	db.SetMaxOpenConns(25)        // Maximum connections (prevents overwhelming DB)
-	db.SetMaxIdleConns(10)        // Keep idle connections for reuse
-	db.SetConnMaxLifetime(0)      // No connection lifetime limit
-	db.SetConnMaxIdleTime(0)      // No idle timeout
+	db.SetMaxOpenConns(25)   // Maximum connections (prevents overwhelming DB)
+	db.SetMaxIdleConns(10)   // Keep idle connections for reuse
+	db.SetConnMaxLifetime(0) // No connection lifetime limit
+	db.SetConnMaxIdleTime(0) // No idle timeout
 
 	// Verify connection is working
 	if err := db.Ping(); err != nil {

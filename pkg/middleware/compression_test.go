@@ -304,7 +304,7 @@ func Test_GzipHandlerWithCustomConfig_ExcludedPaths(t *testing.T) {
 	wrappedHandler := handler(innerHandler)
 
 	tests := []struct {
-		path          string
+		path           string
 		shouldCompress bool
 	}{
 		{"/health", false},

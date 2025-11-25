@@ -28,7 +28,7 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 	t.Run("ExtractFrom_XForwardedFor_SingleIP", func(t *testing.T) {
 		// X-Forwarded-For with single IP should be used
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.RemoteAddr = "10.0.0.1:12345" // Proxy IP
+		req.RemoteAddr = "10.0.0.1:12345"                // Proxy IP
 		req.Header.Set("X-Forwarded-For", "203.0.113.1") // Real client IP
 
 		rec := httptest.NewRecorder()
@@ -41,7 +41,7 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 		successCount := 0
 		for i := 0; i < 25; i++ {
 			req := httptest.NewRequest("GET", "/test", nil)
-			req.RemoteAddr = "10.0.0.2:12345" // Different proxy IP
+			req.RemoteAddr = "10.0.0.2:12345"                // Different proxy IP
 			req.Header.Set("X-Forwarded-For", "203.0.113.1") // Same real client IP
 
 			rec := httptest.NewRecorder()
@@ -148,7 +148,7 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 
 		// Now attacker tries with different spoofed IP
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.RemoteAddr = "10.0.0.1:12345" // Same proxy
+		req.RemoteAddr = "10.0.0.1:12345"                  // Same proxy
 		req.Header.Set("X-Forwarded-For", "203.0.113.101") // Different spoofed IP
 
 		rec := httptest.NewRecorder()

@@ -352,10 +352,10 @@ func (h *ConnectHandler) StoreACHAccount(
 // Current schema only stores: last_four, card_brand, card_exp_*, bank_name, account_type
 //
 // Implementation plan:
-//   1. Add migration to add billing_* columns to customer_payment_methods table
-//   2. Update domain.PaymentMethod to include billing fields
-//   3. Update sqlc queries to support UPDATE of billing fields
-//   4. Implement this handler to call payment method service
+//  1. Add migration to add billing_* columns to customer_payment_methods table
+//  2. Update domain.PaymentMethod to include billing fields
+//  3. Update sqlc queries to support UPDATE of billing fields
+//  4. Implement this handler to call payment method service
 //
 // Use case: Allow customers to update billing address without re-tokenizing card
 func (h *ConnectHandler) UpdatePaymentMethod(

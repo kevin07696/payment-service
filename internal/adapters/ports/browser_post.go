@@ -22,8 +22,8 @@ type BrowserPostFormData struct {
 	IndustryType string // E = Ecommerce, RE = Retail
 
 	// Redirect URLs
-	RedirectURL         string // Success redirect URL
-	InvalidRedirectURL  string // Invalid/error redirect URL (optional, replaces DECLINE/ERROR)
+	RedirectURL        string // Success redirect URL
+	InvalidRedirectURL string // Invalid/error redirect URL (optional, replaces DECLINE/ERROR)
 
 	// Optional fields for display
 	MerchantName string            // Merchant display name

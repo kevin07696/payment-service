@@ -51,9 +51,9 @@ type CircuitBreakerConfig struct {
 // DefaultCircuitBreakerConfig returns sensible defaults
 func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
 	return CircuitBreakerConfig{
-		MaxFailures:         5,               // Open after 5 consecutive failures
+		MaxFailures:         5,                // Open after 5 consecutive failures
 		Timeout:             30 * time.Second, // Try again after 30 seconds
-		MaxRequestsHalfOpen: 1,               // Allow 1 test request in half-open
+		MaxRequestsHalfOpen: 1,                // Allow 1 test request in half-open
 	}
 }
 

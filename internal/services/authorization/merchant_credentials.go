@@ -23,7 +23,7 @@ type MerchantCredentials struct {
 // Falls back to direct queries for transactional operations
 type MerchantCredentialResolver struct {
 	cache         *merchantsvc.MerchantCredentialCache
-	queries       sqlc.Querier              // Fallback for transactions
+	queries       sqlc.Querier                      // Fallback for transactions
 	secretManager adapterports.SecretManagerAdapter // Fallback for transactions
 	logger        *zap.Logger
 }

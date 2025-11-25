@@ -23,14 +23,14 @@ import (
 
 // paymentService implements the PaymentService port
 type paymentService struct {
-	queries                   sqlc.Querier
-	txManager                 database.TransactionManager
-	serverPost                adapterports.ServerPostAdapter
-	secretManager             adapterports.SecretManagerAdapter
-	merchantResolver          *authorization.MerchantResolver
+	queries                    sqlc.Querier
+	txManager                  database.TransactionManager
+	serverPost                 adapterports.ServerPostAdapter
+	secretManager              adapterports.SecretManagerAdapter
+	merchantResolver           *authorization.MerchantResolver
 	merchantCredentialResolver *authorization.MerchantCredentialResolver
-	merchantAuthService       *authorization.MerchantAuthorizationService
-	logger                    *zap.Logger
+	merchantAuthService        *authorization.MerchantAuthorizationService
+	logger                     *zap.Logger
 }
 
 // NewPaymentService creates a new payment service
@@ -55,14 +55,14 @@ func NewPaymentService(
 	merchantAuthService := authorization.NewMerchantAuthorizationService(logger)
 
 	return &paymentService{
-		queries:                   queries,
-		txManager:                 txManager,
-		serverPost:                serverPost,
-		secretManager:             secretManager,
-		merchantResolver:          merchantResolver,
+		queries:                    queries,
+		txManager:                  txManager,
+		serverPost:                 serverPost,
+		secretManager:              secretManager,
+		merchantResolver:           merchantResolver,
 		merchantCredentialResolver: merchantCredentialResolver,
-		merchantAuthService:       merchantAuthService,
-		logger:                    logger,
+		merchantAuthService:        merchantAuthService,
+		logger:                     logger,
 	}
 }
 
@@ -341,8 +341,8 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		Amount:       centsToDecimalString(req.AmountCents),
 		PaymentType:  adapterports.PaymentMethodTypeCreditCard,
 		AuthGUID:     authGUID,
-		TranNbr:      epxTranNbr,    // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:    "AUTH",        // Transaction class: AUTH = authorization-only, requires capture
+		TranNbr:      epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:    "AUTH",     // Transaction class: AUTH = authorization-only, requires capture
 		CustomerID:   stringOrEmpty(req.CustomerID),
 		IndustryType: &industryType, // "E" for Ecommerce
 		// Don't send CardEntryMethod for BRIC-based AUTH transactions
@@ -668,11 +668,11 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		Operation:        adapterports.OperationCapture,
 		Amount:           centsToDecimalString(finalCaptureAmountCents),
 		PaymentType:      adapterports.PaymentMethodTypeCreditCard,
-		OriginalAuthGUID: authBRIC,       // Reference to AUTH transaction
-		TranNbr:          epxTranNbr,     // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:        "",             // No BATCH_ID for capture
+		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
+		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "",         // No BATCH_ID for capture
 		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
-		IndustryType:     &industryType,  // "E" for Ecommerce
+		IndustryType:     &industryType, // "E" for Ecommerce
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -932,11 +932,11 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		Operation:        adapterports.OperationVoid,
 		Amount:           centsToDecimalString(voidAmountCents),
 		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
-		OriginalAuthGUID: authBRIC,       // Reference to AUTH transaction
-		TranNbr:          epxTranNbr,     // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:        "VOID",         // EPX TRAN_GROUP classification
+		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
+		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "VOID",     // EPX TRAN_GROUP classification
 		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
-		IndustryType:     &industryType,  // "E" for Ecommerce
+		IndustryType:     &industryType, // "E" for Ecommerce
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -1200,11 +1200,11 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		Operation:        adapterports.OperationRefund,
 		Amount:           centsToDecimalString(finalRefundAmountCents),
 		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
-		OriginalAuthGUID: authBRIC,       // Reference to CAPTURE (or AUTH if SALE)
-		TranNbr:          epxTranNbr,     // EPX numeric TRAN_NBR (max 10 digits)
-		TranGroup:        "REFUND",       // EPX TRAN_GROUP classification
+		OriginalAuthGUID: authBRIC,   // Reference to CAPTURE (or AUTH if SALE)
+		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
+		TranGroup:        "REFUND",   // EPX TRAN_GROUP classification
 		CustomerID:       stringOrEmpty(domainTxsRefetch[0].CustomerID),
-		IndustryType:     &industryType,  // "E" for Ecommerce
+		IndustryType:     &industryType, // "E" for Ecommerce
 	}
 
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
@@ -1479,10 +1479,10 @@ func sqlcTransactionToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
 
 // PaymentTokenInfo contains resolved payment token information
 type PaymentTokenInfo struct {
-	Token            string                      // BRIC token (auth_guid)
-	PaymentMethodID  *uuid.UUID                  // Parsed payment method UUID (if using saved method)
+	Token             string                      // BRIC token (auth_guid)
+	PaymentMethodID   *uuid.UUID                  // Parsed payment method UUID (if using saved method)
 	PaymentMethodType domain.PaymentMethodType    // Type of payment method
-	PaymentMethod    *sqlc.CustomerPaymentMethod // Full payment method record (if needed)
+	PaymentMethod     *sqlc.CustomerPaymentMethod // Full payment method record (if needed)
 }
 
 // resolvePaymentToken resolves payment_method_id or payment_token from request
@@ -1501,10 +1501,10 @@ func (s *paymentService) resolvePaymentToken(ctx context.Context, paymentMethodI
 		}
 
 		info := &PaymentTokenInfo{
-			Token:            dbPM.Bric,
-			PaymentMethodID:  &pmID,
+			Token:             dbPM.Bric,
+			PaymentMethodID:   &pmID,
 			PaymentMethodType: domain.PaymentMethodType(dbPM.PaymentType),
-			PaymentMethod:    &dbPM,
+			PaymentMethod:     &dbPM,
 		}
 
 		// Optionally validate payment method can be used for amount
@@ -1532,10 +1532,10 @@ func (s *paymentService) resolvePaymentToken(ctx context.Context, paymentMethodI
 	if paymentToken != nil {
 		// Using one-time token
 		return &PaymentTokenInfo{
-			Token:            *paymentToken,
-			PaymentMethodID:  nil,
+			Token:             *paymentToken,
+			PaymentMethodID:   nil,
 			PaymentMethodType: domain.PaymentMethodTypeCreditCard, // Default for one-time tokens
-			PaymentMethod:    nil,
+			PaymentMethod:     nil,
 		}, nil
 	}
 

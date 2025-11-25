@@ -92,7 +92,7 @@ func TestTACReplayProtection(t *testing.T) {
 		acceptableStatuses := []int{
 			http.StatusBadRequest,          // 400
 			http.StatusUnprocessableEntity, // 422
-			http.StatusFound,                // 302 (redirect to error page)
+			http.StatusFound,               // 302 (redirect to error page)
 		}
 
 		statusAcceptable := false

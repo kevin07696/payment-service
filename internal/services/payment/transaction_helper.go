@@ -63,7 +63,7 @@ func (s *paymentService) CreatePendingTransaction(ctx context.Context, params Cr
 				Valid:  true,
 			},
 			AuthGuid:     converters.ToNullableText(nil), // Will be set after EPX response
-			AuthResp:     pgtype.Text{},       // Empty initially, updated after EPX
+			AuthResp:     pgtype.Text{},                  // Empty initially, updated after EPX
 			AuthCode:     converters.ToNullableText(nil),
 			AuthCardType: converters.ToNullableText(nil),
 			Metadata:     metadataJSON,
