@@ -180,9 +180,8 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Parse return URL to extract base URL (scheme + host)
-	// For example: https://abc123.ngrok.io/api/v1/payments/browser-post/callback -> https://abc123.ngrok.io
-	parsedURL, err := url.Parse(returnURL)
+	// Validate return_url format (we'll store it in USER_DATA_1 for final redirect)
+	_, err = url.Parse(returnURL)
 	if err != nil {
 		h.logger.Warn("Invalid return_url format",
 			zap.String("return_url", returnURL),
@@ -191,7 +190,8 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		http.Error(w, "invalid return_url format", http.StatusBadRequest)
 		return
 	}
-	callbackBaseURL := fmt.Sprintf("%s://%s", parsedURL.Scheme, parsedURL.Host)
+	// Use the configured callbackBaseURL (payment service URL) for EPX to redirect to
+	// The return_url is stored in USER_DATA_1 for final redirect after processing
 
 	// Fetch merchant credentials from database
 	merchant, err := h.dbAdapter.Queries().GetMerchantByID(r.Context(), merchantID)
@@ -230,10 +230,10 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 	epxTranNbr := util.UUIDToEPXTranNbr(transactionID)
 
 	// Build redirect URL with transaction_id and transaction_type as query parameters
-	// EPX will redirect to this URL with all query parameters preserved
-	// Use the callbackBaseURL extracted from return_url parameter (supports ngrok, staging, etc.)
+	// EPX will redirect to this URL (payment service) with all query parameters preserved
+	// Use h.callbackBaseURL (configured CALLBACK_BASE_URL env var) - NOT the return_url
 	redirectURL := fmt.Sprintf("%s/api/v1/payments/browser-post/callback?transaction_id=%s&merchant_id=%s&transaction_type=%s",
-		callbackBaseURL, transactionID.String(), merchantID.String(), transactionType)
+		h.callbackBaseURL, transactionID.String(), merchantID.String(), transactionType)
 
 	// Add customer_id to redirect URL if provided (needed for STORAGE to save payment method)
 	if customerID != "" {

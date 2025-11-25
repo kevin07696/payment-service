@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standardized database name to `payment_service` across all documentation and tests (was inconsistently using `payments`)
 - Removed hardcoded database URLs from test files - now require `TEST_DATABASE_URL` environment variable
 
+**Browser Post Callback Fix**
+- Fixed Browser Post `redirectURL` using frontend URL instead of payment service URL
+- EPX callback now correctly redirects to `CALLBACK_BASE_URL` (payment service)
+- `return_url` is now properly used only for final redirect after payment processing
+
 **CI/CD Pipeline Fixes**
 - Fixed unit test failures by adding CountServices mock to all ListServices tests
 - Fixed Go formatting issues across entire codebase (gofmt -w .)
