@@ -118,6 +118,7 @@ type BackgroundWorker struct {
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
 	shutdownCh chan struct{}
+	stopOnce   sync.Once
 }
 
 // NewBackgroundWorker creates a new background worker
@@ -154,28 +155,25 @@ func (bw *BackgroundWorker) Start(work func(ctx context.Context)) {
 }
 
 // Stop gracefully stops the background worker
+// Safe to call multiple times - only executes once
 func (bw *BackgroundWorker) Stop() {
-	select {
-	case <-bw.shutdownCh:
-		// Already stopped
-		return
-	default:
+	bw.stopOnce.Do(func() {
 		close(bw.shutdownCh)
-	}
 
-	bw.logger.Info("Stopping background worker",
-		zap.String("worker", bw.name),
-	)
+		bw.logger.Info("Stopping background worker",
+			zap.String("worker", bw.name),
+		)
 
-	// Cancel context to signal worker to stop
-	bw.cancel()
+		// Cancel context to signal worker to stop
+		bw.cancel()
 
-	// Wait for worker to finish
-	bw.wg.Wait()
+		// Wait for worker to finish
+		bw.wg.Wait()
 
-	bw.logger.Info("Background worker stopped successfully",
-		zap.String("worker", bw.name),
-	)
+		bw.logger.Info("Background worker stopped successfully",
+			zap.String("worker", bw.name),
+		)
+	})
 }
 
 // Shutdown waits for the worker to stop with timeout
