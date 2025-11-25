@@ -22,11 +22,11 @@ import (
 // Test case definition
 type adminOperationTest struct {
 	name          string
-	setupTxCount  int              // Number of transactions to create for setup
-	setupTxType   string           // Type of transactions to create (AUTH or SALE)
-	setupAmounts  []float64        // Amounts for each transaction
-	operation     string           // Operation to perform (bulk_capture, bulk_refund, partial_capture, partial_refund, void)
-	operationData map[string]interface{} // Additional data for the operation
+	setupTxCount  int                                                               // Number of transactions to create for setup
+	setupTxType   string                                                            // Type of transactions to create (AUTH or SALE)
+	setupAmounts  []float64                                                         // Amounts for each transaction
+	operation     string                                                            // Operation to perform (bulk_capture, bulk_refund, partial_capture, partial_refund, void)
+	operationData map[string]interface{}                                            // Additional data for the operation
 	verifyFunc    func(*testing.T, paymentv1connect.PaymentServiceClient, []string) // Verification function
 }
 

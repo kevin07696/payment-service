@@ -408,21 +408,21 @@ func TokenizeAndSaveACH(cfg *Config, client *Client, jwtToken, merchantID, custo
 
 	// Call StoreACHAccount RPC
 	requestBody := map[string]interface{}{
-		"merchant_id":          merchantID,
-		"customer_id":          customerID,
-		"account_number":       achAccount.AccountNumber,
-		"routing_number":       achAccount.RoutingNumber,
-		"account_holder_name":  "Test Customer",
-		"account_type":         accountTypeValue,
-		"std_entry_class":      3, // WEB (internet-initiated)
-		"first_name":           "Test",
-		"last_name":            "Customer",
-		"address":              "123 Test St",
-		"city":                 "Test City",
-		"state":                "CA",
-		"zip_code":             "12345",
-		"is_default":           false,
-		"idempotency_key":      uuid.New().String(),
+		"merchant_id":         merchantID,
+		"customer_id":         customerID,
+		"account_number":      achAccount.AccountNumber,
+		"routing_number":      achAccount.RoutingNumber,
+		"account_holder_name": "Test Customer",
+		"account_type":        accountTypeValue,
+		"std_entry_class":     3, // WEB (internet-initiated)
+		"first_name":          "Test",
+		"last_name":           "Customer",
+		"address":             "123 Test St",
+		"city":                "Test City",
+		"state":               "CA",
+		"zip_code":            "12345",
+		"is_default":          false,
+		"idempotency_key":     uuid.New().String(),
 	}
 
 	resp, err := connectRPCClient.DoConnectRPC("payment_method.v1.PaymentMethodService", "StoreACHAccount", requestBody)
