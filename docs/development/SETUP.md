@@ -172,7 +172,7 @@ docker run -d \
 # Or use existing PostgreSQL installation
 
 # 5. Run database migrations
-export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable"
 goose -dir internal/db/migrations postgres "$DATABASE_URL" up
 
 # 6. Copy environment template
@@ -196,7 +196,7 @@ Create a `.env` file in the project root with your EPX credentials:
 # =============================================================================
 # Database Configuration
 # =============================================================================
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/payments?sslmode=disable
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable
 
 # =============================================================================
 # EPX Server Post Credentials (UAT/Sandbox)
@@ -264,7 +264,7 @@ For production deployment (Google Cloud Run, AWS ECS, Kubernetes, etc.):
 
 ```bash
 # Database (use managed PostgreSQL)
-DATABASE_URL=postgres://user:pass@production-db-host:5432/payments?sslmode=require
+DATABASE_URL=postgres://user:pass@production-db-host:5432/payment_service?sslmode=require
 
 # EPX Production URLs
 EPX_API_URL=https://api.epx.com
@@ -692,7 +692,7 @@ Error: goose: no such table: goose_db_version
 **Solution:**
 ```bash
 # Re-run migrations
-export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable"
 goose -dir internal/db/migrations postgres "$DATABASE_URL" up
 
 # Or rebuild Docker containers

@@ -413,7 +413,7 @@ See guides:
 **Manual (if needed):**
 ```bash
 # Using goose CLI
-export DATABASE_URL="postgres://user:pass@prod-db:5432/payments?sslmode=require"
+export DATABASE_URL="postgres://user:pass@prod-db:5432/payment_service?sslmode=require"
 goose -dir internal/db/migrations postgres "$DATABASE_URL" up
 ```
 

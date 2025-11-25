@@ -28,7 +28,7 @@ nano .env
 
 ```bash
 # Database (Docker will create this automatically)
-DATABASE_URL=postgres://postgres:postgres@postgres:5432/payments?sslmode=disable
+DATABASE_URL=postgres://postgres:postgres@postgres:5432/payment_service?sslmode=disable
 
 # EPX Sandbox Credentials (replace with your own)
 EPX_CUST_NBR=9001

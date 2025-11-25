@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Configuration Fixes**
 - Fixed `.env.example` CRON_SECRET being 31 characters (now 32) - was causing startup failures when copied directly
+- Fixed all `.env.*.example` files to have CRON_SECRET >= 32 characters
+- Standardized database name to `payment_service` across all documentation and tests (was inconsistently using `payments`)
+- Removed hardcoded database URLs from test files - now require `TEST_DATABASE_URL` environment variable
 
 **CI/CD Pipeline Fixes**
 - Fixed unit test failures by adding CountServices mock to all ListServices tests

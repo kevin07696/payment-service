@@ -5,6 +5,7 @@ package tests
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -25,7 +26,10 @@ func TestAuthenticationFlow(t *testing.T) {
 
 	// Setup database connection
 	ctx := context.Background()
-	dbURL := "postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Fatal("TEST_DATABASE_URL environment variable is required")
+	}
 	pool, err := pgxpool.New(ctx, dbURL)
 	require.NoError(t, err)
 	defer pool.Close()
@@ -111,7 +115,10 @@ func TestAuthInterceptor(t *testing.T) {
 
 	// Setup database connection
 	ctx := context.Background()
-	dbURL := "postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Fatal("TEST_DATABASE_URL environment variable is required")
+	}
 	pool, err := pgxpool.New(ctx, dbURL)
 	require.NoError(t, err)
 	defer pool.Close()

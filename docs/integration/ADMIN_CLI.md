@@ -432,7 +432,7 @@ Required for admin CLI:
 
 ```bash
 # Database connection
-export DATABASE_URL="postgres://user:pass@localhost:5432/payments?sslmode=require"
+export DATABASE_URL="postgres://user:pass@localhost:5432/payment_service?sslmode=require"
 
 # Secret manager configuration
 export SECRET_MANAGER=gcp                    # or "aws", "vault", "local"

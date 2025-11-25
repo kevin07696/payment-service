@@ -133,7 +133,7 @@ EPX_KEY_EXCHANGE_URL=https://services.epxuap.com/keyexchange/
 # =============================================================================
 # Database
 # =============================================================================
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/payments?sslmode=disable
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable
 
 # =============================================================================
 # Server Configuration

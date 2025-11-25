@@ -27,7 +27,7 @@ func TestAdminCLI_ServiceCreation(t *testing.T) {
 
 	// Setup database
 	ctx := context.Background()
-	dbURL := getTestDatabaseURL()
+	dbURL := getTestDatabaseURL(t)
 	pool, err := pgxpool.New(ctx, dbURL)
 	require.NoError(t, err)
 	defer pool.Close()
@@ -87,7 +87,7 @@ func TestAdminCLI_MerchantCreation(t *testing.T) {
 
 	// Setup database
 	ctx := context.Background()
-	dbURL := getTestDatabaseURL()
+	dbURL := getTestDatabaseURL(t)
 	pool, err := pgxpool.New(ctx, dbURL)
 	require.NoError(t, err)
 	defer pool.Close()
@@ -151,7 +151,7 @@ func TestAdminCLI_GrantAccess(t *testing.T) {
 
 	// Setup database
 	ctx := context.Background()
-	dbURL := getTestDatabaseURL()
+	dbURL := getTestDatabaseURL(t)
 	pool, err := pgxpool.New(ctx, dbURL)
 	require.NoError(t, err)
 	defer pool.Close()
@@ -249,7 +249,7 @@ func TestAdminCLI_ArchitectureVerification(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	dbURL := getTestDatabaseURL()
+	dbURL := getTestDatabaseURL(t)
 	pool, err := pgxpool.New(ctx, dbURL)
 	require.NoError(t, err)
 	defer pool.Close()
@@ -320,10 +320,10 @@ func TestAdminCLI_ArchitectureVerification(t *testing.T) {
 	})
 }
 
-func getTestDatabaseURL() string {
+func getTestDatabaseURL(t *testing.T) string {
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"
+		t.Fatal("TEST_DATABASE_URL environment variable is required")
 	}
 	return dbURL
 }

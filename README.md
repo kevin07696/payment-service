@@ -223,7 +223,7 @@ Required environment variables (`.env` file):
 
 ```bash
 # Database
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/payments?sslmode=disable
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable
 
 # EPX Credentials (from EPX merchant account)
 EPX_CUST_NBR=9001
