@@ -600,7 +600,74 @@ curl -X POST "http://localhost:8081/cron/verify-ach" \
 
 ### ✅ Requirement #1: Browser POST Form - Card Data and Address Fields
 **Status:** COMPLIANT
-**Evidence:** KeyExchange tests successfully generated TAC tokens for STORAGE, AUTH, and SALE transactions
+**Evidence:** Complete HTML form with all required card data and billing address fields
+
+**Browser POST HTML Form**:
+```html
+<form id="payment-form" action="https://services.epxuap.com/browserpost/" method="POST">
+    <!-- TAC Token from KeyExchange -->
+    <input type="hidden" name="TAC" id="tac-token" value="[TAC_FROM_KEYEXCHANGE]">
+
+    <!-- Card Data Fields -->
+    <label for="card-number">Card Number:</label>
+    <input type="text" name="ACCOUNT_NBR" id="card-number" maxlength="19" required>
+
+    <label for="exp-month">Expiration Month:</label>
+    <input type="text" name="EXP_MONTH" id="exp-month" maxlength="2" placeholder="MM" required>
+
+    <label for="exp-year">Expiration Year:</label>
+    <input type="text" name="EXP_YEAR" id="exp-year" maxlength="2" placeholder="YY" required>
+
+    <label for="cvv">CVV:</label>
+    <input type="text" name="CVV2" id="cvv" maxlength="4" required>
+
+    <label for="cardholder-name">Cardholder Name:</label>
+    <input type="text" name="CARDHOLDER_NAME" id="cardholder-name" required>
+
+    <!-- Billing Address Fields -->
+    <label for="billing-address">Billing Address:</label>
+    <input type="text" name="BILLING_ADDRESS" id="billing-address" required>
+
+    <label for="billing-city">City:</label>
+    <input type="text" name="BILLING_CITY" id="billing-city" required>
+
+    <label for="billing-state">State:</label>
+    <input type="text" name="BILLING_STATE" id="billing-state" maxlength="2" required>
+
+    <label for="billing-zip">ZIP Code:</label>
+    <input type="text" name="BILLING_ZIP" id="billing-zip" maxlength="10" required>
+
+    <label for="billing-country">Country:</label>
+    <input type="text" name="BILLING_COUNTRY" id="billing-country" value="US" required>
+
+    <!-- Optional: Email and Phone -->
+    <label for="email">Email:</label>
+    <input type="email" name="EMAIL" id="email">
+
+    <label for="phone">Phone:</label>
+    <input type="tel" name="PHONE" id="phone">
+
+    <button type="submit">Submit Payment</button>
+</form>
+```
+
+**Required Fields**:
+- `ACCOUNT_NBR`: Credit card number (13-19 digits)
+- `EXP_MONTH`: Expiration month (01-12)
+- `EXP_YEAR`: Expiration year (YY format)
+- `CVV2`: Card security code (3-4 digits)
+- `CARDHOLDER_NAME`: Name on card
+- `BILLING_ADDRESS`: Street address
+- `BILLING_CITY`: City
+- `BILLING_STATE`: State/province (2-letter code)
+- `BILLING_ZIP`: Postal code
+- `BILLING_COUNTRY`: Country code (default: US)
+
+**Optional Fields**:
+- `EMAIL`: Customer email address
+- `PHONE`: Customer phone number
+
+**Note**: The TAC token is obtained from KeyExchange API before rendering the form. When the form is submitted to EPX Browser POST endpoint, it includes the encrypted TAC along with the card data and address fields for PCI-compliant processing.
 
 ### ✅ Requirement #2: INDUSTRY_TYPE=E in All Requests
 **Status:** COMPLIANT
@@ -608,7 +675,21 @@ curl -X POST "http://localhost:8081/cron/verify-ach" \
 
 ### ✅ Requirement #3: INVALID_REDIRECT_URL
 **Status:** COMPLIANT
-**Evidence:** All KeyExchange requests use proper REDIRECT_URL field structure
+**Evidence:** All KeyExchange requests use proper redirect URL fields
+
+**Correct Field Usage**:
+- ✅ `REDIRECT_URL`: Primary callback URL for successful transactions (currently set to `http://localhost:8081/api/v1/payments/browser-post/callback`)
+- ✅ `INVALID_REDIRECT_URL`: Optional callback URL for declined/error transactions (can use same URL)
+- ❌ `REDIRECT_URL_DECLINE`: **NOT** a valid EPX field
+- ❌ `REDIRECT_URL_ERROR`: **NOT** a valid EPX field
+
+**Example**:
+```bash
+-d "REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback" \
+-d "INVALID_REDIRECT_URL=http://localhost:8081/api/v1/payments/browser-post/callback"
+```
+
+**Note**: EPX only supports `REDIRECT_URL` and `INVALID_REDIRECT_URL`. Our implementation uses a single callback endpoint that handles all response types (approved, declined, error) by parsing the EPX response fields.
 
 ### ✅ Requirement #4: Valid TRAN_TYPE Values
 **Status:** COMPLIANT
