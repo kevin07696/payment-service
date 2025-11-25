@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/kevin07696/payment-service/tests/integration/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,8 @@ import (
 // properly validates retention parameters to prevent malicious deletion
 // Security Risk: HIGH - Prevents attacker with cron secret from deleting all audit logs
 func TestAuditCleanupValidation(t *testing.T) {
-	baseURL := "http://localhost:8081"
+	cfg, _ := testutil.Setup(t)
+	baseURL := cfg.CallbackBaseURL
 	cronSecret := "test-cron-secret-at-least-32-characters-long" // Must match CRON_SECRET in env
 
 	client := &http.Client{}
@@ -210,7 +212,8 @@ func TestAuditCleanupValidation(t *testing.T) {
 
 // TestAuditCleanupStats verifies the stats endpoint returns proper information
 func TestAuditCleanupStats(t *testing.T) {
-	baseURL := "http://localhost:8081"
+	cfg, _ := testutil.Setup(t)
+	baseURL := cfg.CallbackBaseURL
 	cronSecret := "test-cron-secret-at-least-32-characters-long"
 
 	client := &http.Client{}
@@ -241,7 +244,8 @@ func TestAuditCleanupStats(t *testing.T) {
 
 // TestAuditCleanupHealth verifies the health check endpoint
 func TestAuditCleanupHealth(t *testing.T) {
-	baseURL := "http://localhost:8081"
+	cfg, _ := testutil.Setup(t)
+	baseURL := cfg.CallbackBaseURL
 
 	client := &http.Client{}
 

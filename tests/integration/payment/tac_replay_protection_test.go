@@ -34,7 +34,7 @@ func TestTACReplayProtection(t *testing.T) {
 	t.Run("Replay_Attack_Detected", func(t *testing.T) {
 		// Step 1: Create SALE transaction via Browser Post (triggers EPX callback)
 		t.Log("[STEP 1] Creating SALE transaction via Browser Post...")
-		saleResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "75.00", "http://localhost:8081", jwtToken)
+		saleResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "75.00", cfg.CallbackBaseURL, jwtToken)
 		t.Logf("[CREATED] TX=%s GROUP=%s TRAN_NBR=%s", saleResult.TransactionID, saleResult.GroupID, saleResult.TranNbr)
 
 		// Set JWT auth for subsequent requests
@@ -63,7 +63,8 @@ func TestTACReplayProtection(t *testing.T) {
 		t.Log("[STEP 3] Attempting TAC replay attack...")
 
 		// Construct callback URL with same TRAN_NBR
-		callbackURL := fmt.Sprintf("http://localhost:8081/api/v1/payments/browser-post/callback?TRAN_NBR=%s&AUTH_RESP=A&AUTH_CODE=%s",
+		callbackURL := fmt.Sprintf("%s/api/v1/payments/browser-post/callback?TRAN_NBR=%s&AUTH_RESP=A&AUTH_CODE=%s",
+			cfg.CallbackBaseURL,
 			url.QueryEscape(saleResult.TranNbr),
 			url.QueryEscape("TEST123"),
 		)

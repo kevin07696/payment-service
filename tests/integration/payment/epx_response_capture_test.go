@@ -34,7 +34,7 @@ func TestEPX_CaptureAuthRespTextValues(t *testing.T) {
 	// Setup: Create payment method via Browser Post STORAGE for all tests
 	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	fmt.Println("\n" + strings.Repeat("=", 80))
 	fmt.Println("EPX SERVER POST API - AUTH_RESP_TEXT VALUES FOR CERTIFICATION")

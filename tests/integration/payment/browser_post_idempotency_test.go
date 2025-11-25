@@ -31,7 +31,7 @@ func TestBrowserPostIdempotency(t *testing.T) {
 
 	// Create SALE transaction via Browser Post
 	t.Log("[SETUP] Creating SALE transaction...")
-	saleResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "50.00", "http://localhost:8081", jwtToken)
+	saleResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "50.00", cfg.CallbackBaseURL, jwtToken)
 	t.Logf("[CREATED] TX=%s GROUP=%s", saleResult.TransactionID, saleResult.GroupID)
 
 	// Set JWT auth for subsequent requests

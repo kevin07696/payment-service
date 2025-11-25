@@ -67,7 +67,7 @@ func TestBrowserPost_Workflows(t *testing.T) {
 			jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, merchantID, time.Hour)
 			require.NoError(t, err)
 
-			callbackBaseURL := "http://localhost:8081"
+			callbackBaseURL := cfg.CallbackBaseURL
 			t.Logf("📡 Using callback URL: %s", callbackBaseURL)
 
 			// Step 1: Get BRIC via Browser Post based on transaction type
@@ -265,7 +265,7 @@ func TestBrowserPost_PartialCapture(t *testing.T) {
 	jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, "00000000-0000-0000-0000-000000000001", time.Hour)
 	require.NoError(t, err)
 
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Step 1: Create AUTH for $150
 	t.Log("[SETUP] Creating AUTH transaction for $150.00...")
@@ -328,7 +328,7 @@ func TestBrowserPost_SaleWithToken(t *testing.T) {
 
 	// Process SALE via Browser Post (which handles tokenization automatically)
 	t.Log("[TEST] Processing SALE with automated tokenization...")
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 	saleResult := testutil.GetRealBRICForSaleAutomated(t, client, cfg, "29.99", callbackBaseURL, jwtToken)
 
 	assert.NotEmpty(t, saleResult.TransactionID, "SALE should return a transaction ID")
@@ -349,7 +349,7 @@ func TestBrowserPost_MultiplePartialRefunds(t *testing.T) {
 	jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, "00000000-0000-0000-0000-000000000001", time.Hour)
 	require.NoError(t, err)
 
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Step 1: Create SALE for $200
 	t.Log("[SETUP] Creating SALE transaction for $200.00...")
@@ -414,7 +414,7 @@ func TestBrowserPost_ConcurrentOperations(t *testing.T) {
 	jwtToken, err := testutil.GenerateJWT(services[0].PrivateKeyPEM, services[0].ServiceID, "00000000-0000-0000-0000-000000000001", time.Hour)
 	require.NoError(t, err)
 
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Step 1: Create AUTH transaction
 	t.Log("[SETUP] Creating AUTH transaction for $100.00...")

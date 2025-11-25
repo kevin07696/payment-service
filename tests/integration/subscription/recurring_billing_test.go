@@ -15,7 +15,7 @@ import (
 // setupPaymentMethod is a helper to create a payment method via Browser Post STORAGE for recurring billing tests
 func setupPaymentMethod(t *testing.T, cfg *testutil.Config, client *testutil.Client, merchantID, customerID string) string {
 	t.Helper()
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Load test service credentials and generate JWT
 	services, err := testutil.LoadTestServices()
@@ -165,7 +165,7 @@ func TestSubscription_FailedRecurringBilling(t *testing.T) {
 	// EPX triggers declines based on amount, not card number
 	// We'll use a standard test card and trigger decline with a specific amount in recurring billing
 	declineCard := testutil.TestVisaCard
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
 		t, cfg, client, jwtToken, merchantID, customerID, declineCard, callbackBaseURL,
 	)

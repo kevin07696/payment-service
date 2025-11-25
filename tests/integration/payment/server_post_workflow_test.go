@@ -33,7 +33,7 @@ func TestServerPost_AuthorizeWithStoredCard(t *testing.T) {
 	// Setup: Create payment method via Browser Post STORAGE
 	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
 		t, cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard, callbackBaseURL,
@@ -87,7 +87,7 @@ func TestServerPost_SaleWithStoredCard(t *testing.T) {
 	// Setup: Create payment method via Browser Post STORAGE
 	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
 		t, cfg, testClient, jwtToken, merchantID, customerID, testutil.TestMastercardCard, callbackBaseURL,
@@ -141,7 +141,7 @@ func TestServerPost_CaptureWithFinancialBRIC(t *testing.T) {
 	// Setup: Create payment method and authorize
 	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
 		t, cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard, callbackBaseURL,
@@ -203,7 +203,7 @@ func TestServerPost_VoidWithFinancialBRIC(t *testing.T) {
 	// Setup: Create payment method and authorize
 	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
 		t, cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard, callbackBaseURL,
@@ -263,7 +263,7 @@ func TestServerPost_RefundWithFinancialBRIC(t *testing.T) {
 	// Setup: Create payment method and process sale
 	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
 		t, cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard, callbackBaseURL,
@@ -326,7 +326,7 @@ func TestServerPost_ConcurrentOperations(t *testing.T) {
 	// Setup: Create payment method and authorize
 	testClient := &testutil.Client{BaseURL: cfg.ServiceURL, HTTPClient: httpClient, Headers: make(map[string]string)}
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
 		t, cfg, testClient, jwtToken, merchantID, customerID, testutil.TestVisaCard, callbackBaseURL,

@@ -24,10 +24,10 @@ func TestGetMerchant_FromSeedData(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
-	testutil.Setup(t) // Seed test merchant
+	cfg, _ := testutil.Setup(t) // Seed test merchant
 
 	// Health endpoint is on HTTP server (port 8081), not ConnectRPC server (port 8080)
-	httpClient := testutil.NewClient("http://localhost:8081")
+	httpClient := testutil.NewClient(cfg.CallbackBaseURL)
 
 	resp, err := httpClient.Do("GET", "/cron/health", nil)
 	require.NoError(t, err)

@@ -24,7 +24,7 @@ func TestStorePaymentMethod_CreditCard(t *testing.T) {
 
 	// Generate JWT token for authentication
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Tokenize and save card using Browser Post STORAGE
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
@@ -56,7 +56,7 @@ func TestGetPaymentMethod(t *testing.T) {
 
 	// Generate JWT and store a payment method using Browser Post STORAGE
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
 		t,
@@ -84,7 +84,7 @@ func TestListPaymentMethods(t *testing.T) {
 
 	// Generate JWT for authentication
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Store multiple payment methods using Browser Post STORAGE
 	_, err := testutil.TokenizeAndSaveCardViaBrowserPost(t, cfg, client, jwtToken, merchantID, customerID, testutil.TestVisaCard, callbackBaseURL)
@@ -110,7 +110,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 
 	// Generate JWT and store a payment method
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	paymentMethodID, err := testutil.TokenizeAndSaveCardViaBrowserPost(
 		t,
@@ -138,7 +138,7 @@ func TestStoreMultipleCardsForCustomer(t *testing.T) {
 
 	// Generate JWT for authentication
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Store Visa using Browser Post STORAGE
 	visaID, err := testutil.TokenizeAndSaveCardViaBrowserPost(t, cfg, client, jwtToken, merchantID, customerID, testutil.TestVisaCard, callbackBaseURL)

@@ -144,7 +144,8 @@ jobs:
   #
       - name: Run integration tests
         env:
-          SERVICE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}
+          SERVICE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:8080
+          CALLBACK_BASE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:8081
           EPX_MAC_STAGING: ${{ secrets.EPX_MAC_STAGING }}
           EPX_CUST_NBR: ${{ secrets.EPX_CUST_NBR }}
           EPX_MERCH_NBR: ${{ secrets.EPX_MERCH_NBR }}
@@ -152,6 +153,8 @@ jobs:
           EPX_TERMINAL_NBR: ${{ secrets.EPX_TERMINAL_NBR }}
         run: |
           echo "🧪 Running integration tests against deployed service..."
+          echo "SERVICE_URL: $SERVICE_URL"
+          echo "CALLBACK_BASE_URL: $CALLBACK_BASE_URL"
           go test ./tests/integration/... -v -tags=integration -timeout=15m
   #
       - name: Integration test results

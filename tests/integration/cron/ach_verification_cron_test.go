@@ -22,7 +22,7 @@ func TestACHVerificationCron_Basic(t *testing.T) {
 	db := testutil.GetDB(t)
 
 	// Create separate client for cron HTTP endpoints (port 8081)
-	cronClient := testutil.NewClient("http://localhost:8081")
+	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
 
 	// Create 3 pending ACH accounts with backdated timestamps (4 days ago)
 	customerID1 := "20000000-0000-0000-0000-000000000001"
@@ -130,7 +130,7 @@ func TestACHVerificationCron_VerificationDays(t *testing.T) {
 	db := testutil.GetDB(t)
 
 	// Create separate client for cron HTTP endpoints (port 8081)
-	cronClient := testutil.NewClient("http://localhost:8081")
+	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
 
 	// Create 2 ACH accounts with different ages
 	customerID1 := "20000000-0000-0000-0000-000000000004" // 5 days old
@@ -207,7 +207,7 @@ func TestACHVerificationCron_BatchSize(t *testing.T) {
 	db := testutil.GetDB(t)
 
 	// Create separate client for cron HTTP endpoints (port 8081)
-	cronClient := testutil.NewClient("http://localhost:8081")
+	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
 
 	// Create 3 pending ACH accounts
 	customerIDs := []string{
@@ -282,7 +282,7 @@ func TestACHVerificationCron_Authentication(t *testing.T) {
 	_, _ = testutil.Setup(t)
 
 	// Create separate client for cron HTTP endpoints (port 8081)
-	cronClient := testutil.NewClient("http://localhost:8081")
+	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
 
 	// Try WITHOUT authentication
 	cronClient.ClearHeaders()
@@ -302,7 +302,7 @@ func TestACHVerificationCron_NoEligibleAccounts(t *testing.T) {
 	_, _ = testutil.Setup(t)
 
 	// Create separate client for cron HTTP endpoints (port 8081)
-	cronClient := testutil.NewClient("http://localhost:8081")
+	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
 
 	// Call cron when no accounts are eligible for verification
 	cronClient.SetHeader("X-Cron-Secret", "change-me-in-production")
@@ -337,7 +337,7 @@ func TestACHVerificationCron_InvalidParameters(t *testing.T) {
 	_, _ = testutil.Setup(t)
 
 	// Create separate client for cron HTTP endpoints (port 8081)
-	cronClient := testutil.NewClient("http://localhost:8081")
+	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
 	cronClient.SetHeader("X-Cron-Secret", "change-me-in-production")
 
 	testCases := []struct {

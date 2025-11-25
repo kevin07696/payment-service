@@ -24,7 +24,7 @@ func TestIntegration_ServerPost_Refund_IdempotencySameUUID(t *testing.T) {
 	// Generate JWT for authentication
 	merchantID := "00000000-0000-0000-0000-000000000001"
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Step 1: Create a SALE via Browser Post to get a BRIC
 	t.Log("Step 1: Creating SALE via Browser Post...")
@@ -105,7 +105,7 @@ func TestIntegration_ServerPost_Void_IdempotencySameUUID(t *testing.T) {
 	// Generate JWT for authentication
 	merchantID := "00000000-0000-0000-0000-000000000001"
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Step 1: Create an AUTH via Browser Post
 	t.Log("Step 1: Creating AUTH via Browser Post...")
@@ -176,7 +176,7 @@ func TestIntegration_ServerPost_Capture_IdempotencySameUUID(t *testing.T) {
 	// Generate JWT for authentication
 	merchantID := "00000000-0000-0000-0000-000000000001"
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Step 1: Create an AUTH via Browser Post
 	t.Log("Step 1: Creating AUTH via Browser Post...")
@@ -249,7 +249,7 @@ func TestIntegration_ServerPost_Refund_IdempotencyConcurrent(t *testing.T) {
 	// Generate JWT for authentication
 	merchantID := "00000000-0000-0000-0000-000000000001"
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Step 1: Create a SALE via Browser Post
 	t.Log("Step 1: Creating SALE via Browser Post...")
@@ -364,7 +364,7 @@ func TestIntegration_ServerPost_Refund_DifferentUUIDs(t *testing.T) {
 	// Generate JWT for authentication
 	merchantID := "00000000-0000-0000-0000-000000000001"
 	jwtToken := generateJWTToken(t, merchantID)
-	callbackBaseURL := "http://localhost:8081"
+	callbackBaseURL := cfg.CallbackBaseURL
 
 	// Step 1: Create a SALE via Browser Post
 	t.Log("Step 1: Creating SALE via Browser Post...")

@@ -58,7 +58,7 @@ func TestEPXDeclineCodeHandling(t *testing.T) {
 			// Create SALE with specified card and amount
 			t.Logf("[SETUP] Creating SALE card=%s amount=$%s", tt.cardDetails.Number, tt.amount)
 			saleResult := testutil.GetRealBRICForSaleAutomatedWithCard(
-				t, client, cfg, tt.amount, "http://localhost:8081", tt.cardDetails, jwtToken)
+				t, client, cfg, tt.amount, cfg.CallbackBaseURL, tt.cardDetails, jwtToken)
 			t.Logf("[CREATED] TX=%s GROUP=%s", saleResult.TransactionID, saleResult.GroupID)
 			time.Sleep(2 * time.Second)
 
