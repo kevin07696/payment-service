@@ -477,6 +477,8 @@ func TestListServices_Success(t *testing.T) {
 		return params.LimitVal == 10 && params.OffsetVal == 0
 	})).Return(services, nil)
 
+	mockQuerier.On("CountServices", ctx, mock.Anything).Return(int64(2), nil)
+
 	resp, err := handler.ListServices(ctx, req)
 
 	require.NoError(t, err)
