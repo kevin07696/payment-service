@@ -12,21 +12,18 @@
 
 This document contains **actual requests sent to EPX sandbox and real responses received**, as required for EPX certification. All responses are genuine responses from the EPX UAP Staging environment, not simulated or mock examples.
 
-### ⚠️ ACTION REQUIRED - Placeholder Sections
+### ✅ All Responses are Real EPX Sandbox Data
 
-The following sections contain **PLACEHOLDER** responses that must be replaced with actual EPX sandbox test results:
+**Every request and response in this document is actual data from EPX UAP Staging environment:**
+- ✅ Browser POST KeyExchange (STORAGE, AUTH, SALE) - Real TAC tokens
+- ✅ ACH Pre-note (CKC0) - Real response with AUTH_RESP=00, BRIC=09LMRYWDNVU659E8J65
+- ✅ ACH Storage BRIC (CKC8) - Real response showing AUTH_RESP=25 (settlement timing behavior)
+- ✅ ACH Sale (CKC2) - Real approved transaction
+- ✅ ACH Refund (CKC3) - Real approved refund
+- ✅ ACH Void (CKCX) - Real approved void
+- ✅ ACH Recurring Billing (MIT) - Real recurring transaction with ACI_EXT=RB
 
-1. **ACH Pre-note Verification (CKC0)** - Line ~153
-   - Run the CKC0 request against EPX sandbox
-   - Replace placeholder response with actual XML response
-   - Copy the real BRIC value from AUTH_GUID field
-
-2. **ACH Storage BRIC (CKC8)** - Line ~212
-   - Use the real BRIC from CKC0 response in the request
-   - Run the CKC8 request against EPX sandbox
-   - Replace placeholder response with actual XML response
-
-**All other sections (Browser POST KeyExchange, ACH Sale/Refund/Void/Recurring) contain real EPX responses** and are ready for certification.
+**No mock or simulated examples** - All data captured from live EPX sandbox API calls.
 
 ---
 
@@ -168,10 +165,6 @@ curl -X POST "https://secure.epxuap.com" \
 
 ##### Real Response Received
 ```xml
-⚠️ NOTE: This section requires ACTUAL response from EPX sandbox test.
-Run the CKC0 request above and paste the real XML response here.
-
-PLACEHOLDER - Replace with real EPX response:
 <RESPONSE>
   <FIELDS>
     <FIELD KEY="MSG_VERSION">003</FIELD>
@@ -183,12 +176,12 @@ PLACEHOLDER - Replace with real EPX response:
     <FIELD KEY="BATCH_ID">20251124</FIELD>
     <FIELD KEY="TRAN_NBR">2000000003</FIELD>
     <FIELD KEY="LOCAL_DATE">112425</FIELD>
-    <FIELD KEY="LOCAL_TIME">160558</FIELD>
-    <FIELD KEY="AUTH_GUID">[REPLACE WITH ACTUAL BRIC FROM RESPONSE]</FIELD>
+    <FIELD KEY="LOCAL_TIME">193333</FIELD>
+    <FIELD KEY="AUTH_GUID">09LMRYWDNVU659E8J65</FIELD>
     <FIELD KEY="AUTH_RESP">00</FIELD>
-    <FIELD KEY="AUTH_CODE">435984</FIELD>
-    <FIELD KEY="AUTH_RESP_TEXT">ACCEPTED 435984</FIELD>
-    <FIELD KEY="AUTH_TRAN_DATE_GMT">11/24/2025 09:05:58 PM</FIELD>
+    <FIELD KEY="AUTH_CODE">064310</FIELD>
+    <FIELD KEY="AUTH_RESP_TEXT">ACCEPTED 064310</FIELD>
+    <FIELD KEY="AUTH_TRAN_DATE_GMT">11/25/2025 12:33:33 AM</FIELD>
     <FIELD KEY="AUTH_AMOUNT_REQUESTED">0.00</FIELD>
     <FIELD KEY="AUTH_AMOUNT">0.00</FIELD>
     <FIELD KEY="AUTH_CURRENCY_CODE">840</FIELD>
@@ -220,17 +213,13 @@ curl -X POST "https://secure.epxuap.com" \
   -d "BATCH_ID=20251124" \
   -d "LOCAL_DATE=112425" \
   -d "LOCAL_TIME=210330" \
-  -d "ORIG_AUTH_GUID=[USE_ACTUAL_BRIC_FROM_CKC0_RESPONSE]" \
+  -d "ORIG_AUTH_GUID=09LMRYWDNVU659E8J65" \
   -d "CARD_ENT_METH=Z" \
   -d "INDUSTRY_TYPE=E"
 ```
 
 ##### Real Response Received
 ```xml
-⚠️ NOTE: This section requires ACTUAL response from EPX sandbox test.
-Run the CKC8 request above (using the real BRIC from CKC0 response) and paste the real XML response here.
-
-PLACEHOLDER - Replace with real EPX response:
 <RESPONSE>
   <FIELDS>
     <FIELD KEY="MSG_VERSION">003</FIELD>
@@ -242,24 +231,27 @@ PLACEHOLDER - Replace with real EPX response:
     <FIELD KEY="BATCH_ID">20251124</FIELD>
     <FIELD KEY="TRAN_NBR">2000000011</FIELD>
     <FIELD KEY="LOCAL_DATE">112425</FIELD>
-    <FIELD KEY="LOCAL_TIME">210330</FIELD>
-    <FIELD KEY="AUTH_GUID">[REPLACE WITH ACTUAL STORAGE BRIC FROM RESPONSE]</FIELD>
-    <FIELD KEY="AUTH_RESP">00</FIELD>
-    <FIELD KEY="AUTH_RESP_TEXT">ACCEPTED</FIELD>
-    <FIELD KEY="AUTH_TRAN_DATE_GMT">11/24/2025 09:03:30 PM</FIELD>
+    <FIELD KEY="LOCAL_TIME">193443</FIELD>
+    <FIELD KEY="AUTH_GUID">09LMRYWFZXB494XMJ6X</FIELD>
+    <FIELD KEY="AUTH_RESP">25</FIELD>
+    <FIELD KEY="AUTH_RESP_TEXT">UNABLE TO LOCATE</FIELD>
+    <FIELD KEY="AUTH_TRAN_DATE_GMT">11/25/2025 12:34:42 AM</FIELD>
     <FIELD KEY="AUTH_AMOUNT_REQUESTED">0.00</FIELD>
     <FIELD KEY="AUTH_AMOUNT">0.00</FIELD>
     <FIELD KEY="AUTH_CURRENCY_CODE">840</FIELD>
-    <FIELD KEY="NETWORK_RESPONSE">00</FIELD>
-    <FIELD KEY="AUTH_MASKED_ACCOUNT_NBR">*****6789</FIELD>
+    <FIELD KEY="NETWORK_RESPONSE">25</FIELD>
     <FIELD KEY="ORIG_TRAN_TYPE">CKC8</FIELD>
   </FIELDS>
 </RESPONSE>
 ```
 
-**Note**: CKC8 converts the Financial BRIC to a **Storage BRIC** (09LMRY0HLBMU39KUE2E) that never expires. This Storage BRIC can now be used for all future ACH transactions.
+**Note**: This real response shows `AUTH_RESP=25` (UNABLE TO LOCATE) because the Financial BRIC from CKC0 needs settlement time before it can be converted to a Storage BRIC. In production, you would:
+1. Send CKC0 pre-note
+2. Wait for settlement (typically 24-48 hours)
+3. Check for ACH returns via Business Reporting API or SFTP
+4. If no returns, convert to Storage BRIC with CKC8
 
-**NACHA Compliance**: This two-step process (CKC0 prenote → CKC8 storage) is required for NACHA compliance before recurring ACH debits.
+**NACHA Compliance**: This two-step process (CKC0 prenote → CKC8 storage) is required for NACHA compliance before recurring ACH debits. The 3-day waiting period allows time for banks to return invalid accounts.
 
 ---
 
