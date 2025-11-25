@@ -211,14 +211,14 @@ Most difficulties were one-time schema discovery issues that are now documented 
 ## 4. Code Review Findings
 
 ### Critical Issues Fixed ✅
-1. ✅ **Context Leak in Seed Script** - Fixed with IIFE pattern
+1. ✅ **Context Leak in Seed Script** - Fixed with IIFE pattern (internal/middleware/connect_auth.go:583)
 2. ✅ **Transaction Rollback** - Added explicit rollback on error paths
 3. ✅ **Test Keys Security** - Verified NOT tracked in Git
+4. ✅ **Unused Function Removal** - Removed duplicate `getClientIP` function and unused `net` import
 
 ### Remaining Issues (Low Priority)
-1. ⚠️ Unused functions (`getClientIP`, `scrubbingCore`) - Cleanup recommended
-2. 💡 Database pool tuning - Consider adding idle timeout for tests
-3. 💡 Merchant validator optimization - Could use single query vs two
+1. 💡 Database pool tuning - Consider adding idle timeout for tests
+2. 💡 Merchant validator optimization - Could use single query vs two
 
 ### Security Posture: A-
 **Strengths:**
@@ -252,42 +252,53 @@ go run scripts/generate_test_keys/generate_test_keys.go -output /tmp/test_keys.j
 
 #### Health Check ✅
 ```bash
-curl http://localhost:8080/cron/health
-# Expected: 200 OK
+curl http://localhost:8081/cron/health
+# Result: {"status":"healthy","time":"2025-11-25T02:43:37Z"}
+# Status: ✅ PASSED
 ```
 
+**Note:** Health endpoints are on port 8081 (HTTP server), not 8080 (ConnectRPC server)
+
 #### Chargeback API ✅
+**Manual Testing Results:**
+
+Using test script with JWT authentication:
+```go
+// Generated JWT for test-service-001
+// Merchant: 00000000-0000-0000-0000-000000000001
+```
+
 **List Chargebacks:**
 ```bash
-# Generate JWT token
-JWT=$(go run scripts/generate_jwt_token.go \
-  --service-id "test-service-001" \
-  --merchant-id "00000000-0000-0000-0000-000000000001")
+POST http://localhost:8080/chargeback.v1.ChargebackService/ListChargebacks
+Authorization: Bearer <JWT>
+Content-Type: application/json
 
-# List chargebacks
-curl -X POST http://localhost:8080/chargeback.v1.ChargebackService/ListChargebacks \
-  -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "agent_id": "test-merchant-staging",
-    "limit": 10,
-    "offset": 0
-  }'
+{
+  "agent_id": "test-merchant-staging",
+  "limit": 10,
+  "offset": 0
+}
 
-# Expected: JSON response with chargebacks array
+# Result: HTTP 200
+# Response: Found 5 chargebacks
+# Status: ✅ PASSED
 ```
 
 **Get Single Chargeback:**
 ```bash
-curl -X POST http://localhost:8080/chargeback.v1.ChargebackService/GetChargeback \
-  -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "chargeback_id": "<UUID>",
-    "agent_id": "test-merchant-staging"
-  }'
+POST http://localhost:8080/chargeback.v1.ChargebackService/GetChargeback
+Authorization: Bearer <JWT>
+Content-Type: application/json
 
-# Expected: Single chargeback details
+{
+  "chargeback_id": "3d7287a1-fa22-47f4-8ef1-03455c104235",
+  "agent_id": "test-merchant-staging"
+}
+
+# Result: HTTP 200
+# Response: Chargeback details returned successfully
+# Status: ✅ PASSED
 ```
 
 #### Payment Method API ✅
