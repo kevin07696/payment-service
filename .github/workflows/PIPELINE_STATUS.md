@@ -16,6 +16,11 @@
 - write_files runs before user creation without defer flag
 - deployment-workflows@fix/ssh-connectivity-debugging updated: commit 05081a0
 
+✅ **Added unzip package**
+- Oracle Wallet extraction requires unzip
+- Added to cloud-init packages list
+- deployment-workflows@fix/ssh-connectivity-debugging updated: commit 1f0bc93
+
 ✅ **Terraform Backend Issue Fixed**
 - Removed HTTP backend configuration
 - Using local backend with GitHub Actions cache
@@ -67,3 +72,4 @@ Debug password length - commit c7c80dd
 Final test with corrected 11-char password
 Testing cloud-init POSIX fix - fresh deployment after full Oracle cleanup
 Testing cloud-init user timing fix (defer: true) - commit 05081a0
+Testing unzip package fix for Oracle Wallet - commit 1f0bc93
