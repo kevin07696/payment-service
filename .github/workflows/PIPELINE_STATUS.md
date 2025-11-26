@@ -10,6 +10,12 @@
 - Changed to POSIX-compatible `echo | pipe` syntax
 - deployment-workflows@fix/ssh-connectivity-debugging updated: commit bccebbb
 
+✅ **Cloud-init User Timing Fixed**
+- Fixed "Unknown user: ubuntu" error in write_files
+- Added `defer: true` to defer file writes until ubuntu user exists
+- write_files runs before user creation without defer flag
+- deployment-workflows@fix/ssh-connectivity-debugging updated: commit 05081a0
+
 ✅ **Terraform Backend Issue Fixed**
 - Removed HTTP backend configuration
 - Using local backend with GitHub Actions cache
@@ -60,3 +66,4 @@ Testing password whitespace fix - commit 141723e
 Debug password length - commit c7c80dd
 Final test with corrected 11-char password
 Testing cloud-init POSIX fix - fresh deployment after full Oracle cleanup
+Testing cloud-init user timing fix (defer: true) - commit 05081a0
