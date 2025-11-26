@@ -2,65 +2,77 @@
 
 ## Last Update: 2025-11-26
 
-### Recent Fixes Applied
+### Major Architecture Change: PostgreSQL Container
+
+**Root Cause Identified and Fixed:**
+The payment-service uses PostgreSQL (`pgx/v5` driver), but the staging environment was configured with Oracle Autonomous Database. This caused the application container to fail because it couldn't connect to Oracle.
+
+**Solution:**
+- Removed Oracle Autonomous Database from Terraform
+- Added PostgreSQL container to cloud-init (runs alongside the app)
+- Simplified deployment workflow to use `goose` for migrations (PostgreSQL-native)
+- Reduced required GitHub secrets (no Oracle DB admin password needed)
+
+### Architecture
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                  Oracle Cloud Free Tier                        │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              Compute Instance (E2.1.Micro)                │  │
+│  │  ┌─────────────────────────────────────────────────────┐  │  │
+│  │  │                Docker Network                       │  │  │
+│  │  │  ┌─────────────────┐    ┌────────────────────────┐  │  │  │
+│  │  │  │  PostgreSQL     │    │  Payment Service       │  │  │  │
+│  │  │  │  (postgres:15)  │◄───│  (payment-server)      │  │  │  │
+│  │  │  │  Port: 5432     │    │  Ports: 8080, 8081     │  │  │  │
+│  │  │  └─────────────────┘    └────────────────────────┘  │  │  │
+│  │  └─────────────────────────────────────────────────────┘  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### Previous Fixes Applied (Infrastructure)
 
 ✅ **Cloud-init POSIX Compatibility Fixed**
 - Fixed bashism (here-string `<<<`) in cloud-init.yaml
 - Cloud-init runs with `/bin/sh` (dash on Ubuntu), not bash
-- Changed to POSIX-compatible `echo | pipe` syntax
-- deployment-workflows@fix/ssh-connectivity-debugging updated: commit bccebbb
 
 ✅ **Cloud-init User Timing Fixed**
 - Fixed "Unknown user: ubuntu" error in write_files
 - Added `defer: true` to defer file writes until ubuntu user exists
-- write_files runs before user creation without defer flag
-- deployment-workflows@fix/ssh-connectivity-debugging updated: commit 05081a0
-
-✅ **Added unzip package**
-- Oracle Wallet extraction requires unzip
-- Added to cloud-init packages list
-- deployment-workflows@fix/ssh-connectivity-debugging updated: commit 1f0bc93
 
 ✅ **Terraform Backend Issue Fixed**
 - Removed HTTP backend configuration
 - Using local backend with GitHub Actions cache
-- deployment-workflows@main updated: commit 0b8a14c
 
 ✅ **SSH Public Key Heredoc Syntax Fixed**
 - Changed from double quotes to heredoc (<<-EOT)
-- Fixed multi-line string validation error
 
-✅ **Database Storage Configuration Fixed**
-- Removed data_storage_size_in_tbs attribute
-- Always Free tier has fixed 20GB storage
-- deployment-workflows@main updated: commit 7470db7
+### Required GitHub Secrets
 
-✅ **OCIR Variables Added**
-- Added ocir_region and ocir_namespace variables
-- Pass OCIR secrets to cloud-init template
-- Added missing ORACLE_DB_ADMIN_PASSWORD secret
-- deployment-workflows@main updated: commit a642be5
+The simplified architecture requires fewer secrets:
 
-✅ **VNIC Query Fixed**
-- Fixed "Unsupported attribute vnic_id" error
-- Added oci_core_vnic_attachments data source
-- Properly query VNIC to get public IP
-- deployment-workflows@main updated: commit b756d34
+| Secret Name | Description |
+|------------|-------------|
+| `OCI_USER_OCID` | Oracle Cloud user OCID |
+| `OCI_TENANCY_OCID` | Oracle Cloud tenancy OCID |
+| `OCI_COMPARTMENT_OCID` | Compartment OCID |
+| `OCI_REGION` | Oracle Cloud region (e.g., us-ashburn-1) |
+| `OCI_FINGERPRINT` | API key fingerprint |
+| `OCI_PRIVATE_KEY` | API private key (PEM format) |
+| `DB_PASSWORD` | PostgreSQL password |
+| `EPX_MAC_STAGING` | EPX MAC key for staging |
+| `CRON_SECRET_STAGING` | Cron endpoint secret |
+| `OCIR_REGION` | Container registry region |
+| `OCIR_TENANCY_NAMESPACE` | Container registry namespace |
+| `OCIR_USERNAME` | Container registry username |
+| `OCIR_AUTH_TOKEN` | Container registry auth token |
 
-✅ **Centralized Terraform Infrastructure**
-- Terraform code in deployment-workflows repo
-- Workflow checks out deployment-workflows for infrastructure
+**Note:** `ORACLE_DB_ADMIN_PASSWORD` and `ORACLE_DB_PASSWORD` are no longer required.
 
-✅ **Full CD Pipeline Enabled**
-- Staging deployment active on develop branch
-- Integration tests enabled
-- Production deployment configured for main branch
+### Next Steps
 
-✅ **Oracle Instant Client Added to Cloud-init**
-- Pipeline failed at "Validate Oracle Wallet Connectivity" - sqlplus not installed
-- Added Oracle Instant Client 21.1 (Basic Lite + SQL*Plus) to cloud-init
-- Also added libaio1 package (Oracle Instant Client dependency)
-- deployment-workflows@fix/ssh-connectivity-debugging updated: commit 70badc9
-
-### Next Test
-Testing Oracle Instant Client installation for sqlplus migrations - commit 70badc9
+1. Clean up existing Oracle Autonomous Database resources
+2. Add `DB_PASSWORD` secret to GitHub
+3. Trigger new deployment to test PostgreSQL architecture
