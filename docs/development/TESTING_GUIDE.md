@@ -4,7 +4,7 @@
 **Topic:** Testing strategy, patterns, and best practices
 **Goal:** Write reliable, maintainable tests that catch bugs without being brittle
 
-**Last Updated:** 2025-11-23
+**Last Updated:** 2025-11-26
 
 ---
 
@@ -235,7 +235,7 @@ func TestSaleAPI_ResponseFormat(t *testing.T) {
 
     // Exact field names matter (ConnectRPC contract)
     assert.Equal(t, "transaction_id", getFieldName(resp))
-    assert.Equal(t, "approved", resp.Status) // Exact status string
+    assert.Equal(t, "TRANSACTION_STATUS_APPROVED", resp.Status) // Proto enum format
 }
 ```
 
@@ -676,7 +676,7 @@ func TestBrowserPost_SALE_to_REFUND(t *testing.T) {
 
     // Step 3: Verify final state
     tx := getTransaction(t, client, refundResp.TransactionID)
-    assert.Equal(t, "approved", tx.Status)
+    assert.Equal(t, "TRANSACTION_STATUS_APPROVED", tx.Status)
     assert.Equal(t, int64(2500), tx.AmountCents)
 }
 ```
@@ -754,7 +754,7 @@ func TestPayment_Sale(t *testing.T) {
     tx, err := service.Sale(ctx, req)
     assert.NoError(t, err)
     assert.NotNil(t, tx)
-    assert.Equal(t, "approved", tx.Status)
+    assert.Equal(t, "TRANSACTION_STATUS_APPROVED", tx.Status)
 }
 ```
 
@@ -1117,7 +1117,7 @@ func TestPayment_Refund(t *testing.T) {
 ```go
 func TestPayment_Sale(t *testing.T) {
     tx, _ := service.Sale(ctx, req)  // Ignoring error!
-    assert.Equal(t, "approved", tx.Status)  // Will panic if tx is nil
+    assert.Equal(t, "TRANSACTION_STATUS_APPROVED", tx.Status)  // Will panic if tx is nil
 }
 ```
 
@@ -1126,7 +1126,7 @@ func TestPayment_Sale(t *testing.T) {
 func TestPayment_Sale(t *testing.T) {
     tx, err := service.Sale(ctx, req)
     require.NoError(t, err)  // Stop if error
-    assert.Equal(t, "approved", tx.Status)
+    assert.Equal(t, "TRANSACTION_STATUS_APPROVED", tx.Status)
 }
 ```
 
@@ -1244,6 +1244,7 @@ func TestRefund_Validation(t *testing.T) {
             refundedSoFarCents: 0,
             refundAmountCents:  10000,
             expectAllow:        true,
+            expectStatus:       "TRANSACTION_STATUS_APPROVED",
         },
         // Failure cases
         {
@@ -1471,7 +1472,7 @@ func TestPaymentService_Sale(t *testing.T) {
     })
 
     require.NoError(t, err)
-    assert.Equal(t, "approved", tx.Status)
+    assert.Equal(t, "TRANSACTION_STATUS_APPROVED", tx.Status)
     assert.Equal(t, int64(1000), tx.AmountCents)
     assert.NotEmpty(t, tx.AuthorizationCode)
 }

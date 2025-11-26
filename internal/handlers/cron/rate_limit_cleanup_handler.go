@@ -97,7 +97,7 @@ func (h *RateLimitCleanupHandler) CleanupRateLimitBuckets(w http.ResponseWriter,
 func (h *RateLimitCleanupHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "healthy",
 		"service": "rate-limit-cleanup-cron",
 		"time":    timeutil.Now().Format(time.RFC3339),
@@ -117,7 +117,7 @@ func (h *RateLimitCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"table_type":           "UNLOGGED (2-3x faster writes, no WAL)",
 		"cleanup_interval":     "5 minutes",
 		"retention_period":     "1 hour",
@@ -139,7 +139,7 @@ func (h *RateLimitCleanupHandler) authenticateRequest(r *http.Request) bool {
 func (h *RateLimitCleanupHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": false,
 		"error":   message,
 	})
@@ -148,5 +148,5 @@ func (h *RateLimitCleanupHandler) respondError(w http.ResponseWriter, statusCode
 func (h *RateLimitCleanupHandler) respondSuccess(w http.ResponseWriter, data RateLimitCleanupResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }

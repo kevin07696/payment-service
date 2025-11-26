@@ -42,7 +42,7 @@ func Test_InFlightTracker_Add_AfterShutdown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	go tracker.Shutdown(ctx)
+	go func() { _ = tracker.Shutdown(ctx) }()
 
 	// Wait for shutdown to initiate
 	time.Sleep(50 * time.Millisecond)

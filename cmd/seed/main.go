@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -11,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/kevin07696/payment-service/internal/auth"
+	"github.com/kevin07696/payment-service/pkg/crypto"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -57,15 +56,10 @@ func main() {
 		log.Fatal("Failed to create admin account:", err)
 	}
 
-	// Generate RSA keypair for test service
-	privateKey, publicKey, err := auth.GenerateRSAKeyPair(2048)
+	// Generate RSA keypair for test service using pkg/crypto
+	keypair, err := crypto.GenerateRSAKeyPair()
 	if err != nil {
 		log.Fatal("Failed to generate RSA keypair:", err)
-	}
-
-	publicKeyPEM, err := auth.PublicKeyToPEM(publicKey)
-	if err != nil {
-		log.Fatal("Failed to convert public key to PEM:", err)
 	}
 
 	serviceID := uuid.New().String()
@@ -75,14 +69,14 @@ func main() {
 		INSERT INTO services (
 			id, service_id, service_name, public_key,
 			public_key_fingerprint, environment,
-			requests_per_second, burst_limit, is_active, created_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			requests_per_second, burst_limit, is_active
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (service_id) DO UPDATE SET
 			public_key = EXCLUDED.public_key,
 			updated_at = NOW()
 	`, serviceID, "test-pos-system", "Test POS System (Development)",
-		string(publicKeyPEM), generateFingerprint(publicKeyPEM), "staging",
-		1000, 2000, true, adminID)
+		keypair.PublicKeyPEM, keypair.Fingerprint, "staging",
+		1000, 2000, true)
 
 	if err != nil {
 		log.Fatal("Failed to create test service:", err)
@@ -99,17 +93,17 @@ func main() {
 		fmt.Println("Using existing test merchant:", merchantID)
 	} else {
 		// Create new merchant
+		// Note: requests_per_second and burst_limit are on services table, not merchants
 		err = sqlDB.QueryRow(`
 			INSERT INTO merchants (
 				id, slug, name, cust_nbr, merch_nbr, dba_nbr,
 				terminal_nbr, mac_secret_path, environment,
-				is_active, status, tier, requests_per_second,
-				burst_limit, created_by
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+				is_active, status, tier
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			RETURNING id
 		`, merchantID, "test-merchant-dev", "Test Merchant (Development)",
 			"9001", "900300", "2", "77", "/secrets/test-merchant", "staging",
-			true, "active", "standard", 100, 200, adminID).Scan(&merchantID)
+			true, "active", "standard").Scan(&merchantID)
 
 		if err != nil {
 			log.Fatal("Failed to create test merchant:", err)
@@ -126,16 +120,16 @@ func main() {
 		log.Fatal("Failed to find registered service:", err)
 	}
 
+	// Grant service access to merchant (no granted_by - removed in migration 023)
 	_, err = sqlDB.Exec(`
 		INSERT INTO service_merchants (
-			service_id, merchant_id, scopes, granted_by
-		) VALUES ($1, $2, $3, $4)
+			service_id, merchant_id, scopes
+		) VALUES ($1, $2, $3)
 		ON CONFLICT (service_id, merchant_id) DO UPDATE SET
 			scopes = EXCLUDED.scopes,
 			granted_at = NOW()
 	`, registeredServiceID, merchantID,
-		"{payment:create,payment:read,payment:update,payment:refund,subscription:manage,payment_method:manage}",
-		adminID)
+		"{payment:create,payment:read,payment:update,payment:refund,subscription:manage,payment_method:manage}")
 
 	if err != nil {
 		log.Fatal("Failed to grant service access:", err)
@@ -155,12 +149,13 @@ func main() {
 		{"192.168.1.100", "Test EPX Gateway"},
 	}
 
+	// Insert EPX IPs (no added_by - removed in migration 023)
 	for _, epx := range epxIPs {
 		_, err = sqlDB.Exec(`
-			INSERT INTO epx_ip_whitelist (ip_address, description, added_by)
-			VALUES ($1, $2, $3)
+			INSERT INTO epx_ip_whitelist (ip_address, description)
+			VALUES ($1, $2)
 			ON CONFLICT (ip_address) DO NOTHING
-		`, epx.ip, epx.desc, adminID)
+		`, epx.ip, epx.desc)
 		if err != nil {
 			log.Printf("Warning: Failed to add EPX IP %s: %v\n", epx.ip, err)
 		}
@@ -186,7 +181,7 @@ func main() {
 		fmt.Fprintf(file, "Test Service:\n")
 		fmt.Fprintf(file, "  ID: %s\n", serviceID)
 		fmt.Fprintf(file, "  Service ID: test-pos-system\n")
-		fmt.Fprintf(file, "  Private Key (for JWT signing):\n%s\n", string(auth.PrivateKeyToPEM(privateKey)))
+		fmt.Fprintf(file, "  Private Key (for JWT signing):\n%s\n", keypair.PrivateKeyPEM)
 		fmt.Fprintf(file, "===========================================\n")
 	}
 
@@ -219,14 +214,12 @@ func generateSecurePassword() string {
 	// Generate a secure random password
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	for i := range b {
 		b[i] = charset[b[i]%byte(len(charset))]
 	}
 	return string(b)
 }
 
-func generateFingerprint(publicKeyPEM []byte) string {
-	// Simple fingerprint generation
-	return fmt.Sprintf("SHA256:%s", base64.StdEncoding.EncodeToString(publicKeyPEM)[:40])
-}

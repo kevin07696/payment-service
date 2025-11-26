@@ -29,13 +29,10 @@ var (
 		"currency",
 	})
 
-	paymentSuccessRate = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "payment_success_rate",
-		Help: "Payment success rate (approved / total) calculated from counters",
-	}, []string{
-		"merchant_id",
-		"payment_type",
-	})
+	// Note: Payment success rate is calculated via PromQL queries rather than stored:
+	// sum(rate(payment_transactions_total{status="approved"}[5m])) by (merchant_id, payment_type)
+	// /
+	// sum(rate(payment_transactions_total[5m])) by (merchant_id, payment_type)
 
 	// Payment processing duration (end-to-end)
 	paymentProcessingDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{

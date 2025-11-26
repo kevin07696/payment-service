@@ -279,7 +279,7 @@ func TestACHVerificationCron_BatchSize(t *testing.T) {
 
 // TestACHVerificationCron_Authentication tests that cron endpoint requires authentication
 func TestACHVerificationCron_Authentication(t *testing.T) {
-	_, _ = testutil.Setup(t)
+	cfg, _ := testutil.Setup(t)
 
 	// Create separate client for cron HTTP endpoints (port 8081)
 	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
@@ -299,7 +299,7 @@ func TestACHVerificationCron_Authentication(t *testing.T) {
 
 // TestACHVerificationCron_NoEligibleAccounts tests behavior when no accounts are eligible
 func TestACHVerificationCron_NoEligibleAccounts(t *testing.T) {
-	_, _ = testutil.Setup(t)
+	cfg, _ := testutil.Setup(t)
 
 	// Create separate client for cron HTTP endpoints (port 8081)
 	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
@@ -334,7 +334,7 @@ func TestACHVerificationCron_NoEligibleAccounts(t *testing.T) {
 
 // TestACHVerificationCron_InvalidParameters tests parameter validation
 func TestACHVerificationCron_InvalidParameters(t *testing.T) {
-	_, _ = testutil.Setup(t)
+	cfg, _ := testutil.Setup(t)
 
 	// Create separate client for cron HTTP endpoints (port 8081)
 	cronClient := testutil.NewClient(cfg.CallbackBaseURL)

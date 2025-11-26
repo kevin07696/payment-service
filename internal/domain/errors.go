@@ -123,68 +123,6 @@ func NewDomainError(code ErrorCode, message string) *DomainError {
 	}
 }
 
-// WrapError wraps an existing error with a domain error code
-func WrapError(code ErrorCode, message string, err error) *DomainError {
-	return &DomainError{
-		Code:    code,
-		Message: message,
-		Details: make(map[string]interface{}),
-		Err:     err,
-	}
-}
-
-// IsDomainError checks if an error is a DomainError with the given code
-func IsDomainError(err error, code ErrorCode) bool {
-	var domainErr *DomainError
-	if errors.As(err, &domainErr) {
-		return domainErr.Code == code
-	}
-	return false
-}
-
-// GetErrorCode extracts the error code from an error, returns empty string if not a DomainError
-func GetErrorCode(err error) ErrorCode {
-	var domainErr *DomainError
-	if errors.As(err, &domainErr) {
-		return domainErr.Code
-	}
-	return ""
-}
-
-// IsNotFoundError checks if an error represents a "not found" condition
-func IsNotFoundError(err error) bool {
-	code := GetErrorCode(err)
-	return code == ErrorCodeMerchantNotFound ||
-		code == ErrorCodeTxnNotFound ||
-		code == ErrorCodePMNotFound ||
-		code == ErrorCodeCustomerNotFound
-}
-
-// IsAuthError checks if an error is authentication/authorization related
-func IsAuthError(err error) bool {
-	code := GetErrorCode(err)
-	return code == ErrorCodeAuthMissing ||
-		code == ErrorCodeAuthInvalid ||
-		code == ErrorCodeAuthMerchantMismatch ||
-		code == ErrorCodeAuthAccessDenied ||
-		code == ErrorCodeAuthInsufficientPerms
-}
-
-// IsValidationError checks if an error is a validation error
-func IsValidationError(err error) bool {
-	code := GetErrorCode(err)
-	return code == ErrorCodeValidationFailed ||
-		code == ErrorCodeValidationAmountInvalid ||
-		code == ErrorCodeValidationMissingField
-}
-
-// IsGatewayError checks if an error is a payment gateway error
-func IsGatewayError(err error) bool {
-	code := GetErrorCode(err)
-	return code == ErrorCodeGatewayError ||
-		code == ErrorCodeGatewayTimeout ||
-		code == ErrorCodeGatewayDeclined
-}
 
 // Structured error instances (new style)
 var (

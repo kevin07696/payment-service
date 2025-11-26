@@ -76,11 +76,8 @@ func (rl *RateLimiter) cleanup() {
 		}
 	}
 
-	// Log cleanup if significant (more than 100 entries removed)
-	if removed > 100 {
-		// Note: Would log here if logger was available
-		// For now, this is a silent cleanup
-	}
+	// Cleanup is silent - removed count tracked internally for potential future logging
+	_ = removed
 }
 
 // Shutdown stops the cleanup goroutine

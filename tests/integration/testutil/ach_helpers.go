@@ -32,7 +32,7 @@ func MarkACHAsFailed(db *sql.DB, paymentMethodID string, returnCode string) erro
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	result, err := tx.Exec(`
 		UPDATE customer_payment_methods

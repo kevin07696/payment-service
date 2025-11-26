@@ -24,7 +24,7 @@ func StartMetricsServer(port string, healthChecker *HealthChecker) *http.Server 
 	// Readiness probe (simple version - same as health for now)
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ready"))
+		_, _ = w.Write([]byte("ready"))
 	})
 
 	server := &http.Server{

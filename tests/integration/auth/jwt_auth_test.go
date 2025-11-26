@@ -126,11 +126,16 @@ func TestJWTAuthentication_MissingIssuer(t *testing.T) {
 	merchantID := "00000000-0000-0000-0000-000000000001"
 
 	// Generate JWT WITHOUT "iss" claim
+	now := time.Now()
 	claims := map[string]interface{}{
 		// "iss" is intentionally missing
+		// "sub" is also intentionally missing (as it should match iss)
 		"merchant_id": merchantID,
-		"exp":         time.Now().Add(1 * time.Hour).Unix(),
-		"iat":         time.Now().Unix(),
+		"scopes":      []string{"payments:create", "payments:read"},
+		"exp":         now.Add(1 * time.Hour).Unix(),
+		"iat":         now.Unix(),
+		"nbf":         now.Unix(),
+		"jti":         "missing-iss-test",
 	}
 
 	token, err := testutil.GenerateJWTWithClaims(testService.PrivateKeyPEM, claims)
@@ -224,8 +229,10 @@ func TestJWTAuthentication_NoMerchantAccess(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	// Verify authentication failed with 401 (service not authorized for this merchant)
-	require.Equal(t, 401, resp.StatusCode, "Should reject JWT for merchant without access")
+	// Verify access denied with 403 (service authenticated but not authorized for this merchant)
+	// Note: 403 Permission Denied is correct because the service IS authenticated (JWT is valid)
+	// but lacks authorization to access this specific merchant
+	require.Equal(t, 403, resp.StatusCode, "Should reject JWT for merchant without access with 403 Forbidden")
 
 	t.Logf("✅ Correctly rejected service accessing unauthorized merchant (status: %d)", resp.StatusCode)
 }
@@ -242,11 +249,15 @@ func TestJWTAuthentication_BlacklistedToken(t *testing.T) {
 
 	// Generate a JWT with a known JTI
 	jti := "blacklisted-token-test-" + time.Now().Format("20060102-150405")
+	now := time.Now()
 	claims := map[string]interface{}{
 		"iss":         testService.ServiceID,
+		"sub":         testService.ServiceID, // sub matches iss for service auth
 		"merchant_id": merchantID,
-		"exp":         time.Now().Add(1 * time.Hour).Unix(),
-		"iat":         time.Now().Unix(),
+		"scopes":      []string{"payments:create", "payments:read"},
+		"exp":         now.Add(1 * time.Hour).Unix(),
+		"iat":         now.Unix(),
+		"nbf":         now.Unix(), // Token valid immediately
 		"jti":         jti,
 	}
 

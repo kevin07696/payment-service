@@ -8,23 +8,35 @@ import (
 	"go.uber.org/zap"
 )
 
+// ServiceMerchantAccessChecker checks if a service has access to a merchant
+type ServiceMerchantAccessChecker interface {
+	CheckServiceMerchantAccess(ctx context.Context, serviceID, merchantID string) (bool, error)
+}
+
 // MerchantAuthorizationService handles merchant-level authorization logic
 type MerchantAuthorizationService struct {
-	logger *zap.Logger
+	logger        *zap.Logger
+	accessChecker ServiceMerchantAccessChecker
 }
 
 // NewMerchantAuthorizationService creates a new merchant authorization service
-func NewMerchantAuthorizationService(logger *zap.Logger) *MerchantAuthorizationService {
+func NewMerchantAuthorizationService(logger *zap.Logger, accessChecker ServiceMerchantAccessChecker) *MerchantAuthorizationService {
 	return &MerchantAuthorizationService{
-		logger: logger,
+		logger:        logger,
+		accessChecker: accessChecker,
 	}
 }
 
-// ResolveMerchantID resolves the merchant_id from auth context and request
-// This method centralizes the logic for determining which merchant a request is for:
-// - In no-auth mode (development/testing), uses the requested merchant_id
-// - In JWT/API key auth mode, uses the merchant_id from auth context
-// - Validates that requested merchant_id matches authenticated merchant_id if both present
+// ResolveMerchantID resolves the merchant_id from request and validates access
+// Authentication Model:
+// - Token identifies the SERVICE (no merchant_id in token)
+// - Request specifies the MERCHANT (merchant_id in request body)
+// - Database validates service has access to the merchant
+//
+// This method:
+// - In no-auth mode (development/testing), uses the requested merchant_id directly
+// - In JWT auth mode, validates service has access to the requested merchant via database
+// - API key auth (future) would have merchant_id bound to the key
 func (s *MerchantAuthorizationService) ResolveMerchantID(ctx context.Context, requestedMerchantID string) (string, error) {
 	// Get auth info from context
 	authInfo := auth.GetAuthInfo(ctx)
@@ -39,26 +51,45 @@ func (s *MerchantAuthorizationService) ResolveMerchantID(ctx context.Context, re
 		return requestedMerchantID, nil
 	}
 
-	// If merchant ID is in context (API key auth or JWT with merchant_id)
+	// For API key auth (future): merchant_id would be bound to the key
+	// This branch handles that case if we add API key auth later
 	if authInfo.MerchantID != "" {
-		// If a specific merchant was requested, verify it matches
+		// API key is bound to a specific merchant - verify request matches
 		if requestedMerchantID != "" && requestedMerchantID != authInfo.MerchantID {
-			s.logger.Warn("Merchant ID mismatch",
+			s.logger.Warn("Merchant ID mismatch with API key",
 				zap.String("requested", requestedMerchantID),
-				zap.String("authenticated", authInfo.MerchantID))
+				zap.String("api_key_merchant", authInfo.MerchantID))
 			return "", domain.ErrAuthMerchantMismatch.
 				WithDetail("requested", requestedMerchantID).
 				WithDetail("authenticated", authInfo.MerchantID)
 		}
-		s.logger.Debug("Resolved merchant ID from auth context",
-			zap.String("merchant_id", authInfo.MerchantID),
-			zap.String("auth_type", string(authInfo.Type)))
+		s.logger.Debug("Resolved merchant ID from API key",
+			zap.String("merchant_id", authInfo.MerchantID))
 		return authInfo.MerchantID, nil
 	}
 
-	// For service auth (JWT without merchant_id claim), use the requested merchant ID
-	// This allows services to act on behalf of multiple merchants
+	// JWT auth: Service token, merchant comes from request
+	// Validate service has access to the requested merchant
 	if authInfo.Type == auth.AuthTypeJWT && requestedMerchantID != "" {
+		// Validate service has access to the requested merchant
+		if s.accessChecker != nil {
+			hasAccess, err := s.accessChecker.CheckServiceMerchantAccess(ctx, authInfo.ServiceID, requestedMerchantID)
+			if err != nil {
+				s.logger.Error("Failed to check service-merchant access",
+					zap.String("service_id", authInfo.ServiceID),
+					zap.String("merchant_id", requestedMerchantID),
+					zap.Error(err))
+				return "", domain.ErrAuthAccessDenied.WithDetail("reason", "access check failed")
+			}
+			if !hasAccess {
+				s.logger.Warn("Service does not have access to merchant",
+					zap.String("service_id", authInfo.ServiceID),
+					zap.String("merchant_id", requestedMerchantID))
+				return "", domain.ErrAuthAccessDenied.
+					WithDetail("service_id", authInfo.ServiceID).
+					WithDetail("merchant_id", requestedMerchantID)
+			}
+		}
 		s.logger.Debug("Resolved merchant ID for service auth",
 			zap.String("merchant_id", requestedMerchantID),
 			zap.String("service_id", authInfo.ServiceID))

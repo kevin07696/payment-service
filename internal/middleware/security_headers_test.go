@@ -18,7 +18,7 @@ func TestSecurityHeaders_ProductionMode(t *testing.T) {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	protectedHandler := secHeaders.Middleware(handler)
@@ -225,30 +225,6 @@ func TestSecurityHeaders_DevelopmentMode(t *testing.T) {
 
 		t.Log("[PASS] Other security headers still set in development")
 	})
-}
-
-// TestSecurityHeaders_MiddlewareFunc tests the function wrapper variant
-func TestSecurityHeaders_MiddlewareFunc(t *testing.T) {
-	secHeaders := middleware.NewSecurityHeaders(false)
-
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}
-
-	protectedHandler := secHeaders.MiddlewareFunc(handler)
-
-	req := httptest.NewRequest("GET", "/test", nil)
-	rec := httptest.NewRecorder()
-
-	protectedHandler(rec, req)
-
-	// Verify headers are set using MiddlewareFunc wrapper
-	assert.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"),
-		"MiddlewareFunc should also set security headers")
-	assert.NotEmpty(t, rec.Header().Get("Content-Security-Policy"),
-		"CSP should be set via MiddlewareFunc")
-
-	t.Log("[PASS] MiddlewareFunc wrapper applies security headers")
 }
 
 // TestSecurityHeaders_ChainedMiddleware tests that headers work when chained

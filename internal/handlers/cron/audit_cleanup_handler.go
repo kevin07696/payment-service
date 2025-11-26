@@ -167,7 +167,7 @@ func (h *AuditCleanupHandler) CleanupAuditLogs(w http.ResponseWriter, r *http.Re
 func (h *AuditCleanupHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "healthy",
 		"service": "audit-cleanup-cron",
 		"time":    timeutil.Now().Format(time.RFC3339),
@@ -200,7 +200,7 @@ func (h *AuditCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"total_audit_logs":     count,
 		"default_retention":    90,
 		"retention_unit":       "days",
@@ -220,7 +220,7 @@ func (h *AuditCleanupHandler) authenticateRequest(r *http.Request) bool {
 func (h *AuditCleanupHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": false,
 		"error":   message,
 	})
@@ -229,5 +229,5 @@ func (h *AuditCleanupHandler) respondError(w http.ResponseWriter, statusCode int
 func (h *AuditCleanupHandler) respondSuccess(w http.ResponseWriter, data CleanupResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }

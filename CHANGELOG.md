@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-11-26)
+
+**Cron Test Bug Fix**
+- Fixed `tests/integration/cron/ach_verification_cron_test.go` - undefined `cfg` variable in 3 test functions
+  - `TestACHVerificationCron_Authentication` (line 282)
+  - `TestACHVerificationCron_NoEligibleAccounts` (line 302)
+  - `TestACHVerificationCron_InvalidParameters` (line 337)
+- Changed `_, _ = testutil.Setup(t)` to `cfg, _ = testutil.Setup(t)` to properly capture config
+
+### Code Analysis (2025-11-26)
+
+**Dead/Unused Code Identified** (via `deadcode` tool)
+- `internal/config/config.go`: `LoadFromEnv`, `ConnectionString`, `getEnv*` helpers - environment-based config unused
+- `internal/auth/context.go`: `GetUserAgent`, `WithAuth` - legacy auth context functions
+- `internal/middleware/auth_context.go`: `ExtractAuthContext`, `ExtractAuthType`, `ExtractMerchantID` - replaced by JWT middleware
+- `internal/middleware/epx_callback_auth.go`: `RefreshIPWhitelist`, `MiddlewareWithSkip`, `ValidateEPXResponse`, `VerifyEPXSignature`
+- `internal/middleware/log_scrubbing.go`: All scrubbing functions (ScrubString, ScrubField, etc.)
+- `internal/domain/chargeback.go`: Domain methods (`IsOpen`, `IsResolved`, `CanRespond`, etc.) - handlers use queries directly
+- `internal/domain/errors.go`: Error helper functions (`WrapError`, `IsDomainError`, etc.)
+- `internal/services/payment/payment_service.go`: `isUniqueViolation`, `toNumeric`
+- `internal/services/webhook/webhook_delivery_service.go`: `RetryFailedDeliveries`
+- `internal/adapters/epx/pool.go` and `internal/services/payment/pool.go`: Object pool functions
+- `internal/testutil/fixtures/`: All builder functions (for future test expansion)
+- `cmd/seed/main.go`: `generateFingerprint`
+
+**Note**: Fixture builders (`internal/testutil/fixtures/`) should be retained for future test coverage expansion
+
 ### Added (2025-11-26)
 
 **Admin CLI - Token Generation**

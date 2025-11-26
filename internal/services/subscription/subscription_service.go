@@ -12,6 +12,7 @@ import (
 	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/services/authorization"
 	"github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/util"
 	"github.com/shopspring/decimal"
@@ -20,11 +21,12 @@ import (
 
 // subscriptionService implements the SubscriptionService port
 type subscriptionService struct {
-	queries       sqlc.Querier
-	txManager     database.TransactionManager
-	serverPost    adapterports.ServerPostAdapter
-	secretManager adapterports.SecretManagerAdapter
-	logger        *zap.Logger
+	queries             sqlc.Querier
+	txManager           database.TransactionManager
+	serverPost          adapterports.ServerPostAdapter
+	secretManager       adapterports.SecretManagerAdapter
+	merchantAuthService *authorization.MerchantAuthorizationService
+	logger              *zap.Logger
 }
 
 // NewSubscriptionService creates a new subscription service
@@ -35,12 +37,19 @@ func NewSubscriptionService(
 	secretManager adapterports.SecretManagerAdapter,
 	logger *zap.Logger,
 ) ports.SubscriptionService {
+	// Create service-merchant access checker for authorization
+	accessChecker := authorization.NewSQLCServiceMerchantAccessChecker(queries)
+
+	// Create merchant authorization service with access checker
+	merchantAuthService := authorization.NewMerchantAuthorizationService(logger, accessChecker)
+
 	return &subscriptionService{
-		queries:       queries,
-		txManager:     txManager,
-		serverPost:    serverPost,
-		secretManager: secretManager,
-		logger:        logger,
+		queries:             queries,
+		txManager:           txManager,
+		serverPost:          serverPost,
+		secretManager:       secretManager,
+		merchantAuthService: merchantAuthService,
+		logger:              logger,
 	}
 }
 
@@ -51,6 +60,12 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		zap.String("customer_id", req.CustomerID),
 		zap.Int64("amount_cents", req.AmountCents),
 	)
+
+	// Resolve and validate merchant access
+	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, req.MerchantID)
+	if err != nil {
+		return nil, err
+	}
 
 	// Check idempotency
 	if req.IdempotencyKey != nil {
@@ -75,7 +90,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		return nil, fmt.Errorf("payment method not found: %w", err)
 	}
 
-	if pm.MerchantID.String() != req.MerchantID || pm.CustomerID != req.CustomerID {
+	if pm.MerchantID.String() != resolvedMerchantID || pm.CustomerID != req.CustomerID {
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
@@ -92,7 +107,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 	nextBillingDate := calculateNextBillingDate(req.StartDate, req.IntervalValue, req.IntervalUnit)
 
 	// Parse merchant ID
-	merchantID, err := uuid.Parse(req.MerchantID)
+	merchantID, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
@@ -451,8 +466,14 @@ func (s *subscriptionService) GetSubscription(ctx context.Context, subscriptionI
 
 // ListCustomerSubscriptions lists all subscriptions for a customer
 func (s *subscriptionService) ListCustomerSubscriptions(ctx context.Context, merchantID, customerID string) ([]*domain.Subscription, error) {
+	// Resolve and validate merchant access
+	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, merchantID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Parse merchant ID
-	merchantUUID, err := uuid.Parse(merchantID)
+	merchantUUID, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}

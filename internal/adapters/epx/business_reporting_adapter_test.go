@@ -125,7 +125,7 @@ func TestBusinessReportingAdapter_GetTransaction(t *testing.T) {
 				// Return mock response
 				w.WriteHeader(tt.mockStatusCode)
 				if tt.mockResponse != nil {
-					json.NewEncoder(w).Encode(tt.mockResponse)
+					_ = json.NewEncoder(w).Encode(tt.mockResponse)
 				}
 			}))
 			defer server.Close()
@@ -229,7 +229,7 @@ func TestBusinessReportingAdapter_CheckACHReturns(t *testing.T) {
 			// Create mock HTTP server
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(tt.mockResponse)
+				_ = json.NewEncoder(w).Encode(tt.mockResponse)
 			}))
 			defer server.Close()
 
@@ -357,7 +357,7 @@ func TestBusinessReportingAdapter_QueryTransactions(t *testing.T) {
 				}
 
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(tt.mockResponse)
+				_ = json.NewEncoder(w).Encode(tt.mockResponse)
 			}))
 			defer server.Close()
 
@@ -475,7 +475,7 @@ func TestBusinessReportingAdapter_GetACHReturnsForDateRange(t *testing.T) {
 		assert.NotEmpty(t, query.Get("end_date"))
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(mockResponse)
+		_ = json.NewEncoder(w).Encode(mockResponse)
 	}))
 	defer server.Close()
 

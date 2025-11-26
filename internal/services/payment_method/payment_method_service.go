@@ -11,6 +11,7 @@ import (
 	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/services/authorization"
 	"github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/util"
 	"go.uber.org/zap"
@@ -18,14 +19,15 @@ import (
 
 // paymentMethodService implements the PaymentMethodService port
 type paymentMethodService struct {
-	cache         *PaymentMethodCache
-	queries       sqlc.Querier
-	txManager     database.TransactionManager
-	browserPost   adapterports.BrowserPostAdapter
-	serverPost    adapterports.ServerPostAdapter
-	bricStorage   adapterports.BRICStorageAdapter
-	secretManager adapterports.SecretManagerAdapter
-	logger        *zap.Logger
+	cache               *PaymentMethodCache
+	queries             sqlc.Querier
+	txManager           database.TransactionManager
+	browserPost         adapterports.BrowserPostAdapter
+	serverPost          adapterports.ServerPostAdapter
+	bricStorage         adapterports.BRICStorageAdapter
+	secretManager       adapterports.SecretManagerAdapter
+	merchantAuthService *authorization.MerchantAuthorizationService
+	logger              *zap.Logger
 }
 
 // NewPaymentMethodService creates a new payment method service
@@ -39,15 +41,22 @@ func NewPaymentMethodService(
 	cache *PaymentMethodCache,
 	logger *zap.Logger,
 ) ports.PaymentMethodService {
+	// Create service-merchant access checker for authorization
+	accessChecker := authorization.NewSQLCServiceMerchantAccessChecker(queries)
+
+	// Create merchant authorization service with access checker
+	merchantAuthService := authorization.NewMerchantAuthorizationService(logger, accessChecker)
+
 	return &paymentMethodService{
-		cache:         cache,
-		queries:       queries,
-		txManager:     txManager,
-		browserPost:   browserPost,
-		serverPost:    serverPost,
-		bricStorage:   bricStorage,
-		secretManager: secretManager,
-		logger:        logger,
+		cache:               cache,
+		queries:             queries,
+		txManager:           txManager,
+		browserPost:         browserPost,
+		serverPost:          serverPost,
+		bricStorage:         bricStorage,
+		secretManager:       secretManager,
+		merchantAuthService: merchantAuthService,
+		logger:              logger,
 	}
 }
 
@@ -74,8 +83,14 @@ func (s *paymentMethodService) GetPaymentMethod(ctx context.Context, paymentMeth
 
 // ListPaymentMethods lists all payment methods for a customer
 func (s *paymentMethodService) ListPaymentMethods(ctx context.Context, merchantID, customerID string) ([]*domain.PaymentMethod, error) {
+	// Resolve and validate merchant access
+	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, merchantID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Parse merchant ID
-	mid, err := uuid.Parse(merchantID)
+	mid, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
@@ -111,13 +126,19 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 		zap.Bool("is_active", isActive),
 	)
 
+	// Resolve and validate merchant access
+	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, merchantID)
+	if err != nil {
+		return nil, err
+	}
+
 	pmID, err := uuid.Parse(paymentMethodID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
 	}
 
 	// Parse merchant ID
-	mid, err := uuid.Parse(merchantID)
+	mid, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
@@ -195,13 +216,19 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 		zap.String("customer_id", customerID),
 	)
 
+	// Resolve and validate merchant access
+	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, merchantID)
+	if err != nil {
+		return nil, err
+	}
+
 	pmID, err := uuid.Parse(paymentMethodID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
 	}
 
 	// Parse merchant ID
-	mid, err := uuid.Parse(merchantID)
+	mid, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
@@ -272,8 +299,14 @@ func (s *paymentMethodService) StoreACHAccount(ctx context.Context, req *ports.S
 		zap.String("account_type", req.AccountType),
 	)
 
+	// Resolve and validate merchant access
+	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, req.MerchantID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Validate merchant ID
-	merchantID, err := uuid.Parse(req.MerchantID)
+	merchantID, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
@@ -427,6 +460,12 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 		zap.String("payment_method_id", req.PaymentMethodID),
 	)
 
+	// Resolve and validate merchant access
+	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, req.MerchantID)
+	if err != nil {
+		return err
+	}
+
 	pmID, err := uuid.Parse(req.PaymentMethodID)
 	if err != nil {
 		return fmt.Errorf("invalid payment_method_id format: %w", err)
@@ -439,7 +478,7 @@ func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.
 	}
 
 	// Parse merchant ID
-	merchantID, err := uuid.Parse(req.MerchantID)
+	merchantID, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
 		return fmt.Errorf("invalid merchant_id format: %w", err)
 	}

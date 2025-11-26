@@ -764,7 +764,7 @@ func (h *BrowserPostCallbackHandler) redirectToService(w http.ResponseWriter, re
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(html))
+	_, _ = w.Write([]byte(html))
 }
 
 // renderReceiptPage renders an HTML receipt page to the user
@@ -863,13 +863,14 @@ func (h *BrowserPostCallbackHandler) saveStorageBRICToPaymentMethod(ctx context.
 		month := expDate[2:4]
 
 		var yy, mm int
-		fmt.Sscanf(year, "%d", &yy)
-		fmt.Sscanf(month, "%d", &mm)
-
-		// Convert YY to full year (20YY)
-		fullYear := 2000 + yy
-		cardExpYear = &fullYear
-		cardExpMonth = &mm
+		if _, err := fmt.Sscanf(year, "%d", &yy); err == nil {
+			if _, err := fmt.Sscanf(month, "%d", &mm); err == nil {
+				// Convert YY to full year (20YY)
+				fullYear := 2000 + yy
+				cardExpYear = &fullYear
+				cardExpMonth = &mm
+			}
+		}
 	}
 
 	// Extract card brand from AUTH_CARD_TYPE

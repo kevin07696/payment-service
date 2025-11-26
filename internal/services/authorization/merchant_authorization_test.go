@@ -13,7 +13,7 @@ import (
 
 func TestResolveMerchantID(t *testing.T) {
 	logger := zaptest.NewLogger(t)
-	service := NewMerchantAuthorizationService(logger)
+	service := NewMerchantAuthorizationService(logger, nil) // nil access checker for unit tests
 
 	tests := []struct {
 		name                string
@@ -125,7 +125,7 @@ func TestResolveMerchantID(t *testing.T) {
 
 func TestValidateTransactionAccess(t *testing.T) {
 	logger := zaptest.NewLogger(t)
-	service := NewMerchantAuthorizationService(logger)
+	service := NewMerchantAuthorizationService(logger, nil)
 
 	txID := uuid.New().String()
 	tx := &domain.Transaction{
@@ -193,7 +193,7 @@ func TestValidateTransactionAccess(t *testing.T) {
 
 func TestValidateCustomerAccess(t *testing.T) {
 	logger := zaptest.NewLogger(t)
-	service := NewMerchantAuthorizationService(logger)
+	service := NewMerchantAuthorizationService(logger, nil)
 
 	tests := []struct {
 		name          string
@@ -260,7 +260,7 @@ func TestValidateCustomerAccess(t *testing.T) {
 
 func TestValidatePaymentMethodAccess(t *testing.T) {
 	logger := zaptest.NewLogger(t)
-	service := NewMerchantAuthorizationService(logger)
+	service := NewMerchantAuthorizationService(logger, nil)
 
 	tests := []struct {
 		name          string

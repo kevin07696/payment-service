@@ -288,7 +288,10 @@ func (a *serverPostAdapter) ProcessTransactionViaSocket(ctx context.Context, req
 
 		// Set read/write deadlines
 		deadline := time.Now().Add(a.config.SocketTimeout)
-		conn.SetDeadline(deadline)
+		if err := conn.SetDeadline(deadline); err != nil {
+			a.logger.Error("Failed to set socket deadline", zap.Error(err))
+			return fmt.Errorf("failed to set socket deadline: %w", err)
+		}
 
 		// Send XML request
 		startTime := time.Now()

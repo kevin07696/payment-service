@@ -21,6 +21,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// NOTE on authentication model:
+// - Token identifies the SERVICE (via "iss" claim)
+// - Request body specifies the MERCHANT (via merchant_id field)
+// - Authorization service validates service has access to the merchant per-request
+// - This allows one token to work for multiple merchants
+
 // tokenBucket represents an in-memory rate limit bucket
 type tokenBucket struct {
 	tokens    int32
@@ -315,17 +321,12 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 		}
 	}
 
-	// Extract merchant ID from claims
-	merchantID, ok := claims["merchant_id"].(string)
-	if !ok {
-		return ctx, fmt.Errorf("missing merchant_id in token")
-	}
-
-	// Verify service has access to this merchant
 	issuer := claims["iss"].(string)
-	if err := ai.verifyServiceMerchantAccess(issuer, merchantID); err != nil {
-		return ctx, fmt.Errorf("access denied: %w", err)
-	}
+
+	// NOTE: merchant_id is NOT in the token
+	// Token identifies the SERVICE only
+	// Merchant is specified per-request in the request body
+	// Service-merchant access is validated per-request by the authorization service
 
 	// Check if token is blacklisted
 	if jti, ok := claims["jti"].(string); ok {
@@ -334,10 +335,23 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 		}
 	}
 
+	// Extract scopes from token
+	var scopes []string
+	if scopesClaim, ok := claims["scopes"].([]interface{}); ok {
+		for _, s := range scopesClaim {
+			if str, ok := s.(string); ok {
+				scopes = append(scopes, str)
+			}
+		}
+	}
+
 	// Add auth context
+	// NOTE: MerchantIDKey is NOT set here - it comes from request body
 	ctx = context.WithValue(ctx, auth.AuthTypeKey, "jwt")
 	ctx = context.WithValue(ctx, auth.ServiceIDKey, issuer)
-	ctx = context.WithValue(ctx, auth.MerchantIDKey, merchantID)
+	if len(scopes) > 0 {
+		ctx = context.WithValue(ctx, auth.ScopesKey, scopes)
+	}
 	if jti, ok := claims["jti"].(string); ok {
 		ctx = context.WithValue(ctx, auth.TokenJTIKey, jti)
 	}
@@ -345,32 +359,6 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 	return ctx, nil
 }
 
-// verifyServiceMerchantAccess checks if a service has access to a merchant
-func (ai *AuthInterceptor) verifyServiceMerchantAccess(serviceID, merchantID string) error {
-	ctx := context.Background()
-
-	// Parse merchant UUID
-	merchantUUID, err := uuid.Parse(merchantID)
-	if err != nil {
-		return fmt.Errorf("invalid merchant ID: %w", err)
-	}
-
-	hasAccess, err := ai.queries.CheckServiceMerchantAccessByID(ctx, sqlc.CheckServiceMerchantAccessByIDParams{
-		ServiceID:  serviceID,
-		MerchantID: merchantUUID,
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to verify access: %w", err)
-	}
-
-	if !hasAccess {
-		return fmt.Errorf("service %s not authorized for merchant %s",
-			serviceID, merchantID)
-	}
-
-	return nil
-}
 
 // isTokenBlacklisted checks if a JWT has been blacklisted
 func (ai *AuthInterceptor) isTokenBlacklisted(jti string) bool {

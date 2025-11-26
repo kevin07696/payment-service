@@ -29,7 +29,6 @@ import (
 	paymentmethodHandler "github.com/kevin07696/payment-service/internal/handlers/payment_method"
 	subscriptionHandler "github.com/kevin07696/payment-service/internal/handlers/subscription"
 	authMiddleware "github.com/kevin07696/payment-service/internal/middleware"
-	"github.com/kevin07696/payment-service/internal/services/authorization"
 	merchantService "github.com/kevin07696/payment-service/internal/services/merchant"
 	paymentService "github.com/kevin07696/payment-service/internal/services/payment"
 	paymentmethodService "github.com/kevin07696/payment-service/internal/services/payment_method"
@@ -51,7 +50,7 @@ import (
 func main() {
 	// Initialize logger
 	logger := initLogger()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	logger.Info("Starting payment service",
 		zap.String("version", "0.1.0"),
@@ -671,16 +670,12 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	loggerAdapter := security.NewZapLogger(logger)
 	merchantReporting := north.NewMerchantReportingAdapter(merchantReportingCfg, northHTTPClient, loggerAdapter)
 
-	// Initialize authorization resolver
-	merchantResolver := authorization.NewMerchantResolver()
-
 	// Initialize services with caches
 	paymentSvc := paymentService.NewPaymentService(
 		dbAdapter.Queries(),
 		dbAdapter,
 		serverPost,
 		secretManager,
-		merchantResolver,
 		merchantCache, // P2-1: Merchant credential cache (70% DB load reduction)
 		logger,
 	)
@@ -774,8 +769,9 @@ func getEnv(key, defaultValue string) string {
 func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		var intValue int
-		fmt.Sscanf(value, "%d", &intValue)
-		return intValue
+		if _, err := fmt.Sscanf(value, "%d", &intValue); err == nil {
+			return intValue
+		}
 	}
 	return defaultValue
 }
@@ -1096,5 +1092,5 @@ func serveBrowserPostDemo(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(html))
+	_, _ = w.Write([]byte(html))
 }

@@ -8,16 +8,16 @@
 
 ## Overview
 
-The payment service uses **token-based authentication** with **role-based authorization**:
+The payment service uses **token-based authentication** with **scope-based authorization**:
 
-- **Authentication:** JWT tokens issued by client applications (POS, e-commerce backends)
-- **Authorization:** Role-based access control (RBAC) with merchant isolation
-- **Multi-Tenant:** Each request is scoped to specific merchant(s)
+- **Authentication:** JWT tokens signed with RSA keys, issued by registered services
+- **Authorization:** Scope-based permissions with merchant isolation
+- **Multi-Tenant:** Each request is scoped to a specific merchant
 - **Idempotency:** Duplicate prevention through unique keys
 
 **Key Principles:**
-- No passwords stored in payment service (authentication happens in client applications)
-- Tokens carry context (who, what merchants, what permissions)
+- Services authenticate using RSA-signed JWT tokens
+- Tokens carry context (service_id, merchant_id, scopes)
 - Always return 404 (never 403) to prevent enumeration attacks
 - All authorization decisions logged for audit
 
@@ -40,7 +40,7 @@ The payment service separates **business entities (merchants)** from **API acces
 └─────────────────────────────────────────────────────────────┘
                               │
                               │ service_merchants junction table
-                              │ (scopes: payment:create, payment:read, etc.)
+                              │ (scopes: payments:create, payments:read, etc.)
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ MERCHANTS (Business Entities)                               │
@@ -92,7 +92,7 @@ CREATE TABLE merchants (
 CREATE TABLE service_merchants (
     service_id UUID REFERENCES services(id),
     merchant_id UUID REFERENCES merchants(id),
-    scopes TEXT[] NOT NULL,                   -- ['payment:create', 'payment:read']
+    scopes TEXT[] NOT NULL,                   -- ['payments:create', 'payments:read']
     granted_at TIMESTAMP DEFAULT NOW(),
     granted_by UUID,                          -- Admin who granted access
     PRIMARY KEY (service_id, merchant_id)
@@ -132,7 +132,66 @@ This creates:
 - Scopes defining what service can do
 - Service can now create payments for this merchant
 
-### Authentication Flow
+---
+
+## JWT Token Structure
+
+### Token Claims
+
+Services generate JWT tokens with the following claims:
+
+```json
+{
+  "iss": "acme-pos-system",
+  "sub": "acme-pos-system",
+  "merchant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "scopes": ["payments:create", "payments:read", "payments:refund"],
+  "exp": 1736683200,
+  "iat": 1736679600,
+  "nbf": 1736679600,
+  "jti": "unique-request-id-uuid"
+}
+```
+
+| Claim | Required | Description |
+|-------|----------|-------------|
+| `iss` | Yes | Issuer - the service_id |
+| `sub` | Yes | Subject - the service_id |
+| `merchant_id` | Yes | Single merchant UUID for this request |
+| `scopes` | Yes | Array of permission scopes |
+| `exp` | Yes | Expiration timestamp |
+| `iat` | Yes | Issued at timestamp |
+| `nbf` | Yes | Not before timestamp |
+| `jti` | Yes | Unique JWT ID (prevents replay) |
+
+### Available Scopes
+
+| Scope | Description |
+|-------|-------------|
+| `payments:create` | Create payments (auth, capture, sale) |
+| `payments:read` | View transactions |
+| `payments:void` | Void payments |
+| `payments:refund` | Issue refunds |
+| `payment_methods:read` | View saved payment methods |
+| `payment_methods:create` | Store payment methods |
+| `storage:tokenize` | Create secure tokens |
+| `storage:detokenize` | Retrieve tokenized data |
+| `subscriptions:manage` | Create/update/cancel subscriptions |
+| `subscriptions:read` | View subscriptions |
+| `*` | Wildcard - all permissions |
+
+### Why Single merchant_id Instead of Array?
+
+The simplified design uses a single `merchant_id` per token because:
+
+1. **Clear ownership**: Each API request is unambiguously for one merchant
+2. **Simpler validation**: No need to check arrays or resolve which merchant
+3. **Better audit trails**: Every request has exactly one merchant context
+4. **Services act as intermediaries**: Services that manage multiple merchants generate a new token per merchant when needed
+
+---
+
+## Authentication Flow
 
 ```
 ┌──────────────┐
@@ -141,457 +200,159 @@ This creates:
 └──────┬───────┘
        │
        │ 1. Sign JWT with RSA private key
-       │    Claims: { service_id, merchant_id, scopes }
+       │    Claims: { iss, sub, merchant_id, scopes }
        │
        ↓
-┌──────────────────────────────────────────────────────┐
-│ Payment Service API                                  │
-│                                                      │
-│ 2. Verify JWT signature using public key            │
-│ 3. Check service_merchants for access               │
-│ 4. Validate scopes                                   │
-│ 5. Fetch merchant's EPX credentials                 │
-│ 6. Process payment via EPX gateway                  │
-└──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│ Payment Service API                              │
+│                                                  │
+│ 2. Extract JWT from Authorization header         │
+│ 3. Verify signature using service's public key   │
+│ 4. Validate claims (exp, merchant_id, scopes)    │
+│ 5. Check service_merchants for access rights     │
+│ 6. Process payment via EPX gateway               │
+└──────────────────────────────────────────────────┘
 ```
 
-### Why This Architecture?
-
-**Separation of Concerns:**
-- Merchants = Business entities (what you charge)
-- Services = Technical integrations (how you charge)
-
-**Security:**
-- Service compromise doesn't expose merchant EPX credentials
-- Each service has limited scopes (principle of least privilege)
-- Private keys never stored in database
-- Easy to rotate service keys without touching merchants
-
-**Flexibility:**
-- One service can access multiple merchants (franchise POS)
-- One merchant can be accessed by multiple services (POS + web)
-- Grant/revoke access without recreating entities
-
-**Audit:**
-- Track which service performed which action
-- service_merchants table logs access grants
-- Easy to trace payment operations to specific services
-
----
-
-## Quick Start
-
-### Issuing Tokens (Client Application)
-
-**POS Backend** (single merchant):
+### Request Flow
 
 ```typescript
-const token = jwt.sign({
-  sub: 'pos_terminal_001',
-  token_type: 'merchant',
-  merchant_ids: ['merchant_abc123'],  // Single merchant array
-  scopes: ['payments:create', 'payments:read', 'payments:refund'],
-  exp: Math.floor(Date.now() / 1000) + (8 * 3600), // 8 hours
-}, JWT_SECRET);
-```
+// Service generates token for specific merchant
+const token = jwtgen.generate({
+  merchantId: "550e8400-e29b-41d4-a716-446655440000",
+  scopes: ["payments:create", "payments:read"],
+  expiresIn: "1h"
+});
 
-**E-commerce Backend** (customer):
-
-```typescript
-const token = jwt.sign({
-  sub: customer.id,
-  token_type: 'customer',
-  merchant_ids: [],  // Empty (customers don't own merchants)
-  customer_id: customer.id,
-  scopes: ['payments:read', 'payment_methods:read'],
-  exp: Math.floor(Date.now() / 1000) + (24 * 3600),
-}, JWT_SECRET);
-```
-
-### Making Authenticated Requests
-
-```typescript
-// ConnectRPC request with token
+// API call with token
 const response = await paymentClient.Sale({
-  amount_cents: 10000, // $100.00 in cents
-  payment_method_id: 'pm_123',
-  idempotency_key: generateIdempotencyKey('sale'),
+  amount_cents: 10000,
+  payment_token: "tok_xyz",
+  customer_id: "cust_123",  // Customer passed in request body
+  idempotency_key: "sale_unique_key"
 }, {
-  metadata: {
-    'authorization': `Bearer ${token}`,
-  },
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
 });
+```
+
+### Customer ID Handling
+
+**Important**: Customer ID is passed in the request body, NOT in the JWT token.
+
+**Why?**
+- Services act as trusted intermediaries between customers and the payment system
+- A service may process payments for many customers using the same merchant
+- Customer context is per-request, not per-authentication session
+- Keeps tokens reusable across customer interactions
+
+```go
+// Request structure
+type SaleRequest struct {
+    AmountCents    int64  `json:"amount_cents"`
+    PaymentToken   string `json:"payment_token"`
+    CustomerID     string `json:"customer_id"`     // Customer in request
+    IdempotencyKey string `json:"idempotency_key"`
+}
+
+// Token only contains service context
+// JWT Claims: { merchant_id, scopes, ... }
 ```
 
 ---
 
-## Token Structure
+## jwtgen CLI Tool
 
-### JWT Claims
+For local development and testing, use the `jwtgen` CLI tool to generate tokens:
 
-```typescript
-interface TokenClaims {
-  // Standard JWT claims
-  sub: string;        // Token subject (unique ID)
-  iss: string;        // Issuer (client application)
-  exp: number;        // Expiration timestamp
-  iat: number;        // Issued at timestamp
+### Build
 
-  // Authorization context
-  token_type: 'merchant' | 'customer' | 'admin' | 'guest';
-  merchant_ids: string[];  // Always array (empty for customers)
-  customer_id?: string;    // Only for customer tokens
-  session_id?: string;     // Only for guest tokens
-
-  // Permissions
-  scopes: string[];   // ['payments:create', 'payments:read']
-}
+```bash
+go build -o bin/jwtgen ./cmd/jwtgen
 ```
 
-### Token Types
+### Usage
 
-| Type | merchant_ids | customer_id | Use Case |
-|------|-------------|-------------|----------|
-| **merchant** (single) | `['m1']` | `null` | POS terminal |
-| **merchant** (multi) | `['m1','m2','m3']` | `null` | Multi-location operator |
-| **customer** | `[]` | `'cust_123'` | E-commerce logged-in user |
-| **guest** | `['m1']` | `null` | E-commerce guest checkout |
-| **admin** | `[]` | `null` | Platform administrators |
+```bash
+# Basic usage - generate token with default scopes
+./bin/jwtgen -c service_acme_credentials.json -m "550e8400-e29b-41d4-a716-446655440000"
 
----
+# Custom expiry and scopes
+./bin/jwtgen -c creds.json -m "uuid" -e 30m -s "payments:create,payments:read"
 
-## Authentication Patterns
+# Output as curl command
+./bin/jwtgen -c creds.json -m "uuid" -o curl
 
-### 1. Merchant Token (Single Merchant)
+# JSON output with metadata
+./bin/jwtgen -c creds.json -m "uuid" -o json
 
-**Use Case:** POS cashier, single-location business
-
-```json
-{
-  "sub": "pos_terminal_001",
-  "token_type": "merchant",
-  "merchant_ids": ["merchant_abc123"],
-  "customer_id": null,
-  "scopes": [
-    "payments:create",
-    "payments:read",
-    "payments:void",
-    "payments:refund"
-  ],
-  "exp": 1736683200
-}
+# Show decoded claims for verification
+./bin/jwtgen -c creds.json -m "uuid" --decode
 ```
 
-**Request Behavior:**
-- `merchant_id` parameter **OMITTED** from API calls
-- Payment service uses `merchant_ids[0]` automatically
-- Cannot access other merchants' data
+### Options
 
-**Example:**
-
-```typescript
-// API call: NO merchant_id needed
-await client.Authorize({
-  customer_id: 'walk_in_123',
-  amount_cents: 2500, // $25.00 in cents
-  // merchant_id: OMITTED
-});
-
-// Backend logic automatically uses token.merchant_ids[0]
-```
-
----
-
-### 2. Merchant Token (Multi-Merchant)
-
-**Use Case:** Remote operator, franchise manager, service provider
-
-```json
-{
-  "sub": "operator_service_001",
-  "token_type": "merchant",
-  "merchant_ids": ["merchant_1", "merchant_2", "merchant_3"],
-  "customer_id": null,
-  "scopes": ["payments:create", "storage:tokenize"],
-  "exp": 1736683200
-}
-```
-
-**Request Behavior:**
-- `merchant_id` parameter **REQUIRED** in API calls
-- Payment service validates `merchant_id` is in `merchant_ids` array
-- Access to multiple merchants, must specify which one
-
-**Example:**
-
-```typescript
-// API call: MUST specify merchant_id
-await client.Authorize({
-  merchant_id: 'merchant_2',  // REQUIRED (validated against array)
-  customer_id: 'customer_xyz',
-  amount_cents: 5000, // $50.00 in cents
-});
-
-// Backend logic validates: 'merchant_2' IN token.merchant_ids
-```
-
----
-
-### 3. Customer Token
-
-**Use Case:** E-commerce logged-in user viewing order history
-
-```json
-{
-  "sub": "customer_xyz789",
-  "token_type": "customer",
-  "merchant_ids": [],
-  "customer_id": "customer_xyz789",
-  "scopes": ["payments:read", "payment_methods:read"],
-  "exp": 1736683200
-}
-```
-
-**Request Behavior:**
-- Can only view own transactions
-- `customer_id` filter **FORCED** to token's `customer_id`
-- Cannot create payments directly (must go through backend)
-
-**Example:**
-
-```typescript
-// E-commerce backend queries customer's orders
-const orders = await db.query(`
-  SELECT payment_parent_transaction_id FROM orders WHERE customer_id = $1
-`, [customerId]);
-
-// Calls payment service with customer token
-const transactions = await client.GetTransactionsByGroups({
-  parent_transaction_ids: orders.map(o => o.payment_parent_transaction_id),
-});
-
-// Service automatically filters to customer_id from token
-```
-
----
-
-### 4. Guest Token
-
-**Use Case:** E-commerce guest checkout
-
-```json
-{
-  "sub": "guest_session_abc",
-  "token_type": "guest",
-  "merchant_ids": ["merchant_123"],
-  "customer_id": null,
-  "session_id": "sess_abc123",
-  "scopes": ["payments:create"],
-  "exp": 1736685000
-}
-```
-
-**Request Behavior:**
-- Can only complete checkout for single session
-- Short-lived tokens (30 minutes typical)
-- Limited to payment creation only
-
-**Example:**
-
-```typescript
-// Guest starts checkout
-app.post('/api/guest-checkout', async (req, res) => {
-  const token = jwt.sign({
-    sub: `guest_${req.session.id}`,
-    token_type: 'guest',
-    merchant_ids: [req.body.merchant_id],
-    session_id: req.session.id,
-    scopes: ['payments:create'],
-    exp: Math.floor(Date.now() / 1000) + (30 * 60),
-  }, JWT_SECRET);
-
-  res.json({ token });
-});
-```
-
----
-
-### 5. Admin Token
-
-**Use Case:** Platform support, internal operations
-
-```json
-{
-  "sub": "admin_support_001",
-  "token_type": "admin",
-  "merchant_ids": [],
-  "customer_id": null,
-  "scopes": ["*"],
-  "exp": 1736683200
-}
-```
-
-**Request Behavior:**
-- Full access to all merchants and customers
-- `merchant_id` parameter **REQUIRED** for write operations
-- All actions logged for compliance
-
-**Example:**
-
-```typescript
-// Admin refunds payment for any merchant
-await client.Refund({
-  merchant_id: 'any_merchant_999',  // REQUIRED
-  transaction_id: 'tx_xyz789', // Specific transaction to refund
-  amount_cents: 10000, // $100.00 in cents
-  reason: 'Customer service adjustment',
-  idempotency_key: generateKey(),
-});
-```
+| Flag | Description |
+|------|-------------|
+| `-c, --credentials` | Path to service credentials JSON file (required) |
+| `-m, --merchant-id` | Merchant UUID (required) |
+| `-e, --expires` | Token expiry duration (default: 1h) |
+| `-s, --scopes` | Comma-separated scopes (default: all payment scopes) |
+| `-o, --output` | Output format: token, json, curl (default: token) |
+| `--decode` | Show decoded claims for verification |
+| `-h, --help` | Show help message |
 
 ---
 
 ## Authorization Logic
 
-### Merchant ID Resolution
-
-**Single Merchant Token** (`len(merchant_ids) == 1`):
-```go
-// Use token's merchant ID (ignore request parameter)
-merchantID := token.MerchantIDs[0]
-```
-
-**Multi-Merchant Token** (`len(merchant_ids) > 1`):
-```go
-// Validate requested merchant_id is in allowed list
-if requestedMerchantID == "" {
-    return Error("merchant_id required: token has multiple merchants")
-}
-if !contains(token.MerchantIDs, requestedMerchantID) {
-    return Error("merchant_id not in allowed list")
-}
-merchantID := requestedMerchantID
-```
-
-**Customer Token** (`token_type == "customer"`):
-```go
-// Cannot create payments
-return Error("customers cannot create payments")
-```
-
-**Admin Token** (`token_type == "admin"`):
-```go
-// Require explicit merchant_id
-if requestedMerchantID == "" {
-    return Error("merchant_id required for admin")
-}
-merchantID := requestedMerchantID  // Any merchant allowed
-```
-
-### Implementation Example
+### Scope Validation
 
 ```go
-func (s *PaymentService) resolveMerchantID(
-    token *TokenClaims,
-    requestedMerchantID string,
-) (string, error) {
-    switch token.TokenType {
-    case "merchant":
-        return s.resolveMerchantToken(token, requestedMerchantID)
-    case "customer":
-        return "", connect.NewError(
-            connect.CodePermissionDenied,
-            errors.New("customers cannot create payments"),
-        )
-    case "admin":
-        if requestedMerchantID == "" {
-            return "", connect.NewError(
-                connect.CodeInvalidArgument,
-                errors.New("merchant_id required for admin"),
-            )
+// Check if scopes include required permission
+func HasScope(scopes []string, scope string) bool {
+    for _, s := range scopes {
+        if s == scope || s == "*" {  // Wildcard grants all
+            return true
         }
-        return requestedMerchantID, nil
-    default:
-        return "", connect.NewError(
-            connect.CodeUnauthenticated,
-            errors.New("invalid token type"),
-        )
     }
+    return false
 }
 
-func (s *PaymentService) resolveMerchantToken(
-    token *TokenClaims,
-    requested string,
-) (string, error) {
-    if len(token.MerchantIDs) == 0 {
-        return "", connect.NewError(
-            connect.CodeUnauthenticated,
-            errors.New("token has no merchant access"),
-        )
+// Handler validates scope before operation
+func (h *PaymentHandler) Sale(ctx context.Context, req *SaleRequest) (*Transaction, error) {
+    claims := auth.GetClaimsFromContext(ctx)
+
+    if !domain.HasScope(claims.Scopes, domain.ScopePaymentsCreate) {
+        return nil, connect.NewError(connect.CodePermissionDenied,
+            errors.New("missing scope: payments:create"))
     }
 
-    // Single merchant
-    if len(token.MerchantIDs) == 1 {
-        return token.MerchantIDs[0], nil
-    }
-
-    // Multiple merchants
-    if requested == "" {
-        return "", connect.NewError(
-            connect.CodeInvalidArgument,
-            errors.New("merchant_id required: token has multiple merchants"),
-        )
-    }
-
-    if !contains(token.MerchantIDs, requested) {
-        return "", connect.NewError(
-            connect.CodePermissionDenied,
-            fmt.Errorf("merchant_id '%s' not in allowed list", requested),
-        )
-    }
-
-    return requested, nil
+    // Process payment...
 }
 ```
 
----
+### Merchant Access Validation
 
-## Query Authorization
-
-### List Operations Filtering
-
-**Merchant Token:**
 ```go
-// Single merchant: FORCE filter
-if len(token.MerchantIDs) == 1 {
-    req.MerchantId = token.MerchantIDs[0]
-}
-
-// Multiple merchants
-if len(token.MerchantIDs) > 1 {
-    if req.MerchantId != "" {
-        // Validate specific merchant requested
-        if !contains(token.MerchantIDs, req.MerchantId) {
-            return ErrUnauthorized
-        }
-    } else {
-        // Query all their merchants
-        // SQL: WHERE merchant_id IN (token.MerchantIDs)
-        req.MerchantIds = token.MerchantIDs
+// Validate service has access to merchant
+func (a *AuthInterceptor) ValidateMerchantAccess(
+    ctx context.Context,
+    serviceID, merchantID string,
+) error {
+    // Check service_merchants junction table
+    access, err := a.db.GetServiceMerchantAccess(ctx, serviceID, merchantID)
+    if err != nil {
+        return connect.NewError(connect.CodeNotFound, errors.New("not found"))
     }
+
+    if !access.IsActive {
+        return connect.NewError(connect.CodeNotFound, errors.New("not found"))
+    }
+
+    return nil
 }
-```
-
-**Customer Token:**
-```go
-// FORCE customer filter
-req.CustomerId = token.CustomerID
-req.MerchantId = ""  // Ignore merchant filter
-```
-
-**Admin Token:**
-```go
-// No forced filters (can query anything)
 ```
 
 ### Authorization Error Handling
@@ -599,17 +360,17 @@ req.MerchantId = ""  // Ignore merchant filter
 **Always return 404, never 403:**
 
 ```go
-// ✅ CORRECT
-if err := h.authz.CanAccessTransactionGroup(authCtx, txs); err != nil {
+// CORRECT: Return 404 for unauthorized access
+if err := h.authz.CanAccessMerchant(ctx, merchantID); err != nil {
     h.logger.Warn("unauthorized access attempt",
-        zap.String("actor", authCtx.ActorID),
-        zap.String("parent_transaction_id", req.GroupId),
+        zap.String("service_id", claims.ServiceID),
+        zap.String("merchant_id", merchantID),
     )
-    return nil, status.Error(codes.NotFound, "not found")
+    return nil, connect.NewError(connect.CodeNotFound, errors.New("not found"))
 }
 
-// ❌ WRONG
-return nil, status.Error(codes.PermissionDenied, "access denied")
+// WRONG: Never expose authorization failures
+// return nil, connect.NewError(connect.CodePermissionDenied, errors.New("access denied"))
 ```
 
 **Why 404 instead of 403?**
@@ -660,21 +421,15 @@ RETURNING *;
 
 | Scenario | Gateway Response | Insert Transaction? | Retryable with Same Key? |
 |----------|------------------|---------------------|--------------------------|
-| **Network timeout** | `err != nil` | ❌ No | ✅ Yes |
-| **Gateway 500 error** | `err != nil` | ❌ No | ✅ Yes |
-| **Payment approved** | `auth_resp="00"` | ✅ Yes | ❌ No |
-| **Payment declined** | `auth_resp="05"` | ✅ Yes | ❌ No |
-
-**Why insert declined transactions?**
-1. Safety: Prevents double-charging if network flakes during retry
-2. Audit trail: PCI compliance requires logging all attempts
-3. Fraud detection: Analyze patterns in declined attempts
-4. Industry standard: Matches Stripe, Square, PayPal behavior
+| **Network timeout** | `err != nil` | No | Yes |
+| **Gateway 500 error** | `err != nil` | No | Yes |
+| **Payment approved** | `auth_resp="00"` | Yes | No |
+| **Payment declined** | `auth_resp="05"` | Yes | No |
 
 ### Idempotency Key Generation
 
 ```typescript
-// ✅ CORRECT: Unique key per attempt
+// CORRECT: Unique key per attempt
 function generateIdempotencyKey(operation: string): string {
   return `${operation}_${Date.now()}_${uuidv4()}`;
 }
@@ -683,183 +438,17 @@ function generateIdempotencyKey(operation: string): string {
 const saleKey = generateIdempotencyKey('sale');
 // Result: "sale_1736683200000_550e8400-e29b-41d4-a716-446655440000"
 
-// ❌ WRONG: Reusing key for retries after decline
+// WRONG: Reusing key for retries after decline
 const key = generateIdempotencyKey('sale');
 await paymentClient.sale({ idempotency_key: key });  // Declined
 await paymentClient.sale({ idempotency_key: key });  // Returns existing decline
 
-// ✅ CORRECT: New key after decline
+// CORRECT: New key after decline
 const key1 = generateIdempotencyKey('sale');
 await paymentClient.sale({ idempotency_key: key1 });  // Declined
 
 const key2 = generateIdempotencyKey('sale');  // NEW key
 await paymentClient.sale({ idempotency_key: key2 });  // New attempt
-```
-
----
-
-## Role-Based Access Control
-
-### Access Matrix
-
-| Operation | Customer | Guest | Merchant | Admin | Service |
-|-----------|----------|-------|----------|-------|---------|
-| **Create Payment** | Via Backend | Via Backend | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Capture** | ❌ No | ❌ No | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Void** | ❌ No | ❌ No | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Refund** | ❌ No | ❌ No | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Get by Group** | ✅ Own Only | ✅ Session Only | ✅ Own Only | ✅ All | ✅ Scoped |
-| **List Transactions** | ✅ Own Only | ❌ No | ✅ Own Only | ✅ All | ✅ Scoped |
-
-### Customer Access Pattern
-
-**Can:**
-- View transactions WHERE `customer_id` = token's `customer_id`
-- View transaction groups if owns any transaction in group
-- List payment methods
-
-**Cannot:**
-- Create payments directly (must go through backend)
-- Refund or void payments
-- View other customers' data
-- Access merchant-level operations
-
-**Example Flow:**
-
-```typescript
-// E-commerce backend endpoint
-app.get('/api/my-transactions', authenticateJWT, async (req, res) => {
-  const customerId = req.user.id;
-
-  // Get payment group IDs from orders
-  const orders = await db.query(`
-    SELECT payment_parent_transaction_id FROM orders WHERE customer_id = $1
-  `, [customerId]);
-
-  // Call payment service (backend acts as service account)
-  const txs = await paymentClient.GetTransactionsByGroups({
-    parent_transaction_ids: orders.map(o => o.payment_parent_transaction_id),
-  });
-
-  res.json(txs);
-});
-```
-
----
-
-### Guest Access Pattern
-
-**Can:**
-- View transaction group WHERE `metadata.session_id` = token's `session_id`
-- Complete checkout for single session
-
-**Cannot:**
-- List transactions
-- Create payments after session expires
-- View other sessions' data
-
-**Session Expiry Fallback:**
-
-```typescript
-// Email-based order lookup (rate-limited)
-app.post('/api/orders/lookup', async (req, res) => {
-  const { orderId, email } = req.body;
-
-  // Rate limit heavily (3 requests/hour)
-  if (!await rateLimiter.check(req.ip, 'order-lookup', 3, 3600)) {
-    return res.status(429).json({ error: 'Too many requests' });
-  }
-
-  // Verify order and email
-  const order = await db.query(`
-    SELECT payment_parent_transaction_id FROM orders
-    WHERE id = $1 AND email = $2
-    AND created_at > NOW() - INTERVAL '90 days'
-  `, [orderId, email.toLowerCase()]);
-
-  if (!order) {
-    await sleep(randomInt(100, 500));  // Timing attack prevention
-    return res.status(404).json({ error: 'Order not found' });
-  }
-
-  const txs = await paymentClient.GetTransactionsByGroupID({
-    parent_transaction_id: order.payment_parent_transaction_id,
-  });
-
-  res.json(txs);
-});
-```
-
----
-
-### Merchant Access Pattern
-
-**Can:**
-- Create payments for owned merchants
-- Void/refund payments for owned merchants
-- View transactions WHERE `merchant_id` IN token's `merchant_ids`
-- Capture authorizations for owned merchants
-
-**Cannot:**
-- Access other merchants' data
-- View full customer payment methods (masked data only)
-- Perform admin operations
-
-**Example Flow:**
-
-```go
-// POS Backend
-func (h *POSHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) {
-    // Validate staff JWT
-    staffClaims, _ := validateStaffJWT(r.Header.Get("Authorization"))
-
-    // Check staff has permission for this merchant
-    if staffClaims.MerchantID != requestedMerchantID {
-        http.Error(w, "Forbidden", http.StatusForbidden)
-        return
-    }
-
-    // Call payment service
-    tx, _ := paymentClient.Sale(ctx, &payment.SaleRequest{
-        // merchant_id omitted (single merchant token)
-        Amount: req.Amount,
-        PaymentMethodId: req.PaymentMethodId,
-        IdempotencyKey: generateKey(),
-    })
-}
-```
-
----
-
-### Admin Access Pattern
-
-**Can:**
-- View ALL transactions (no filters)
-- Refund/void ANY payment
-- Create payments for ANY merchant
-- View ALL customer data
-- Access audit logs
-- Manage service accounts
-
-**All actions logged for compliance**
-
-**Example:**
-
-```go
-func (i *AuthInterceptor) authenticate(ctx context.Context, apiKey string) (*AuthContext, error) {
-    // Admin uses special API key
-    if apiKey == os.Getenv("ADMIN_API_KEY") {
-        return &AuthContext{
-            ActorType: ActorTypeAdmin,
-            ActorID: "admin",
-            Scopes: []string{"*:*"},  // Full access
-        }, nil
-    }
-
-    // Regular service account lookup
-    svcAccount, _ := i.serviceAccounts.ValidateAPIKey(ctx, apiKey)
-    // ...
-}
 ```
 
 ---
@@ -870,28 +459,25 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, apiKey string) (*Aut
 
 **Short-Lived Tokens:**
 ```typescript
-// POS terminal: 8 hours
-exp: Math.floor(Date.now() / 1000) + (8 * 3600)
+// Typical: 1 hour
+exp: Math.floor(Date.now() / 1000) + (1 * 3600)
 
-// Customer: 24 hours
-exp: Math.floor(Date.now() / 1000) + (24 * 3600)
-
-// Guest: 30 minutes
-exp: Math.floor(Date.now() / 1000) + (30 * 60)
+// High security: 5-15 minutes
+exp: Math.floor(Date.now() / 1000) + (5 * 60)
 ```
 
 **Token Storage:**
-- Store in HTTP-only cookies (not localStorage)
-- Use secure flag in production
-- Rotate tokens on sensitive operations
+- Store private keys in secure secret management (Vault, AWS Secrets Manager)
+- Never commit private keys to version control
+- Use environment variables for key paths
 
 ### 2. Rate Limiting
 
 ```go
 var rateLimits = map[string]RateLimit{
-    "GetTransactionsByGroupID": {Requests: 10, Window: time.Minute},
-    "Sale":                      {Requests: 100, Window: time.Minute},
-    "ListTransactions":          {Requests: 10, Window: time.Minute},
+    "Sale":             {Requests: 100, Window: time.Minute},
+    "Authorize":        {Requests: 100, Window: time.Minute},
+    "ListTransactions": {Requests: 10, Window: time.Minute},
 }
 ```
 
@@ -901,39 +487,34 @@ var rateLimits = map[string]RateLimit{
 // Log all authorization decisions
 s.auditLogger.Log(AuditEvent{
     EventType:  "authorization_check",
-    ActorType:  authCtx.ActorType,
-    ActorID:    authCtx.ActorID,
+    ServiceID:  claims.ServiceID,
+    MerchantID: claims.MerchantID,
     Resource:   "transaction",
     ResourceID: tx.ID,
-    Action:     "read",
+    Action:     "create",
     Allowed:    allowed,
-    Reason:     reason,
-    IPAddress:  authCtx.IPAddress,
+    Scopes:     claims.Scopes,
+    IPAddress:  ctx.Value("remote_addr").(string),
     Timestamp:  time.Now(),
 })
 ```
 
-### 4. Enumeration Prevention
-
-**Always return 404 for unauthorized access:**
-```go
-// Prevents distinguishing "doesn't exist" from "unauthorized"
-if err := h.authz.CanAccess(authCtx, resource); err != nil {
-    return nil, status.Error(codes.NotFound, "not found")
-}
-```
-
-### 5. Input Validation
+### 4. Input Validation
 
 ```go
 // Validate token claims
-if token.TokenType == "merchant" && len(token.MerchantIDs) == 0 {
-    return errors.New("merchant token must have at least one merchant_id")
+if claims.MerchantID == "" {
+    return errors.New("merchant_id is required in token")
 }
 
-// Validate requested merchant_id format
-if req.MerchantId != "" && !isValidUUID(req.MerchantId) {
+// Validate merchant_id is valid UUID
+if _, err := uuid.Parse(claims.MerchantID); err != nil {
     return errors.New("invalid merchant_id format")
+}
+
+// Validate scopes not empty
+if len(claims.Scopes) == 0 {
+    return errors.New("scopes are required in token")
 }
 ```
 
@@ -944,54 +525,136 @@ if req.MerchantId != "" && !isValidUUID(req.MerchantId) {
 ### POS Application
 
 ```typescript
-// 1. Staff login to POS backend
-const staffToken = await posBackend.login(username, password);
+// 1. Service has credentials from admin setup
+const credentials = loadCredentials('service_pos_credentials.json');
 
-// 2. POS backend generates payment service token
-const paymentToken = jwt.sign({
-  sub: `pos_${terminal.id}`,
-  token_type: 'merchant',
-  merchant_ids: [staff.merchant_id],
+// 2. Generate token for merchant
+const token = await generateToken(credentials, {
+  merchantId: 'merchant-uuid',
   scopes: ['payments:create', 'payments:refund'],
-  exp: Math.floor(Date.now() / 1000) + (8 * 3600),
-}, JWT_SECRET);
+  expiresIn: '1h'
+});
 
-// 3. POS app calls payment service
+// 3. Process payment
 const payment = await paymentClient.Sale({
-  // merchant_id omitted (single merchant)
-  amount_cents: 4599, // $45.99 in cents
-  payment_method_id: 'pm_123',
+  amount_cents: 4599,
+  payment_token: 'tok_card_123',
+  customer_id: 'walk_in_customer',
   idempotency_key: generateKey(),
 }, {
-  metadata: { authorization: `Bearer ${paymentToken}` },
+  headers: { 'Authorization': `Bearer ${token}` },
 });
 ```
 
 ### E-commerce Application
 
 ```typescript
-// 1. Customer logs in to e-commerce site
-const customerToken = await ecomBackend.login(email, password);
+// 1. Customer places order on e-commerce site
+// 2. E-commerce backend (service) processes payment
 
-// 2. Customer views order history
-const orders = await ecomBackend.getMyOrders(customerToken);
-
-// 3. E-commerce backend calls payment service
-const transactions = await paymentClient.GetTransactionsByGroups({
-  parent_transaction_ids: orders.map(o => o.payment_parent_transaction_id),
-}, {
-  metadata: { 'x-api-key': process.env.ECOM_API_KEY },
+const token = await generateToken(credentials, {
+  merchantId: 'ecom-merchant-uuid',
+  scopes: ['payments:create', 'payments:read'],
+  expiresIn: '15m'
 });
 
-// 4. Return filtered data to customer
-return transactions.filter(tx => tx.customer_id === customer.id);
+// 3. Create payment with customer context in request body
+const payment = await paymentClient.Sale({
+  amount_cents: 9999,
+  payment_token: 'tok_saved_card',
+  customer_id: order.customerId,  // Customer passed in request
+  idempotency_key: `order_${order.id}`,
+}, {
+  headers: { 'Authorization': `Bearer ${token}` },
+});
+
+// 4. Customer can view their order
+// E-commerce backend filters by customer_id when querying
+const customerOrders = await db.query(
+  'SELECT * FROM orders WHERE customer_id = $1',
+  [customerId]
+);
 ```
+
+---
+
+## Cron Authentication
+
+The payment service exposes internal cron endpoints for scheduled tasks (ACH verification, billing processing, dispute sync, etc.). These endpoints use a **separate authentication mechanism** from the main API.
+
+### Authentication Method
+
+Cron endpoints authenticate using the **X-Cron-Secret** header only:
+
+```bash
+# Correct: Use X-Cron-Secret header
+curl -X POST http://localhost:8081/cron/verify-ach \
+  -H "X-Cron-Secret: your-cron-secret"
+
+# Incorrect: Bearer tokens are NOT supported for cron endpoints
+# curl -X POST http://localhost:8081/cron/verify-ach \
+#   -H "Authorization: Bearer your-cron-secret"  # Will return 401
+```
+
+### Why X-Cron-Secret Instead of JWT?
+
+| Aspect | JWT (API) | X-Cron-Secret (Cron) |
+|--------|-----------|---------------------|
+| **Use Case** | External API calls | Internal scheduled tasks |
+| **Authentication** | RSA-signed tokens | Shared secret |
+| **Caller** | Services/Applications | Cloud Scheduler/Cron jobs |
+| **Complexity** | Full JWT validation | Simple header check |
+| **Rate Limiting** | Per-service limits | Single cron job |
+
+### Cron Endpoints
+
+All cron endpoints are served on port **8081** (not 8080):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/cron/verify-ach` | POST | Process pending ACH verifications |
+| `/cron/process-billing` | POST | Process subscription billing |
+| `/cron/sync-disputes` | POST | Sync disputes from gateway |
+| `/cron/cleanup-audit-logs` | POST | Clean up old audit logs |
+| `/cron/cleanup-rate-limits` | POST | Clean up expired rate limit buckets |
+| `/cron/stats` | GET | Get billing cron statistics |
+| `/cron/ach/stats` | GET | Get ACH verification statistics |
+
+### Health Check Endpoints (No Auth Required)
+
+Health endpoints are accessible without authentication for monitoring:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/cron/health` | GET | Main cron health check |
+| `/cron/ach/health` | GET | ACH verification health |
+| `/cron/audit/health` | GET | Audit cleanup health |
+| `/cron/rate-limit/health` | GET | Rate limit cleanup health |
+
+### Configuration
+
+Set the cron secret via environment variable:
+
+```bash
+# Production: Use a strong, randomly generated secret (32+ characters)
+export CRON_SECRET="your-secure-random-secret-at-least-32-chars"
+
+# Development: Default value for local testing
+# CRON_SECRET="test-cron-secret-at-least-32-characters-long"
+```
+
+### Security Considerations
+
+1. **Use HTTPS in production**: The cron secret is sent in headers, so always use TLS
+2. **Rotate secrets regularly**: Change the cron secret periodically
+3. **Restrict network access**: Cron endpoints should only be accessible from your scheduler (Cloud Scheduler, cron server)
+4. **Monitor for abuse**: Log and alert on failed authentication attempts
 
 ---
 
 ## Related Documentation
 
-- **DATAFLOW.md** - Understanding authentication flows in payment processes
+- **TOKEN_GENERATION.md** - Token generation code examples for all languages
 - **API_SPECS.md** - API endpoints and authentication requirements
 - **DATABASE.md** - Multi-tenant data isolation
 - **DEVELOP.md** - Testing authentication and authorization

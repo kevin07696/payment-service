@@ -2,10 +2,6 @@ package middleware
 
 import (
 	"regexp"
-	"strings"
-
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 // SensitiveFieldPatterns defines regex patterns for detecting sensitive data
@@ -81,103 +77,9 @@ var SensitiveFields = []string{
 	"processor_resp_text", // Processor response text
 }
 
-// ScrubString scrubs sensitive data from a string using pattern matching
-func ScrubString(s string) string {
-	scrubbed := s
-
-	// Apply regex patterns
-	for _, pattern := range SensitiveFieldPatterns {
-		scrubbed = pattern.ReplaceAllString(scrubbed, "[REDACTED]")
-	}
-
-	return scrubbed
-}
-
-// ScrubField checks if a field name is sensitive and should be redacted
-func ScrubField(fieldName string) bool {
-	fieldLower := strings.ToLower(fieldName)
-
-	for _, sensitive := range SensitiveFields {
-		if strings.Contains(fieldLower, sensitive) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// ScrubZapFields creates a scrubbing zap.Field encoder
-// This returns a function that can be used to wrap field values
-func ScrubZapField(field zap.Field) zap.Field {
-	// Check if field name indicates sensitive data
-	if ScrubField(field.Key) {
-		return zap.String(field.Key, "[REDACTED]")
-	}
-
-	// If it's a string field, scrub the content
-	if field.Type == zapcore.StringType {
-		if field.String != "" {
-			scrubbedStr := ScrubString(field.String)
-			if scrubbedStr != field.String {
-				return zap.String(field.Key, scrubbedStr)
-			}
-		}
-	}
-
-	return field
-}
-
-// ScrubLogMessage scrubs sensitive data from log messages
-func ScrubLogMessage(msg string) string {
-	return ScrubString(msg)
-}
-
-// NewScrubLogger creates a zap logger wrapper that automatically scrubs sensitive fields
-// Note: This is a basic implementation. For production, consider using zap.WrapCore
-// to intercept fields before they're encoded.
-func NewScrubLogger(logger *zap.Logger) *zap.Logger {
-	// For now, we recommend manually scrubbing sensitive fields at call sites:
-	//
-	// GOOD:
-	//   logger.Info("Processing payment",
-	//       zap.String("merchant_id", merchantID),
-	//       zap.String("last_4", last4),  // Only log last 4 digits
-	//   )
-	//
-	// BAD:
-	//   logger.Info("Processing payment",
-	//       zap.String("card_number", cardNumber),  // Never log full PAN
-	//   )
-	//
-	// For automatic scrubbing, wrap the core:
-	// return logger.WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
-	//     return &scrubbingCore{Core: core}
-	// }))
-
-	return logger
-}
-
-// scrubbingCore is a zapcore.Core wrapper that scrubs sensitive fields
-// This is a placeholder for future implementation if needed
-type scrubbingCore struct {
-	zapcore.Core
-}
-
-// Example of how to use the scrubber in application code:
+// Note: Log scrubbing functions (ScrubString, ScrubField, ScrubZapField, etc.) were removed
+// as the codebase uses manual field selection instead - logging safe fields like "last_4"
+// rather than scrubbing sensitive data after the fact.
 //
-// import "github.com/kevin07696/payment-service/internal/middleware"
-//
-// // Scrub a string before logging
-// scrubbedMsg := middleware.ScrubString("Card 4111-1111-1111-1111 charged")
-// logger.Info(scrubbedMsg)  // Logs: "Card [REDACTED] charged"
-//
-// // Check if a field should be scrubbed
-// if middleware.ScrubField("card_number") {
-//     logger.Info("Payment processed", zap.String("card_number", "[REDACTED]"))
-// }
-//
-// // Manual scrubbing of sensitive fields
-// logger.Info("EPX Response",
-//     zap.String("auth_code", authCode),
-//     zap.String("auth_resp_text", middleware.ScrubString(authRespText)),
-// )
+// The patterns above (SensitiveFieldPatterns, SensitiveFields) are retained as reference
+// for what constitutes sensitive data in this payment system.

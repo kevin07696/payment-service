@@ -220,7 +220,7 @@ func TestWithTx_Panic(t *testing.T) {
 		assert.Equal(t, "test panic", r, "Panic value should be preserved")
 	}()
 
-	adapter.WithTx(ctx, func(q sqlc.Querier) error {
+	_ = adapter.WithTx(ctx, func(q sqlc.Querier) error {
 		panic("test panic")
 	})
 

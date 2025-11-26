@@ -126,7 +126,7 @@ func Test_GzipHandler_CompressionApplied(t *testing.T) {
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(testData))
+		_, _ = w.Write([]byte(testData))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -170,7 +170,7 @@ func Test_GzipHandler_NoCompressionWithoutAcceptEncoding(t *testing.T) {
 	testData := "Hello, World!"
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(testData))
+		_, _ = w.Write([]byte(testData))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -197,7 +197,7 @@ func Test_GzipHandler_NoCompressionForNonAcceptingClient(t *testing.T) {
 
 	testData := "Hello, World!"
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(testData))
+		_, _ = w.Write([]byte(testData))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -239,7 +239,7 @@ func Test_GzipHandler_StatusCodeCaptured(t *testing.T) {
 			innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.statusCode)
-				w.Write([]byte(`{"error": "test"}`))
+				_, _ = w.Write([]byte(`{"error": "test"}`))
 			})
 
 			wrappedHandler := handler(innerHandler)
@@ -268,7 +268,7 @@ func Test_GzipHandler_DefaultStatusCode(t *testing.T) {
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// Don't call WriteHeader - should default to 200
-		w.Write([]byte(`{"message": "ok"}`))
+		_, _ = w.Write([]byte(`{"message": "ok"}`))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -298,7 +298,7 @@ func Test_GzipHandlerWithCustomConfig_ExcludedPaths(t *testing.T) {
 
 	testData := "Health OK"
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(testData))
+		_, _ = w.Write([]byte(testData))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -347,7 +347,7 @@ func Test_GzipHandlerWithCustomConfig_ExcludedMethods(t *testing.T) {
 	handler := GzipHandlerWithCustomConfig(cfg, logger)
 
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -410,7 +410,7 @@ func Test_GzipHandlerWithCustomConfig_CompressionLevels(t *testing.T) {
 			handler := GzipHandlerWithCustomConfig(cfg, logger)
 
 			innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(testData))
+				_, _ = w.Write([]byte(testData))
 			})
 
 			wrappedHandler := handler(innerHandler)
@@ -462,7 +462,7 @@ func Test_GzipHandler_PoolReuse(t *testing.T) {
 	handler := GzipHandler(GzipDefaultLevel, logger)
 
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("test data"))
+		_, _ = w.Write([]byte("test data"))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -494,7 +494,7 @@ func Test_GzipHandler_HeadersSet(t *testing.T) {
 
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"key": "value"}`))
+		_, _ = w.Write([]byte(`{"key": "value"}`))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -559,7 +559,7 @@ func Benchmark_GzipHandler_WithPool(b *testing.B) {
 
 	testData := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 100)
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(testData))
+		_, _ = w.Write([]byte(testData))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -581,7 +581,7 @@ func Benchmark_GzipHandler_WithoutCompression(b *testing.B) {
 
 	testData := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 100)
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(testData))
+		_, _ = w.Write([]byte(testData))
 	})
 
 	wrappedHandler := handler(innerHandler)
@@ -618,7 +618,7 @@ func Benchmark_CompressionLevels(b *testing.B) {
 			handler := GzipHandlerWithCustomConfig(cfg, logger)
 
 			innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(testData))
+				_, _ = w.Write([]byte(testData))
 			})
 
 			wrappedHandler := handler(innerHandler)
@@ -655,7 +655,7 @@ func Benchmark_PayloadSizes(b *testing.B) {
 			handler := GzipHandler(GzipDefaultLevel, logger)
 
 			innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(testData))
+				_, _ = w.Write([]byte(testData))
 			})
 
 			wrappedHandler := handler(innerHandler)

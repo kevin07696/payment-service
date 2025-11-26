@@ -10,7 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/kevin07696/payment-service/internal/auth"
+	"github.com/kevin07696/payment-service/pkg/crypto"
+	"github.com/kevin07696/payment-service/tests/integration/testutil"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,10 +39,7 @@ func TestAdminCLI_ServiceCreation(t *testing.T) {
 	// Test service creation flow
 	t.Run("Create service with RSA keypair", func(t *testing.T) {
 		// Generate RSA keypair (simulating admin CLI)
-		privateKey, publicKey, err := auth.GenerateRSAKeyPair(2048)
-		require.NoError(t, err)
-
-		publicKeyPEM, err := auth.PublicKeyToPEM(publicKey)
+		keyPair, err := crypto.GenerateRSAKeyPair()
 		require.NoError(t, err)
 
 		// Insert into services table
@@ -54,8 +52,8 @@ func TestAdminCLI_ServiceCreation(t *testing.T) {
 			) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (service_id) DO UPDATE SET
 				public_key = EXCLUDED.public_key
-		`, serviceID, "Test CLI Service", string(publicKeyPEM),
-			"test-fingerprint", "staging", 100, 200, true)
+		`, serviceID, "Test CLI Service", keyPair.PublicKeyPEM,
+			keyPair.Fingerprint, "staging", 100, 200, true)
 		require.NoError(t, err)
 
 		// Verify service was created
@@ -64,12 +62,11 @@ func TestAdminCLI_ServiceCreation(t *testing.T) {
 			SELECT public_key FROM services WHERE service_id = $1
 		`, serviceID).Scan(&storedPublicKey)
 		require.NoError(t, err)
-		assert.Equal(t, string(publicKeyPEM), storedPublicKey)
+		assert.Equal(t, keyPair.PublicKeyPEM, storedPublicKey)
 
 		// Verify we have the private key (this would be saved to file in real CLI)
-		privateKeyPEM := auth.PrivateKeyToPEM(privateKey)
-		assert.NotEmpty(t, privateKeyPEM)
-		assert.Contains(t, string(privateKeyPEM), "BEGIN RSA PRIVATE KEY")
+		assert.NotEmpty(t, keyPair.PrivateKeyPEM)
+		assert.Contains(t, keyPair.PrivateKeyPEM, "BEGIN RSA PRIVATE KEY")
 
 		// Cleanup
 		_, _ = db.Exec(`DELETE FROM services WHERE service_id = $1`, serviceID)
@@ -162,9 +159,8 @@ func TestAdminCLI_GrantAccess(t *testing.T) {
 	t.Run("Grant service access to merchant", func(t *testing.T) {
 		// Create test service
 		serviceID := "test-cli-service-grant"
-		privateKey, publicKey, err := auth.GenerateRSAKeyPair(2048)
+		keyPair, err := crypto.GenerateRSAKeyPair()
 		require.NoError(t, err)
-		publicKeyPEM, _ := auth.PublicKeyToPEM(publicKey)
 
 		var serviceUUID string
 		err = db.QueryRow(`
@@ -174,8 +170,8 @@ func TestAdminCLI_GrantAccess(t *testing.T) {
 			) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
 			ON CONFLICT (service_id) DO UPDATE SET service_id = EXCLUDED.service_id
 			RETURNING id
-		`, serviceID, "Test Grant Service", string(publicKeyPEM),
-			"test-fp", "staging").Scan(&serviceUUID)
+		`, serviceID, "Test Grant Service", keyPair.PublicKeyPEM,
+			keyPair.Fingerprint, "staging").Scan(&serviceUUID)
 		require.NoError(t, err)
 
 		// Create test merchant
@@ -223,12 +219,8 @@ func TestAdminCLI_GrantAccess(t *testing.T) {
 		require.NoError(t, err)
 		assert.ElementsMatch(t, scopes, storedScopes)
 
-		// Verify we can use the private key to sign JWTs
-		privateKeyPEM := auth.PrivateKeyToPEM(privateKey)
-		jwtManager, err := auth.NewJWTManager(privateKeyPEM, serviceID, 0)
-		require.NoError(t, err)
-
-		token, err := jwtManager.GenerateToken(merchantUUID, scopes)
+		// Verify we can use the private key to sign JWTs using testutil
+		token, err := testutil.GenerateJWTWithScopes(keyPair.PrivateKeyPEM, serviceID, merchantUUID, 0, scopes)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 

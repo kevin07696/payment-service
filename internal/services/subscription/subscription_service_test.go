@@ -18,6 +18,7 @@ import (
 	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/services/authorization"
 	"github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/testutil/fixtures"
 	"github.com/kevin07696/payment-service/internal/testutil/mocks"
@@ -123,12 +124,16 @@ func setupSubscriptionService(t *testing.T) (*subscriptionService, *mocks.MockQu
 	mockSecretManager := new(MockSecretManagerAdapter)
 	logger := zap.NewNop()
 
+	// Create merchant authorization service (nil access checker allows all access in no-auth mode)
+	merchantAuthService := authorization.NewMerchantAuthorizationService(logger, nil)
+
 	service := &subscriptionService{
-		queries:       mockQuerier,
-		txManager:     mockTxManager,
-		serverPost:    mockServerPost,
-		secretManager: mockSecretManager,
-		logger:        logger,
+		queries:             mockQuerier,
+		txManager:           mockTxManager,
+		serverPost:          mockServerPost,
+		secretManager:       mockSecretManager,
+		merchantAuthService: merchantAuthService,
+		logger:              logger,
 	}
 
 	return service, mockQuerier, mockTxManager, mockServerPost, mockSecretManager

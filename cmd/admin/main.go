@@ -200,14 +200,12 @@ func (cli *AdminCLI) createService(jsonFile string) {
 		}
 
 		fmt.Print("Requests per second [1000]: ")
-		fmt.Fscanf(reader, "%d\n", &serviceData.RequestsPerSecond)
-		if serviceData.RequestsPerSecond == 0 {
+		if _, err := fmt.Fscanf(reader, "%d\n", &serviceData.RequestsPerSecond); err != nil || serviceData.RequestsPerSecond == 0 {
 			serviceData.RequestsPerSecond = 1000
 		}
 
 		fmt.Print("Burst limit [2000]: ")
-		fmt.Fscanf(reader, "%d\n", &serviceData.BurstLimit)
-		if serviceData.BurstLimit == 0 {
+		if _, err := fmt.Fscanf(reader, "%d\n", &serviceData.BurstLimit); err != nil || serviceData.BurstLimit == 0 {
 			serviceData.BurstLimit = 2000
 		}
 
@@ -356,8 +354,7 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 		}
 
 		fmt.Print("Requests per second [100]: ")
-		fmt.Fscanf(reader, "%d\n", &merchantData.RequestsPerSecond)
-		if merchantData.RequestsPerSecond == 0 {
+		if _, err := fmt.Fscanf(reader, "%d\n", &merchantData.RequestsPerSecond); err != nil || merchantData.RequestsPerSecond == 0 {
 			merchantData.RequestsPerSecond = 100
 		}
 	}

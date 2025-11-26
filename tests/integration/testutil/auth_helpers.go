@@ -69,18 +69,42 @@ func (e *TestKeysNotFoundError) Is(target error) bool {
 
 // GenerateJWT creates a JWT signed with the service's private key
 func GenerateJWT(privateKeyPEM, issuer, merchantID string, expiresIn time.Duration) (string, error) {
+	return GenerateJWTWithScopes(privateKeyPEM, issuer, merchantID, expiresIn, nil)
+}
+
+// GenerateJWTWithScopes creates a JWT signed with the service's private key and custom scopes
+func GenerateJWTWithScopes(privateKeyPEM, issuer, merchantID string, expiresIn time.Duration, scopes []string) (string, error) {
 	// Parse private key
 	privateKey, err := crypto.ParsePrivateKey(privateKeyPEM)
 	if err != nil {
 		return "", err
 	}
 
-	// Create claims
+	now := time.Now()
+
+	// Default scopes if not provided
+	if scopes == nil {
+		scopes = []string{
+			"payments:create",
+			"payments:read",
+			"payments:void",
+			"payments:refund",
+			"payment_methods:read",
+			"payment_methods:create",
+			"subscriptions:manage",
+			"subscriptions:read",
+		}
+	}
+
+	// Create claims matching jwtgen structure
 	claims := jwt.MapClaims{
 		"iss":         issuer,
+		"sub":         issuer,
 		"merchant_id": merchantID,
-		"exp":         time.Now().Add(expiresIn).Unix(),
-		"iat":         time.Now().Unix(),
+		"scopes":      scopes,
+		"exp":         now.Add(expiresIn).Unix(),
+		"iat":         now.Unix(),
+		"nbf":         now.Unix(),
 		"jti":         uuid.New().String(),
 	}
 
@@ -113,11 +137,15 @@ func GenerateJWTWithWrongKey(issuer, merchantID string) (string, error) {
 		return "", err
 	}
 
+	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss":         issuer,
+		"sub":         issuer,
 		"merchant_id": merchantID,
-		"exp":         time.Now().Add(1 * time.Hour).Unix(),
-		"iat":         time.Now().Unix(),
+		"scopes":      []string{"payments:create", "payments:read"},
+		"exp":         now.Add(1 * time.Hour).Unix(),
+		"iat":         now.Unix(),
+		"nbf":         now.Unix(),
 		"jti":         uuid.New().String(),
 	}
 

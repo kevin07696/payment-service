@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"fmt"
 )
 
 // Context keys for authentication data
@@ -104,83 +103,14 @@ func GetAuthInfo(ctx context.Context) *AuthInfo {
 	return info
 }
 
-// IsAuthenticated checks if the context contains valid authentication
-func IsAuthenticated(ctx context.Context) bool {
-	authType, ok := ctx.Value(AuthTypeKey).(string)
-	return ok && authType != "" && authType != string(AuthTypeNone)
-}
-
-// RequireMerchant checks if the context has merchant authentication
-func RequireMerchant(ctx context.Context) error {
-	if !IsAuthenticated(ctx) {
-		return fmt.Errorf("authentication required")
-	}
-
-	merchantID, ok := ctx.Value(MerchantIDKey).(string)
-	if !ok || merchantID == "" {
-		return fmt.Errorf("merchant authentication required")
-	}
-
-	return nil
-}
-
-// RequireService checks if the context has service authentication
-func RequireService(ctx context.Context) error {
-	if !IsAuthenticated(ctx) {
-		return fmt.Errorf("authentication required")
-	}
-
-	authType, _ := ctx.Value(AuthTypeKey).(string)
-	if authType != string(AuthTypeJWT) {
-		return fmt.Errorf("service authentication required")
-	}
-
-	serviceID, ok := ctx.Value(ServiceIDKey).(string)
-	if !ok || serviceID == "" {
-		return fmt.Errorf("valid service authentication required")
-	}
-
-	return nil
-}
-
-// RequireScope checks if the context has the required scope
-func RequireScope(ctx context.Context, requiredScope string) error {
-	scopes, ok := ctx.Value(ScopesKey).([]string)
-	if !ok {
-		return fmt.Errorf("no scopes in context")
-	}
-
-	for _, scope := range scopes {
-		if scope == requiredScope {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("missing required scope: %s", requiredScope)
-}
-
-// RequireAnyScope checks if the context has any of the required scopes
-func RequireAnyScope(ctx context.Context, requiredScopes []string) error {
-	scopes, ok := ctx.Value(ScopesKey).([]string)
-	if !ok {
-		return fmt.Errorf("no scopes in context")
-	}
-
-	scopeMap := make(map[string]bool)
-	for _, scope := range scopes {
-		scopeMap[scope] = true
-	}
-
-	for _, required := range requiredScopes {
-		if scopeMap[required] {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("missing any of required scopes: %v", requiredScopes)
+// GetClientIP safely extracts the client IP from the context
+func GetClientIP(ctx context.Context) string {
+	clientIP, _ := ctx.Value(ClientIPKey).(string)
+	return clientIP
 }
 
 // WithAuth adds authentication information to the context
+// Used by tests and internal services to set up auth context
 func WithAuth(ctx context.Context, info *AuthInfo) context.Context {
 	ctx = context.WithValue(ctx, AuthTypeKey, string(info.Type))
 
@@ -223,49 +153,3 @@ func WithAuth(ctx context.Context, info *AuthInfo) context.Context {
 	return ctx
 }
 
-// WithInternalAuth adds internal/system authentication to the context
-func WithInternalAuth(ctx context.Context) context.Context {
-	return context.WithValue(ctx, AuthTypeKey, string(AuthTypeInternal))
-}
-
-// IsInternalAuth checks if the context has internal/system authentication
-func IsInternalAuth(ctx context.Context) bool {
-	authType, ok := ctx.Value(AuthTypeKey).(string)
-	return ok && authType == string(AuthTypeInternal)
-}
-
-// GetMerchantID safely extracts the merchant ID from the context
-func GetMerchantID(ctx context.Context) (string, error) {
-	merchantID, ok := ctx.Value(MerchantIDKey).(string)
-	if !ok || merchantID == "" {
-		return "", fmt.Errorf("merchant ID not found in context")
-	}
-	return merchantID, nil
-}
-
-// GetServiceID safely extracts the service ID from the context
-func GetServiceID(ctx context.Context) (string, error) {
-	serviceID, ok := ctx.Value(ServiceIDKey).(string)
-	if !ok || serviceID == "" {
-		return "", fmt.Errorf("service ID not found in context")
-	}
-	return serviceID, nil
-}
-
-// GetRequestID safely extracts the request ID from the context
-func GetRequestID(ctx context.Context) string {
-	requestID, _ := ctx.Value(RequestIDKey).(string)
-	return requestID
-}
-
-// GetClientIP safely extracts the client IP from the context
-func GetClientIP(ctx context.Context) string {
-	clientIP, _ := ctx.Value(ClientIPKey).(string)
-	return clientIP
-}
-
-// GetUserAgent safely extracts the user agent from the context
-func GetUserAgent(ctx context.Context) string {
-	userAgent, _ := ctx.Value(UserAgentKey).(string)
-	return userAgent
-}

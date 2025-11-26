@@ -30,6 +30,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o admin \
     ./cmd/admin
 
+# Build the seed CLI
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-w -s" \
+    -o seed \
+    ./cmd/seed
+
 # Install goose for database migrations
 RUN go install github.com/pressly/goose/v3/cmd/goose@latest
 
@@ -52,6 +58,9 @@ COPY --from=builder --chown=appuser:appuser /app/payment-server .
 
 # Copy admin CLI from builder
 COPY --from=builder --chown=appuser:appuser /app/admin .
+
+# Copy seed CLI from builder
+COPY --from=builder --chown=appuser:appuser /app/seed .
 
 # Copy goose binary from builder
 COPY --from=builder --chown=appuser:appuser /go/bin/goose /usr/local/bin/goose

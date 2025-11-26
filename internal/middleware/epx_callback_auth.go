@@ -76,12 +76,6 @@ func (e *EPXCallbackAuth) loadIPWhitelist(ctx context.Context) error {
 	return nil
 }
 
-// RefreshIPWhitelist refreshes the IP whitelist from the database
-func (e *EPXCallbackAuth) RefreshIPWhitelist() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	return e.loadIPWhitelist(ctx)
-}
 
 // Middleware wraps an HTTP handler with EPX callback authentication
 func (e *EPXCallbackAuth) Middleware(next http.HandlerFunc) http.HandlerFunc {
@@ -164,23 +158,6 @@ func (e *EPXCallbackAuth) Middleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// MiddlewareWithSkip wraps an HTTP handler but allows skipping auth for specific paths
-func (e *EPXCallbackAuth) MiddlewareWithSkip(skipPaths []string) func(next http.HandlerFunc) http.HandlerFunc {
-	return func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			// Check if this path should skip authentication
-			for _, skipPath := range skipPaths {
-				if strings.HasPrefix(r.URL.Path, skipPath) {
-					next(w, r)
-					return
-				}
-			}
-
-			// Apply authentication
-			e.Middleware(next)(w, r)
-		}
-	}
-}
 
 // isIPWhitelisted checks if an IP is in the whitelist
 func (e *EPXCallbackAuth) isIPWhitelisted(ip string) bool {
@@ -298,50 +275,3 @@ func (e *EPXCallbackAuth) logCallbackAttempt(clientIP, path string, success bool
 	}()
 }
 
-// ValidateEPXResponse validates EPX response data structure and signature
-func (e *EPXCallbackAuth) ValidateEPXResponse(data map[string]string) error {
-	// Check required fields
-	requiredFields := []string{
-		"ResponseCode",
-		"ReasonCode",
-		"ReasonText",
-		"OrderID",
-		"TransactionID",
-	}
-
-	for _, field := range requiredFields {
-		if _, ok := data[field]; !ok {
-			return fmt.Errorf("missing required field: %s", field)
-		}
-	}
-
-	// Validate response code format
-	responseCode := data["ResponseCode"]
-	if responseCode != "00" && responseCode != "85" && responseCode != "05" {
-		// 00 = Approved, 85 = No Reason to Decline, 05 = Declined
-		e.logger.Warn("Unexpected EPX response code",
-			zap.String("response_code", responseCode),
-			zap.String("transaction_id", data["TransactionID"]))
-	}
-
-	return nil
-}
-
-// VerifyEPXSignature verifies the signature of EPX callback data
-func (e *EPXCallbackAuth) VerifyEPXSignature(data map[string]string, signature string) bool {
-	if e.macSecret == "" {
-		// No secret configured, skip verification
-		return true
-	}
-
-	// Build canonical string for signature
-	// EPX typically signs: OrderID + TransactionID + ResponseCode + ReasonCode
-	canonical := fmt.Sprintf("%s%s%s%s",
-		data["OrderID"],
-		data["TransactionID"],
-		data["ResponseCode"],
-		data["ReasonCode"])
-
-	expectedSig := e.calculateHMAC([]byte(canonical))
-	return hmac.Equal([]byte(signature), []byte(expectedSig))
-}

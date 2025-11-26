@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -27,7 +26,6 @@ type paymentService struct {
 	txManager                  database.TransactionManager
 	serverPost                 adapterports.ServerPostAdapter
 	secretManager              adapterports.SecretManagerAdapter
-	merchantResolver           *authorization.MerchantResolver
 	merchantCredentialResolver *authorization.MerchantCredentialResolver
 	merchantAuthService        *authorization.MerchantAuthorizationService
 	logger                     *zap.Logger
@@ -39,7 +37,6 @@ func NewPaymentService(
 	txManager database.TransactionManager,
 	serverPost adapterports.ServerPostAdapter,
 	secretManager adapterports.SecretManagerAdapter,
-	merchantResolver *authorization.MerchantResolver,
 	merchantCache *merchantsvc.MerchantCredentialCache,
 	logger *zap.Logger,
 ) ports.PaymentService {
@@ -51,15 +48,17 @@ func NewPaymentService(
 		logger,
 	)
 
-	// Create merchant authorization service
-	merchantAuthService := authorization.NewMerchantAuthorizationService(logger)
+	// Create service-merchant access checker for authorization
+	accessChecker := authorization.NewSQLCServiceMerchantAccessChecker(queries)
+
+	// Create merchant authorization service with access checker
+	merchantAuthService := authorization.NewMerchantAuthorizationService(logger, accessChecker)
 
 	return &paymentService{
 		queries:                    queries,
 		txManager:                  txManager,
 		serverPost:                 serverPost,
 		secretManager:              secretManager,
-		merchantResolver:           merchantResolver,
 		merchantCredentialResolver: merchantCredentialResolver,
 		merchantAuthService:        merchantAuthService,
 		logger:                     logger,
@@ -1298,7 +1297,18 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 		return nil, 0, fmt.Errorf("merchant_id is required")
 	}
 
-	merchantID, err := uuid.Parse(*filters.MerchantID)
+	// Validate service has access to the merchant
+	// Note: merchantAuthService may be nil in unit tests that don't inject it
+	resolvedMerchantID := *filters.MerchantID
+	if s.merchantAuthService != nil {
+		var err error
+		resolvedMerchantID, err = s.merchantAuthService.ResolveMerchantID(ctx, *filters.MerchantID)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	merchantID, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("invalid merchant_id format: %w", err)
 	}
@@ -1377,16 +1387,6 @@ func (s *paymentService) GetTransactionsByGroup(ctx context.Context, parentTrans
 
 // findOriginalTransaction finds the original chargeable transaction in a group
 // that can be voided/refunded. Note: auth_guid (BRIC) is stored in each transaction record
-// isUniqueViolation checks if the error is a PostgreSQL unique constraint violation
-func isUniqueViolation(err error) bool {
-	// Check for Postgres unique_violation error code (23505)
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "unique constraint") ||
-		strings.Contains(err.Error(), "duplicate key") ||
-		strings.Contains(err.Error(), "23505")
-}
 
 // Helper functions to convert between sqlc and domain models
 
@@ -1542,13 +1542,6 @@ func (s *paymentService) resolvePaymentToken(ctx context.Context, paymentMethodI
 	return nil, fmt.Errorf("payment method required: provide payment_method_id or payment_token")
 }
 
-func toNumeric(d decimal.Decimal) pgtype.Numeric {
-	return pgtype.Numeric{
-		Int:   d.Coefficient(),
-		Exp:   d.Exponent(),
-		Valid: true,
-	}
-}
 
 func stringOrEmpty(s *string) string {
 	if s == nil {

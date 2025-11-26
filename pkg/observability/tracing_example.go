@@ -34,7 +34,7 @@ func ExamplePaymentServiceTracing(ctx context.Context, merchantID, customerID st
 	dbSpan.SetAttributes(attribute.String("db.operation", "SELECT"))
 
 	// Example: Trace gateway call
-	ctx, gatewaySpan := StartSpan(ctx, "gateway.epx.server_post")
+	_, gatewaySpan := StartSpan(ctx, "gateway.epx.server_post")
 	defer gatewaySpan.End()
 	// ... EPX API call ...
 	RecordGatewayCall(gatewaySpan, "EPX", "/ServerPOST.asmx", "00")
@@ -44,7 +44,7 @@ func ExamplePaymentServiceTracing(ctx context.Context, merchantID, customerID st
 
 // ExampleDatabaseTracing shows how to add tracing to database operations
 func ExampleDatabaseTracing(ctx context.Context, query string) error {
-	ctx, span := StartSpan(ctx, "db.query",
+	_, span := StartSpan(ctx, "db.query",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.operation", "SELECT"),
@@ -62,7 +62,7 @@ func ExampleDatabaseTracing(ctx context.Context, query string) error {
 
 // ExampleCacheTracing shows how to add tracing to cache operations
 func ExampleCacheTracing(ctx context.Context, key string) (interface{}, error) {
-	ctx, span := StartSpan(ctx, "cache.lookup",
+	_, span := StartSpan(ctx, "cache.lookup",
 		trace.WithAttributes(
 			attribute.String("cache.key", key),
 		),

@@ -47,10 +47,8 @@ func TestGoleakBasicFunctionality(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		select {
-		case <-ctx.Done():
-			done <- true
-		}
+		<-ctx.Done()
+		done <- true
 	}()
 
 	// Cancel context to stop goroutine

@@ -86,10 +86,3 @@ func (sh *SecurityHeaders) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// MiddlewareFunc returns a function that wraps an http.HandlerFunc
-// This is useful for simpler handler chains
-func (sh *SecurityHeaders) MiddlewareFunc(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sh.Middleware(next).ServeHTTP(w, r)
-	}
-}

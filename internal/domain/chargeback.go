@@ -3,7 +3,6 @@ package domain
 import (
 	"time"
 
-	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"github.com/shopspring/decimal"
 )
 
@@ -48,88 +47,7 @@ type Chargeback struct {
 	EvidenceFileURLs    []string               `json:"evidence_file_urls"`
 }
 
-// IsOpen returns true if the chargeback is still open/actionable
-func (c *Chargeback) IsOpen() bool {
-	return c.Status == ChargebackStatusNew || c.Status == ChargebackStatusPending
-}
-
-// IsResolved returns true if the chargeback has been resolved
-func (c *Chargeback) IsResolved() bool {
-	return c.Status == ChargebackStatusWon ||
-		c.Status == ChargebackStatusLost ||
-		c.Status == ChargebackStatusAccepted
-}
-
-// CanRespond returns true if the merchant can still submit evidence
-func (c *Chargeback) CanRespond() bool {
-	if !c.IsOpen() {
-		return false
-	}
-
-	// Check if response deadline has passed
-	if c.RespondByDate != nil && timeutil.Now().After(*c.RespondByDate) {
-		return false
-	}
-
-	// Check if already responded
-	if c.ResponseSubmittedAt != nil {
-		return false
-	}
-
-	return true
-}
-
-// IsOverdue returns true if the response deadline has passed
-func (c *Chargeback) IsOverdue() bool {
-	if c.RespondByDate == nil {
-		return false
-	}
-
-	return c.IsOpen() && timeutil.Now().After(*c.RespondByDate)
-}
-
-// DaysUntilDeadline returns the number of days until the response deadline
-func (c *Chargeback) DaysUntilDeadline() int {
-	if c.RespondByDate == nil {
-		return 0
-	}
-
-	duration := c.RespondByDate.Sub(timeutil.Now())
-	return int(duration.Hours() / 24)
-}
-
-// MarkResponded marks the chargeback as responded with evidence
-func (c *Chargeback) MarkResponded() {
-	now := timeutil.Now()
-	c.ResponseSubmittedAt = &now
-	c.Status = ChargebackStatusResponded
-	c.UpdatedAt = now
-}
-
-// MarkResolved marks the chargeback as resolved with the given outcome
-func (c *Chargeback) MarkResolved(status ChargebackStatus) error {
-	validStatuses := map[ChargebackStatus]bool{
-		ChargebackStatusWon:      true,
-		ChargebackStatusLost:     true,
-		ChargebackStatusAccepted: true,
-	}
-
-	if !validStatuses[status] {
-		return ErrInvalidChargebackStatus
-	}
-
-	now := timeutil.Now()
-	c.Status = status
-	c.ResolvedAt = &now
-	c.UpdatedAt = now
-
-	return nil
-}
-
-// GetCustomerID safely retrieves the customer ID
-func (c *Chargeback) GetCustomerID() string {
-	if c.CustomerID != nil {
-		return *c.CustomerID
-	}
-	return ""
-}
+// Note: Domain methods (IsOpen, IsResolved, CanRespond, IsOverdue, DaysUntilDeadline,
+// MarkResponded, MarkResolved, GetCustomerID) were removed because chargebacks are
+// read-only in this system. North does not provide write APIs for disputes - merchants
+// must respond via North's web portal. Handlers query the database directly.

@@ -25,7 +25,7 @@ func TestRequestSizeLimits(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("received %d bytes", len(body))))
+		_, _ = w.Write([]byte(fmt.Sprintf("received %d bytes", len(body))))
 	})
 
 	// Wrap with MaxBytesHandler (simulates production configuration)
@@ -204,7 +204,7 @@ func TestRequestSizeLimits_DOS_Protection(t *testing.T) {
 			requestCount++
 			body, _ := io.ReadAll(r.Body)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fmt.Sprintf("OK: %d", len(body))))
+			_, _ = w.Write([]byte(fmt.Sprintf("OK: %d", len(body))))
 		})
 
 		limitedHandler := http.MaxBytesHandler(handler, limit)

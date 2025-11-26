@@ -312,7 +312,7 @@ func (h *ACHVerificationHandler) HealthCheck(w http.ResponseWriter, r *http.Requ
 		"time":   timeutil.Now().Format(time.RFC3339),
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // Stats handles GET /cron/ach/stats for monitoring ACH verification statistics
@@ -385,5 +385,5 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		"timestamp": timeutil.Now().Format(time.RFC3339),
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }

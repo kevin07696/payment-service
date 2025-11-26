@@ -114,7 +114,7 @@ curl -X POST https://api.example.com/v1/payment/sale \
 ```json
 {
   "transaction_id": "tx_xyz789",
-  "status": "approved",
+  "status": "TRANSACTION_STATUS_APPROVED",
   "auth_code": "123456"
 }
 ```
@@ -123,7 +123,7 @@ curl -X POST https://api.example.com/v1/payment/sale \
 ```json
 {
   "transaction_id": "tx_xyz790",
-  "status": "declined",
+  "status": "TRANSACTION_STATUS_DECLINED",
   "decline_reason": "insufficient_funds"
 }
 ```
@@ -386,7 +386,7 @@ curl -X POST https://api.example.com/v1/payment/sale \
 # Response (200 OK - Approved):
 {
   "transaction_id": "tx_xyz789",
-  "status": "approved",
+  "status": "TRANSACTION_STATUS_APPROVED",
   "auth_code": "123456",
   "amount_cents": 10000
 }
@@ -394,7 +394,7 @@ curl -X POST https://api.example.com/v1/payment/sale \
 # Response (200 OK - Declined):
 {
   "transaction_id": "tx_xyz790",
-  "status": "declined",
+  "status": "TRANSACTION_STATUS_DECLINED",
   "decline_reason": "insufficient_funds",
   "decline_code": "05"
 }

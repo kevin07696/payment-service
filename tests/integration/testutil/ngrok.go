@@ -25,7 +25,7 @@ func (n *NgrokTunnel) URL() string {
 // Close stops the ngrok tunnel if it was auto-started
 func (n *NgrokTunnel) Close() {
 	if n.autoStart && n.cmd != nil && n.cmd.Process != nil {
-		n.cmd.Process.Kill()
+		_ = n.cmd.Process.Kill()
 	}
 }
 
@@ -104,7 +104,7 @@ func startNgrok(t *testing.T, port int) *NgrokTunnel {
 	// Ensure cleanup on test completion
 	t.Cleanup(func() {
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
 	})
 

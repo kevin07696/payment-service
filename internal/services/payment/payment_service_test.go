@@ -2,7 +2,6 @@ package payment
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -19,7 +18,6 @@ import (
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/testutil/mocks"
-	"github.com/shopspring/decimal"
 )
 
 // ============================================================================
@@ -215,14 +213,6 @@ func TestToNullableUUID_InvalidFormat(t *testing.T) {
 	assert.False(t, result.Valid)
 }
 
-// TestToNumeric_ValidDecimal tests decimal to numeric conversion
-func TestToNumeric_ValidDecimal(t *testing.T) {
-	d := decimal.RequireFromString("123.45")
-	result := toNumeric(d)
-	assert.True(t, result.Valid)
-	assert.Equal(t, d.Coefficient(), result.Int)
-	assert.Equal(t, d.Exponent(), result.Exp)
-}
 
 // TestStringOrEmpty_NilValue tests string or empty with nil
 func TestStringOrEmpty_NilValue(t *testing.T) {
@@ -266,27 +256,6 @@ func TestStringToUUIDPtr_InvalidFormat(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-// TestIsUniqueViolation tests unique constraint error detection
-func TestIsUniqueViolation(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{"nil error", nil, false},
-		{"unique constraint error", errors.New("unique constraint violation"), true},
-		{"duplicate key error", errors.New("duplicate key value"), true},
-		{"postgres 23505 error", errors.New("ERROR: 23505"), true},
-		{"other error", errors.New("something else"), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isUniqueViolation(tt.err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
 
 // ============================================================================
 // Service Method Tests (with mocking)

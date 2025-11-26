@@ -166,7 +166,7 @@ func (t *HTTPInFlightTracker) DrainingHealthCheck(healthyHandler http.Handler) h
 		if t.IsDraining() {
 			// Return 503 during draining to signal load balancers
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"status":"draining","message":"Service is shutting down gracefully"}`))
+			_, _ = w.Write([]byte(`{"status":"draining","message":"Service is shutting down gracefully"}`))
 			return
 		}
 
