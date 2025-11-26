@@ -123,7 +123,6 @@ func NewDomainError(code ErrorCode, message string) *DomainError {
 	}
 }
 
-
 // Structured error instances (new style)
 var (
 	ErrAuthMissing          = NewDomainError(ErrorCodeAuthMissing, "authentication required")

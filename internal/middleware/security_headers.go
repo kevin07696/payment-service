@@ -85,4 +85,3 @@ func (sh *SecurityHeaders) Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-

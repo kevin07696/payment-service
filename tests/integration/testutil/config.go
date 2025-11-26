@@ -21,9 +21,9 @@ type Config struct {
 // LoadConfig loads test configuration from environment variables
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
-		ServiceURL:      getEnv("SERVICE_URL", "http://localhost:8080"),                                  // ConnectRPC server port
-		CallbackBaseURL: getEnv("CALLBACK_BASE_URL", "http://localhost:8081"),                            // Browser Post callback URL
-		CronSecret:      getEnv("CRON_SECRET", "test-cron-secret-at-least-32-characters-long"),           // Cron auth secret
+		ServiceURL:      getEnv("SERVICE_URL", "http://localhost:8080"),                        // ConnectRPC server port
+		CallbackBaseURL: getEnv("CALLBACK_BASE_URL", "http://localhost:8081"),                  // Browser Post callback URL
+		CronSecret:      getEnv("CRON_SECRET", "test-cron-secret-at-least-32-characters-long"), // Cron auth secret
 		EPXMac:          getEnv("EPX_MAC_STAGING", ""),
 		EPXCustNbr:      getEnv("EPX_CUST_NBR", "9001"), // EPX sandbox defaults
 		EPXMerchNbr:     getEnv("EPX_MERCH_NBR", "900300"),

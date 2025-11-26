@@ -76,7 +76,6 @@ func (e *EPXCallbackAuth) loadIPWhitelist(ctx context.Context) error {
 	return nil
 }
 
-
 // Middleware wraps an HTTP handler with EPX callback authentication
 func (e *EPXCallbackAuth) Middleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +156,6 @@ func (e *EPXCallbackAuth) Middleware(next http.HandlerFunc) http.HandlerFunc {
 		next(w, r)
 	}
 }
-
 
 // isIPWhitelisted checks if an IP is in the whitelist
 func (e *EPXCallbackAuth) isIPWhitelisted(ip string) bool {
@@ -274,4 +272,3 @@ func (e *EPXCallbackAuth) logCallbackAttempt(clientIP, path string, success bool
 		}
 	}()
 }
-

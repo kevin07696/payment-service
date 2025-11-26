@@ -1542,7 +1542,6 @@ func (s *paymentService) resolvePaymentToken(ctx context.Context, paymentMethodI
 	return nil, fmt.Errorf("payment method required: provide payment_method_id or payment_token")
 }
 
-
 func stringOrEmpty(s *string) string {
 	if s == nil {
 		return ""

@@ -222,4 +222,3 @@ func generateSecurePassword() string {
 	}
 	return string(b)
 }
-

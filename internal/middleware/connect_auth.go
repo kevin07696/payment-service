@@ -359,7 +359,6 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 	return ctx, nil
 }
 
-
 // isTokenBlacklisted checks if a JWT has been blacklisted
 func (ai *AuthInterceptor) isTokenBlacklisted(jti string) bool {
 	ctx := context.Background()

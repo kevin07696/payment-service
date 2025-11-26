@@ -213,7 +213,6 @@ func TestToNullableUUID_InvalidFormat(t *testing.T) {
 	assert.False(t, result.Valid)
 }
 
-
 // TestStringOrEmpty_NilValue tests string or empty with nil
 func TestStringOrEmpty_NilValue(t *testing.T) {
 	result := stringOrEmpty(nil)
@@ -255,7 +254,6 @@ func TestStringToUUIDPtr_InvalidFormat(t *testing.T) {
 	result := stringToUUIDPtr(&str)
 	assert.Nil(t, result)
 }
-
 
 // ============================================================================
 // Service Method Tests (with mocking)

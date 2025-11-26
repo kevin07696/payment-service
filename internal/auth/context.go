@@ -152,4 +152,3 @@ func WithAuth(ctx context.Context, info *AuthInfo) context.Context {
 
 	return ctx
 }
-
