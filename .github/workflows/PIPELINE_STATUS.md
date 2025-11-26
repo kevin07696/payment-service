@@ -1,8 +1,14 @@
 # CI/CD Pipeline Status
 
-## Last Update: 2025-11-09
+## Last Update: 2025-11-26
 
 ### Recent Fixes Applied
+
+✅ **Cloud-init POSIX Compatibility Fixed**
+- Fixed bashism (here-string `<<<`) in cloud-init.yaml
+- Cloud-init runs with `/bin/sh` (dash on Ubuntu), not bash
+- Changed to POSIX-compatible `echo | pipe` syntax
+- deployment-workflows@fix/ssh-connectivity-debugging updated: commit bccebbb
 
 ✅ **Terraform Backend Issue Fixed**
 - Removed HTTP backend configuration
@@ -53,3 +59,4 @@ Test without Admin in password
 Testing password whitespace fix - commit 141723e
 Debug password length - commit c7c80dd
 Final test with corrected 11-char password
+Testing cloud-init POSIX fix - fresh deployment after full Oracle cleanup
