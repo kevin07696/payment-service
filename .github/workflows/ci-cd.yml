@@ -113,7 +113,7 @@ jobs:
   # ===== STEP 5: INTEGRATION TESTS =====
   integration-tests:
     name: 5. Integration Tests
-    needs: deploy-staging
+    needs: [deploy-staging, ensure-staging-infrastructure]
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
