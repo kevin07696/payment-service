@@ -5,19 +5,24 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kevin07696/payment-service/internal/auth"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/pkg/crypto"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
 )
@@ -30,26 +35,52 @@ type AdminCLI struct {
 
 func main() {
 	var (
-		dbURL    = flag.String("db", getDefaultDBURL(), "Database URL")
-		action   = flag.String("action", "", "Action to perform: login, create-service, create-merchant, grant-access")
-		email    = flag.String("email", "", "Admin email for login")
-		jsonFile = flag.String("json", "", "JSON file with service/merchant details")
+		dbURL      = flag.String("db", getDefaultDBURL(), "Database URL")
+		action     = flag.String("action", "", "Action to perform: login, create-service, create-merchant, grant-access, generate-token")
+		email      = flag.String("email", "", "Admin email for login")
+		jsonFile   = flag.String("json", "", "JSON file with service/merchant details")
+		credsFile  = flag.String("credentials", "", "Service credentials JSON file (for generate-token)")
+		credsShort = flag.String("c", "", "Service credentials JSON file (shorthand)")
+		expires    = flag.String("expires", "1h", "Token expiry duration (e.g., 5m, 1h, 24h)")
+		expiresS   = flag.String("e", "", "Token expiry duration (shorthand)")
+		scopes     = flag.String("scopes", "", "Comma-separated scopes for token")
+		scopesS    = flag.String("s", "", "Comma-separated scopes (shorthand)")
+		outputFmt  = flag.String("output", "token", "Output format: token, json, curl")
+		outputS    = flag.String("o", "", "Output format (shorthand)")
+		decode     = flag.Bool("decode", false, "Show decoded claims")
 	)
 	flag.Parse()
 
 	if *action == "" {
 		fmt.Println("Usage: admin -action=<action> [options]")
 		fmt.Println("Actions:")
-		fmt.Println("  login          - Login as admin")
-		fmt.Println("  create-service - Create a new service with RSA keypair")
+		fmt.Println("  login           - Login as admin")
+		fmt.Println("  create-service  - Create a new service with RSA keypair")
 		fmt.Println("  create-merchant - Create a new merchant with API credentials")
-		fmt.Println("  grant-access   - Grant service access to merchant")
-		fmt.Println("  list-services  - List all registered services")
-		fmt.Println("  list-merchants - List all merchants")
+		fmt.Println("  grant-access    - Grant service access to merchant")
+		fmt.Println("  generate-token  - Generate JWT token from service credentials")
+		fmt.Println("  list-services   - List all registered services")
+		fmt.Println("  list-merchants  - List all merchants")
+		fmt.Println("\nToken Generation Options (for generate-token):")
+		fmt.Println("  -c, --credentials  Service credentials JSON file (required)")
+		fmt.Println("  -e, --expires      Token expiry duration (default: 1h)")
+		fmt.Println("  -s, --scopes       Comma-separated scopes (default: all)")
+		fmt.Println("  -o, --output       Output format: token, json, curl")
+		fmt.Println("      --decode       Show decoded claims")
 		os.Exit(1)
 	}
 
-	// Validate database URL
+	// Handle generate-token separately (doesn't need database)
+	if *action == "generate-token" {
+		creds := resolveFlag(*credsShort, *credsFile)
+		exp := resolveFlag(*expiresS, *expires)
+		sc := resolveFlag(*scopesS, *scopes)
+		out := resolveFlag(*outputS, *outputFmt)
+		generateToken(creds, exp, sc, out, *decode)
+		return
+	}
+
+	// Validate database URL for other actions
 	if *dbURL == "" {
 		log.Fatal("Database URL not provided. Set DATABASE_URL environment variable or use -db flag.")
 	}
@@ -87,6 +118,14 @@ func main() {
 	}
 }
 
+// resolveFlag returns short flag if set, otherwise long flag
+func resolveFlag(short, long string) string {
+	if short != "" {
+		return short
+	}
+	return long
+}
+
 func (cli *AdminCLI) login(email string) {
 	if email == "" {
 		fmt.Print("Admin email: ")
@@ -105,33 +144,24 @@ func (cli *AdminCLI) login(email string) {
 	// Verify admin credentials using sqlc
 	admin, err := cli.queries.GetAdminByEmail(cli.ctx, email)
 	if err != nil {
-		cli.createAuditLog("admin.login.failed", "", "", false, "Admin not found: "+email)
 		log.Fatal("Admin not found or inactive")
 	}
 
 	if !admin.IsActive.Bool {
-		cli.createAuditLog("admin.login.failed", "", admin.ID.String(), false, "Admin account is not active")
 		log.Fatal("Admin account is not active")
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), password)
 	if err != nil {
-		cli.createAuditLog("admin.login.failed", "", admin.ID.String(), false, "Invalid password")
 		log.Fatal("Invalid password")
 	}
 
 	cli.adminID = admin.ID.String()
-	cli.createAuditLog("admin.login", "", admin.ID.String(), true, "")
 
 	fmt.Printf("✅ Logged in as admin: %s (ID: %s)\n", email, cli.adminID)
 }
 
 func (cli *AdminCLI) createService(jsonFile string) {
-	if cli.adminID == "" {
-		// Auto-login with first admin if not logged in
-		cli.autoLogin()
-	}
-
 	var serviceData struct {
 		ServiceID         string `json:"service_id"`
 		ServiceName       string `json:"service_name"`
@@ -186,23 +216,19 @@ func (cli *AdminCLI) createService(jsonFile string) {
 		serviceData.GenerateKeypair = !strings.HasPrefix(strings.ToLower(strings.TrimSpace(response)), "n")
 	}
 
-	var publicKeyPEM []byte
-	var privateKey *rsa.PrivateKey
+	var publicKeyPEM string
+	var privateKeyPEM string
 
 	if serviceData.GenerateKeypair {
-		// Generate RSA keypair
-		var err error
-		privateKey, _, err = auth.GenerateRSAKeyPair(2048)
+		// Generate RSA keypair using pkg/crypto
+		keypair, err := crypto.GenerateRSAKeyPair()
 		if err != nil {
 			log.Fatal("Failed to generate RSA keypair:", err)
 		}
-
-		publicKeyPEM, err = auth.PublicKeyToPEM(&privateKey.PublicKey)
-		if err != nil {
-			log.Fatal("Failed to convert public key to PEM:", err)
-		}
+		publicKeyPEM = keypair.PublicKeyPEM
+		privateKeyPEM = keypair.PrivateKeyPEM
 	} else if serviceData.PublicKey != "" {
-		publicKeyPEM = []byte(serviceData.PublicKey)
+		publicKeyPEM = serviceData.PublicKey
 	} else {
 		log.Fatal("Either generate_keypair must be true or public_key must be provided")
 	}
@@ -210,24 +236,20 @@ func (cli *AdminCLI) createService(jsonFile string) {
 	// Create service in database using sqlc
 	serviceUUID := uuid.New()
 
-	service, err := cli.queries.CreateService(cli.ctx, sqlc.CreateServiceParams{
+	_, err := cli.queries.CreateService(cli.ctx, sqlc.CreateServiceParams{
 		ID:                   serviceUUID,
 		ServiceID:            serviceData.ServiceID,
 		ServiceName:          serviceData.ServiceName,
-		PublicKey:            string(publicKeyPEM),
-		PublicKeyFingerprint: generateFingerprint(publicKeyPEM),
+		PublicKey:            publicKeyPEM,
+		PublicKeyFingerprint: generateFingerprint([]byte(publicKeyPEM)),
 		Environment:          serviceData.Environment,
 		RequestsPerSecond:    pgtype.Int4{Int32: int32(serviceData.RequestsPerSecond), Valid: true},
 		BurstLimit:           pgtype.Int4{Int32: int32(serviceData.BurstLimit), Valid: true},
 		IsActive:             pgtype.Bool{Bool: true, Valid: true},
 	})
-
 	if err != nil {
-		cli.createAuditLog("service.create.failed", "service", serviceData.ServiceID, false, "Failed to create service: "+err.Error())
 		log.Fatal("Failed to create service:", err)
 	}
-
-	cli.createAuditLog("service.create", "service", service.ID.String(), true, "")
 
 	// Save credentials
 	outputFile := fmt.Sprintf("service_%s_credentials.json", serviceData.ServiceID)
@@ -235,11 +257,11 @@ func (cli *AdminCLI) createService(jsonFile string) {
 		"service_id":   serviceData.ServiceID,
 		"service_name": serviceData.ServiceName,
 		"environment":  serviceData.Environment,
-		"public_key":   string(publicKeyPEM),
+		"public_key":   publicKeyPEM,
 	}
 
-	if privateKey != nil {
-		output["private_key"] = string(auth.PrivateKeyToPEM(privateKey))
+	if privateKeyPEM != "" {
+		output["private_key"] = privateKeyPEM
 		output["note"] = "Keep the private key secure! Use it to sign JWT tokens."
 	}
 
@@ -255,7 +277,7 @@ func (cli *AdminCLI) createService(jsonFile string) {
 	fmt.Printf("Service Name: %s\n", serviceData.ServiceName)
 	fmt.Printf("Environment: %s\n", serviceData.Environment)
 	fmt.Printf("Rate Limit: %d req/s (burst: %d)\n", serviceData.RequestsPerSecond, serviceData.BurstLimit)
-	if privateKey != nil {
+	if privateKeyPEM != "" {
 		fmt.Printf("\n📁 Credentials saved to: %s\n", outputFile)
 		fmt.Println("⚠️  Keep the private key secure!")
 	}
@@ -263,10 +285,6 @@ func (cli *AdminCLI) createService(jsonFile string) {
 }
 
 func (cli *AdminCLI) createMerchant(jsonFile string) {
-	if cli.adminID == "" {
-		cli.autoLogin()
-	}
-
 	var merchantData struct {
 		Slug              string `json:"slug"`
 		Name              string `json:"name"`
@@ -360,12 +378,10 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 	})
 
 	if err != nil {
-		cli.createAuditLog("merchant.create.failed", "merchant", merchantData.Slug, false, "Failed to create merchant: "+err.Error())
 		log.Fatal("Failed to create merchant:", err)
 	}
 
 	merchantID := merchant.ID.String()
-	cli.createAuditLog("merchant.create", "merchant", merchantID, true, "")
 
 	// Note: Merchants don't get API keys directly.
 	// Create a Service to authenticate and link it to this merchant via grant-access command.
@@ -414,10 +430,6 @@ func (cli *AdminCLI) createMerchant(jsonFile string) {
 }
 
 func (cli *AdminCLI) grantAccess() {
-	if cli.adminID == "" {
-		cli.autoLogin()
-	}
-
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Print("Service ID (e.g., wordpress-plugin): ")
@@ -431,13 +443,11 @@ func (cli *AdminCLI) grantAccess() {
 	// Get service and merchant IDs using sqlc
 	service, err := cli.queries.GetServiceByServiceID(cli.ctx, serviceID)
 	if err != nil {
-		cli.createAuditLog("service.grant_access.failed", "service", serviceID, false, "Service not found: "+serviceID)
 		log.Fatal("Service not found:", serviceID)
 	}
 
 	merchant, err := cli.queries.GetMerchantBySlug(cli.ctx, merchantSlug)
 	if err != nil {
-		cli.createAuditLog("service.grant_access.failed", "merchant", merchantSlug, false, "Merchant not found: "+merchantSlug)
 		log.Fatal("Merchant not found:", merchantSlug)
 	}
 
@@ -462,11 +472,8 @@ func (cli *AdminCLI) grantAccess() {
 	})
 
 	if err != nil {
-		cli.createAuditLog("service.grant_access.failed", "service_merchant", service.ID.String()+":"+merchant.ID.String(), false, "Failed to grant access: "+err.Error())
 		log.Fatal("Failed to grant access:", err)
 	}
-
-	cli.createAuditLog("service.grant_access", "service_merchant", service.ID.String()+":"+merchant.ID.String(), true, "")
 
 	fmt.Println("\n✅ Access granted successfully!")
 	fmt.Printf("Service '%s' now has access to merchant '%s'\n", serviceID, merchantSlug)
@@ -518,17 +525,6 @@ func (cli *AdminCLI) listMerchants() {
 	}
 }
 
-func (cli *AdminCLI) autoLogin() {
-	// No-op: Authentication removed for simplicity
-	// Admin CLI operates without authentication requirements
-}
-
-// createAuditLog creates an audit log entry for admin operations
-func (cli *AdminCLI) createAuditLog(action, entityType, entityID string, success bool, errorMsg string) {
-	// No-op: Audit logging removed for simplicity
-	// Admin CLI operates without audit trail
-}
-
 func generateFingerprint(publicKeyPEM []byte) string {
 	// Simple fingerprint generation
 	h := sha256.New()
@@ -571,4 +567,205 @@ func getDefaultDBURL() string {
 	}
 
 	return ""
+}
+
+// ============================================================================
+// Token Generation (integrated from jwtgen)
+// ============================================================================
+
+// ServiceCredentials represents the structure of the credentials JSON file
+type ServiceCredentials struct {
+	ServiceID   string `json:"service_id"`
+	ServiceName string `json:"service_name"`
+	Environment string `json:"environment"`
+	PrivateKey  string `json:"private_key"`
+	PublicKey   string `json:"public_key"`
+}
+
+// TokenOutput represents the JSON output format
+type TokenOutput struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	ServiceID string    `json:"service_id"`
+	Scopes    []string  `json:"scopes"`
+}
+
+// generateToken generates a JWT token from service credentials
+func generateToken(credsFile, expires, scopeStr, outputFmt string, decode bool) {
+	// Validate required flags
+	if credsFile == "" {
+		fmt.Fprintln(os.Stderr, "Error: credentials file is required (-c or --credentials)")
+		fmt.Fprintln(os.Stderr, "Usage: admin -action=generate-token -c <credentials.json>")
+		os.Exit(1)
+	}
+
+	// Parse expiry duration
+	expiryDuration, err := time.ParseDuration(expires)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid expiry duration '%s': %v\n", expires, err)
+		os.Exit(1)
+	}
+
+	// Load credentials
+	creds, err := loadServiceCredentials(credsFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading credentials: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Parse scopes
+	var tokenScopes []string
+	if scopeStr != "" {
+		tokenScopes = strings.Split(scopeStr, ",")
+		for i := range tokenScopes {
+			tokenScopes[i] = strings.TrimSpace(tokenScopes[i])
+		}
+	} else {
+		tokenScopes = domain.AllPaymentScopes()
+	}
+
+	// Generate token
+	token, err := createJWTToken(creds, tokenScopes, expiryDuration)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating token: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Output based on format
+	expiresAt := time.Now().Add(expiryDuration)
+
+	switch outputFmt {
+	case "json":
+		outputTokenJSON(token, expiresAt, creds.ServiceID, tokenScopes)
+	case "curl":
+		outputTokenCurl(token)
+	default:
+		fmt.Println(token)
+	}
+
+	// Show decoded claims if requested
+	if decode {
+		fmt.Fprintln(os.Stderr, "\n# Decoded Claims:")
+		showDecodedClaims(token)
+	}
+}
+
+func loadServiceCredentials(path string) (*ServiceCredentials, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var creds ServiceCredentials
+	if err := json.Unmarshal(data, &creds); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	if creds.ServiceID == "" {
+		return nil, fmt.Errorf("missing service_id in credentials file")
+	}
+
+	if creds.PrivateKey == "" {
+		return nil, fmt.Errorf("missing private_key in credentials file")
+	}
+
+	return &creds, nil
+}
+
+func parseRSAPrivateKey(pemStr string) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
+
+	// Try PKCS1 format first
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err == nil {
+		return privateKey, nil
+	}
+
+	// Try PKCS8 format
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	rsaKey, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("key is not an RSA private key")
+	}
+
+	return rsaKey, nil
+}
+
+// createJWTToken creates a JWT token for service authentication
+func createJWTToken(creds *ServiceCredentials, scopes []string, expiry time.Duration) (string, error) {
+	privateKey, err := parseRSAPrivateKey(creds.PrivateKey)
+	if err != nil {
+		return "", err
+	}
+
+	now := time.Now()
+	jti := uuid.New().String()
+
+	claims := jwt.MapClaims{
+		"iss":    creds.ServiceID,
+		"sub":    creds.ServiceID,
+		"scopes": scopes,
+		"exp":    now.Add(expiry).Unix(),
+		"iat":    now.Unix(),
+		"nbf":    now.Unix(),
+		"jti":    jti,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	return token.SignedString(privateKey)
+}
+
+func outputTokenJSON(token string, expiresAt time.Time, serviceID string, scopes []string) {
+	output := TokenOutput{
+		Token:     token,
+		ExpiresAt: expiresAt,
+		ServiceID: serviceID,
+		Scopes:    scopes,
+	}
+
+	data, _ := json.MarshalIndent(output, "", "  ")
+	fmt.Println(string(data))
+}
+
+func outputTokenCurl(token string) {
+	fmt.Printf(`# Example curl command:
+# NOTE: merchant_id must be included in request body
+curl -X POST http://localhost:8080/payment.v1.PaymentService/Sale \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer %s" \
+  -d '{
+    "merchant_id": "your-merchant-uuid",
+    "customer_id": "cust_123",
+    "amount_cents": 1000,
+    "currency": "USD",
+    "payment_method_id": "your-payment-method-uuid",
+    "idempotency_key": "sale_unique_key_123"
+  }'
+`, token)
+}
+
+func showDecodedClaims(tokenStr string) {
+	// Parse without validation to show claims
+	parser := jwt.NewParser()
+	token, _, err := parser.ParseUnverified(tokenStr, jwt.MapClaims{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing token: %v\n", err)
+		return
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "Error: invalid claims format")
+		return
+	}
+
+	data, _ := json.MarshalIndent(claims, "", "  ")
+	fmt.Fprintln(os.Stderr, string(data))
 }

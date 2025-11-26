@@ -45,29 +45,42 @@ All API requests require JWT authentication via `Authorization` header:
 Authorization: Bearer <JWT_TOKEN>
 ```
 
-**JWT Claims Required:**
-- `service_id` - Your service UUID
-- `merchant_id` - Merchant UUID (for merchant-scoped operations)
+**JWT Claims Structure:**
+- `iss` / `sub` - Your service_id (identifies the calling service)
+- `scopes` - Array of permission scopes (e.g., `["payments:create", "payments:read"]`)
 - `exp` - Token expiration (recommended: 1 hour)
+- `iat` / `nbf` - Issued at / Not before timestamps
+- `jti` - Unique JWT ID (prevents replay attacks)
+
+**Important:** `merchant_id` is NOT in the token. It's passed in each API request body.
 
 **Example JWT Generation (Node.js):**
 ```typescript
 import jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 
 const privateKey = fs.readFileSync('service_private_key.pem');
+const now = Math.floor(Date.now() / 1000);
 
 const token = jwt.sign(
   {
-    service_id: 'your-service-uuid',
-    merchant_id: 'your-merchant-uuid',
+    iss: 'your-service-id',
+    sub: 'your-service-id',
+    scopes: ['payments:create', 'payments:read'],
+    exp: now + 3600,
+    iat: now,
+    nbf: now,
+    jti: uuidv4(),
   },
   privateKey,
-  {
-    algorithm: 'RS256',
-    expiresIn: '1h',
-  }
+  { algorithm: 'RS256' }
 );
+```
+
+**Or use the admin CLI:**
+```bash
+./bin/admin -action=generate-token -c service_credentials.json
 ```
 
 See [TOKEN_GENERATION.md](./TOKEN_GENERATION.md) for complete guide.
@@ -84,16 +97,18 @@ See [TOKEN_GENERATION.md](./TOKEN_GENERATION.md) for complete guide.
 
 | Method | Request | Response | Description |
 |--------|---------|----------|-------------|
-| Authorize | `AuthorizeRequest` | `PaymentResponse` |  |
-| Capture | `CaptureRequest` | `PaymentResponse` |  |
-| Sale | `SaleRequest` | `PaymentResponse` |  |
-| Void | `VoidRequest` | `PaymentResponse` |  |
-| Refund | `RefundRequest` | `PaymentResponse` |  |
-| ACHDebit | `ACHDebitRequest` | `PaymentResponse` |  |
-| ACHCredit | `ACHCreditRequest` | `PaymentResponse` |  |
-| ACHVoid | `ACHVoidRequest` | `PaymentResponse` |  |
-| GetTransaction | `GetTransactionRequest` | `Transaction` |  |
-| ListTransactions | `ListTransactionsRequest` | `ListTransactionsResponse` |  |
+| Authorize | `AuthorizeRequest` | `PaymentResponse` | Hold funds without capturing |
+| Capture | `CaptureRequest` | `PaymentResponse` | Capture previously authorized funds |
+| Sale | `SaleRequest` | `PaymentResponse` | Combined auth + capture (also used for ACH debit) |
+| Void | `VoidRequest` | `PaymentResponse` | Cancel before settlement (also used for ACH void) |
+| Refund | `RefundRequest` | `PaymentResponse` | Return funds to customer (also used for ACH credit) |
+| GetTransaction | `GetTransactionRequest` | `Transaction` | Retrieve transaction details |
+| ListTransactions | `ListTransactionsRequest` | `ListTransactionsResponse` | List transactions with filters |
+
+**Note:** ACH operations use the standard methods above:
+- ACH Debit: Use `Sale()` with ACH payment method
+- ACH Credit/Refund: Use `Refund()` with ACH payment method
+- ACH Void: Use `Void()` with ACH payment method
 
 ---
 
@@ -230,17 +245,19 @@ See [TOKEN_GENERATION.md](./TOKEN_GENERATION.md) for complete guide.
 
 ---
 
-#### ACH Debit
+#### ACH Debit (via Sale)
 
-**Request:**
+ACH debits use the standard `Sale` method with an ACH payment method.
+
+**Request (POST /payment.v1.PaymentService/Sale):**
 ```json
 {
-  "merchantId": "00000000-0000-0000-0000-000000000001",
-  "customerId": "cust_1234567890",
-  "paymentMethodId": "pm_ach_abc123",
-  "amountCents": "25000",
+  "merchant_id": "00000000-0000-0000-0000-000000000001",
+  "customer_id": "cust_1234567890",
+  "payment_method_id": "pm_ach_abc123",
+  "amount_cents": 25000,
   "currency": "USD",
-  "idempotencyKey": "ach_debit_1234567890",
+  "idempotency_key": "ach_debit_1234567890",
   "metadata": {
     "invoice_id": "INV-2024-001"
   }
@@ -250,16 +267,12 @@ See [TOKEN_GENERATION.md](./TOKEN_GENERATION.md) for complete guide.
 **Response:**
 ```json
 {
-  "transactionId": "tx_ach_001",
-  "isApproved": true,
+  "transaction_id": "tx_ach_001",
+  "is_approved": true,
   "status": "TRANSACTION_STATUS_APPROVED",
-  "amountCents": "25000",
-  "achInfo": {
-    "accountLast4": "6789",
-    "accountType": "checking",
-    "routingNumber": "021000021"
-  },
-  "createdAt": "2024-11-23T10:30:00Z"
+  "type": "TRANSACTION_TYPE_CHARGE",
+  "amount_cents": 25000,
+  "created_at": "2024-11-23T10:30:00Z"
 }
 ```
 
@@ -267,33 +280,82 @@ See [TOKEN_GENERATION.md](./TOKEN_GENERATION.md) for complete guide.
 
 ### Payment Method Service
 
-#### Tokenize Credit Card
+#### Credit Card Tokenization (Browser Post)
 
-**Request:**
+Credit cards are tokenized via PCI-compliant Browser Post flow, not via direct API. See [BROWSER_POST_FORM_SETUP.md](./BROWSER_POST_FORM_SETUP.md).
+
+The Browser Post callback automatically creates the payment method and returns the `payment_method_id` for use in payments.
+
+#### Store ACH Account
+
+**Request (POST /payment_method.v1.PaymentMethodService/StoreACHAccount):**
 ```json
 {
   "merchantId": "00000000-0000-0000-0000-000000000001",
   "customerId": "cust_1234567890",
-  "paymentToken": "bric_epx_abc123def456",
-  "type": "PAYMENT_METHOD_TYPE_CREDIT_CARD",
-  "metadata": {
-    "nickname": "Primary Visa"
-  }
+  "accountNumber": "123456789",
+  "routingNumber": "021000021",
+  "accountHolderName": "John Doe",
+  "accountType": "ACCOUNT_TYPE_CHECKING",
+  "stdEntryClass": "STD_ENTRY_CLASS_WEB",
+  "firstName": "John",
+  "lastName": "Doe",
+  "address": "123 Main St",
+  "city": "New York",
+  "state": "NY",
+  "zipCode": "10001",
+  "bankName": "Chase",
+  "nickname": "Primary Checking",
+  "isDefault": true,
+  "idempotencyKey": "store_ach_1234567890"
 }
 ```
 
 **Response:**
 ```json
 {
-  "paymentMethodId": "pm_abc123def456",
-  "type": "PAYMENT_METHOD_TYPE_CREDIT_CARD",
-  "cardInfo": {
-    "brand": "visa",
-    "last4": "1111",
-    "expiryMonth": 12,
-    "expiryYear": 2025
-  },
+  "paymentMethodId": "pm_ach_abc123def456",
+  "merchantId": "00000000-0000-0000-0000-000000000001",
+  "customerId": "cust_1234567890",
+  "paymentType": "PAYMENT_METHOD_TYPE_ACH",
+  "lastFour": "6789",
+  "bankName": "Chase",
+  "accountType": "checking",
+  "isDefault": true,
+  "isActive": true,
+  "isVerified": false,
   "createdAt": "2024-11-23T10:30:00Z"
+}
+```
+
+#### List Payment Methods
+
+**Request (POST /payment_method.v1.PaymentMethodService/ListPaymentMethods):**
+```json
+{
+  "merchantId": "00000000-0000-0000-0000-000000000001",
+  "customerId": "cust_1234567890"
+}
+```
+
+**Response:**
+```json
+{
+  "paymentMethods": [
+    {
+      "id": "pm_abc123def456",
+      "merchantId": "00000000-0000-0000-0000-000000000001",
+      "customerId": "cust_1234567890",
+      "paymentType": "PAYMENT_METHOD_TYPE_CREDIT_CARD",
+      "lastFour": "1111",
+      "cardBrand": "visa",
+      "cardExpMonth": 12,
+      "cardExpYear": 2025,
+      "isDefault": true,
+      "isActive": true,
+      "createdAt": "2024-11-23T10:30:00Z"
+    }
+  ]
 }
 ```
 
@@ -303,32 +365,73 @@ See [TOKEN_GENERATION.md](./TOKEN_GENERATION.md) for complete guide.
 
 #### Create Recurring Subscription
 
-**Request:**
+**Request (POST /subscription.v1.SubscriptionService/CreateSubscription):**
 ```json
 {
   "merchantId": "00000000-0000-0000-0000-000000000001",
   "customerId": "cust_1234567890",
-  "paymentMethodId": "pm_abc123def456",
   "amountCents": "2999",
   "currency": "USD",
-  "intervalType": "monthly",
+  "intervalValue": 1,
+  "intervalUnit": "INTERVAL_UNIT_MONTH",
+  "paymentMethodId": "pm_abc123def456",
   "startDate": "2024-12-01T00:00:00Z",
+  "maxRetries": 3,
   "metadata": {
     "plan_name": "Premium Monthly",
     "plan_id": "plan_premium_monthly"
-  }
+  },
+  "idempotencyKey": "sub_create_1234567890"
+}
+```
+
+**Interval Units:** `INTERVAL_UNIT_DAY`, `INTERVAL_UNIT_WEEK`, `INTERVAL_UNIT_MONTH`, `INTERVAL_UNIT_YEAR`
+
+**Response:**
+```json
+{
+  "subscriptionId": "sub_xyz789",
+  "merchantId": "00000000-0000-0000-0000-000000000001",
+  "customerId": "cust_1234567890",
+  "amountCents": "2999",
+  "currency": "USD",
+  "intervalValue": 1,
+  "intervalUnit": "INTERVAL_UNIT_MONTH",
+  "status": "SUBSCRIPTION_STATUS_ACTIVE",
+  "paymentMethodId": "pm_abc123def456",
+  "nextBillingDate": "2024-12-01T00:00:00Z",
+  "createdAt": "2024-11-23T10:30:00Z"
+}
+```
+
+#### List Customer Subscriptions
+
+**Request (POST /subscription.v1.SubscriptionService/ListCustomerSubscriptions):**
+```json
+{
+  "merchantId": "00000000-0000-0000-0000-000000000001",
+  "customerId": "cust_1234567890"
 }
 ```
 
 **Response:**
 ```json
 {
-  "subscriptionId": "sub_xyz789",
-  "status": "SUBSCRIPTION_STATUS_ACTIVE",
-  "amountCents": "2999",
-  "intervalType": "monthly",
-  "nextBillingDate": "2024-12-01T00:00:00Z",
-  "createdAt": "2024-11-23T10:30:00Z"
+  "subscriptions": [
+    {
+      "id": "sub_xyz789",
+      "merchantId": "00000000-0000-0000-0000-000000000001",
+      "customerId": "cust_1234567890",
+      "amountCents": "2999",
+      "currency": "USD",
+      "intervalValue": 1,
+      "intervalUnit": "INTERVAL_UNIT_MONTH",
+      "status": "SUBSCRIPTION_STATUS_ACTIVE",
+      "paymentMethodId": "pm_abc123def456",
+      "nextBillingDate": "2024-12-01T00:00:00Z",
+      "createdAt": "2024-11-23T10:30:00Z"
+    }
+  ]
 }
 ```
 
@@ -396,6 +499,7 @@ curl -X POST https://api.example.com/payment.v1.PaymentService/Sale \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{
     "merchantId": "00000000-0000-0000-0000-000000000001",
+    "customerId": "cust_1234567890",
     "amountCents": "10000",
     "currency": "USD",
     "paymentMethodId": "pm_abc123",
@@ -460,6 +564,7 @@ curl -X POST "$API_URL/$METHOD" \
 ```bash
 ./scripts/api_request.sh payment.v1.PaymentService/Sale '{
   "merchantId": "00000000-0000-0000-0000-000000000001",
+  "customerId": "cust_1234567890",
   "amountCents": "10000",
   "currency": "USD",
   "paymentMethodId": "pm_abc123",
@@ -491,6 +596,7 @@ const client = createPromiseClient(PaymentService, transport);
 // Example: Sale
 const response = await client.sale({
   merchantId: '00000000-0000-0000-0000-000000000001',
+  customerId: 'cust_1234567890',
   amountCents: BigInt(10000),
   currency: 'USD',
   paymentMethodId: 'pm_abc123',
@@ -528,6 +634,7 @@ ctx := metadata.AppendToOutgoingContext(
 // Example: Sale
 response, err := client.Sale(ctx, &paymentv1.SaleRequest{
     MerchantId:      "00000000-0000-0000-0000-000000000001",
+    CustomerId:      "cust_1234567890",
     AmountCents:     10000,
     Currency:        "USD",
     PaymentMethodId: "pm_abc123",

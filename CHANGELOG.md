@@ -7,6 +7,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-11-26)
+
+**Admin CLI - Token Generation**
+- Added `generate-token` action to admin CLI (`cmd/admin/main.go`)
+- Integrates JWT token generation directly into admin CLI (no need for separate jwtgen tool)
+- Supports all jwtgen features: custom expiry (`-e`), scopes (`-s`), output formats (`-o`), decode (`--decode`)
+- No database connection required - works with credentials file only
+- Updated `docs/integration/ADMIN_CLI.md` with comprehensive token generation documentation
+
+**Token Generation Documentation Overhaul**
+- Rewrote `docs/integration/TOKEN_GENERATION.md` to reflect correct architecture:
+  - Tokens contain only service_id (iss/sub), NOT merchant_id
+  - merchant_id is passed in request body per-request
+  - One token works for all merchants the service has access to
+- Added "Key Architecture Points" section explaining token→service, request→merchant model
+- Updated all code examples (Node.js, Go, Python, PHP) to remove merchant_id from tokens
+- Replaced jwtgen CLI references with admin CLI `generate-token` action
+- Added troubleshooting for "Service does not have access to merchant" error
+- Streamlined from ~755 lines to ~730 lines while adding more clarity
+
+### Documentation (2025-11-26)
+
+**API_SPECS.md Accuracy Fixes**
+- Fixed JWT claims section - removed merchant_id from token (passed in request body instead)
+- Removed non-existent ACH methods (ACHDebit, ACHCredit, ACHVoid) from Payment Service table
+- Added note that ACH uses standard Sale/Refund/Void methods
+- Fixed "Tokenize Credit Card" section - replaced with correct Browser Post flow and StoreACHAccount example
+- Fixed subscription examples - changed `intervalType: "monthly"` to correct `intervalValue`/`intervalUnit` fields
+- Added ListPaymentMethods and ListCustomerSubscriptions examples
+- Added missing `customerId` field to all Sale transaction examples (curl, TypeScript, Go)
+
+**Status Enum Format Updates**
+- Updated `docs/development/TESTING_GUIDE.md` - Changed all status assertions from `"approved"`/`"declined"` to proto enum format `"TRANSACTION_STATUS_APPROVED"`/`"TRANSACTION_STATUS_DECLINED"`
+- Updated `docs/development/DOCUMENTATION_STYLE_GUIDE.md` - Changed API response examples to use proto enum format for status field
+- Note: Database stores lowercase `"approved"`/`"declined"` (generated column), but ConnectRPC API returns proto enum format
+
+**Cron Authentication Documentation**
+- Added comprehensive Cron Authentication section to `docs/development/AUTH.md`
+- Documents X-Cron-Secret header authentication for cron endpoints on port 8081
+- Lists all protected endpoints: `/cron/verify-ach`, `/cron/process-billing`, `/cron/sync-disputes`, `/cron/stats`, `/cron/ach/stats`
+- Lists health check endpoints (no auth required): `/cron/health`, `/cron/ach/health`, `/cron/audit/health`, `/cron/rate-limit/health`
+
+### Added (2025-11-26) - CLI Test Coverage
+
+**CLI Test Coverage**
+- Created `cmd/jwtgen/main_test.go` - Unit tests for jwtgen CLI tool
+  - Tests credential loading (valid file, missing fields, file not found, invalid JSON)
+  - Tests private key parsing (valid PKCS1 key, invalid PEM)
+  - Tests JWT generation (valid token structure, expiry, unique JTI)
+  - Tests helper functions (resolveString, output formats, decoded claims)
+- Created `cmd/admin/main_test.go` - Unit tests for admin CLI tool
+  - Tests database URL construction from environment variables
+  - Tests fingerprint generation for public keys
+  - Tests service and merchant JSON data structure parsing
+
+**Integration Test Updates**
+- Updated `tests/integration/auth/jwt_auth_test.go` to use new token structure
+  - Blacklisted token test now includes `sub`, `scopes`, `nbf` claims
+  - Missing issuer test now includes complete claim structure (minus iss/sub)
+- Verified all handlers accept `customer_id` as request parameter (not from token)
+
+**jwtgen CLI Tool**
+- Created `cmd/jwtgen/main.go` - CLI tool for generating JWT tokens for API testing
+- Loads service credentials from JSON file (same format as admin CLI output)
+- Supports custom expiry durations (-e flag: 5m, 30m, 1h, 24h)
+- Supports custom scopes (-s flag: comma-separated list)
+- Multiple output formats: token (default), json (with metadata), curl (ready-to-use command)
+- Decode flag (--decode) to verify token claims
+- Built to `bin/jwtgen` for local development testing
+
+**Simplified JWT Token Structure**
+- Token claims now use single `merchant_id` instead of `merchant_ids` array
+- Removed unused token types: admin, customer, guest (was never implemented in production)
+- Customer ID is passed in request body, not JWT (services act as trusted intermediaries)
+- Cleaner scope-based authorization model
+
+### Removed (2025-11-26)
+
+**Admin CLI - Removed No-Op Functions**
+- Removed `autoLogin()` function - admin authentication was disabled
+- Removed `createAuditLog()` function - audit logging was disabled
+- Removed all calls to these no-op functions throughout admin CLI
+- Cleaned up unused `service` variable after removing audit log call
+
+**Dead Code Cleanup - MerchantResolver**
+- Removed `internal/services/authorization/merchant_resolver.go` - was injected but never called
+- Removed `internal/services/authorization/merchant_resolver_test.go` - tests for dead code
+- Removed `merchantResolver` field from `payment_service.go`
+- Removed `merchantResolver` argument from `NewPaymentService` and `main.go`
+
+**Dead Code Cleanup - Unused Token Types**
+- Removed `TokenClaims` struct from `domain/auth_context.go` (never used in production)
+- Removed `TokenType` constants: Admin, Customer, Guest, Merchant
+- Removed `CustomerID`, `SessionID`, `MerchantIDs` fields (unused)
+- Kept: Scope constants and `HasScope()`, `AllPaymentScopes()` functions
+
+### Changed (2025-11-26)
+
+**Documentation Updates**
+- Rewrote `docs/development/AUTH.md` to reflect simplified token structure
+- Rewrote `docs/integration/TOKEN_GENERATION.md` with jwtgen CLI usage
+- Updated code examples in all languages (Go, Node.js, Python, PHP)
+- Removed references to multi-merchant tokens and token types
+
+### Fixed (2025-11-26)
+
+**Seed Command Schema Mismatch**
+- Fixed `cmd/seed/main.go` to match current database schema
+- Removed `created_by` column reference from services INSERT (removed in migration 023)
+- Removed `created_by` column reference from merchants INSERT (removed in migration 023)
+- Removed `granted_by` column reference from service_merchants INSERT (removed in migration 023)
+- Removed `added_by` column reference from epx_ip_whitelist INSERT (removed in migration 023)
+- Removed `requests_per_second` and `burst_limit` from merchants INSERT (these columns only exist on services table)
+- Error was: `column "created_by" of relation "services" does not exist (SQLSTATE 42703)`
+
+**Dockerfile - Added Seed CLI**
+- Added `seed` binary build to Dockerfile
+- Seed CLI now available inside container at `/home/appuser/seed`
+- Usage: `podman exec payment-server sh -c 'DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable" ./seed'`
+
 ### Added (2025-11-25)
 
 **Admin CLI in Docker Image**

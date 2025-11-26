@@ -11,10 +11,12 @@ The admin CLI manages services, merchants, and access control for the payment se
 | Create service | `./admin -action=create-service` |
 | Create merchant | `./admin -action=create-merchant` |
 | Grant access | `./admin -action=grant-access` |
+| **Generate token** | `./admin -action=generate-token -c creds.json` |
 | List services | `./admin -action=list-services` |
 | List merchants | `./admin -action=list-merchants` |
 
 All commands support interactive mode (no flags) or JSON file input (`-json=file.json`).
+Token generation requires credentials file (`-c` or `--credentials`).
 
 ---
 
@@ -64,9 +66,82 @@ podman exec payment-server ./admin -action=list-merchants
 
 # Copy credentials to host
 podman cp payment-server:/home/appuser/service_my-app_credentials.json .
+
+# Generate JWT token (after copying credentials)
+./bin/admin -action=generate-token -c service_my-app_credentials.json
 ```
 
 **Note:** Replace `podman` with `docker` if using Docker.
+
+---
+
+## Token Generation
+
+Generate JWT tokens from service credentials for API authentication. No database connection required.
+
+### Basic Usage
+
+```bash
+# Generate token with default settings (1h expiry, all scopes)
+./bin/admin -action=generate-token -c service_my-app_credentials.json
+
+# Custom expiry duration
+./bin/admin -action=generate-token -c creds.json -e 30m
+
+# Specific scopes only
+./bin/admin -action=generate-token -c creds.json -s "payments:create,payments:read"
+
+# Output as JSON (includes metadata)
+./bin/admin -action=generate-token -c creds.json -o json
+
+# Output as curl command (ready to use)
+./bin/admin -action=generate-token -c creds.json -o curl
+
+# Show decoded claims (for verification)
+./bin/admin -action=generate-token -c creds.json --decode
+```
+
+### Token Generation Options
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--credentials` | `-c` | Service credentials JSON file | (required) |
+| `--expires` | `-e` | Token expiry duration | `1h` |
+| `--scopes` | `-s` | Comma-separated scopes | all scopes |
+| `--output` | `-o` | Output format: `token`, `json`, `curl` | `token` |
+| `--decode` | | Show decoded claims | false |
+
+### Available Scopes
+
+| Scope | Description |
+|-------|-------------|
+| `payments:create` | Create payments (auth, capture, sale) |
+| `payments:read` | View transactions |
+| `payments:void` | Void payments |
+| `payments:refund` | Issue refunds |
+| `payment_methods:read` | View saved payment methods |
+| `payment_methods:create` | Store payment methods |
+| `subscriptions:manage` | Manage subscriptions |
+| `subscriptions:read` | View subscriptions |
+
+### Complete Workflow Example
+
+```bash
+# 1. Create service (saves credentials file)
+podman exec -it payment-server ./admin -action=create-service
+
+# 2. Copy credentials to host
+podman cp payment-server:/home/appuser/service_my-app_credentials.json .
+
+# 3. Generate token
+TOKEN=$(./bin/admin -action=generate-token -c service_my-app_credentials.json)
+
+# 4. Use token in API request
+curl -X POST http://localhost:8080/payment.v1.PaymentService/ListTransactions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"merchant_id": "your-merchant-uuid", "limit": 50}'
+```
 
 ---
 

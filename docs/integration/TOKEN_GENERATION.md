@@ -11,9 +11,16 @@
 The payment service uses **RSA-signed JWT tokens** for authentication. Each external application (service) receives:
 
 1. **Service ID**: Unique identifier (e.g., `acme-web-app`)
-2. **RSA Private Key**: Used to sign JWT tokens
-3. **Merchant Access**: Which merchants this service can transact for
-4. **Scopes**: Permissions (e.g., `payment:create`, `payment:read`)
+2. **RSA Key Pair**: Private key for signing tokens, public key stored in payment service
+3. **Merchant Access**: Which merchants this service can transact for (via `grant-access`)
+4. **Scopes**: Permissions (e.g., `payments:create`, `payments:read`)
+
+### Key Architecture Points
+
+- **Token identifies the SERVICE** (via `iss`/`sub` claims)
+- **Merchant is specified per-request** (in request body, NOT in token)
+- **One token works for all merchants** the service has access to
+- **Database validates access** per-request based on service→merchant grants
 
 **Authentication Flow:**
 
@@ -28,11 +35,12 @@ The payment service uses **RSA-signed JWT tokens** for authentication. Each exte
        │─────────────────────────────>  │                                │
        │                                 │                                │
        │ 2. API Request + JWT            │                                │
-       │    POST /payment.v1/Authorize   │                                │
+       │    POST /payment.v1/Sale        │                                │
+       │    Body: {merchant_id: "..."}   │                                │
        │─────────────────────────────>  │                                │
        │                                 │                                │
        │                                 │ 3. Verify JWT signature        │
-       │                                 │    (using public key)          │
+       │                                 │    Check service→merchant access│
        │                                 │                                │
        │                                 │ 4. Process payment             │
        │                                 │──────────────────────────────>│
@@ -47,11 +55,11 @@ The payment service uses **RSA-signed JWT tokens** for authentication. Each exte
 
 ---
 
-## Step 1: Service Registration
-
-### Via Admin CLI
+## Step 1: Service Registration (Admin CLI)
 
 An administrator must register your application as a service before you can generate tokens.
+
+### Create Service
 
 **Docker (recommended):**
 
@@ -87,7 +95,9 @@ export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payment_service
 ./bin/admin -action=create-service
 ```
 
-**Output file** (`service_acme-web-app_credentials.json`):
+### Output: Credentials File
+
+The admin CLI outputs a credentials file (`service_acme-web-app_credentials.json`):
 
 ```json
 {
@@ -100,70 +110,33 @@ export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payment_service
 }
 ```
 
-**⚠️ CRITICAL:** Save the credentials file immediately. The private key will **never be shown again**.
+**CRITICAL:** Save the credentials file immediately. The private key will **never be shown again**.
 
-📖 **See:** [Admin CLI Guide](ADMIN_CLI.md) - Complete service and merchant management
+### Grant Merchant Access
 
-### What You Receive
+After creating a service and merchant, grant the service access to the merchant:
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `service_id` | Your application identifier | `acme-web-app` |
-| `private_key` | RSA private key (PEM format) | `-----BEGIN RSA PRIVATE KEY-----\n...` |
-| `public_key` | Public key (stored in payment service) | `-----BEGIN PUBLIC KEY-----\n...` |
-| `public_key_fingerprint` | SHA256 fingerprint for verification | `sha256:abc123...` |
+```bash
+# Interactive
+./bin/admin -action=grant-access
+# Enter: service_id, merchant_slug
+
+# This creates an entry in service_merchants table with scopes
+```
 
 ---
 
-## Step 2: Store Your Private Key Securely
+## Step 2: Token Structure
 
-### Environment Variables (Recommended)
+### JWT Claims (Service-Only)
 
-```bash
-# .env file
-SERVICE_ID=acme-web-app
-JWT_PRIVATE_KEY_PATH=/secure/path/to/private_key.pem
-JWT_TOKEN_EXPIRY=300  # 5 minutes
-```
-
-**Create the key file:**
-
-```bash
-# Save private key to file
-cat > /secure/path/to/private_key.pem <<'EOF'
------BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA...
-[Your private key content here]
-...
------END RSA PRIVATE KEY-----
-EOF
-
-# Set restrictive permissions
-chmod 600 /secure/path/to/private_key.pem
-```
-
-### Secret Manager (Production)
-
-For production, use a secret management service:
-
-- **AWS Secrets Manager**: Store in `payment-service/services/acme-web-app/private-key`
-- **GCP Secret Manager**: Store in `payment-service/services/acme-web-app/private-key`
-- **HashiCorp Vault**: Store in `secret/payment-service/services/acme-web-app/private-key`
-
----
-
-## Step 3: Generate JWT Tokens
-
-### Token Claims Structure
+Tokens identify the **service only**. The merchant is specified in each API request body.
 
 ```json
 {
   "iss": "acme-web-app",
-  "sub": "merchant_abc123",
-  "merchant_id": "merchant_abc123",
-  "service_id": "acme-web-app",
-  "scopes": ["payment:create", "payment:read", "payment:refund"],
-  "env": "production",
+  "sub": "acme-web-app",
+  "scopes": ["payments:create", "payments:read", "payments:refund"],
   "exp": 1736683500,
   "iat": 1736683200,
   "nbf": 1736683200,
@@ -171,15 +144,94 @@ For production, use a secret management service:
 }
 ```
 
-### Node.js / TypeScript
+| Claim | Required | Description |
+|-------|----------|-------------|
+| `iss` | Yes | Issuer - your service_id |
+| `sub` | Yes | Subject - your service_id |
+| `scopes` | Yes | Array of permission scopes |
+| `exp` | Yes | Expiration timestamp (Unix) |
+| `iat` | Yes | Issued at timestamp (Unix) |
+| `nbf` | Yes | Not before timestamp (Unix) |
+| `jti` | Yes | Unique JWT ID (UUID, prevents replay) |
 
-**Install dependencies:**
+**Note:** `merchant_id` is NOT in the token. It's passed in the request body.
+
+---
+
+## Step 3: Generate JWT Tokens
+
+### Using Admin CLI (Recommended)
+
+The admin CLI includes token generation. No database connection required.
 
 ```bash
-npm install jsonwebtoken uuid
+# Build CLI (if not already built)
+go build -o bin/admin ./cmd/admin
+
+# Generate token with default settings (1h expiry, all scopes)
+./bin/admin -action=generate-token -c service_acme-web-app_credentials.json
+
+# Custom expiry duration
+./bin/admin -action=generate-token -c creds.json -e 30m
+
+# Specific scopes only
+./bin/admin -action=generate-token -c creds.json -s "payments:create,payments:read"
+
+# Output as JSON (includes metadata)
+./bin/admin -action=generate-token -c creds.json -o json
+
+# Output as ready-to-use curl command
+./bin/admin -action=generate-token -c creds.json -o curl
+
+# Verify token by showing decoded claims
+./bin/admin -action=generate-token -c creds.json --decode
 ```
 
-**Generate token:**
+**Admin CLI Token Options:**
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--credentials` | `-c` | Service credentials JSON file | (required) |
+| `--expires` | `-e` | Token expiry duration | `1h` |
+| `--scopes` | `-s` | Comma-separated scopes | all scopes |
+| `--output` | `-o` | Output format: `token`, `json`, `curl` | `token` |
+| `--decode` | | Show decoded claims | false |
+
+### Example Output
+
+```bash
+$ ./bin/admin -action=generate-token -c service_acme-web-app_credentials.json --decode
+
+eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjQxNTU...
+
+# Decoded Claims:
+{
+  "exp": 1764155382,
+  "iat": 1764151782,
+  "iss": "acme-web-app",
+  "jti": "05549f51-0974-4366-bbce-98e684c9c2c4",
+  "nbf": 1764151782,
+  "scopes": [
+    "payments:create",
+    "payments:read",
+    "payments:void",
+    "payments:refund",
+    "payment_methods:read",
+    "payment_methods:create",
+    "subscriptions:manage",
+    "subscriptions:read"
+  ],
+  "sub": "acme-web-app"
+}
+```
+
+---
+
+## Step 4: Programmatic Token Generation
+
+For production applications, generate tokens in your code.
+
+### Node.js / TypeScript
 
 ```typescript
 import * as jwt from 'jsonwebtoken';
@@ -188,11 +240,8 @@ import * as fs from 'fs';
 
 interface JWTClaims {
   iss: string;        // Issuer (your service_id)
-  sub: string;        // Subject (merchant_id)
-  merchant_id: string;
-  service_id: string;
+  sub: string;        // Subject (your service_id)
   scopes: string[];
-  env: string;
   exp: number;        // Expiration timestamp
   iat: number;        // Issued at timestamp
   nbf: number;        // Not before timestamp
@@ -204,22 +253,19 @@ class PaymentTokenGenerator {
   private serviceId: string;
   private tokenExpiry: number;
 
-  constructor(privateKeyPath: string, serviceId: string, tokenExpirySeconds: number = 300) {
+  constructor(privateKeyPath: string, serviceId: string, tokenExpirySeconds: number = 3600) {
     this.privateKey = fs.readFileSync(privateKeyPath);
     this.serviceId = serviceId;
     this.tokenExpiry = tokenExpirySeconds;
   }
 
-  generateToken(merchantId: string, scopes: string[]): string {
+  generateToken(scopes: string[]): string {
     const now = Math.floor(Date.now() / 1000);
 
     const claims: JWTClaims = {
       iss: this.serviceId,
-      sub: merchantId,
-      merchant_id: merchantId,
-      service_id: this.serviceId,
+      sub: this.serviceId,
       scopes: scopes,
-      env: process.env.ENVIRONMENT || 'production',
       exp: now + this.tokenExpiry,
       iat: now,
       nbf: now,
@@ -236,21 +282,19 @@ class PaymentTokenGenerator {
 const tokenGen = new PaymentTokenGenerator(
   '/secure/path/to/private_key.pem',
   'acme-web-app',
-  300  // 5 minutes
+  3600  // 1 hour
 );
 
-const token = tokenGen.generateToken('merchant_abc123', [
-  'payment:create',
-  'payment:read',
-  'payment:refund',
+const token = tokenGen.generateToken([
+  'payments:create',
+  'payments:read',
+  'payments:refund',
 ]);
 
 console.log('JWT Token:', token);
 ```
 
 ### Go
-
-**Generate token:**
 
 ```go
 package main
@@ -270,10 +314,7 @@ import (
 // JWTClaims represents the token claims
 type JWTClaims struct {
 	jwt.RegisteredClaims
-	MerchantID  string   `json:"merchant_id"`
-	ServiceID   string   `json:"service_id"`
-	Scopes      []string `json:"scopes"`
-	Environment string   `json:"env"`
+	Scopes []string `json:"scopes"`
 }
 
 // TokenGenerator handles JWT token generation
@@ -313,50 +354,40 @@ func NewTokenGenerator(privateKeyPath, serviceID string, expiry time.Duration) (
 }
 
 // GenerateToken creates a new JWT token
-func (tg *TokenGenerator) GenerateToken(merchantID string, scopes []string) (string, error) {
+func (tg *TokenGenerator) GenerateToken(scopes []string) (string, error) {
 	now := time.Now()
 	jti := uuid.New().String()
 
 	claims := JWTClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    tg.serviceID,
-			Subject:   merchantID,
+			Subject:   tg.serviceID,
 			ExpiresAt: jwt.NewNumericDate(now.Add(tg.expiry)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			ID:        jti,
 		},
-		MerchantID:  merchantID,
-		ServiceID:   tg.serviceID,
-		Scopes:      scopes,
-		Environment: getEnv("ENVIRONMENT", "production"),
+		Scopes: scopes,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	return token.SignedString(tg.privateKey)
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
 func main() {
 	tokenGen, err := NewTokenGenerator(
 		"/secure/path/to/private_key.pem",
 		"acme-web-app",
-		5*time.Minute,
+		time.Hour,
 	)
 	if err != nil {
 		panic(err)
 	}
 
-	token, err := tokenGen.GenerateToken("merchant_abc123", []string{
-		"payment:create",
-		"payment:read",
-		"payment:refund",
+	token, err := tokenGen.GenerateToken([]string{
+		"payments:create",
+		"payments:read",
+		"payments:refund",
 	})
 	if err != nil {
 		panic(err)
@@ -368,36 +399,25 @@ func main() {
 
 ### Python
 
-**Install dependencies:**
-
-```bash
-pip install pyjwt cryptography
-```
-
-**Generate token:**
-
 ```python
 import jwt
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 class PaymentTokenGenerator:
-    def __init__(self, private_key_path: str, service_id: str, token_expiry_seconds: int = 300):
+    def __init__(self, private_key_path: str, service_id: str, token_expiry_seconds: int = 3600):
         self.private_key = Path(private_key_path).read_text()
         self.service_id = service_id
         self.token_expiry = token_expiry_seconds
 
-    def generate_token(self, merchant_id: str, scopes: list[str]) -> str:
-        now = datetime.utcnow()
+    def generate_token(self, scopes: list[str]) -> str:
+        now = datetime.now(timezone.utc)
 
         claims = {
             'iss': self.service_id,
-            'sub': merchant_id,
-            'merchant_id': merchant_id,
-            'service_id': self.service_id,
+            'sub': self.service_id,
             'scopes': scopes,
-            'env': 'production',
             'exp': now + timedelta(seconds=self.token_expiry),
             'iat': now,
             'nbf': now,
@@ -410,27 +430,19 @@ class PaymentTokenGenerator:
 token_gen = PaymentTokenGenerator(
     '/secure/path/to/private_key.pem',
     'acme-web-app',
-    300  # 5 minutes
+    3600  # 1 hour
 )
 
-token = token_gen.generate_token('merchant_abc123', [
-    'payment:create',
-    'payment:read',
-    'payment:refund',
+token = token_gen.generate_token([
+    'payments:create',
+    'payments:read',
+    'payments:refund',
 ])
 
 print(f'JWT Token: {token}')
 ```
 
 ### PHP (WordPress)
-
-**Install dependencies:**
-
-```bash
-composer require firebase/php-jwt
-```
-
-**Generate token:**
 
 ```php
 <?php
@@ -444,22 +456,19 @@ class PaymentTokenGenerator {
     private $serviceId;
     private $tokenExpiry;
 
-    public function __construct(string $privateKeyPath, string $serviceId, int $tokenExpirySeconds = 300) {
+    public function __construct(string $privateKeyPath, string $serviceId, int $tokenExpirySeconds = 3600) {
         $this->privateKey = file_get_contents($privateKeyPath);
         $this->serviceId = $serviceId;
         $this->tokenExpiry = $tokenExpirySeconds;
     }
 
-    public function generateToken(string $merchantId, array $scopes): string {
+    public function generateToken(array $scopes): string {
         $now = time();
 
         $claims = [
             'iss' => $this->serviceId,
-            'sub' => $merchantId,
-            'merchant_id' => $merchantId,
-            'service_id' => $this->serviceId,
+            'sub' => $this->serviceId,
             'scopes' => $scopes,
-            'env' => 'production',
             'exp' => $now + $this->tokenExpiry,
             'iat' => $now,
             'nbf' => $now,
@@ -474,13 +483,13 @@ class PaymentTokenGenerator {
 $tokenGen = new PaymentTokenGenerator(
     '/secure/path/to/private_key.pem',
     'acme-web-app',
-    300  // 5 minutes
+    3600  // 1 hour
 );
 
-$token = $tokenGen->generateToken('merchant_abc123', [
-    'payment:create',
-    'payment:read',
-    'payment:refund',
+$token = $tokenGen->generateToken([
+    'payments:create',
+    'payments:read',
+    'payments:refund',
 ]);
 
 echo "JWT Token: " . $token . "\n";
@@ -488,25 +497,36 @@ echo "JWT Token: " . $token . "\n";
 
 ---
 
-## Step 4: Make Authenticated API Requests
+## Step 5: Make Authenticated API Requests
+
+**Important:** The `merchant_id` is specified in the **request body**, not in the token.
 
 ### Using cURL
 
 ```bash
-# Generate token (use one of the examples above)
-TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+# Generate token using admin CLI
+TOKEN=$(./bin/admin -action=generate-token -c service_acme-web-app_credentials.json)
 
-# Make API request
-curl -X POST http://localhost:8080/payment.v1.PaymentService/Authorize \
+# Sale request - merchant_id in request body
+curl -X POST http://localhost:8080/payment.v1.PaymentService/Sale \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
-    "merchant_id": "merchant_abc123",
-    "customer_id": "customer_456",
+    "merchant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "customer_id": "cust_123",
     "amount_cents": 9999,
     "currency": "USD",
     "payment_method_id": "pm-uuid-here",
-    "idempotency_key": "auth_20250120_001"
+    "idempotency_key": "sale_20250120_001"
+  }'
+
+# List transactions request
+curl -X POST http://localhost:8080/payment.v1.PaymentService/ListTransactions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "merchant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "limit": 50
   }'
 ```
 
@@ -523,10 +543,10 @@ const transport = createConnectTransport({
   httpVersion: '2',
   interceptors: [
     (next) => async (req) => {
-      // Generate fresh token for each request
-      const token = tokenGen.generateToken('merchant_abc123', [
-        'payment:create',
-        'payment:read',
+      // Generate or retrieve cached token
+      const token = tokenGen.generateToken([
+        'payments:create',
+        'payments:read',
       ]);
 
       req.header.set('Authorization', `Bearer ${token}`);
@@ -538,14 +558,14 @@ const transport = createConnectTransport({
 // Create client
 const client = createPromiseClient(PaymentService, transport);
 
-// Make API call
-const response = await client.authorize({
-  merchantId: 'merchant_abc123',
-  customerId: 'customer_456',
+// Sale request - merchant_id in request body
+const response = await client.sale({
+  merchantId: '550e8400-e29b-41d4-a716-446655440000',
+  customerId: 'cust_123',
   amountCents: 9999,
   currency: 'USD',
   paymentMethodId: 'pm-uuid-here',
-  idempotencyKey: 'auth_20250120_001',
+  idempotencyKey: 'sale_20250120_001',
 });
 
 console.log('Transaction:', response);
@@ -553,88 +573,38 @@ console.log('Transaction:', response);
 
 ---
 
-## Token Management Best Practices
+## Complete Workflow Example
 
-### 1. Token Caching
+```bash
+# 1. Start payment service
+podman-compose up -d
 
-**Don't generate a new token for every request.** Cache tokens and reuse them until expiry.
+# 2. Create service (generates RSA keypair)
+podman exec -it payment-server ./admin -action=create-service
+# Enter: acme-web-app, ACME Corp, production, yes (generate keypair)
 
-```typescript
-class TokenCache {
-  private cache: Map<string, { token: string; expiresAt: Date }> = new Map();
+# 3. Create merchant
+podman exec -it payment-server ./admin -action=create-merchant
+# Enter: acme-merchant, ACME Store, EPX credentials...
 
-  getOrCreate(merchantId: string, generator: () => string, expirySeconds: number): string {
-    const cached = this.cache.get(merchantId);
-    const now = new Date();
+# 4. Grant service access to merchant
+podman exec -it payment-server ./admin -action=grant-access
+# Enter: acme-web-app, acme-merchant
 
-    // Refresh if expired or expiring soon (30 second buffer)
-    if (cached && new Date(cached.expiresAt.getTime() - 30000) > now) {
-      return cached.token;
-    }
+# 5. Copy credentials to local machine
+podman cp payment-server:/home/appuser/service_acme-web-app_credentials.json .
 
-    // Generate new token
-    const token = generator();
-    const expiresAt = new Date(now.getTime() + expirySeconds * 1000);
+# 6. Build admin CLI locally (for token generation)
+go build -o bin/admin ./cmd/admin
 
-    this.cache.set(merchantId, { token, expiresAt });
-    return token;
-  }
-}
-```
+# 7. Generate token
+TOKEN=$(./bin/admin -action=generate-token -c service_acme-web-app_credentials.json)
 
-### 2. Token Expiry
-
-**Recommended expiry times:**
-- **Short-lived (5-15 minutes)**: For payment operations
-- **Medium-lived (1 hour)**: For read-only operations
-- **Do NOT use tokens longer than 24 hours**
-
-### 3. Scope Principle of Least Privilege
-
-Only request scopes your application actually needs:
-
-```typescript
-// ✅ Good: Minimal scopes
-const scopes = ['payment:create', 'payment:read'];
-
-// ❌ Bad: Requesting everything
-const scopes = ['payment:*', 'merchant:*', 'admin:*'];
-```
-
-### 4. Secure Key Storage
-
-**Never:**
-- ❌ Commit private keys to version control
-- ❌ Store keys in application code
-- ❌ Share keys across environments (dev/staging/prod)
-- ❌ Log or display private keys
-
-**Always:**
-- ✅ Use environment variables or secret managers
-- ✅ Set file permissions to 600 (read/write owner only)
-- ✅ Rotate keys periodically (every 90 days)
-- ✅ Use separate keys per environment
-
-### 5. Error Handling
-
-```typescript
-try {
-  const response = await client.authorize(request);
-  return response;
-} catch (error) {
-  if (error.code === 'UNAUTHENTICATED') {
-    // Token expired or invalid - generate new token
-    console.error('Authentication failed - token may be expired');
-    // Clear token cache and retry
-  } else if (error.code === 'PERMISSION_DENIED') {
-    // Service lacks required scopes
-    console.error('Insufficient permissions:', error.message);
-  } else {
-    // Other errors
-    console.error('API error:', error);
-  }
-  throw error;
-}
+# 8. Make API request
+curl -X POST http://localhost:8080/payment.v1.PaymentService/ListTransactions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"merchant_id": "your-merchant-uuid-from-step-3"}'
 ```
 
 ---
@@ -643,19 +613,64 @@ try {
 
 | Scope | Description |
 |-------|-------------|
-| `payment:create` | Create payments (authorize, sale, capture) |
-| `payment:read` | View transaction details and history |
-| `payment:void` | Void authorized or captured payments |
-| `payment:refund` | Issue refunds |
-| `payment_method:create` | Store payment methods (tokenization) |
-| `payment_method:read` | View saved payment methods |
-| `payment_method:update` | Update payment method status |
-| `payment_method:delete` | Delete payment methods |
-| `subscription:create` | Create recurring subscriptions |
-| `subscription:read` | View subscription details |
-| `subscription:update` | Update subscriptions |
-| `subscription:cancel` | Cancel subscriptions |
-| `merchant:read` | View merchant information |
+| `payments:create` | Create payments (authorize, sale, capture) |
+| `payments:read` | View transaction details and history |
+| `payments:void` | Void authorized or captured payments |
+| `payments:refund` | Issue refunds |
+| `payment_methods:create` | Store payment methods (tokenization) |
+| `payment_methods:read` | View saved payment methods |
+| `subscriptions:manage` | Create/update/cancel subscriptions |
+| `subscriptions:read` | View subscription details |
+
+---
+
+## Token Management Best Practices
+
+### 1. Token Caching
+
+**Don't generate a new token for every request.** Cache tokens and reuse them until near expiry.
+
+```typescript
+class TokenCache {
+  private token: string | null = null;
+  private expiresAt: Date | null = null;
+
+  getOrCreate(generator: () => string, expirySeconds: number): string {
+    const now = new Date();
+
+    // Refresh if expired or expiring soon (30 second buffer)
+    if (this.token && this.expiresAt && new Date(this.expiresAt.getTime() - 30000) > now) {
+      return this.token;
+    }
+
+    // Generate new token
+    this.token = generator();
+    this.expiresAt = new Date(now.getTime() + expirySeconds * 1000);
+    return this.token;
+  }
+}
+```
+
+### 2. Token Expiry
+
+**Recommended expiry times:**
+- **Short-lived (5-15 minutes)**: For high-security payment operations
+- **Medium-lived (1 hour)**: For typical operations (default)
+- **Do NOT use tokens longer than 24 hours**
+
+### 3. Secure Key Storage
+
+**Never:**
+- Commit private keys to version control
+- Store keys in application code
+- Share keys across environments (dev/staging/prod)
+- Log or display private keys
+
+**Always:**
+- Use environment variables or secret managers
+- Set file permissions to 600 (read/write owner only)
+- Rotate keys periodically (every 90 days)
+- Use separate keys per environment
 
 ---
 
@@ -666,9 +681,9 @@ try {
 **Cause:** Private key doesn't match the public key registered with the service.
 
 **Solution:**
-1. Verify you're using the correct private key
-2. Check the key fingerprint matches
-3. Ensure no extra whitespace or line breaks in key file
+1. Verify you're using the correct credentials file
+2. Ensure no extra whitespace or line breaks in key
+3. Check the service_id matches what was registered
 
 ### Error: "Token expired"
 
@@ -676,7 +691,7 @@ try {
 
 **Solution:**
 1. Ensure server clocks are synchronized (use NTP)
-2. Reduce token expiry time
+2. Generate tokens with appropriate expiry
 3. Implement token caching with refresh logic
 
 ### Error: "Permission denied"
@@ -685,17 +700,16 @@ try {
 
 **Solution:**
 1. Check the scopes in your token match the API operation
-2. Contact admin to update service permissions
+2. Regenerate token with required scopes
 3. Verify `service_merchants` table has correct scopes
 
-### Error: "Invalid merchant_id"
+### Error: "Service does not have access to merchant"
 
-**Cause:** Service doesn't have access to the specified merchant.
+**Cause:** Service→merchant grant doesn't exist.
 
 **Solution:**
-1. Verify the merchant ID exists
-2. Check `service_merchants` table links your service to the merchant
-3. Contact admin to grant merchant access
+1. Run `./admin -action=grant-access`
+2. Verify with `./admin -action=list-services` to see merchant associations
 
 ---
 
@@ -706,8 +720,8 @@ Before going to production, verify:
 - [ ] Private key stored securely (secret manager, not in code)
 - [ ] File permissions set to 600 for key files
 - [ ] Keys not committed to version control
-- [ ] `.gitignore` includes `*.pem`, `*.key`, `secrets/`
-- [ ] Token expiry set to reasonable time (5-15 minutes recommended)
+- [ ] `.gitignore` includes `*.pem`, `*.key`, `*_credentials.json`
+- [ ] Token expiry set to reasonable time (1 hour recommended)
 - [ ] Token caching implemented to avoid regenerating every request
 - [ ] Only necessary scopes requested (principle of least privilege)
 - [ ] Error handling includes token refresh logic
@@ -716,22 +730,11 @@ Before going to production, verify:
 
 ---
 
-## Next Steps
+## Related Documentation
 
-1. **Service Registration**: Contact payment service admin to register your application
-2. **Implementation**: Use code examples above to generate tokens
-3. **Testing**: Test with sandbox merchant in staging environment
-4. **Production**: Request production service registration and deploy
-5. **Monitoring**: Track authentication errors and token expiry rates
-
----
-
-## Additional Resources
-
-- [API Specifications](API_SPECS.md) - Complete API reference
+- [Admin CLI](ADMIN_CLI.md) - Service/merchant management and token generation
 - [Authentication Guide](../development/AUTH.md) - Detailed auth architecture
-- [Getting Started](GETTING_STARTED.md) - Quick start integration guide
-- [ConnectRPC Documentation](https://connectrpc.com/docs/) - Client libraries
+- [API Specifications](API_SPECS.md) - Complete API reference
 
 ---
 
