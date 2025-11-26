@@ -56,20 +56,11 @@
 - Integration tests enabled
 - Production deployment configured for main branch
 
-### Next Test
-Triggering full pipeline test with database configuration fix.
+✅ **Oracle Instant Client Added to Cloud-init**
+- Pipeline failed at "Validate Oracle Wallet Connectivity" - sqlplus not installed
+- Added Oracle Instant Client 21.1 (Basic Lite + SQL*Plus) to cloud-init
+- Also added libaio1 package (Oracle Instant Client dependency)
+- deployment-workflows@fix/ssh-connectivity-debugging updated: commit 70badc9
 
-Testing SSH key conditional fix - commit a3f9b32
-Testing outputs fix - commit 301c0bd
-Testing with 28-char password
-Testing with 20-char simple password
-Testing separated heredocs - commit d233d42
-Testing env vars approach - commit d6b6932
-Final test - unquoted heredoc - commit f57ad1b
-Test without Admin in password
-Testing password whitespace fix - commit 141723e
-Debug password length - commit c7c80dd
-Final test with corrected 11-char password
-Testing cloud-init POSIX fix - fresh deployment after full Oracle cleanup
-Testing cloud-init user timing fix (defer: true) - commit 05081a0
-Testing unzip package fix for Oracle Wallet - commit 1f0bc93
+### Next Test
+Testing Oracle Instant Client installation for sqlplus migrations - commit 70badc9
