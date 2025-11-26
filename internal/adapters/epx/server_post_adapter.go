@@ -116,14 +116,9 @@ func NewServerPostAdapter(config *ServerPostConfig, logger *zap.Logger) ports.Se
 // ProcessTransaction sends a transaction request to EPX Server Post API via HTTPS POST
 // Based on EPX Server Post API - HTTPS POST Method (page 3-5)
 func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.ServerPostRequest) (*ports.ServerPostResponse, error) {
-	// Validate request
-	if err := a.validateRequest(req); err != nil {
-		a.logger.Error("Invalid Server Post request", zap.Error(err))
-		return nil, fmt.Errorf("invalid request: %w", err)
-	}
-
-	// If Operation is specified, determine the appropriate EPX transaction type
+	// If Operation is specified, determine the appropriate EPX transaction type FIRST
 	// This allows business logic to use semantic operations instead of EPX-specific codes
+	// Must happen before validation since validateRequest checks TransactionType
 	if req.Operation != "" {
 		transactionType, err := a.determineTransactionType(req.Operation, req.PaymentType)
 		if err != nil {
@@ -134,6 +129,12 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 			return nil, fmt.Errorf("invalid operation: %w", err)
 		}
 		req.TransactionType = transactionType
+	}
+
+	// Validate request (now TransactionType is set)
+	if err := a.validateRequest(req); err != nil {
+		a.logger.Error("Invalid Server Post request", zap.Error(err))
+		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
 	a.logger.Info("Processing EPX Server Post transaction",

@@ -129,6 +129,7 @@ type Querier interface {
 	// DEPTH LIMIT: Max 100 levels to prevent DoS via deep transaction chains (realistic chains are 2-5 levels)
 	// Step 1: Walk UP the parent chain to find the root
 	// Step 2: Get the root transaction (has no parent)
+	// Note: Select only the original transaction columns, not the depth from find_root
 	// Step 3: Walk DOWN from root to get all descendants
 	GetTransactionTree(ctx context.Context, transactionID uuid.UUID) ([]GetTransactionTreeRow, error)
 	GetWebhookDeliveryHistory(ctx context.Context, arg GetWebhookDeliveryHistoryParams) ([]WebhookDelivery, error)

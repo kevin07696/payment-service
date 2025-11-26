@@ -47,8 +47,14 @@ find_root AS (
     WHERE fr.depth < 100  -- DEPTH LIMIT: prevent infinite recursion
 ),
 -- Step 2: Get the root transaction (has no parent)
+-- Note: Select only the original transaction columns, not the depth from find_root
 root AS (
-    SELECT find_root.* FROM find_root
+    SELECT
+        id, parent_transaction_id, merchant_id, customer_id,
+        amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id,
+        tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type,
+        status, processed_at, metadata, deleted_at, created_at, updated_at
+    FROM find_root
     WHERE parent_transaction_id IS NULL
     LIMIT 1
 ),

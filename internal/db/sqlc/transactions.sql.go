@@ -227,12 +227,17 @@ find_root AS (
     WHERE fr.depth < 100  -- DEPTH LIMIT: prevent infinite recursion
 ),
 root AS (
-    SELECT find_root.id, find_root.parent_transaction_id, find_root.merchant_id, find_root.customer_id, find_root.amount_cents, find_root.currency, find_root.type, find_root.payment_method_type, find_root.payment_method_id, find_root.subscription_id, find_root.tran_nbr, find_root.auth_guid, find_root.auth_resp, find_root.auth_code, find_root.auth_card_type, find_root.status, find_root.processed_at, find_root.metadata, find_root.deleted_at, find_root.created_at, find_root.updated_at, find_root.depth FROM find_root
+    SELECT
+        id, parent_transaction_id, merchant_id, customer_id,
+        amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id,
+        tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type,
+        status, processed_at, metadata, deleted_at, created_at, updated_at
+    FROM find_root
     WHERE parent_transaction_id IS NULL
     LIMIT 1
 ),
 full_tree AS (
-    SELECT root.id, root.parent_transaction_id, root.merchant_id, root.customer_id, root.amount_cents, root.currency, root.type, root.payment_method_type, root.payment_method_id, root.subscription_id, root.tran_nbr, root.auth_guid, root.auth_resp, root.auth_code, root.auth_card_type, root.status, root.processed_at, root.metadata, root.deleted_at, root.created_at, root.updated_at, root.depth, 0 AS depth FROM root
+    SELECT root.id, root.parent_transaction_id, root.merchant_id, root.customer_id, root.amount_cents, root.currency, root.type, root.payment_method_type, root.payment_method_id, root.subscription_id, root.tran_nbr, root.auth_guid, root.auth_resp, root.auth_code, root.auth_card_type, root.status, root.processed_at, root.metadata, root.deleted_at, root.created_at, root.updated_at, 0 AS depth FROM root
 
     UNION ALL
 
@@ -283,6 +288,7 @@ type GetTransactionTreeRow struct {
 // DEPTH LIMIT: Max 100 levels to prevent DoS via deep transaction chains (realistic chains are 2-5 levels)
 // Step 1: Walk UP the parent chain to find the root
 // Step 2: Get the root transaction (has no parent)
+// Note: Select only the original transaction columns, not the depth from find_root
 // Step 3: Walk DOWN from root to get all descendants
 func (q *Queries) GetTransactionTree(ctx context.Context, transactionID uuid.UUID) ([]GetTransactionTreeRow, error) {
 	rows, err := q.db.Query(ctx, getTransactionTree, transactionID)

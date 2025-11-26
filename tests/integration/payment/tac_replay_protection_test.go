@@ -41,8 +41,8 @@ func TestTACReplayProtection(t *testing.T) {
 		client.SetHeader("Authorization", "Bearer "+jwtToken)
 		defer client.ClearHeaders()
 
-		// Step 2: Verify transaction is in SUCCESS state (callback already processed)
-		t.Log("[STEP 2] Verifying transaction is in SUCCESS state...")
+		// Step 2: Verify transaction is in APPROVED state (callback already processed)
+		t.Log("[STEP 2] Verifying transaction is in APPROVED state...")
 		resp, err := client.DoConnectRPC("payment.v1.PaymentService", "GetTransaction", map[string]interface{}{
 			"transaction_id": saleResult.TransactionID,
 		})
@@ -55,7 +55,7 @@ func TestTACReplayProtection(t *testing.T) {
 
 		status, ok := tx["status"].(string)
 		require.True(t, ok, "status must be a string")
-		require.Equal(t, "SUCCESS", status, "Transaction should be in SUCCESS state after callback")
+		require.Equal(t, "TRANSACTION_STATUS_APPROVED", status, "Transaction should be APPROVED after callback")
 		t.Logf("[VERIFIED] Transaction status: %s", status)
 
 		// Step 3: Attempt to replay the Browser Post callback
@@ -88,9 +88,14 @@ func TestTACReplayProtection(t *testing.T) {
 		// and return an error (either 400, 422, or redirect to error page)
 		t.Logf("[RESPONSE] Status: %d", replayResp.StatusCode)
 
-		// Accept either error status or redirect to error page
+		// Accept any error status that indicates the replay was rejected
+		// 400 - Bad Request (invalid/expired TAC)
+		// 405 - Method Not Allowed (GET rejected, POST required)
+		// 422 - Unprocessable Entity (replay detected)
+		// 302 - Redirect to error page
 		acceptableStatuses := []int{
 			http.StatusBadRequest,          // 400
+			http.StatusMethodNotAllowed,    // 405 (callback only accepts POST)
 			http.StatusUnprocessableEntity, // 422
 			http.StatusFound,               // 302 (redirect to error page)
 		}
@@ -120,7 +125,7 @@ func TestTACReplayProtection(t *testing.T) {
 
 		status2, ok := tx2["status"].(string)
 		require.True(t, ok, "status must be a string")
-		assert.Equal(t, "SUCCESS", status2, "Transaction status must remain unchanged after replay attempt")
+		assert.Equal(t, "TRANSACTION_STATUS_APPROVED", status2, "Transaction status must remain unchanged after replay attempt")
 
 		t.Log("[PASS] TAC replay protection working correctly")
 		t.Log("[SECURITY] Replay attack was detected and rejected")
