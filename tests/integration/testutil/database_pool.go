@@ -58,18 +58,26 @@ func GetDBPool(t interface {
 // initDBPool creates and configures the database connection pool
 // This is called exactly once by GetDBPool via sync.Once
 func initDBPool() (*sql.DB, error) {
-	// Read database configuration from environment variables
-	dbHost := getEnvOrDefault("DB_HOST", "localhost")
-	dbPort := getEnvOrDefault("DB_PORT", "5432")
-	dbUser := getEnvOrDefault("DB_USER", "postgres")
-	dbPassword := getEnvOrDefault("DB_PASSWORD", "postgres")
-	dbName := getEnvOrDefault("DB_NAME", "payment_service")
+	var connStr string
 
-	// Build PostgreSQL connection string
-	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		dbHost, dbPort, dbUser, dbPassword, dbName,
-	)
+	// Check for TEST_DATABASE_URL first (full connection string for CI/staging)
+	// Format: postgres://user:password@host:port/dbname?sslmode=disable
+	if dbURL := os.Getenv("TEST_DATABASE_URL"); dbURL != "" {
+		connStr = dbURL
+	} else {
+		// Fall back to individual environment variables (for local development)
+		dbHost := getEnvOrDefault("DB_HOST", "localhost")
+		dbPort := getEnvOrDefault("DB_PORT", "5432")
+		dbUser := getEnvOrDefault("DB_USER", "postgres")
+		dbPassword := getEnvOrDefault("DB_PASSWORD", "postgres")
+		dbName := getEnvOrDefault("DB_NAME", "payment_service")
+
+		// Build PostgreSQL connection string
+		connStr = fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+			dbHost, dbPort, dbUser, dbPassword, dbName,
+		)
+	}
 
 	// Open connection pool
 	db, err := sql.Open("pgx", connStr)

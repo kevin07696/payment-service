@@ -143,6 +143,9 @@ jobs:
         env:
           SERVICE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:8080
           CALLBACK_BASE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:8081
+          # Database connection for integration tests (connects to staging PostgreSQL)
+          TEST_DATABASE_URL: postgres://payment_service:${{ secrets.DB_PASSWORD }}@${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:5432/payment_service?sslmode=disable
+          # EPX credentials for payment processor tests
           EPX_MAC_STAGING: ${{ secrets.EPX_MAC_STAGING }}
           EPX_CUST_NBR: ${{ secrets.EPX_CUST_NBR }}
           EPX_MERCH_NBR: ${{ secrets.EPX_MERCH_NBR }}
@@ -152,6 +155,7 @@ jobs:
           echo "🧪 Running integration tests against deployed service..."
           echo "SERVICE_URL: $SERVICE_URL"
           echo "CALLBACK_BASE_URL: $CALLBACK_BASE_URL"
+          echo "TEST_DATABASE_URL: postgres://payment_service:***@${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:5432/payment_service"
           go test ./tests/integration/... -v -tags=integration -timeout=15m
   #
       - name: Integration test results
