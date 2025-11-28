@@ -156,7 +156,8 @@ jobs:
           echo "SERVICE_URL: $SERVICE_URL"
           echo "CALLBACK_BASE_URL: $CALLBACK_BASE_URL"
           echo "TEST_DATABASE_URL: postgres://payment_service:***@${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:5432/payment_service"
-          go test ./tests/integration/... -v -tags=integration -timeout=15m
+          # Run API and service integration tests (exclude wordpress E2E tests which need a WordPress site)
+          go test $(go list ./tests/integration/... | grep -v /wordpress) -v -tags=integration -timeout=15m
   #
       - name: Integration test results
         if: always()
