@@ -5,6 +5,17 @@ INSERT INTO admins (
     sqlc.arg(id), sqlc.arg(email), sqlc.arg(password_hash), sqlc.arg(role), sqlc.arg(is_active)
 ) RETURNING *;
 
+-- name: UpsertAdmin :one
+-- Create or update an admin account (updates password on conflict)
+INSERT INTO admins (
+    id, email, password_hash, role, is_active
+) VALUES (
+    sqlc.arg(id), sqlc.arg(email), sqlc.arg(password_hash), sqlc.arg(role), sqlc.arg(is_active)
+) ON CONFLICT (email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    updated_at = NOW()
+RETURNING *;
+
 -- name: GetAdminByID :one
 SELECT * FROM admins
 WHERE id = sqlc.arg(id);

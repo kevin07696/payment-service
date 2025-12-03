@@ -97,3 +97,22 @@ func (q *Queries) RemoveIPFromWhitelist(ctx context.Context, ipAddress netip.Add
 	_, err := q.db.Exec(ctx, removeIPFromWhitelist, ipAddress)
 	return err
 }
+
+const upsertIPWhitelist = `-- name: UpsertIPWhitelist :exec
+INSERT INTO epx_ip_whitelist (
+    ip_address, description, is_active
+) VALUES (
+    $1, $2, true
+) ON CONFLICT (ip_address) DO NOTHING
+`
+
+type UpsertIPWhitelistParams struct {
+	IpAddress   netip.Addr  `json:"ip_address"`
+	Description pgtype.Text `json:"description"`
+}
+
+// Add or update an IP address in the EPX whitelist
+func (q *Queries) UpsertIPWhitelist(ctx context.Context, arg UpsertIPWhitelistParams) error {
+	_, err := q.db.Exec(ctx, upsertIPWhitelist, arg.IpAddress, arg.Description)
+	return err
+}

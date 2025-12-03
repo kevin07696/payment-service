@@ -272,3 +272,44 @@ func (q *Queries) UpdateAdminRole(ctx context.Context, arg UpdateAdminRoleParams
 	_, err := q.db.Exec(ctx, updateAdminRole, arg.Role, arg.ID)
 	return err
 }
+
+const upsertAdmin = `-- name: UpsertAdmin :one
+INSERT INTO admins (
+    id, email, password_hash, role, is_active
+) VALUES (
+    $1, $2, $3, $4, $5
+) ON CONFLICT (email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    updated_at = NOW()
+RETURNING id, email, password_hash, role, is_active, created_at, updated_at
+`
+
+type UpsertAdminParams struct {
+	ID           uuid.UUID   `json:"id"`
+	Email        string      `json:"email"`
+	PasswordHash string      `json:"password_hash"`
+	Role         pgtype.Text `json:"role"`
+	IsActive     pgtype.Bool `json:"is_active"`
+}
+
+// Create or update an admin account (updates password on conflict)
+func (q *Queries) UpsertAdmin(ctx context.Context, arg UpsertAdminParams) (Admin, error) {
+	row := q.db.QueryRow(ctx, upsertAdmin,
+		arg.ID,
+		arg.Email,
+		arg.PasswordHash,
+		arg.Role,
+		arg.IsActive,
+	)
+	var i Admin
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

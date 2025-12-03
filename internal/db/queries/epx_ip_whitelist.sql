@@ -12,6 +12,14 @@ INSERT INTO epx_ip_whitelist (
     sqlc.arg(ip_address), sqlc.narg(description), sqlc.arg(is_active)
 ) RETURNING *;
 
+-- name: UpsertIPWhitelist :exec
+-- Add or update an IP address in the EPX whitelist
+INSERT INTO epx_ip_whitelist (
+    ip_address, description, is_active
+) VALUES (
+    sqlc.arg(ip_address), sqlc.narg(description), true
+) ON CONFLICT (ip_address) DO NOTHING;
+
 -- name: RemoveIPFromWhitelist :exec
 -- Deactivate an IP address from the EPX whitelist
 UPDATE epx_ip_whitelist

@@ -7,6 +7,19 @@ INSERT INTO services (
     sqlc.arg(environment), sqlc.arg(requests_per_second), sqlc.arg(burst_limit), sqlc.arg(is_active)
 ) RETURNING *;
 
+-- name: UpsertService :one
+INSERT INTO services (
+    id, service_id, service_name, public_key, public_key_fingerprint,
+    environment, requests_per_second, burst_limit, is_active
+) VALUES (
+    sqlc.arg(id), sqlc.arg(service_id), sqlc.arg(service_name), sqlc.arg(public_key), sqlc.arg(public_key_fingerprint),
+    sqlc.arg(environment), sqlc.arg(requests_per_second), sqlc.arg(burst_limit), sqlc.arg(is_active)
+) ON CONFLICT (service_id) DO UPDATE SET
+    public_key = EXCLUDED.public_key,
+    public_key_fingerprint = EXCLUDED.public_key_fingerprint,
+    updated_at = NOW()
+RETURNING *;
+
 -- name: GetServiceByID :one
 SELECT * FROM services
 WHERE id = sqlc.arg(id);

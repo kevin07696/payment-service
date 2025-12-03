@@ -336,3 +336,58 @@ func (q *Queries) UpdateService(ctx context.Context, arg UpdateServiceParams) (S
 	)
 	return i, err
 }
+
+const upsertService = `-- name: UpsertService :one
+INSERT INTO services (
+    id, service_id, service_name, public_key, public_key_fingerprint,
+    environment, requests_per_second, burst_limit, is_active
+) VALUES (
+    $1, $2, $3, $4, $5,
+    $6, $7, $8, $9
+) ON CONFLICT (service_id) DO UPDATE SET
+    public_key = EXCLUDED.public_key,
+    public_key_fingerprint = EXCLUDED.public_key_fingerprint,
+    updated_at = NOW()
+RETURNING id, service_id, service_name, public_key, public_key_fingerprint, environment, requests_per_second, burst_limit, is_active, created_at, updated_at
+`
+
+type UpsertServiceParams struct {
+	ID                   uuid.UUID   `json:"id"`
+	ServiceID            string      `json:"service_id"`
+	ServiceName          string      `json:"service_name"`
+	PublicKey            string      `json:"public_key"`
+	PublicKeyFingerprint string      `json:"public_key_fingerprint"`
+	Environment          string      `json:"environment"`
+	RequestsPerSecond    pgtype.Int4 `json:"requests_per_second"`
+	BurstLimit           pgtype.Int4 `json:"burst_limit"`
+	IsActive             pgtype.Bool `json:"is_active"`
+}
+
+func (q *Queries) UpsertService(ctx context.Context, arg UpsertServiceParams) (Service, error) {
+	row := q.db.QueryRow(ctx, upsertService,
+		arg.ID,
+		arg.ServiceID,
+		arg.ServiceName,
+		arg.PublicKey,
+		arg.PublicKeyFingerprint,
+		arg.Environment,
+		arg.RequestsPerSecond,
+		arg.BurstLimit,
+		arg.IsActive,
+	)
+	var i Service
+	err := row.Scan(
+		&i.ID,
+		&i.ServiceID,
+		&i.ServiceName,
+		&i.PublicKey,
+		&i.PublicKeyFingerprint,
+		&i.Environment,
+		&i.RequestsPerSecond,
+		&i.BurstLimit,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

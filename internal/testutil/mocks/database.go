@@ -88,28 +88,38 @@ func (m *MockQuerier) SetPaymentMethodAsDefault(ctx context.Context, arg sqlc.Se
 	return args.Error(0)
 }
 
-func (m *MockQuerier) MarkPaymentMethodVerified(ctx context.Context, id uuid.UUID) error {
-	args := m.Called(ctx, id)
-	return args.Error(0)
-}
-
 func (m *MockQuerier) MarkPaymentMethodUsed(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
 
-func (m *MockQuerier) DeletePaymentMethod(ctx context.Context, id uuid.UUID) error {
+func (m *MockQuerier) HardDeletePaymentMethod(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
 
-func (m *MockQuerier) ActivatePaymentMethod(ctx context.Context, id uuid.UUID) error {
+func (m *MockQuerier) ActivatePaymentMethod(ctx context.Context, arg sqlc.ActivatePaymentMethodParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) RevokePaymentMethod(ctx context.Context, arg sqlc.RevokePaymentMethodParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) FailPaymentMethod(ctx context.Context, arg sqlc.FailPaymentMethodParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) ExpirePaymentMethod(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
 
-func (m *MockQuerier) DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error {
-	args := m.Called(ctx, id)
+func (m *MockQuerier) UpdatePaymentMethodStatus(ctx context.Context, arg sqlc.UpdatePaymentMethodStatusParams) error {
+	args := m.Called(ctx, arg)
 	return args.Error(0)
 }
 
@@ -181,6 +191,49 @@ func (m *MockQuerier) ResetSubscriptionRetryCount(ctx context.Context, id uuid.U
 func (m *MockQuerier) UpdateNextBillingDate(ctx context.Context, arg sqlc.UpdateNextBillingDateParams) error {
 	args := m.Called(ctx, arg)
 	return args.Error(0)
+}
+
+func (m *MockQuerier) ListExpiredPastDueSubscriptions(ctx context.Context, limitVal int32) ([]sqlc.Subscription, error) {
+	args := m.Called(ctx, limitVal)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sqlc.Subscription), args.Error(1)
+}
+
+func (m *MockQuerier) CancelSubscriptionWithReason(ctx context.Context, arg sqlc.CancelSubscriptionWithReasonParams) (sqlc.Subscription, error) {
+	args := m.Called(ctx, arg)
+	return args.Get(0).(sqlc.Subscription), args.Error(1)
+}
+
+func (m *MockQuerier) UpdateSubscriptionGracePeriod(ctx context.Context, arg sqlc.UpdateSubscriptionGracePeriodParams) (sqlc.Subscription, error) {
+	args := m.Called(ctx, arg)
+	return args.Get(0).(sqlc.Subscription), args.Error(1)
+}
+
+func (m *MockQuerier) ReactivateSubscription(ctx context.Context, id uuid.UUID) (sqlc.Subscription, error) {
+	args := m.Called(ctx, id)
+	return args.Get(0).(sqlc.Subscription), args.Error(1)
+}
+
+func (m *MockQuerier) GetSubscriptionStats(ctx context.Context, merchantID pgtype.UUID) (sqlc.GetSubscriptionStatsRow, error) {
+	args := m.Called(ctx, merchantID)
+	return args.Get(0).(sqlc.GetSubscriptionStatsRow), args.Error(1)
+}
+
+func (m *MockQuerier) GetSubscriptionByIDForUpdate(ctx context.Context, id uuid.UUID) (sqlc.Subscription, error) {
+	args := m.Called(ctx, id)
+	return args.Get(0).(sqlc.Subscription), args.Error(1)
+}
+
+func (m *MockQuerier) TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error) {
+	args := m.Called(ctx, lockID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockQuerier) AdvisoryUnlock(ctx context.Context, lockID int64) (bool, error) {
+	args := m.Called(ctx, lockID)
+	return args.Bool(0), args.Error(1)
 }
 
 func (m *MockQuerier) GetServiceByID(ctx context.Context, id uuid.UUID) (sqlc.Service, error) {
@@ -460,6 +513,14 @@ func (m *MockQuerier) ListTransactions(ctx context.Context, arg sqlc.ListTransac
 	return args.Get(0).([]sqlc.Transaction), args.Error(1)
 }
 
+func (m *MockQuerier) ListTransactionsByOrderID(ctx context.Context, arg sqlc.ListTransactionsByOrderIDParams) ([]sqlc.Transaction, error) {
+	args := m.Called(ctx, arg)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sqlc.Transaction), args.Error(1)
+}
+
 func (m *MockQuerier) ListWebhookSubscriptions(ctx context.Context, arg sqlc.ListWebhookSubscriptionsParams) ([]sqlc.WebhookSubscription, error) {
 	args := m.Called(ctx, arg)
 	return args.Get(0).([]sqlc.WebhookSubscription), args.Error(1)
@@ -532,11 +593,6 @@ func (m *MockQuerier) UpdateWebhookSubscription(ctx context.Context, arg sqlc.Up
 
 // ACH Verification Management Methods
 
-func (m *MockQuerier) DeactivatePaymentMethodWithReason(ctx context.Context, arg sqlc.DeactivatePaymentMethodWithReasonParams) error {
-	args := m.Called(ctx, arg)
-	return args.Error(0)
-}
-
 func (m *MockQuerier) GetPendingACHVerifications(ctx context.Context, arg sqlc.GetPendingACHVerificationsParams) ([]sqlc.CustomerPaymentMethod, error) {
 	args := m.Called(ctx, arg)
 	if args.Get(0) == nil {
@@ -545,22 +601,7 @@ func (m *MockQuerier) GetPendingACHVerifications(ctx context.Context, arg sqlc.G
 	return args.Get(0).([]sqlc.CustomerPaymentMethod), args.Error(1)
 }
 
-func (m *MockQuerier) UpdateVerificationStatus(ctx context.Context, arg sqlc.UpdateVerificationStatusParams) error {
-	args := m.Called(ctx, arg)
-	return args.Error(0)
-}
-
 func (m *MockQuerier) IncrementReturnCount(ctx context.Context, arg sqlc.IncrementReturnCountParams) error {
-	args := m.Called(ctx, arg)
-	return args.Error(0)
-}
-
-func (m *MockQuerier) GetPaymentMethodByPreNoteTransaction(ctx context.Context, prenoteTransactionID pgtype.UUID) (sqlc.CustomerPaymentMethod, error) {
-	args := m.Called(ctx, prenoteTransactionID)
-	return args.Get(0).(sqlc.CustomerPaymentMethod), args.Error(1)
-}
-
-func (m *MockQuerier) MarkVerificationFailed(ctx context.Context, arg sqlc.MarkVerificationFailedParams) error {
 	args := m.Called(ctx, arg)
 	return args.Error(0)
 }
@@ -639,12 +680,12 @@ func (m *MockQuerier) CountTotalACH(ctx context.Context) (int64, error) {
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockQuerier) CountPendingACH(ctx context.Context) (int64, error) {
+func (m *MockQuerier) CountActiveACH(ctx context.Context) (int64, error) {
 	args := m.Called(ctx)
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockQuerier) CountVerifiedACH(ctx context.Context) (int64, error) {
+func (m *MockQuerier) CountPendingACH(ctx context.Context) (int64, error) {
 	args := m.Called(ctx)
 	return args.Get(0).(int64), args.Error(1)
 }
@@ -697,6 +738,120 @@ func (m *MockQuerier) CleanupOldRateLimitBuckets(ctx context.Context) error {
 func (m *MockQuerier) DeleteOldAuditLogs(ctx context.Context, cutoffDate pgtype.Timestamp) (pgconn.CommandTag, error) {
 	args := m.Called(ctx, cutoffDate)
 	return args.Get(0).(pgconn.CommandTag), args.Error(1)
+}
+
+// Prenote retry methods
+
+func (m *MockQuerier) GetACHNeedingPrenoteRetry(ctx context.Context, arg sqlc.GetACHNeedingPrenoteRetryParams) ([]sqlc.GetACHNeedingPrenoteRetryRow, error) {
+	args := m.Called(ctx, arg)
+	return args.Get(0).([]sqlc.GetACHNeedingPrenoteRetryRow), args.Error(1)
+}
+
+func (m *MockQuerier) UpdatePrenoteStatusSuccess(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) UpdatePrenoteStatusFailed(ctx context.Context, arg sqlc.UpdatePrenoteStatusFailedParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) UpdatePrenoteStatusMaxRetries(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) UpdatePrenoteStatusPermanentFailure(ctx context.Context, arg sqlc.UpdatePrenoteStatusPermanentFailureParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+func (m *MockQuerier) CountPrenotesByStatus(ctx context.Context) ([]sqlc.CountPrenotesByStatusRow, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]sqlc.CountPrenotesByStatusRow), args.Error(1)
+}
+
+func (m *MockQuerier) GetPrenoteAttemptsForPaymentMethod(ctx context.Context, paymentMethodID pgtype.UUID) ([]sqlc.Transaction, error) {
+	args := m.Called(ctx, paymentMethodID)
+	return args.Get(0).([]sqlc.Transaction), args.Error(1)
+}
+
+func (m *MockQuerier) GetPaymentMethodByPrenoteTransaction(ctx context.Context, prenoteTransactionID uuid.UUID) (sqlc.CustomerPaymentMethod, error) {
+	args := m.Called(ctx, prenoteTransactionID)
+	return args.Get(0).(sqlc.CustomerPaymentMethod), args.Error(1)
+}
+
+// Additional Status Management Methods
+
+func (m *MockQuerier) CountByStatus(ctx context.Context) ([]sqlc.CountByStatusRow, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sqlc.CountByStatusRow), args.Error(1)
+}
+
+func (m *MockQuerier) FindExpiredCreditCards(ctx context.Context, batchLimit int32) ([]sqlc.CustomerPaymentMethod, error) {
+	args := m.Called(ctx, batchLimit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sqlc.CustomerPaymentMethod), args.Error(1)
+}
+
+func (m *MockQuerier) FindPaymentMethodsForHardDelete(ctx context.Context, batchLimit int32) ([]sqlc.CustomerPaymentMethod, error) {
+	args := m.Called(ctx, batchLimit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sqlc.CustomerPaymentMethod), args.Error(1)
+}
+
+func (m *MockQuerier) ListActivePaymentMethodsByCustomer(ctx context.Context, arg sqlc.ListActivePaymentMethodsByCustomerParams) ([]sqlc.CustomerPaymentMethod, error) {
+	args := m.Called(ctx, arg)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sqlc.CustomerPaymentMethod), args.Error(1)
+}
+
+func (m *MockQuerier) UpsertMerchant(ctx context.Context, arg sqlc.UpsertMerchantParams) (sqlc.Merchant, error) {
+	args := m.Called(ctx, arg)
+	return args.Get(0).(sqlc.Merchant), args.Error(1)
+}
+
+func (m *MockQuerier) UpsertAdmin(ctx context.Context, arg sqlc.UpsertAdminParams) (sqlc.Admin, error) {
+	args := m.Called(ctx, arg)
+	return args.Get(0).(sqlc.Admin), args.Error(1)
+}
+
+func (m *MockQuerier) UpsertService(ctx context.Context, arg sqlc.UpsertServiceParams) (sqlc.Service, error) {
+	args := m.Called(ctx, arg)
+	return args.Get(0).(sqlc.Service), args.Error(1)
+}
+
+func (m *MockQuerier) UpsertIPWhitelist(ctx context.Context, arg sqlc.UpsertIPWhitelistParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+// ClearBillingRetryBackoff clears retry backoff after successful billing
+func (m *MockQuerier) ClearBillingRetryBackoff(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+// SetBillingRetryBackoff schedules next billing retry with backoff for transient errors
+func (m *MockQuerier) SetBillingRetryBackoff(ctx context.Context, arg sqlc.SetBillingRetryBackoffParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
+}
+
+// RecordBillingFailure records a billing failure without backoff
+func (m *MockQuerier) RecordBillingFailure(ctx context.Context, arg sqlc.RecordBillingFailureParams) error {
+	args := m.Called(ctx, arg)
+	return args.Error(0)
 }
 
 // Ensure MockQuerier implements sqlc.Querier
