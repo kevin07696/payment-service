@@ -35,15 +35,6 @@ service PaymentMethodService {
   rpc SetDefaultPaymentMethod(SetDefaultPaymentMethodRequest) returns (PaymentMethodResponse) {
   }
 
-  // VerifyACHAccount sends pre-note for ACH verification
-  rpc VerifyACHAccount(VerifyACHAccountRequest) returns (VerifyACHAccountResponse) {
-  }
-
-  // StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
-  // Use case: Customer adds bank account for recurring payments
-  rpc StoreACHAccount(StoreACHAccountRequest) returns (PaymentMethodResponse) {
-  }
-
   // UpdatePaymentMethod updates metadata only (billing info, nickname)
   // Does NOT support changing account/routing numbers - create new payment method instead
   rpc UpdatePaymentMethod(UpdatePaymentMethodRequest) returns (PaymentMethodResponse) {
@@ -95,63 +86,11 @@ message SetDefaultPaymentMethodRequest {
   string customer_id = 3;
 }
 
-// VerifyACHAccountRequest initiates ACH verification
-message VerifyACHAccountRequest {
-  string payment_method_id = 1; // ACH payment method to verify
-  string merchant_id = 2;
-  string customer_id = 3;
-}
-
-// VerifyACHAccountResponse contains verification status
-message VerifyACHAccountResponse {
-  string payment_method_id = 1;
-  string transaction_id = 2; // Pre-note transaction ID
-  string status = 3; // "pending", "verified", "failed"
-  string message = 4;
-}
-
-// AccountType for ACH accounts
-enum AccountType {
-  ACCOUNT_TYPE_UNSPECIFIED = 0;
-  ACCOUNT_TYPE_CHECKING = 1;
-  ACCOUNT_TYPE_SAVINGS = 2;
-}
-
-// StdEntryClass for ACH transactions
+// StdEntryClass for ACH transactions (used in payment requests)
 enum StdEntryClass {
   STD_ENTRY_CLASS_UNSPECIFIED = 0;
   STD_ENTRY_CLASS_PPD = 1; // Prearranged Payment and Deposit (personal)
-  STD_ENTRY_CLASS_CCD = 2; // Corporate Credit or Debit
-  STD_ENTRY_CLASS_WEB = 3; // Internet-initiated entry
-  STD_ENTRY_CLASS_TEL = 4; // Telephone-initiated entry
-}
-
-// StoreACHAccountRequest creates ACH Storage BRIC
-message StoreACHAccountRequest {
-  string merchant_id = 1;
-  string customer_id = 2;
-
-  // Raw ACH account details (backend receives from customer)
-  string account_number = 3;
-  string routing_number = 4;
-  string account_holder_name = 5;
-  AccountType account_type = 6; // CHECKING or SAVINGS
-  StdEntryClass std_entry_class = 7; // PPD, CCD, WEB, TEL
-
-  // Billing information (optional but recommended)
-  optional string first_name = 8;
-  optional string last_name = 9;
-  optional string address = 10;
-  optional string city = 11;
-  optional string state = 12;
-  optional string zip_code = 13;
-
-  // Display metadata (optional)
-  optional string bank_name = 14; // "Chase", "Bank of America"
-  optional string nickname = 15; // "Primary checking", "Business account"
-
-  bool is_default = 16;
-  string idempotency_key = 17;
+  STD_ENTRY_CLASS_WEB = 3; // Internet-initiated entry (default for e-commerce)
 }
 
 // UpdatePaymentMethodRequest updates metadata only

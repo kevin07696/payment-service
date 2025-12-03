@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	paymentmethodv1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
 )
 
@@ -84,7 +84,7 @@ func (h *ConnectHandler) ListPaymentMethods(
 	if msg.IsActive != nil {
 		filtered := make([]*domain.PaymentMethod, 0)
 		for _, pm := range pms {
-			if pm.IsActive == *msg.IsActive {
+			if pm.IsActive() == *msg.IsActive {
 				filtered = append(filtered, pm)
 			}
 		}
@@ -199,149 +199,6 @@ func (h *ConnectHandler) SetDefaultPaymentMethod(
 	return connect.NewResponse(paymentMethodToResponse(pm)), nil
 }
 
-// VerifyACHAccount sends pre-note for ACH verification
-func (h *ConnectHandler) VerifyACHAccount(
-	ctx context.Context,
-	req *connect.Request[paymentmethodv1.VerifyACHAccountRequest],
-) (*connect.Response[paymentmethodv1.VerifyACHAccountResponse], error) {
-	msg := req.Msg
-
-	h.logger.Info("VerifyACHAccount request received",
-		zap.String("payment_method_id", msg.PaymentMethodId),
-		zap.String("customer_id", msg.CustomerId),
-	)
-
-	if msg.PaymentMethodId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("payment_method_id is required"))
-	}
-	if msg.MerchantId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("merchant_id is required"))
-	}
-	if msg.CustomerId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("customer_id is required"))
-	}
-
-	serviceReq := &ports.VerifyACHAccountRequest{
-		PaymentMethodID: msg.PaymentMethodId,
-		MerchantID:      msg.MerchantId,
-		CustomerID:      msg.CustomerId,
-	}
-
-	err := h.service.VerifyACHAccount(ctx, serviceReq)
-	if err != nil {
-		response := &paymentmethodv1.VerifyACHAccountResponse{
-			PaymentMethodId: msg.PaymentMethodId,
-			Status:          "failed",
-			Message:         err.Error(),
-		}
-		return connect.NewResponse(response), nil
-	}
-
-	response := &paymentmethodv1.VerifyACHAccountResponse{
-		PaymentMethodId: msg.PaymentMethodId,
-		Status:          "verified",
-		Message:         "ACH account verified successfully",
-	}
-
-	return connect.NewResponse(response), nil
-}
-
-// StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
-func (h *ConnectHandler) StoreACHAccount(
-	ctx context.Context,
-	req *connect.Request[paymentmethodv1.StoreACHAccountRequest],
-) (*connect.Response[paymentmethodv1.PaymentMethodResponse], error) {
-	msg := req.Msg
-
-	h.logger.Info("StoreACHAccount request received",
-		zap.String("merchant_id", msg.MerchantId),
-		zap.String("customer_id", msg.CustomerId),
-		zap.String("account_type", msg.AccountType.String()),
-	)
-
-	// Validate required fields
-	if msg.MerchantId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("merchant_id is required"))
-	}
-	if msg.CustomerId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("customer_id is required"))
-	}
-	if msg.AccountNumber == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_number is required"))
-	}
-	if msg.RoutingNumber == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("routing_number is required"))
-	}
-	if msg.AccountHolderName == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_holder_name is required"))
-	}
-
-	// Convert proto AccountType to string
-	var accountType string
-	switch msg.AccountType {
-	case paymentmethodv1.AccountType_ACCOUNT_TYPE_CHECKING:
-		accountType = "CHECKING"
-	case paymentmethodv1.AccountType_ACCOUNT_TYPE_SAVINGS:
-		accountType = "SAVINGS"
-	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_type must be CHECKING or SAVINGS"))
-	}
-
-	// Validate idempotency key
-	if msg.IdempotencyKey == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key is required"))
-	}
-
-	// Build service request
-	serviceReq := &ports.StoreACHAccountRequest{
-		MerchantID:     msg.MerchantId,
-		CustomerID:     msg.CustomerId,
-		RoutingNumber:  msg.RoutingNumber,
-		AccountNumber:  msg.AccountNumber,
-		AccountType:    accountType,
-		NameOnAccount:  msg.AccountHolderName,
-		IdempotencyKey: msg.IdempotencyKey,
-	}
-
-	// Add optional billing information
-	if msg.FirstName != nil {
-		serviceReq.FirstName = *msg.FirstName
-	}
-	if msg.LastName != nil {
-		serviceReq.LastName = *msg.LastName
-	}
-	if msg.Address != nil {
-		serviceReq.Address = *msg.Address
-	}
-	if msg.City != nil {
-		serviceReq.City = *msg.City
-	}
-	if msg.State != nil {
-		serviceReq.State = *msg.State
-	}
-	if msg.ZipCode != nil {
-		serviceReq.ZipCode = *msg.ZipCode
-	}
-
-	// Call service to store ACH account
-	pm, err := h.service.StoreACHAccount(ctx, serviceReq)
-	if err != nil {
-		h.logger.Error("Failed to store ACH account",
-			zap.String("merchant_id", msg.MerchantId),
-			zap.String("customer_id", msg.CustomerId),
-			zap.Error(err),
-		)
-		return nil, handleServiceErrorConnect(err)
-	}
-
-	h.logger.Info("ACH account stored successfully",
-		zap.String("payment_method_id", pm.ID),
-		zap.String("merchant_id", msg.MerchantId),
-		zap.String("customer_id", msg.CustomerId),
-	)
-
-	return connect.NewResponse(paymentMethodToResponse(pm)), nil
-}
 
 // UpdatePaymentMethod updates payment method metadata (billing info, nickname)
 //

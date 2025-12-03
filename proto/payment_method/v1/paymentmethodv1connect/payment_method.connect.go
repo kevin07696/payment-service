@@ -48,12 +48,6 @@ const (
 	// PaymentMethodServiceSetDefaultPaymentMethodProcedure is the fully-qualified name of the
 	// PaymentMethodService's SetDefaultPaymentMethod RPC.
 	PaymentMethodServiceSetDefaultPaymentMethodProcedure = "/payment_method.v1.PaymentMethodService/SetDefaultPaymentMethod"
-	// PaymentMethodServiceVerifyACHAccountProcedure is the fully-qualified name of the
-	// PaymentMethodService's VerifyACHAccount RPC.
-	PaymentMethodServiceVerifyACHAccountProcedure = "/payment_method.v1.PaymentMethodService/VerifyACHAccount"
-	// PaymentMethodServiceStoreACHAccountProcedure is the fully-qualified name of the
-	// PaymentMethodService's StoreACHAccount RPC.
-	PaymentMethodServiceStoreACHAccountProcedure = "/payment_method.v1.PaymentMethodService/StoreACHAccount"
 	// PaymentMethodServiceUpdatePaymentMethodProcedure is the fully-qualified name of the
 	// PaymentMethodService's UpdatePaymentMethod RPC.
 	PaymentMethodServiceUpdatePaymentMethodProcedure = "/payment_method.v1.PaymentMethodService/UpdatePaymentMethod"
@@ -71,11 +65,6 @@ type PaymentMethodServiceClient interface {
 	DeletePaymentMethod(context.Context, *connect.Request[v1.DeletePaymentMethodRequest]) (*connect.Response[v1.DeletePaymentMethodResponse], error)
 	// SetDefaultPaymentMethod marks a payment method as default
 	SetDefaultPaymentMethod(context.Context, *connect.Request[v1.SetDefaultPaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
-	// VerifyACHAccount sends pre-note for ACH verification
-	VerifyACHAccount(context.Context, *connect.Request[v1.VerifyACHAccountRequest]) (*connect.Response[v1.VerifyACHAccountResponse], error)
-	// StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
-	// Use case: Customer adds bank account for recurring payments
-	StoreACHAccount(context.Context, *connect.Request[v1.StoreACHAccountRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
 	// UpdatePaymentMethod updates metadata only (billing info, nickname)
 	// Does NOT support changing account/routing numbers - create new payment method instead
 	UpdatePaymentMethod(context.Context, *connect.Request[v1.UpdatePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
@@ -122,18 +111,6 @@ func NewPaymentMethodServiceClient(httpClient connect.HTTPClient, baseURL string
 			connect.WithSchema(paymentMethodServiceMethods.ByName("SetDefaultPaymentMethod")),
 			connect.WithClientOptions(opts...),
 		),
-		verifyACHAccount: connect.NewClient[v1.VerifyACHAccountRequest, v1.VerifyACHAccountResponse](
-			httpClient,
-			baseURL+PaymentMethodServiceVerifyACHAccountProcedure,
-			connect.WithSchema(paymentMethodServiceMethods.ByName("VerifyACHAccount")),
-			connect.WithClientOptions(opts...),
-		),
-		storeACHAccount: connect.NewClient[v1.StoreACHAccountRequest, v1.PaymentMethodResponse](
-			httpClient,
-			baseURL+PaymentMethodServiceStoreACHAccountProcedure,
-			connect.WithSchema(paymentMethodServiceMethods.ByName("StoreACHAccount")),
-			connect.WithClientOptions(opts...),
-		),
 		updatePaymentMethod: connect.NewClient[v1.UpdatePaymentMethodRequest, v1.PaymentMethodResponse](
 			httpClient,
 			baseURL+PaymentMethodServiceUpdatePaymentMethodProcedure,
@@ -150,8 +127,6 @@ type paymentMethodServiceClient struct {
 	updatePaymentMethodStatus *connect.Client[v1.UpdatePaymentMethodStatusRequest, v1.PaymentMethodResponse]
 	deletePaymentMethod       *connect.Client[v1.DeletePaymentMethodRequest, v1.DeletePaymentMethodResponse]
 	setDefaultPaymentMethod   *connect.Client[v1.SetDefaultPaymentMethodRequest, v1.PaymentMethodResponse]
-	verifyACHAccount          *connect.Client[v1.VerifyACHAccountRequest, v1.VerifyACHAccountResponse]
-	storeACHAccount           *connect.Client[v1.StoreACHAccountRequest, v1.PaymentMethodResponse]
 	updatePaymentMethod       *connect.Client[v1.UpdatePaymentMethodRequest, v1.PaymentMethodResponse]
 }
 
@@ -180,16 +155,6 @@ func (c *paymentMethodServiceClient) SetDefaultPaymentMethod(ctx context.Context
 	return c.setDefaultPaymentMethod.CallUnary(ctx, req)
 }
 
-// VerifyACHAccount calls payment_method.v1.PaymentMethodService.VerifyACHAccount.
-func (c *paymentMethodServiceClient) VerifyACHAccount(ctx context.Context, req *connect.Request[v1.VerifyACHAccountRequest]) (*connect.Response[v1.VerifyACHAccountResponse], error) {
-	return c.verifyACHAccount.CallUnary(ctx, req)
-}
-
-// StoreACHAccount calls payment_method.v1.PaymentMethodService.StoreACHAccount.
-func (c *paymentMethodServiceClient) StoreACHAccount(ctx context.Context, req *connect.Request[v1.StoreACHAccountRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
-	return c.storeACHAccount.CallUnary(ctx, req)
-}
-
 // UpdatePaymentMethod calls payment_method.v1.PaymentMethodService.UpdatePaymentMethod.
 func (c *paymentMethodServiceClient) UpdatePaymentMethod(ctx context.Context, req *connect.Request[v1.UpdatePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
 	return c.updatePaymentMethod.CallUnary(ctx, req)
@@ -208,11 +173,6 @@ type PaymentMethodServiceHandler interface {
 	DeletePaymentMethod(context.Context, *connect.Request[v1.DeletePaymentMethodRequest]) (*connect.Response[v1.DeletePaymentMethodResponse], error)
 	// SetDefaultPaymentMethod marks a payment method as default
 	SetDefaultPaymentMethod(context.Context, *connect.Request[v1.SetDefaultPaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
-	// VerifyACHAccount sends pre-note for ACH verification
-	VerifyACHAccount(context.Context, *connect.Request[v1.VerifyACHAccountRequest]) (*connect.Response[v1.VerifyACHAccountResponse], error)
-	// StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
-	// Use case: Customer adds bank account for recurring payments
-	StoreACHAccount(context.Context, *connect.Request[v1.StoreACHAccountRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
 	// UpdatePaymentMethod updates metadata only (billing info, nickname)
 	// Does NOT support changing account/routing numbers - create new payment method instead
 	UpdatePaymentMethod(context.Context, *connect.Request[v1.UpdatePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error)
@@ -255,18 +215,6 @@ func NewPaymentMethodServiceHandler(svc PaymentMethodServiceHandler, opts ...con
 		connect.WithSchema(paymentMethodServiceMethods.ByName("SetDefaultPaymentMethod")),
 		connect.WithHandlerOptions(opts...),
 	)
-	paymentMethodServiceVerifyACHAccountHandler := connect.NewUnaryHandler(
-		PaymentMethodServiceVerifyACHAccountProcedure,
-		svc.VerifyACHAccount,
-		connect.WithSchema(paymentMethodServiceMethods.ByName("VerifyACHAccount")),
-		connect.WithHandlerOptions(opts...),
-	)
-	paymentMethodServiceStoreACHAccountHandler := connect.NewUnaryHandler(
-		PaymentMethodServiceStoreACHAccountProcedure,
-		svc.StoreACHAccount,
-		connect.WithSchema(paymentMethodServiceMethods.ByName("StoreACHAccount")),
-		connect.WithHandlerOptions(opts...),
-	)
 	paymentMethodServiceUpdatePaymentMethodHandler := connect.NewUnaryHandler(
 		PaymentMethodServiceUpdatePaymentMethodProcedure,
 		svc.UpdatePaymentMethod,
@@ -285,10 +233,6 @@ func NewPaymentMethodServiceHandler(svc PaymentMethodServiceHandler, opts ...con
 			paymentMethodServiceDeletePaymentMethodHandler.ServeHTTP(w, r)
 		case PaymentMethodServiceSetDefaultPaymentMethodProcedure:
 			paymentMethodServiceSetDefaultPaymentMethodHandler.ServeHTTP(w, r)
-		case PaymentMethodServiceVerifyACHAccountProcedure:
-			paymentMethodServiceVerifyACHAccountHandler.ServeHTTP(w, r)
-		case PaymentMethodServiceStoreACHAccountProcedure:
-			paymentMethodServiceStoreACHAccountHandler.ServeHTTP(w, r)
 		case PaymentMethodServiceUpdatePaymentMethodProcedure:
 			paymentMethodServiceUpdatePaymentMethodHandler.ServeHTTP(w, r)
 		default:
@@ -318,14 +262,6 @@ func (UnimplementedPaymentMethodServiceHandler) DeletePaymentMethod(context.Cont
 
 func (UnimplementedPaymentMethodServiceHandler) SetDefaultPaymentMethod(context.Context, *connect.Request[v1.SetDefaultPaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment_method.v1.PaymentMethodService.SetDefaultPaymentMethod is not implemented"))
-}
-
-func (UnimplementedPaymentMethodServiceHandler) VerifyACHAccount(context.Context, *connect.Request[v1.VerifyACHAccountRequest]) (*connect.Response[v1.VerifyACHAccountResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment_method.v1.PaymentMethodService.VerifyACHAccount is not implemented"))
-}
-
-func (UnimplementedPaymentMethodServiceHandler) StoreACHAccount(context.Context, *connect.Request[v1.StoreACHAccountRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment_method.v1.PaymentMethodService.StoreACHAccount is not implemented"))
 }
 
 func (UnimplementedPaymentMethodServiceHandler) UpdatePaymentMethod(context.Context, *connect.Request[v1.UpdatePaymentMethodRequest]) (*connect.Response[v1.PaymentMethodResponse], error) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/kevin07696/payment-service/internal/domain"
 	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
+	paymentmethodv1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
 )
 
 // Validation helpers
@@ -67,66 +68,51 @@ func transactionToPaymentResponse(tx *domain.Transaction) *paymentv1.PaymentResp
 		IsApproved:          tx.IsApproved(),
 		AuthorizationCode:   stringPtrToString(tx.AuthCode),
 		Message:             stringPtrToString(tx.AuthRespText),
-		Card:                extractCardInfo(tx),
+		Card:                buildCardInfo(tx.AuthCardType, tx.Metadata),
 		CreatedAt:           timestamppb.New(tx.CreatedAt),
 	}
 }
 
-// extractCardInfo converts gateway-specific card data to clean CardInfo
-func extractCardInfo(tx *domain.Transaction) *paymentv1.CardInfo {
-	if tx.AuthCardType == nil {
+// buildCardInfo extracts card info from transaction fields
+func buildCardInfo(authCardType *string, metadata map[string]interface{}) *paymentv1.CardInfo {
+	if authCardType == nil {
 		return nil
 	}
 
-	// Convert EPX card type codes to clean brand names
-	brand := epxCardTypeToBrand(*tx.AuthCardType)
-	lastFour := extractLastFour(tx)
+	brand := domain.CardBrandFromEPXCode(*authCardType)
+	lastFour := extractLastFourFromMetadata(metadata)
 
-	if brand == "" && lastFour == "" {
+	if !brand.IsKnown() && lastFour == "" {
 		return nil
 	}
 
 	return &paymentv1.CardInfo{
-		Brand:    brand,
+		Brand:    brand.String(),
 		LastFour: lastFour,
 	}
 }
 
-// epxCardTypeToBrand converts EPX card type codes to clean brand names
-func epxCardTypeToBrand(epxCode string) string {
-	switch epxCode {
-	case "V":
-		return "visa"
-	case "M":
-		return "mastercard"
-	case "A":
-		return "amex"
-	case "D":
-		return "discover"
-	default:
+// extractLastFourFromMetadata extracts last 4 digits from transaction metadata
+func extractLastFourFromMetadata(metadata map[string]interface{}) string {
+	if metadata == nil {
 		return ""
 	}
-}
 
-// extractLastFour extracts last 4 digits from transaction metadata or linked payment method
-func extractLastFour(tx *domain.Transaction) string {
-	// Check transaction metadata for last_four (from gateway response)
-	if tx.Metadata != nil {
-		if lastFour, ok := tx.Metadata["last_four"].(string); ok && lastFour != "" {
-			return lastFour
-		}
-		// Check for AUTH_MASKED_ACCOUNT_NBR (EPX field)
-		if maskedAcct, ok := tx.Metadata["AUTH_MASKED_ACCOUNT_NBR"].(string); ok && len(maskedAcct) >= 4 {
-			return maskedAcct[len(maskedAcct)-4:]
-		}
-		// Check for CARD_NBR (EPX field)
-		if cardNbr, ok := tx.Metadata["CARD_NBR"].(string); ok && len(cardNbr) >= 4 {
-			return cardNbr[len(cardNbr)-4:]
-		}
+	// Check for pre-extracted last_four
+	if lastFour, ok := metadata["last_four"].(string); ok && lastFour != "" {
+		return lastFour
 	}
 
-	// Note: If payment_method_id is present, caller should fetch the payment method separately
-	// to get last_four. We don't fetch it here to avoid N+1 query issues.
+	// Check for AUTH_MASKED_ACCOUNT_NBR (EPX field)
+	if maskedAcct, ok := metadata["AUTH_MASKED_ACCOUNT_NBR"].(string); ok {
+		return domain.ExtractLastFour(maskedAcct)
+	}
+
+	// Check for AUTH_ACCOUNT_NBR (EPX response field per North Developer Browser Post API Guide)
+	if accountNbr, ok := metadata["AUTH_ACCOUNT_NBR"].(string); ok {
+		return domain.ExtractLastFour(accountNbr)
+	}
+
 	return ""
 }
 
@@ -136,6 +122,7 @@ func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 		ParentTransactionId: stringPtrToString(tx.ParentTransactionID),
 		MerchantId:          tx.MerchantID,
 		CustomerId:          stringPtrToString(tx.CustomerID),
+		OrderId:             stringPtrToString(tx.OrderID),
 		AmountCents:         tx.AmountCents,
 		Currency:            string(tx.Currency),
 		Status:              mapDomainStatusToProto(tx.Status),
@@ -143,7 +130,7 @@ func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 		PaymentMethodType:   paymentMethodTypeToProto(tx.PaymentMethodType),
 		AuthorizationCode:   stringPtrToString(tx.AuthCode),
 		Message:             stringPtrToString(tx.AuthRespText),
-		Card:                extractCardInfo(tx),
+		Card:                buildCardInfo(tx.AuthCardType, tx.Metadata),
 		IdempotencyKey:      stringPtrToString(tx.IdempotencyKey),
 		CreatedAt:           timestamppb.New(tx.CreatedAt),
 		UpdatedAt:           timestamppb.New(tx.UpdatedAt),
@@ -195,14 +182,14 @@ func transactionTypeToProto(txType domain.TransactionType) paymentv1.Transaction
 	}
 }
 
-func paymentMethodTypeToProto(pmType domain.PaymentMethodType) paymentv1.PaymentMethodType {
+func paymentMethodTypeToProto(pmType domain.PaymentMethodType) paymentmethodv1.PaymentMethodType {
 	switch pmType {
 	case domain.PaymentMethodTypeCreditCard:
-		return paymentv1.PaymentMethodType_PAYMENT_METHOD_TYPE_CREDIT_CARD
+		return paymentmethodv1.PaymentMethodType_PAYMENT_METHOD_TYPE_CREDIT_CARD
 	case domain.PaymentMethodTypeACH:
-		return paymentv1.PaymentMethodType_PAYMENT_METHOD_TYPE_ACH
+		return paymentmethodv1.PaymentMethodType_PAYMENT_METHOD_TYPE_ACH
 	default:
-		return paymentv1.PaymentMethodType_PAYMENT_METHOD_TYPE_UNSPECIFIED
+		return paymentmethodv1.PaymentMethodType_PAYMENT_METHOD_TYPE_UNSPECIFIED
 	}
 }
 
@@ -211,4 +198,16 @@ func stringPtrToString(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// stdEntryClassToString converts proto StdEntryClass enum to EPX STD_ENTRY_CLASS string
+func stdEntryClassToString(sec paymentmethodv1.StdEntryClass) string {
+	switch sec {
+	case paymentmethodv1.StdEntryClass_STD_ENTRY_CLASS_PPD:
+		return "PPD"
+	case paymentmethodv1.StdEntryClass_STD_ENTRY_CLASS_WEB:
+		return "WEB"
+	default:
+		return ""
+	}
 }

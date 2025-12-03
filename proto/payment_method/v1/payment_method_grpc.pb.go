@@ -24,8 +24,6 @@ const (
 	PaymentMethodService_UpdatePaymentMethodStatus_FullMethodName = "/payment_method.v1.PaymentMethodService/UpdatePaymentMethodStatus"
 	PaymentMethodService_DeletePaymentMethod_FullMethodName       = "/payment_method.v1.PaymentMethodService/DeletePaymentMethod"
 	PaymentMethodService_SetDefaultPaymentMethod_FullMethodName   = "/payment_method.v1.PaymentMethodService/SetDefaultPaymentMethod"
-	PaymentMethodService_VerifyACHAccount_FullMethodName          = "/payment_method.v1.PaymentMethodService/VerifyACHAccount"
-	PaymentMethodService_StoreACHAccount_FullMethodName           = "/payment_method.v1.PaymentMethodService/StoreACHAccount"
 	PaymentMethodService_UpdatePaymentMethod_FullMethodName       = "/payment_method.v1.PaymentMethodService/UpdatePaymentMethod"
 )
 
@@ -45,11 +43,6 @@ type PaymentMethodServiceClient interface {
 	DeletePaymentMethod(ctx context.Context, in *DeletePaymentMethodRequest, opts ...grpc.CallOption) (*DeletePaymentMethodResponse, error)
 	// SetDefaultPaymentMethod marks a payment method as default
 	SetDefaultPaymentMethod(ctx context.Context, in *SetDefaultPaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error)
-	// VerifyACHAccount sends pre-note for ACH verification
-	VerifyACHAccount(ctx context.Context, in *VerifyACHAccountRequest, opts ...grpc.CallOption) (*VerifyACHAccountResponse, error)
-	// StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
-	// Use case: Customer adds bank account for recurring payments
-	StoreACHAccount(ctx context.Context, in *StoreACHAccountRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error)
 	// UpdatePaymentMethod updates metadata only (billing info, nickname)
 	// Does NOT support changing account/routing numbers - create new payment method instead
 	UpdatePaymentMethod(ctx context.Context, in *UpdatePaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error)
@@ -113,26 +106,6 @@ func (c *paymentMethodServiceClient) SetDefaultPaymentMethod(ctx context.Context
 	return out, nil
 }
 
-func (c *paymentMethodServiceClient) VerifyACHAccount(ctx context.Context, in *VerifyACHAccountRequest, opts ...grpc.CallOption) (*VerifyACHAccountResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(VerifyACHAccountResponse)
-	err := c.cc.Invoke(ctx, PaymentMethodService_VerifyACHAccount_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *paymentMethodServiceClient) StoreACHAccount(ctx context.Context, in *StoreACHAccountRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PaymentMethodResponse)
-	err := c.cc.Invoke(ctx, PaymentMethodService_StoreACHAccount_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *paymentMethodServiceClient) UpdatePaymentMethod(ctx context.Context, in *UpdatePaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PaymentMethodResponse)
@@ -159,11 +132,6 @@ type PaymentMethodServiceServer interface {
 	DeletePaymentMethod(context.Context, *DeletePaymentMethodRequest) (*DeletePaymentMethodResponse, error)
 	// SetDefaultPaymentMethod marks a payment method as default
 	SetDefaultPaymentMethod(context.Context, *SetDefaultPaymentMethodRequest) (*PaymentMethodResponse, error)
-	// VerifyACHAccount sends pre-note for ACH verification
-	VerifyACHAccount(context.Context, *VerifyACHAccountRequest) (*VerifyACHAccountResponse, error)
-	// StoreACHAccount creates ACH Storage BRIC and sends pre-note for verification
-	// Use case: Customer adds bank account for recurring payments
-	StoreACHAccount(context.Context, *StoreACHAccountRequest) (*PaymentMethodResponse, error)
 	// UpdatePaymentMethod updates metadata only (billing info, nickname)
 	// Does NOT support changing account/routing numbers - create new payment method instead
 	UpdatePaymentMethod(context.Context, *UpdatePaymentMethodRequest) (*PaymentMethodResponse, error)
@@ -191,12 +159,6 @@ func (UnimplementedPaymentMethodServiceServer) DeletePaymentMethod(context.Conte
 }
 func (UnimplementedPaymentMethodServiceServer) SetDefaultPaymentMethod(context.Context, *SetDefaultPaymentMethodRequest) (*PaymentMethodResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetDefaultPaymentMethod not implemented")
-}
-func (UnimplementedPaymentMethodServiceServer) VerifyACHAccount(context.Context, *VerifyACHAccountRequest) (*VerifyACHAccountResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method VerifyACHAccount not implemented")
-}
-func (UnimplementedPaymentMethodServiceServer) StoreACHAccount(context.Context, *StoreACHAccountRequest) (*PaymentMethodResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method StoreACHAccount not implemented")
 }
 func (UnimplementedPaymentMethodServiceServer) UpdatePaymentMethod(context.Context, *UpdatePaymentMethodRequest) (*PaymentMethodResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdatePaymentMethod not implemented")
@@ -312,42 +274,6 @@ func _PaymentMethodService_SetDefaultPaymentMethod_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PaymentMethodService_VerifyACHAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(VerifyACHAccountRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PaymentMethodServiceServer).VerifyACHAccount(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PaymentMethodService_VerifyACHAccount_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PaymentMethodServiceServer).VerifyACHAccount(ctx, req.(*VerifyACHAccountRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _PaymentMethodService_StoreACHAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StoreACHAccountRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PaymentMethodServiceServer).StoreACHAccount(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PaymentMethodService_StoreACHAccount_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PaymentMethodServiceServer).StoreACHAccount(ctx, req.(*StoreACHAccountRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _PaymentMethodService_UpdatePaymentMethod_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdatePaymentMethodRequest)
 	if err := dec(in); err != nil {
@@ -392,14 +318,6 @@ var PaymentMethodService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetDefaultPaymentMethod",
 			Handler:    _PaymentMethodService_SetDefaultPaymentMethod_Handler,
-		},
-		{
-			MethodName: "VerifyACHAccount",
-			Handler:    _PaymentMethodService_VerifyACHAccount_Handler,
-		},
-		{
-			MethodName: "StoreACHAccount",
-			Handler:    _PaymentMethodService_StoreACHAccount_Handler,
 		},
 		{
 			MethodName: "UpdatePaymentMethod",

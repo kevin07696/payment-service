@@ -8,11 +8,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/adapters/database"
-	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
-	"github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/util"
 	"go.uber.org/zap"
 )
@@ -22,10 +21,9 @@ type paymentMethodService struct {
 	cache               *PaymentMethodCache
 	queries             sqlc.Querier
 	txManager           database.TransactionManager
-	browserPost         adapterports.BrowserPostAdapter
-	serverPost          adapterports.ServerPostAdapter
-	bricStorage         adapterports.BRICStorageAdapter
-	secretManager       adapterports.SecretManagerAdapter
+	browserPost         ports.BrowserPostAdapter
+	serverPost          ports.ServerPostAdapter
+	secretManager       ports.SecretManagerAdapter
 	merchantAuthService *authorization.MerchantAuthorizationService
 	logger              *zap.Logger
 }
@@ -34,10 +32,9 @@ type paymentMethodService struct {
 func NewPaymentMethodService(
 	queries sqlc.Querier,
 	txManager database.TransactionManager,
-	browserPost adapterports.BrowserPostAdapter,
-	serverPost adapterports.ServerPostAdapter,
-	bricStorage adapterports.BRICStorageAdapter,
-	secretManager adapterports.SecretManagerAdapter,
+	browserPost ports.BrowserPostAdapter,
+	serverPost ports.ServerPostAdapter,
+	secretManager ports.SecretManagerAdapter,
 	cache *PaymentMethodCache,
 	logger *zap.Logger,
 ) ports.PaymentMethodService {
@@ -53,7 +50,6 @@ func NewPaymentMethodService(
 		txManager:           txManager,
 		browserPost:         browserPost,
 		serverPost:          serverPost,
-		bricStorage:         bricStorage,
 		secretManager:       secretManager,
 		merchantAuthService: merchantAuthService,
 		logger:              logger,
@@ -156,9 +152,15 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 
 	// Update status
 	if isActive {
-		err = s.queries.ActivatePaymentMethod(ctx, pmID)
+		err = s.queries.ActivatePaymentMethod(ctx, sqlc.ActivatePaymentMethodParams{
+			ID:           pmID,
+			StatusReason: pgtype.Text{String: domain.StatusReasonManualRevoke, Valid: true},
+		})
 	} else {
-		err = s.queries.DeactivatePaymentMethod(ctx, pmID)
+		err = s.queries.RevokePaymentMethod(ctx, sqlc.RevokePaymentMethodParams{
+			ID:           pmID,
+			StatusReason: pgtype.Text{String: domain.StatusReasonManualRevoke, Valid: true},
+		})
 	}
 
 	if err != nil {
@@ -182,7 +184,9 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 	return sqlcPaymentMethodToDomain(&updated), nil
 }
 
-// DeletePaymentMethod soft deletes a payment method (sets deleted_at)
+// DeletePaymentMethod hard deletes a payment method
+// FK RESTRICT on transactions will prevent deletion if transactions exist
+// FK SET NULL on subscriptions will nullify payment_method_id
 func (s *paymentMethodService) DeletePaymentMethod(ctx context.Context, paymentMethodID string) error {
 	s.logger.Info("Deleting payment method",
 		zap.String("payment_method_id", paymentMethodID),
@@ -193,8 +197,8 @@ func (s *paymentMethodService) DeletePaymentMethod(ctx context.Context, paymentM
 		return fmt.Errorf("invalid payment_method_id format: %w", err)
 	}
 
-	// Soft delete (sets deleted_at timestamp)
-	err = s.queries.DeletePaymentMethod(ctx, pmID)
+	// Hard delete (FK RESTRICT will fail if transactions exist)
+	err = s.queries.HardDeletePaymentMethod(ctx, pmID)
 	if err != nil {
 		return fmt.Errorf("failed to delete payment method: %w", err)
 	}
@@ -202,7 +206,7 @@ func (s *paymentMethodService) DeletePaymentMethod(ctx context.Context, paymentM
 	// Invalidate cache since we deleted the payment method
 	s.cache.Invalidate(pmID)
 
-	s.logger.Info("Payment method deleted (soft delete)",
+	s.logger.Info("Payment method deleted (hard delete)",
 		zap.String("payment_method_id", paymentMethodID),
 	)
 
@@ -244,7 +248,7 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
-	if !pm.IsActive {
+	if !pm.IsActive() {
 		return nil, fmt.Errorf("cannot set inactive payment method as default")
 	}
 
@@ -290,283 +294,6 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 	return paymentMethod, nil
 }
 
-// StoreACHAccount stores ACH account with pre-note verification
-// Sends Pre-Note Debit (CKC0/CKS0) to EPX, stores GUID/BRIC with status=pending_verification
-func (s *paymentMethodService) StoreACHAccount(ctx context.Context, req *ports.StoreACHAccountRequest) (*domain.PaymentMethod, error) {
-	s.logger.Info("Storing ACH account with pre-note verification",
-		zap.String("merchant_id", req.MerchantID),
-		zap.String("customer_id", req.CustomerID),
-		zap.String("account_type", req.AccountType),
-	)
-
-	// Resolve and validate merchant access
-	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, req.MerchantID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Validate merchant ID
-	merchantID, err := uuid.Parse(resolvedMerchantID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
-	}
-
-	// Validate account type
-	if req.AccountType != "CHECKING" && req.AccountType != "SAVINGS" {
-		return nil, fmt.Errorf("account_type must be CHECKING or SAVINGS")
-	}
-
-	// Get merchant credentials
-	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get merchant: %w", err)
-	}
-
-	if !merchant.IsActive {
-		return nil, fmt.Errorf("merchant is not active")
-	}
-
-	// Get MAC secret for EPX authentication
-	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
-	}
-
-	// Determine transaction type based on account type
-	var tranType adapterports.TransactionType
-	if req.AccountType == "CHECKING" {
-		tranType = adapterports.TransactionTypeACHPreNoteDebit // CKC0
-	} else {
-		tranType = adapterports.TransactionTypeACHSavingsPreNoteDebit // CKS0
-	}
-
-	// Parse idempotency key as UUID for transaction IDs
-	// This ensures idempotency - same idempotency_key = same TRAN_NBR
-	idempotencyUUID, err := uuid.Parse(req.IdempotencyKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid idempotency_key format (must be UUID): %w", err)
-	}
-
-	// Convert UUID to EPX-compatible TRAN_NBR (max 10 digits, numeric only)
-	tranNbr := util.UUIDToEPXTranNbr(idempotencyUUID)
-	tranGroup := idempotencyUUID.String()
-
-	industryType := "E" // Ecommerce (required for EPX certification)
-
-	// Build Server Post request for Pre-Note Debit
-	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         merchant.CustNbr,
-		MerchNbr:        merchant.MerchNbr,
-		DBAnbr:          merchant.DbaNbr,
-		TerminalNbr:     merchant.TerminalNbr,
-		TransactionType: tranType,
-		Amount:          "0.00", // Pre-note is $0
-		PaymentType:     adapterports.PaymentMethodTypeACH,
-		TranNbr:         tranNbr,
-		TranGroup:       tranGroup,
-		CustomerID:      req.CustomerID,
-		AccountNumber:   &req.AccountNumber,
-		RoutingNumber:   &req.RoutingNumber,
-		FirstName:       &req.FirstName,
-		LastName:        &req.LastName,
-		Address:         &req.Address,
-		City:            &req.City,
-		State:           &req.State,
-		ZipCode:         &req.ZipCode,
-		IndustryType:    &industryType, // "E" for Ecommerce
-	}
-
-	// Send Pre-Note transaction to EPX
-	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
-	if err != nil {
-		s.logger.Error("EPX ACH pre-note failed", zap.Error(err))
-		return nil, fmt.Errorf("failed to send ACH pre-note: %w", err)
-	}
-
-	if !epxResp.IsApproved {
-		return nil, fmt.Errorf("ACH pre-note was declined: %s", epxResp.AuthRespText)
-	}
-
-	if epxResp.AuthGUID == "" {
-		return nil, fmt.Errorf("EPX did not return AUTH_GUID for ACH account")
-	}
-
-	// Extract last four digits of account number
-	lastFour := req.AccountNumber
-	if len(lastFour) > 4 {
-		lastFour = lastFour[len(lastFour)-4:]
-	}
-
-	// Create payment method in database with status=pending_verification
-	var paymentMethod *domain.PaymentMethod
-	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
-		pmID := uuid.New()
-
-		// Parse transaction number to UUID for prenote_transaction_id
-		// Note: TranNbr is the transaction number we sent to EPX, which is a UUID string
-		tranID, err := uuid.Parse(epxResp.TranNbr)
-		if err != nil {
-			s.logger.Warn("Failed to parse transaction number as UUID, storing without prenote_transaction_id",
-				zap.String("tran_nbr", epxResp.TranNbr),
-				zap.Error(err),
-			)
-		}
-
-		params := sqlc.CreatePaymentMethodParams{
-			ID:                 pmID,
-			MerchantID:         merchantID,
-			CustomerID:         req.CustomerID,
-			PaymentType:        string(domain.PaymentMethodTypeACH),
-			Bric:               epxResp.AuthGUID,
-			LastFour:           lastFour,
-			BankName:           pgtype.Text{Valid: false},                                          // Bank name not provided in request
-			AccountType:        pgtype.Text{String: strings.ToLower(req.AccountType), Valid: true}, // Database expects lowercase
-			IsDefault:          pgtype.Bool{Bool: false, Valid: true},
-			IsActive:           pgtype.Bool{Bool: false, Valid: true}, // Not active until verified
-			IsVerified:         pgtype.Bool{Bool: false, Valid: true},
-			VerificationStatus: pgtype.Text{String: "pending", Valid: true},
-		}
-
-		// Add prenote transaction ID if we parsed it successfully
-		if err == nil {
-			params.PrenoteTransactionID = pgtype.UUID{Bytes: tranID, Valid: true}
-		}
-
-		dbPM, err := q.CreatePaymentMethod(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to create payment method: %w", err)
-		}
-
-		paymentMethod = sqlcPaymentMethodToDomain(&dbPM)
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	s.logger.Info("ACH account stored with pending verification",
-		zap.String("payment_method_id", paymentMethod.ID),
-		zap.String("bric", epxResp.AuthGUID),
-		zap.String("tran_nbr", epxResp.TranNbr),
-	)
-
-	return paymentMethod, nil
-}
-
-// VerifyACHAccount sends pre-note for ACH verification
-func (s *paymentMethodService) VerifyACHAccount(ctx context.Context, req *ports.VerifyACHAccountRequest) error {
-	s.logger.Info("Verifying ACH account",
-		zap.String("payment_method_id", req.PaymentMethodID),
-	)
-
-	// Resolve and validate merchant access
-	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, req.MerchantID)
-	if err != nil {
-		return err
-	}
-
-	pmID, err := uuid.Parse(req.PaymentMethodID)
-	if err != nil {
-		return fmt.Errorf("invalid payment_method_id format: %w", err)
-	}
-
-	// Get payment method (use cache)
-	pm, err := s.cache.Get(ctx, pmID)
-	if err != nil {
-		return fmt.Errorf("payment method not found: %w", err)
-	}
-
-	// Parse merchant ID
-	merchantID, err := uuid.Parse(resolvedMerchantID)
-	if err != nil {
-		return fmt.Errorf("invalid merchant_id format: %w", err)
-	}
-
-	pmMerchantID, _ := uuid.Parse(pm.MerchantID)
-	// Verify ownership
-	if pmMerchantID != merchantID || pm.CustomerID != req.CustomerID {
-		return fmt.Errorf("payment method does not belong to customer")
-	}
-
-	// Verify it's ACH
-	if pm.PaymentType != domain.PaymentMethodTypeACH {
-		return fmt.Errorf("payment method is not ACH type")
-	}
-
-	// Verify it's not already verified
-	if pm.IsVerified {
-		s.logger.Info("ACH account already verified",
-			zap.String("payment_method_id", req.PaymentMethodID),
-		)
-		return nil
-	}
-
-	// Get merchant credentials
-	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
-	if err != nil {
-		return fmt.Errorf("failed to get merchant: %w", err)
-	}
-
-	if !merchant.IsActive {
-		return fmt.Errorf("merchant is not active")
-	}
-
-	// Get MAC secret
-	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
-	if err != nil {
-		return fmt.Errorf("failed to get MAC secret: %w", err)
-	}
-
-	industryType := "E" // Ecommerce (required for EPX certification)
-
-	// Send pre-note transaction through EPX
-	epxReq := &adapterports.ServerPostRequest{
-		CustNbr:         merchant.CustNbr,
-		MerchNbr:        merchant.MerchNbr,
-		DBAnbr:          merchant.DbaNbr,
-		TerminalNbr:     merchant.TerminalNbr,
-		TransactionType: adapterports.TransactionTypeACHPreNoteDebit,
-		Amount:          "0.00", // Pre-note is $0
-		PaymentType:     adapterports.PaymentMethodTypeACH,
-		AuthGUID:        pm.PaymentToken, // BRIC token
-		TranNbr:         uuid.New().String(),
-		TranGroup:       uuid.New().String(),
-		CustomerID:      req.CustomerID,
-		IndustryType:    &industryType, // "E" for Ecommerce
-	}
-
-	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
-	if err != nil {
-		s.logger.Error("EPX pre-note failed", zap.Error(err))
-		return fmt.Errorf("failed to send pre-note: %w", err)
-	}
-
-	if !epxResp.IsApproved {
-		return fmt.Errorf("pre-note was declined: %s", epxResp.AuthRespText)
-	}
-
-	// Mark as verified
-	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
-		err := q.MarkPaymentMethodVerified(ctx, pmID)
-		if err != nil {
-			return fmt.Errorf("failed to mark as verified: %w", err)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	s.logger.Info("ACH account verified",
-		zap.String("payment_method_id", req.PaymentMethodID),
-	)
-
-	return nil
-}
-
 // Helper functions
 
 func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.PaymentMethod {
@@ -578,8 +305,7 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 		PaymentToken: dbPM.Bric,
 		LastFour:     dbPM.LastFour,
 		IsDefault:    dbPM.IsDefault.Bool,
-		IsActive:     dbPM.IsActive.Bool,
-		IsVerified:   dbPM.IsVerified.Bool,
+		Status:       domain.PaymentMethodStatus(dbPM.Status),
 		CreatedAt:    dbPM.CreatedAt,
 		UpdatedAt:    dbPM.UpdatedAt,
 	}
@@ -610,35 +336,308 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 		pm.LastUsedAt = &dbPM.LastUsedAt.Time
 	}
 
-	// ACH Verification fields (from migration 009)
-	if dbPM.VerificationStatus.Valid {
-		pm.VerificationStatus = &dbPM.VerificationStatus.String
+	// Status reason and timestamp
+	if dbPM.StatusReason.Valid {
+		pm.StatusReason = &dbPM.StatusReason.String
 	}
 
-	if dbPM.PrenoteTransactionID.Valid {
-		prenoteID := uuid.UUID(dbPM.PrenoteTransactionID.Bytes).String()
-		pm.PreNoteTransactionID = &prenoteID
+	if dbPM.StatusChangedAt.Valid {
+		pm.StatusChangedAt = &dbPM.StatusChangedAt.Time
+	}
+
+	// ACH prenote fields
+	if dbPM.PrenoteStatus.Valid {
+		pm.PrenoteStatus = &dbPM.PrenoteStatus.String
+	}
+
+	if dbPM.PrenoteAttempts.Valid {
+		attempts := int(dbPM.PrenoteAttempts.Int32)
+		pm.PrenoteAttempts = &attempts
 	}
 
 	if dbPM.VerifiedAt.Valid {
 		pm.VerifiedAt = &dbPM.VerifiedAt.Time
 	}
 
-	if dbPM.VerificationFailureReason.Valid {
-		pm.VerificationFailureReason = &dbPM.VerificationFailureReason.String
-	}
-
 	// ReturnCount is NOT NULL DEFAULT 0, so always present
 	returnCount := int(dbPM.ReturnCount)
 	pm.ReturnCount = &returnCount
 
-	if dbPM.DeactivationReason.Valid {
-		pm.DeactivationReason = &dbPM.DeactivationReason.String
-	}
-
-	if dbPM.DeactivatedAt.Valid {
-		pm.DeactivatedAt = &dbPM.DeactivatedAt.Time
-	}
-
 	return pm
 }
+
+// SaveCreditCardFromCallback saves a credit card payment method from Browser Post storage callback
+func (s *paymentMethodService) SaveCreditCardFromCallback(ctx context.Context, req *ports.SaveCreditCardFromCallbackRequest) (*domain.PaymentMethod, error) {
+	s.logger.Info("Saving credit card from Browser Post callback",
+		zap.String("merchant_id", req.MerchantID),
+		zap.String("customer_id", req.CustomerID),
+	)
+
+	if req.CustomerID == "" {
+		return nil, fmt.Errorf("customer_id is required for storage")
+	}
+	if req.BRIC == "" {
+		return nil, fmt.Errorf("BRIC is required")
+	}
+
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
+	lastFour := domain.ExtractLastFour(req.MaskedAccountNbr)
+	if lastFour == "" {
+		return nil, fmt.Errorf("unable to extract last four digits from masked account number")
+	}
+
+	expDate := domain.ParseExpirationDateMMYY(req.ExpirationDate)
+	cardBrand := domain.CardBrandFromEPXCode(req.CardTypeCode)
+
+	pmID := uuid.New()
+	dbPM, err := s.queries.CreatePaymentMethod(ctx, sqlc.CreatePaymentMethodParams{
+		ID:          pmID,
+		MerchantID:  merchantID,
+		CustomerID:  req.CustomerID,
+		Bric:        req.BRIC,
+		PaymentType: string(domain.PaymentMethodTypeCreditCard),
+		LastFour:    lastFour,
+		CardBrand: func() pgtype.Text {
+			if cardBrand.IsKnown() {
+				return pgtype.Text{String: cardBrand.String(), Valid: true}
+			}
+			return pgtype.Text{}
+		}(),
+		CardExpMonth: func() pgtype.Int4 {
+			if expDate != nil {
+				return pgtype.Int4{Int32: int32(expDate.Month), Valid: true}
+			}
+			return pgtype.Int4{}
+		}(),
+		CardExpYear: func() pgtype.Int4 {
+			if expDate != nil {
+				return pgtype.Int4{Int32: int32(expDate.Year), Valid: true}
+			}
+			return pgtype.Int4{}
+		}(),
+		BankName:      pgtype.Text{},
+		AccountType:   pgtype.Text{},
+		IsDefault:     pgtype.Bool{Bool: false, Valid: true},
+		Status:        string(domain.PaymentMethodStatusActive), // Credit cards are immediately active
+		PrenoteStatus: pgtype.Text{String: "not_required", Valid: true}, // Credit cards don't need prenote
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create payment method: %w", err)
+	}
+
+	s.logger.Info("Credit card payment method saved",
+		zap.String("payment_method_id", pmID.String()),
+		zap.String("customer_id", req.CustomerID),
+		zap.String("last_four", lastFour),
+	)
+
+	return sqlcPaymentMethodToDomain(&dbPM), nil
+}
+
+// SaveACHFromCallback saves an ACH payment method from Browser Post storage callback
+// Note: This only saves the payment method. Call SendPrenote separately.
+func (s *paymentMethodService) SaveACHFromCallback(ctx context.Context, req *ports.SaveACHFromCallbackRequest) (*domain.PaymentMethod, error) {
+	s.logger.Info("Saving ACH account from Browser Post callback",
+		zap.String("merchant_id", req.MerchantID),
+		zap.String("customer_id", req.CustomerID),
+		zap.String("transaction_type", string(req.TransactionType)),
+	)
+
+	if req.CustomerID == "" {
+		return nil, fmt.Errorf("customer_id is required for ACH storage")
+	}
+	if req.BRIC == "" {
+		return nil, fmt.Errorf("BRIC is required")
+	}
+
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
+	accountType := "checking"
+	if !req.TransactionType.IsCheckingAccount() {
+		accountType = "savings"
+	}
+
+	lastFour := domain.ExtractLastFour(req.MaskedAccountNbr)
+	if lastFour == "" {
+		return nil, fmt.Errorf("unable to extract last four digits from masked account number")
+	}
+
+	pmID := uuid.New()
+	dbPM, err := s.queries.CreatePaymentMethod(ctx, sqlc.CreatePaymentMethodParams{
+		ID:                 pmID,
+		MerchantID:         merchantID,
+		CustomerID:         req.CustomerID,
+		Bric:               req.BRIC,
+		PaymentType:        string(domain.PaymentMethodTypeACH),
+		LastFour:           lastFour,
+		CardBrand:          pgtype.Text{},
+		CardExpMonth:       pgtype.Int4{},
+		CardExpYear:        pgtype.Int4{},
+		BankName:      pgtype.Text{},
+		AccountType:   pgtype.Text{String: accountType, Valid: true},
+		IsDefault:     pgtype.Bool{Bool: false, Valid: true},
+		Status:        string(domain.PaymentMethodStatusPending), // ACH starts pending verification
+		PrenoteStatus: pgtype.Text{String: "pending", Valid: true}, // Prenote needs to be sent
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create payment method: %w", err)
+	}
+
+	s.logger.Info("ACH payment method created (unverified)",
+		zap.String("payment_method_id", pmID.String()),
+		zap.String("customer_id", req.CustomerID),
+		zap.String("account_type", accountType),
+	)
+
+	return sqlcPaymentMethodToDomain(&dbPM), nil
+}
+
+// SendPrenote sends a prenote transaction for ACH verification
+func (s *paymentMethodService) SendPrenote(ctx context.Context, req *ports.SendPrenoteRequest) error {
+	s.logger.Info("Sending ACH prenote",
+		zap.String("payment_method_id", req.PaymentMethodID),
+		zap.String("account_type", req.AccountType),
+	)
+
+	// Input validation (P1-6)
+	if req.BRIC == "" {
+		return fmt.Errorf("BRIC is required for prenote")
+	}
+	if req.MerchantID == "" {
+		return fmt.Errorf("merchant_id is required for prenote")
+	}
+	if req.PaymentMethodID == "" {
+		return fmt.Errorf("payment_method_id is required for prenote")
+	}
+	if req.CustomerID == "" {
+		return fmt.Errorf("customer_id is required for prenote")
+	}
+	if req.AccountType == "" {
+		return fmt.Errorf("account_type is required for prenote")
+	}
+
+	// Validate account type using domain constant (P0-3 + P1-6)
+	accountType := domain.ACHAccountType(strings.ToLower(req.AccountType))
+	if !accountType.IsValid() {
+		return fmt.Errorf("invalid account_type '%s': must be '%s' or '%s'",
+			req.AccountType, domain.ACHAccountTypeChecking, domain.ACHAccountTypeSavings)
+	}
+
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		return fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
+	pmID, err := uuid.Parse(req.PaymentMethodID)
+	if err != nil {
+		return fmt.Errorf("invalid payment_method_id format: %w", err)
+	}
+
+	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch merchant: %w", err)
+	}
+
+	// Merchant active status validation (P1-5)
+	if !merchant.IsActive {
+		return fmt.Errorf("merchant is not active")
+	}
+
+	// Case-insensitive account type check using domain constant (P0-3)
+	prenoteType := ports.TransactionTypeACHPreNoteDebit
+	if accountType == domain.ACHAccountTypeSavings {
+		prenoteType = ports.TransactionTypeACHSavingsPreNoteDebit
+	}
+
+	prenoteID := uuid.New()
+	prenoteTranNbr := util.UUIDToEPXTranNbr(prenoteID)
+
+	cardEntryMethod := "Z"
+	stdEntryClass := "WEB"
+	industryType := "E"
+
+	prenoteReq := &ports.ServerPostRequest{
+		CustNbr:         merchant.CustNbr,
+		MerchNbr:        merchant.MerchNbr,
+		DBAnbr:          merchant.DbaNbr,
+		TerminalNbr:     merchant.TerminalNbr,
+		TransactionType: prenoteType,
+		Amount:          "0.00",
+		TranNbr:         prenoteTranNbr,
+		TranGroup:       "PRENOTE",
+		AuthGUID:        req.BRIC,
+		PaymentType:     ports.PaymentMethodTypeACH,
+		CardEntryMethod: &cardEntryMethod,
+		StdEntryClass:   &stdEntryClass,
+		IndustryType:    &industryType,
+	}
+
+	prenoteResp, err := s.serverPost.ProcessTransaction(ctx, prenoteReq)
+	if err != nil {
+		return fmt.Errorf("failed to send prenote: %w", err)
+	}
+
+	// Validate EPX response code (P0-2)
+	if prenoteResp.AuthResp != "00" {
+		return fmt.Errorf("prenote declined by EPX: %s - %s",
+			prenoteResp.AuthResp, prenoteResp.AuthRespText)
+	}
+
+	// Wrap DB operations in transaction for atomicity (P0-1)
+	err = s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
+		// Create prenote transaction record (linked via payment_method_id FK)
+		_, txErr := q.CreateTransaction(ctx, sqlc.CreateTransactionParams{
+			ID:                  prenoteID,
+			MerchantID:          merchantID,
+			CustomerID:          pgtype.Text{String: req.CustomerID, Valid: true},
+			AmountCents:         0,
+			Currency:            "USD",
+			Type:                "PRENOTE",
+			PaymentMethodType:   "ach",
+			PaymentMethodID:     pgtype.UUID{Bytes: pmID, Valid: true},
+			TranNbr:             pgtype.Text{String: prenoteTranNbr, Valid: true},
+			AuthGuid:            pgtype.Text{String: prenoteResp.AuthGUID, Valid: true},
+			AuthResp:            pgtype.Text{String: prenoteResp.AuthResp, Valid: true},
+			AuthCode:            pgtype.Text{String: prenoteResp.AuthCode, Valid: true},
+			AuthCardType:        pgtype.Text{},
+			Metadata:            []byte("{}"),
+			ParentTransactionID: pgtype.UUID{},
+			ProcessedAt:         pgtype.Timestamptz{},
+		})
+		if txErr != nil {
+			s.logger.Error("Failed to create prenote transaction record", zap.Error(txErr))
+			return fmt.Errorf("failed to create prenote transaction: %w", txErr)
+		}
+
+		// Update prenote status to 'sent' on success
+		txErr = q.UpdatePrenoteStatusSuccess(ctx, pmID)
+		if txErr != nil {
+			s.logger.Error("Failed to update prenote status", zap.Error(txErr))
+			return fmt.Errorf("failed to update prenote status: %w", txErr)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Invalidate cache after status update (P0-4)
+	s.cache.Invalidate(pmID)
+
+	s.logger.Info("ACH prenote sent successfully",
+		zap.String("payment_method_id", req.PaymentMethodID),
+		zap.String("prenote_id", prenoteID.String()),
+		zap.String("auth_resp", prenoteResp.AuthResp),
+	)
+
+	return nil
+}
+
