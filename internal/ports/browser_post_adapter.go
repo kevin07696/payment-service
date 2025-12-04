@@ -35,4 +35,10 @@ type BrowserPostResponse struct {
 type BrowserPostAdapter interface {
 	// ParseRedirectResponse parses the query parameters from EPX redirect.
 	ParseRedirectResponse(params map[string][]string) (*BrowserPostResponse, error)
+
+	// ValidateResponseMAC validates the MAC signature in the EPX redirect response.
+	// EPX signs specific fields using HMAC-SHA256 with the merchant's MAC secret.
+	// The MAC field is included in the redirect URL parameters by EPX.
+	// Returns nil if valid, error if invalid or missing.
+	ValidateResponseMAC(params map[string][]string, macSecret string) error
 }

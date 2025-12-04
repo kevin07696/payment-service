@@ -230,6 +230,16 @@ func (s *BrowserPostService) ParseRedirectResponse(params map[string][]string) (
 // ProcessCallback updates transaction with EPX response and returns the result
 // Payment method storage is orchestrated by the handler
 func (s *BrowserPostService) ProcessCallback(ctx context.Context, req *ports.ProcessCallbackRequest) (*ports.ProcessCallbackResponse, error) {
+	// Step 1: Validate MAC signature before processing
+	if err := s.validateMACSignature(ctx, req); err != nil {
+		s.logger.Error("MAC validation failed",
+			zap.Error(err),
+			zap.String("transaction_id", req.TransactionID),
+			zap.String("merchant_id", req.MerchantID),
+		)
+		return nil, fmt.Errorf("signature validation failed: %w", err)
+	}
+
 	metadata := map[string]interface{}{
 		"auth_resp_text": req.AuthRespText,
 		"auth_avs":       req.AuthAVS,
@@ -313,4 +323,46 @@ func (s *BrowserPostService) buildRedirectURL(transactionID, merchantID, txType,
 		params.Set("customer_id", customerID)
 	}
 	return fmt.Sprintf("%s/api/v1/payments/browser-post/callback?%s", s.callbackBaseURL, params.Encode())
+}
+
+// validateMACSignature validates the MAC signature in the EPX callback response.
+// This ensures the callback is genuinely from EPX and data hasn't been tampered with.
+func (s *BrowserPostService) validateMACSignature(ctx context.Context, req *ports.ProcessCallbackRequest) error {
+	if req.MerchantID == "" {
+		return fmt.Errorf("merchant_id is required for MAC validation")
+	}
+
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		return fmt.Errorf("invalid merchant_id format: %w", err)
+	}
+
+	// Fetch merchant to get MAC secret path
+	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
+	if err != nil {
+		s.logger.Error("Failed to fetch merchant for MAC validation",
+			zap.Error(err),
+			zap.String("merchant_id", req.MerchantID),
+		)
+		return fmt.Errorf("merchant not found")
+	}
+
+	// Fetch MAC secret from secret manager
+	macSecret, err := s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
+	if err != nil {
+		s.logger.Error("Failed to fetch MAC secret",
+			zap.Error(err),
+			zap.String("merchant_id", req.MerchantID),
+		)
+		return fmt.Errorf("failed to retrieve merchant credentials")
+	}
+
+	// Convert RawParams map[string]string to map[string][]string for adapter
+	params := make(map[string][]string)
+	for key, value := range req.RawParams {
+		params[key] = []string{value}
+	}
+
+	// Validate MAC using the adapter
+	return s.browserPostAdapter.ValidateResponseMAC(params, macSecret.Value)
 }

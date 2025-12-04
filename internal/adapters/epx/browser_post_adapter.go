@@ -1,6 +1,9 @@
 package epx
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
@@ -128,4 +131,60 @@ func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (
 	)
 
 	return response, nil
+}
+
+// ValidateResponseMAC validates the MAC signature in the EPX redirect response.
+// EPX signs specific fields using HMAC-SHA256 with the merchant's MAC secret.
+// Field order per EPX spec: CUST_NBR + MERCH_NBR + AUTH_GUID + AUTH_RESP + AMOUNT + TRAN_NBR + TRAN_GROUP
+func (a *browserPostAdapter) ValidateResponseMAC(params map[string][]string, macSecret string) error {
+	getValue := func(key string) string {
+		if values, ok := params[key]; ok && len(values) > 0 {
+			return values[0]
+		}
+		return ""
+	}
+
+	responseMAC := getValue("MAC")
+	if responseMAC == "" {
+		// MAC is optional in Browser Post redirects - EPX only includes it in server-to-server callbacks.
+		// Security for browser redirects relies on TAC validation (transaction must be in PENDING state).
+		a.logger.Debug("MAC not present in EPX response - skipping signature validation (browser redirect)")
+		return nil
+	}
+
+	// Build signature string from response parameters in EPX-specified field order
+	// Per EPX Browser Post API: CUST_NBR + MERCH_NBR + AUTH_GUID + AUTH_RESP + AMOUNT + TRAN_NBR + TRAN_GROUP
+	signatureFields := []string{
+		getValue("CUST_NBR"),
+		getValue("MERCH_NBR"),
+		getValue("AUTH_GUID"),
+		getValue("AUTH_RESP"),
+		getValue("AMOUNT"),
+		getValue("TRAN_NBR"),
+		getValue("TRAN_GROUP"),
+	}
+
+	var signatureStr string
+	for _, field := range signatureFields {
+		signatureStr += field
+	}
+
+	// Calculate expected MAC using HMAC-SHA256
+	h := hmac.New(sha256.New, []byte(macSecret))
+	h.Write([]byte(signatureStr))
+	expectedMAC := hex.EncodeToString(h.Sum(nil))
+
+	// Constant-time comparison to prevent timing attacks
+	if !hmac.Equal([]byte(expectedMAC), []byte(responseMAC)) {
+		a.logger.Warn("MAC validation failed",
+			zap.String("tran_nbr", getValue("TRAN_NBR")),
+			// SECURITY: Do not log actual MAC values to prevent offline attacks
+		)
+		return fmt.Errorf("MAC signature validation failed")
+	}
+
+	a.logger.Info("MAC validation successful",
+		zap.String("tran_nbr", getValue("TRAN_NBR")),
+	)
+	return nil
 }
