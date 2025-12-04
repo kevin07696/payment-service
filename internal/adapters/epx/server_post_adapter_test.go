@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -13,7 +13,8 @@ import (
 // Test helper to create a test adapter
 func newTestAdapter(t *testing.T) *serverPostAdapter {
 	logger := zap.NewNop() // No-op logger for tests
-	config := DefaultServerPostConfig("sandbox")
+	config, err := DefaultServerPostConfig("sandbox")
+	require.NoError(t, err)
 	return NewServerPostAdapter(config, logger).(*serverPostAdapter)
 }
 
@@ -29,42 +30,43 @@ func generateTranNbr() string {
 
 // TestDefaultServerPostConfig tests configuration initialization
 func TestDefaultServerPostConfig(t *testing.T) {
-	tests := []struct {
-		name        string
-		environment string
-		wantBaseURL string
-		wantSocket  string
-	}{
-		{
-			name:        "sandbox environment",
-			environment: "sandbox",
-			wantBaseURL: "https://secure.epxuap.com",
-			wantSocket:  "secure.epxuap.com:8087",
-		},
-		{
-			name:        "production environment",
-			environment: "production",
-			wantBaseURL: "https://epxnow.com/epx/server_post",
-			wantSocket:  "epxnow.com:8086",
-		},
-	}
+	t.Run("sandbox environment uses hardcoded URLs", func(t *testing.T) {
+		config, err := DefaultServerPostConfig("sandbox")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := DefaultServerPostConfig(tt.environment)
+		require.NoError(t, err)
+		assert.NotNil(t, config)
+		assert.Equal(t, "https://secure.epxuap.com", config.BaseURL)
+		assert.Equal(t, "secure.epxuap.com:8087", config.SocketEndpoint)
+		assert.NotEmpty(t, config.Timeout)
+	})
 
-			assert.NotNil(t, config)
-			assert.Equal(t, tt.wantBaseURL, config.BaseURL)
-			assert.Equal(t, tt.wantSocket, config.SocketEndpoint)
-			assert.NotEmpty(t, config.Timeout)
-		})
-	}
+	t.Run("production environment requires env vars", func(t *testing.T) {
+		// Without env vars, should return error
+		config, err := DefaultServerPostConfig("production")
+
+		assert.Nil(t, config)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "EPX_SERVER_POST_ENDPOINT")
+	})
+
+	t.Run("production environment with env vars succeeds", func(t *testing.T) {
+		t.Setenv("EPX_SERVER_POST_ENDPOINT", "https://prod.example.com")
+		t.Setenv("EPX_SERVER_POST_SOCKET_ENDPOINT", "prod.example.com:8086")
+
+		config, err := DefaultServerPostConfig("production")
+
+		require.NoError(t, err)
+		assert.NotNil(t, config)
+		assert.Equal(t, "https://prod.example.com", config.BaseURL)
+		assert.Equal(t, "prod.example.com:8086", config.SocketEndpoint)
+	})
 }
 
 // TestNewServerPostAdapter tests adapter initialization
 func TestNewServerPostAdapter(t *testing.T) {
 	logger := zap.NewNop()
-	config := DefaultServerPostConfig("sandbox")
+	config, err := DefaultServerPostConfig("sandbox")
+	require.NoError(t, err)
 
 	adapter := NewServerPostAdapter(config, logger)
 

@@ -17,8 +17,8 @@ func paymentMethodToResponse(pm *domain.PaymentMethod) *paymentmethodv1.PaymentM
 		PaymentType:     paymentMethodTypeToProto(pm.PaymentType),
 		LastFour:        pm.LastFour,
 		IsDefault:       pm.IsDefault,
-		IsActive:        pm.IsActive,
-		IsVerified:      pm.IsVerified,
+		IsActive:        pm.IsActive(),   // Uses Status field via method
+		IsVerified:      pm.IsVerified(), // Uses Status field via method
 		CreatedAt:       timestamppb.New(pm.CreatedAt),
 	}
 
@@ -54,8 +54,8 @@ func paymentMethodToProto(pm *domain.PaymentMethod) *paymentmethodv1.PaymentMeth
 		PaymentType: paymentMethodTypeToProto(pm.PaymentType),
 		LastFour:    pm.LastFour,
 		IsDefault:   pm.IsDefault,
-		IsActive:    pm.IsActive,
-		IsVerified:  pm.IsVerified,
+		IsActive:    pm.IsActive(),   // Uses Status field via method
+		IsVerified:  pm.IsVerified(), // Uses Status field via method
 		CreatedAt:   timestamppb.New(pm.CreatedAt),
 		UpdatedAt:   timestamppb.New(pm.UpdatedAt),
 	}

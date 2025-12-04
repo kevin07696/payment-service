@@ -6,7 +6,7 @@ import (
 
 	"github.com/kevin07696/payment-service/internal/adapters/gcp"
 	"github.com/kevin07696/payment-service/internal/adapters/mock"
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/adapters/secrets"
 	"go.uber.org/zap"
 )

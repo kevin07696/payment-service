@@ -1,12 +1,12 @@
 -- name: CreateWebhookSubscription :one
 INSERT INTO webhook_subscriptions (
-    agent_id,
+    merchant_id,
     event_type,
     webhook_url,
     secret,
     is_active
 ) VALUES (
-    sqlc.arg(agent_id),
+    sqlc.arg(merchant_id),
     sqlc.arg(event_type),
     sqlc.arg(webhook_url),
     sqlc.arg(secret),
@@ -19,13 +19,13 @@ WHERE id = sqlc.arg(id);
 
 -- name: ListWebhookSubscriptions :many
 SELECT * FROM webhook_subscriptions
-WHERE agent_id = sqlc.arg(agent_id)
+WHERE merchant_id = sqlc.arg(merchant_id)
   AND (sqlc.narg(is_active)::boolean IS NULL OR is_active = sqlc.narg(is_active))
 ORDER BY created_at DESC;
 
 -- name: ListActiveWebhooksByEvent :many
 SELECT * FROM webhook_subscriptions
-WHERE agent_id = sqlc.arg(agent_id)
+WHERE merchant_id = sqlc.arg(merchant_id)
   AND event_type = sqlc.arg(event_type)
   AND is_active = true;
 
@@ -41,7 +41,7 @@ RETURNING *;
 
 -- name: DeleteWebhookSubscription :exec
 DELETE FROM webhook_subscriptions
-WHERE id = sqlc.arg(id) AND agent_id = sqlc.arg(agent_id);
+WHERE id = sqlc.arg(id) AND merchant_id = sqlc.arg(merchant_id);
 
 -- name: CreateWebhookDelivery :one
 INSERT INTO webhook_deliveries (

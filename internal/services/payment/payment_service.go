@@ -4,41 +4,61 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/adapters/database"
-	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/converters"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
 	merchantsvc "github.com/kevin07696/payment-service/internal/services/merchant"
-	"github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/util"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
 
+// PaymentServiceConfig holds configuration for payment service
+type PaymentServiceConfig struct {
+	DefaultACHClass string // Default STD_ENTRY_CLASS for ACH transactions (default: "WEB")
+}
+
+// DefaultPaymentServiceConfig returns sensible defaults for payment service
+// Reads from environment variables:
+// - DEFAULT_ACH_CLASS: Default STD_ENTRY_CLASS for ACH (WEB, TEL, PPD, CCD)
+func DefaultPaymentServiceConfig() PaymentServiceConfig {
+	defaultACHClass := "WEB" // Internet-initiated (default for e-commerce)
+	if v := os.Getenv("DEFAULT_ACH_CLASS"); v != "" {
+		defaultACHClass = v
+	}
+	return PaymentServiceConfig{
+		DefaultACHClass: defaultACHClass,
+	}
+}
+
 // paymentService implements the PaymentService port
 type paymentService struct {
 	queries                    sqlc.Querier
 	txManager                  database.TransactionManager
-	serverPost                 adapterports.ServerPostAdapter
-	secretManager              adapterports.SecretManagerAdapter
+	serverPost                 ports.ServerPostAdapter
+	secretManager              ports.SecretManagerAdapter
 	merchantCredentialResolver *authorization.MerchantCredentialResolver
 	merchantAuthService        *authorization.MerchantAuthorizationService
 	logger                     *zap.Logger
+	config                     PaymentServiceConfig
 }
 
 // NewPaymentService creates a new payment service
 func NewPaymentService(
 	queries sqlc.Querier,
 	txManager database.TransactionManager,
-	serverPost adapterports.ServerPostAdapter,
-	secretManager adapterports.SecretManagerAdapter,
+	serverPost ports.ServerPostAdapter,
+	secretManager ports.SecretManagerAdapter,
 	merchantCache *merchantsvc.MerchantCredentialCache,
 	logger *zap.Logger,
+	config *PaymentServiceConfig,
 ) ports.PaymentService {
 	// Create merchant credential resolver with cache (70% DB load reduction)
 	merchantCredentialResolver := authorization.NewMerchantCredentialResolver(
@@ -54,6 +74,14 @@ func NewPaymentService(
 	// Create merchant authorization service with access checker
 	merchantAuthService := authorization.NewMerchantAuthorizationService(logger, accessChecker)
 
+	// Use default config if not provided
+	cfg := DefaultPaymentServiceConfig()
+	if config != nil {
+		if config.DefaultACHClass != "" {
+			cfg.DefaultACHClass = config.DefaultACHClass
+		}
+	}
+
 	return &paymentService{
 		queries:                    queries,
 		txManager:                  txManager,
@@ -62,6 +90,7 @@ func NewPaymentService(
 		merchantCredentialResolver: merchantCredentialResolver,
 		merchantAuthService:        merchantAuthService,
 		logger:                     logger,
+		config:                     cfg,
 	}
 }
 
@@ -136,20 +165,37 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 	cardEntryMethod := "Z" // BRIC/token
 	industryType := "E"    // Ecommerce (required for EPX certification)
 
-	epxReq := &adapterports.ServerPostRequest{
+	// Default STD_ENTRY_CLASS for ACH transactions if not provided
+	// NACHA requires STD_ENTRY_CLASS for all ACH transactions:
+	// - WEB: Internet-initiated (default for e-commerce)
+	// - TEL: Telephone-initiated (operator enters phone order)
+	// - PPD: Prearranged (recurring billing - handled by subscription service)
+	// - CCD: Corporate (B2B payments)
+	stdEntryClass := req.StdEntryClass
+	if paymentMethodType == domain.PaymentMethodTypeACH && stdEntryClass == nil {
+		defaultClass := s.config.DefaultACHClass
+		stdEntryClass = &defaultClass
+		s.logger.Debug("Defaulting STD_ENTRY_CLASS for ACH transaction",
+			zap.String("transaction_id", txID.String()),
+			zap.String("default_class", defaultClass),
+		)
+	}
+
+	epxReq := &ports.ServerPostRequest{
 		CustNbr:     merchant.CustNbr,
 		MerchNbr:    merchant.MerchNbr,
 		DBAnbr:      merchant.DbaNbr,
 		TerminalNbr: merchant.TerminalNbr,
 		// Use semantic operation - adapter determines EPX transaction type
-		Operation:       adapterports.OperationSale,
+		Operation:       ports.OperationSale,
 		Amount:          centsToDecimalString(req.AmountCents),
-		PaymentType:     adapterports.PaymentMethodType(paymentMethodType),
+		PaymentType:     ports.PaymentMethodType(paymentMethodType),
 		TranNbr:         epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:       "SALE",     // Transaction class: SALE = auth + capture combined
 		CustomerID:      stringOrEmpty(req.CustomerID),
 		CardEntryMethod: &cardEntryMethod, // "Z" for BRIC-based transactions
 		IndustryType:    &industryType,    // "E" for Ecommerce
+		StdEntryClass:   stdEntryClass,    // ACH SEC code: WEB (default), TEL, PPD, CCD
 	}
 
 	// EPX uses different fields for ACH vs credit card BRIC transactions
@@ -203,6 +249,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 			ID:                  txID,
 			MerchantID:          merchantID,
 			CustomerID:          customerIDText,
+			OrderID:             converters.ToNullableText(req.OrderID), // Merchant's external order/invoice ID
 			AmountCents:         amountCents,
 			Currency:            req.Currency,
 			Type:                string(domain.TransactionTypeSale), // SALE for all purchases (credit, ACH, PIN-less debit)
@@ -330,15 +377,15 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 	industryType := "E" // Ecommerce (required for EPX certification)
 
 	// Call EPX Server Post API for authorization only
-	epxReq := &adapterports.ServerPostRequest{
+	epxReq := &ports.ServerPostRequest{
 		CustNbr:     merchant.CustNbr,
 		MerchNbr:    merchant.MerchNbr,
 		DBAnbr:      merchant.DbaNbr,
 		TerminalNbr: merchant.TerminalNbr,
 		// Use semantic operation - adapter determines EPX transaction type
-		Operation:    adapterports.OperationAuthorize,
+		Operation:    ports.OperationAuthorize,
 		Amount:       centsToDecimalString(req.AmountCents),
-		PaymentType:  adapterports.PaymentMethodTypeCreditCard,
+		PaymentType:  ports.PaymentMethodTypeCreditCard,
 		AuthGUID:     authGUID,
 		TranNbr:      epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:    "AUTH",     // Transaction class: AUTH = authorization-only, requires capture
@@ -351,7 +398,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		zap.String("tran_nbr", epxTranNbr),
 		zap.String("auth_guid", authGUID),
 		zap.String("amount", centsToDecimalString(req.AmountCents)),
-		zap.String("transaction_type", string(adapterports.TransactionTypeAuthOnly)),
+		zap.String("transaction_type", string(ports.TransactionTypeAuthOnly)),
 		zap.String("tran_group", "AUTH"),
 	)
 
@@ -403,6 +450,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 			ID:                  txID,
 			MerchantID:          merchantID,
 			CustomerID:          customerIDText,
+			OrderID:             converters.ToNullableText(req.OrderID), // Merchant's external order/invoice ID
 			AmountCents:         amountCents,
 			Currency:            "USD",
 			Type:                string(domain.TransactionTypeAuth),
@@ -658,15 +706,15 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 
 	industryType := "E" // Ecommerce (required for EPX certification)
 
-	epxReq := &adapterports.ServerPostRequest{
+	epxReq := &ports.ServerPostRequest{
 		CustNbr:     merchant.CustNbr,
 		MerchNbr:    merchant.MerchNbr,
 		DBAnbr:      merchant.DbaNbr,
 		TerminalNbr: merchant.TerminalNbr,
 		// Use semantic operation - adapter determines EPX transaction type
-		Operation:        adapterports.OperationCapture,
+		Operation:        ports.OperationCapture,
 		Amount:           centsToDecimalString(finalCaptureAmountCents),
-		PaymentType:      adapterports.PaymentMethodTypeCreditCard,
+		PaymentType:      ports.PaymentMethodTypeCreditCard,
 		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
 		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:        "",         // No BATCH_ID for capture
@@ -922,15 +970,15 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 
 	industryType := "E" // Ecommerce (required for EPX certification)
 
-	epxReq := &adapterports.ServerPostRequest{
+	epxReq := &ports.ServerPostRequest{
 		CustNbr:     merchant.CustNbr,
 		MerchNbr:    merchant.MerchNbr,
 		DBAnbr:      merchant.DbaNbr,
 		TerminalNbr: merchant.TerminalNbr,
 		// Use semantic operation - adapter determines EPX transaction type (CCEX for CC, CKCX for ACH)
-		Operation:        adapterports.OperationVoid,
+		Operation:        ports.OperationVoid,
 		Amount:           centsToDecimalString(voidAmountCents),
-		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
+		PaymentType:      ports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
 		OriginalAuthGUID: authBRIC,   // Reference to AUTH transaction
 		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:        "VOID",     // EPX TRAN_GROUP classification
@@ -1189,16 +1237,16 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 
 	industryType := "E" // Ecommerce (required for EPX certification)
 
-	epxReq := &adapterports.ServerPostRequest{
+	epxReq := &ports.ServerPostRequest{
 		CustNbr:     merchant.CustNbr,
 		MerchNbr:    merchant.MerchNbr,
 		DBAnbr:      merchant.DbaNbr,
 		TerminalNbr: merchant.TerminalNbr,
 		// Use semantic operation - adapter determines EPX transaction type
 		// CRITICAL FIX: Now ACH refunds will use CKC3 (ACH Credit) instead of CCE9 (CC Refund)
-		Operation:        adapterports.OperationRefund,
+		Operation:        ports.OperationRefund,
 		Amount:           centsToDecimalString(finalRefundAmountCents),
-		PaymentType:      adapterports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
+		PaymentType:      ports.PaymentMethodType(domainTxsRefetch[0].PaymentMethodType),
 		OriginalAuthGUID: authBRIC,   // Reference to CAPTURE (or AUTH if SALE)
 		TranNbr:          epxTranNbr, // EPX numeric TRAN_NBR (max 10 digits)
 		TranGroup:        "REFUND",   // EPX TRAN_GROUP classification
@@ -1326,6 +1374,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 	params := sqlc.ListTransactionsParams{
 		MerchantID:          merchantID,
 		CustomerID:          converters.ToNullableText(filters.CustomerID),
+		OrderID:             converters.ToNullableText(filters.OrderID),
 		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
 		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
 		Status:              converters.ToNullableText(filters.Status),
@@ -1343,6 +1392,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 	countParams := sqlc.CountTransactionsParams{
 		MerchantID:          merchantID,
 		CustomerID:          converters.ToNullableText(filters.CustomerID),
+		OrderID:             converters.ToNullableText(filters.OrderID),
 		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
 		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
 		Status:              converters.ToNullableText(filters.Status),
@@ -1414,11 +1464,17 @@ func sqlcTransactionToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
 		subscriptionID = &id
 	}
 
+	var orderID *string
+	if dbTx.OrderID.Valid {
+		orderID = &dbTx.OrderID.String
+	}
+
 	tx := &domain.Transaction{
 		ID:                  dbTx.ID.String(),
 		ParentTransactionID: parentTxID,
 		MerchantID:          dbTx.MerchantID.String(),
 		CustomerID:          customerID,
+		OrderID:             orderID,
 		SubscriptionID:      subscriptionID,
 		AmountCents:         dbTx.AmountCents,
 		Currency:            dbTx.Currency,
@@ -1585,8 +1641,7 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 		PaymentToken: dbPM.Bric,
 		LastFour:     dbPM.LastFour,
 		IsDefault:    dbPM.IsDefault.Bool,
-		IsActive:     dbPM.IsActive.Bool,
-		IsVerified:   dbPM.IsVerified.Bool,
+		Status:       domain.PaymentMethodStatus(dbPM.Status),
 		CreatedAt:    dbPM.CreatedAt,
 		UpdatedAt:    dbPM.UpdatedAt,
 	}
@@ -1617,34 +1672,30 @@ func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.Payment
 		pm.LastUsedAt = &dbPM.LastUsedAt.Time
 	}
 
-	// ACH Verification fields (from migration 009)
-	if dbPM.VerificationStatus.Valid {
-		pm.VerificationStatus = &dbPM.VerificationStatus.String
+	if dbPM.PrenoteStatus.Valid {
+		pm.PrenoteStatus = &dbPM.PrenoteStatus.String
 	}
 
-	if dbPM.PrenoteTransactionID.Valid {
-		prenoteID := uuid.UUID(dbPM.PrenoteTransactionID.Bytes).String()
-		pm.PreNoteTransactionID = &prenoteID
+	if dbPM.PrenoteAttempts.Valid {
+		attempts := int(dbPM.PrenoteAttempts.Int32)
+		pm.PrenoteAttempts = &attempts
 	}
 
 	if dbPM.VerifiedAt.Valid {
 		pm.VerifiedAt = &dbPM.VerifiedAt.Time
 	}
 
-	if dbPM.VerificationFailureReason.Valid {
-		pm.VerificationFailureReason = &dbPM.VerificationFailureReason.String
-	}
-
 	// ReturnCount is NOT NULL DEFAULT 0, so always present
 	returnCount := int(dbPM.ReturnCount)
 	pm.ReturnCount = &returnCount
 
-	if dbPM.DeactivationReason.Valid {
-		pm.DeactivationReason = &dbPM.DeactivationReason.String
+	// Status metadata
+	if dbPM.StatusReason.Valid {
+		pm.StatusReason = &dbPM.StatusReason.String
 	}
 
-	if dbPM.DeactivatedAt.Valid {
-		pm.DeactivatedAt = &dbPM.DeactivatedAt.Time
+	if dbPM.StatusChangedAt.Valid {
+		pm.StatusChangedAt = &dbPM.StatusChangedAt.Time
 	}
 
 	return pm

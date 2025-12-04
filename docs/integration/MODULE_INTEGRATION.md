@@ -1,6 +1,6 @@
 # Module Integration Guide
 
-**Last Updated:** 2025-11-24
+**Last Updated:** 2025-12-02
 **Target Audience:** Go developers integrating payment service as a library/module
 **Topic:** Using the payment service as an embedded Go module in your application
 **Goal:** Import and use payment service logic directly without running a separate server
@@ -252,7 +252,7 @@ func LoadPaymentConfig() (*PaymentConfig, error) {
         EPXMerchantNumber: os.Getenv("EPX_MERCH_NBR"),
         EPXDBANumber:      os.Getenv("EPX_DBA_NBR"),
         EPXTerminalNumber: os.Getenv("EPX_TERMINAL_NBR"),
-        EPXMACSecret:      os.Getenv("EPX_MAC_SECRET"),
+        EPXMACSecret:      os.Getenv("EPX_SANDBOX_MAC"),
         EPXTimeout:        time.Duration(getEnvIntOrDefault("EPX_TIMEOUT", 30)) * time.Second,
 
         // Secret Management
@@ -314,7 +314,7 @@ EPX_CUST_NBR=9001
 EPX_MERCH_NBR=900300
 EPX_DBA_NBR=2
 EPX_TERMINAL_NBR=77
-EPX_MAC_SECRET=your-mac-secret-here
+EPX_SANDBOX_MAC=your-sandbox-mac-here
 EPX_TIMEOUT=30
 
 # Secret Management (choose one)
@@ -422,9 +422,9 @@ func initEPXAdapters(cfg *PaymentConfig, logger *zap.Logger) (
     ports.ServerPostAdapter,
     ports.BrowserPostAdapter,
     ports.KeyExchangeAdapter,
-    ports.BRICStorageAdapter,
 ) {
     // Server Post adapter - HTTP/2 with circuit breaker and retry logic
+    // Also handles BRIC storage (tokenization) via TransactionTypeBRICStorageCC/ACH
     serverPostAdapter := epx.NewServerPostAdapter(
         cfg.EPXServerPostURL,
         logger,
@@ -442,13 +442,7 @@ func initEPXAdapters(cfg *PaymentConfig, logger *zap.Logger) (
         logger,
     )
 
-    // BRIC Storage adapter - Payment method tokenization
-    bricStorageAdapter := epx.NewBRICStorageAdapter(
-        cfg.EPXServerPostURL,
-        logger,
-    )
-
-    return serverPostAdapter, browserPostAdapter, keyExchangeAdapter, bricStorageAdapter
+    return serverPostAdapter, browserPostAdapter, keyExchangeAdapter
 }
 ```
 
@@ -543,7 +537,6 @@ func initPaymentServices(
     queries *sqlc.Queries,
     serverPost ports.ServerPostAdapter,
     browserPost ports.BrowserPostAdapter,
-    bricStorage ports.BRICStorageAdapter,
     secretManager ports.SecretManagerAdapter,
     merchantCache *merchantService.MerchantCredentialCache,
     paymentMethodCache *paymentMethodService.PaymentMethodCache,
@@ -572,12 +565,12 @@ func initPaymentServices(
     )
 
     // Payment Method Service
+    // Note: BRIC storage (tokenization) is handled through ServerPostAdapter
     paymentMethodSvc := payment_method.NewPaymentMethodService(
         queries,
         txManager,
         browserPost,
-        serverPost,
-        bricStorage,
+        serverPost,  // Also handles BRIC storage via TransactionTypeBRICStorageCC/ACH
         secretManager,
         paymentMethodCache,
         logger,
@@ -630,16 +623,17 @@ func processSale(ctx context.Context, services *PaymentServices) error {
     paymentMethodID := uuid.MustParse("payment-method-id")
 
     // Sale = Authorize + Capture in single operation
+    orderID := "ORD-2024-001"
     resp, err := services.Payment.Sale(ctx, &domain.SaleRequest{
         MerchantID:      merchantID,
         CustomerID:      customerID,
+        OrderID:         &orderID, // Link to merchant's order/invoice system
         AmountCents:     9999, // $99.99
         Currency:        "USD",
         PaymentMethodID: paymentMethodID,
         IdempotencyKey:  fmt.Sprintf("sale_%s_%s", customerID, uuid.New().String()),
         Metadata: map[string]string{
-            "order_id": "ORD-2024-001",
-            "product":  "Premium Subscription",
+            "product": "Premium Subscription",
         },
     })
 
@@ -1033,7 +1027,8 @@ func main() {
     defer dbAdapter.Close()
 
     // 4. Initialize EPX adapters
-    serverPost, browserPost, keyExchange, bricStorage := initEPXAdapters(cfg, logger)
+    serverPost, browserPost, keyExchange := initEPXAdapters(cfg, logger)
+    _ = keyExchange // Used for Browser Post TAC generation
 
     // 5. Initialize secret manager
     secretManager, err := initSecretManager(ctx, cfg, logger)
@@ -1050,7 +1045,6 @@ func main() {
         queries,
         serverPost,
         browserPost,
-        bricStorage,
         secretManager,
         merchantCache,
         paymentMethodCache,
@@ -1065,16 +1059,15 @@ func main() {
     paymentMethodID := uuid.MustParse(os.Getenv("PAYMENT_METHOD_ID"))
 
     // Process a $99.99 sale
+    orderID := "ORD-2024-001"
     resp, err := services.Payment.Sale(ctx, &domain.SaleRequest{
         MerchantID:      merchantID,
         CustomerID:      customerID,
+        OrderID:         &orderID, // Link to merchant's order/invoice system
         AmountCents:     9999,
         Currency:        "USD",
         PaymentMethodID: paymentMethodID,
         IdempotencyKey:  fmt.Sprintf("sale_%s_%d", customerID, time.Now().Unix()),
-        Metadata: map[string]string{
-            "order_id": "ORD-2024-001",
-        },
     })
 
     if err != nil {
@@ -1284,7 +1277,7 @@ import (
 
 client := paymentv1connect.NewPaymentServiceClient(
     http.DefaultClient,
-    "http://localhost:8080",  // Payment service URL
+    "http://localhost:8081",  // Payment service URL
     connect.WithGRPC(),       // Use gRPC protocol
 )
 

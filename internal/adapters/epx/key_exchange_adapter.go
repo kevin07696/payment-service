@@ -8,11 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"go.uber.org/zap"
 )
 
@@ -34,10 +35,17 @@ type KeyExchangeConfig struct {
 }
 
 // DefaultKeyExchangeConfig returns default configuration for Key Exchange adapter
-func DefaultKeyExchangeConfig(environment string) *KeyExchangeConfig {
-	baseURL := "https://epxnow.com/epx/key_exchange" // Production (may need to contact North for production URL)
+// Production endpoint must be set via EPX_KEY_EXCHANGE_ENDPOINT environment variable
+func DefaultKeyExchangeConfig(environment string) (*KeyExchangeConfig, error) {
+	var baseURL string
+
 	if environment == "sandbox" {
 		baseURL = "https://keyexch.epxuap.com"
+	} else {
+		baseURL = os.Getenv("EPX_KEY_EXCHANGE_ENDPOINT")
+		if baseURL == "" {
+			return nil, fmt.Errorf("EPX_KEY_EXCHANGE_ENDPOINT environment variable is required for %s environment", environment)
+		}
 	}
 
 	return &KeyExchangeConfig{
@@ -45,7 +53,7 @@ func DefaultKeyExchangeConfig(environment string) *KeyExchangeConfig {
 		Timeout:            30 * time.Second,
 		InsecureSkipVerify: environment == "sandbox", // Only skip verification in sandbox
 		TACExpiration:      4 * time.Hour,            // EPX TAC expires in 4 hours
-	}
+	}, nil
 }
 
 // keyExchangeAdapter implements the KeyExchangeAdapter port
@@ -100,17 +108,9 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 	formData := a.buildFormData(req)
 
 	formDataEncoded := formData.Encode()
-	a.logger.Info("Requesting TAC from EPX Key Exchange",
-		zap.String("merchant_id", req.MerchantID),
-		zap.String("tran_nbr", req.TranNbr),
-		zap.String("amount", req.Amount),
+	a.logger.Info("EPX Key Exchange request",
 		zap.String("url", a.config.BaseURL),
-		zap.String("cust_nbr", req.CustNbr),
-		zap.String("merch_nbr", req.MerchNbr),
-		zap.String("dba_nbr", req.DBAnbr),
-		zap.String("terminal_nbr", req.TerminalNbr),
-		zap.Int("form_data_len", len(formDataEncoded)),
-		zap.String("form_data", formDataEncoded), // Log full form data
+		zap.String("request_body", formDataEncoded),
 	)
 
 	// Create HTTP request
@@ -144,7 +144,7 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 	a.logger.Info("Received Key Exchange response",
 		zap.Int("status_code", httpResp.StatusCode),
 		zap.Duration("elapsed", time.Since(startTime)),
-		zap.Int("body_length", len(body)),
+		zap.String("response_body", string(body)),
 	)
 
 	// Check HTTP status code

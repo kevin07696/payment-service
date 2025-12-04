@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/domain"
 )
 
 // PaymentMethodBuilder provides fluent API for building test payment methods.
@@ -28,8 +29,7 @@ func NewPaymentMethod() *PaymentMethodBuilder {
 			CardExpMonth: pgtype.Int4{Int32: 12, Valid: true},
 			CardExpYear:  pgtype.Int4{Int32: 2025, Valid: true},
 			IsDefault:    pgtype.Bool{Bool: false, Valid: true},
-			IsActive:     pgtype.Bool{Bool: true, Valid: true},
-			IsVerified:   pgtype.Bool{Bool: false, Valid: true},
+			Status:       string(domain.PaymentMethodStatusActive),
 			CreatedAt:    now,
 			UpdatedAt:    now,
 		},
@@ -114,23 +114,57 @@ func (b *PaymentMethodBuilder) NotDefault() *PaymentMethodBuilder {
 	return b
 }
 
+// WithStatus sets the payment method status
+func (b *PaymentMethodBuilder) WithStatus(status domain.PaymentMethodStatus) *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(status)
+	return b
+}
+
+// Active sets status to active
 func (b *PaymentMethodBuilder) Active() *PaymentMethodBuilder {
-	b.paymentMethod.IsActive = pgtype.Bool{Bool: true, Valid: true}
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusActive)
 	return b
 }
 
+// Inactive sets status to revoked (manual deactivation)
 func (b *PaymentMethodBuilder) Inactive() *PaymentMethodBuilder {
-	b.paymentMethod.IsActive = pgtype.Bool{Bool: false, Valid: true}
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusRevoked)
 	return b
 }
 
+// Verified sets status to active (verified = active for payment methods)
 func (b *PaymentMethodBuilder) Verified() *PaymentMethodBuilder {
-	b.paymentMethod.IsVerified = pgtype.Bool{Bool: true, Valid: true}
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusActive)
 	return b
 }
 
+// NotVerified sets status to pending (unverified)
 func (b *PaymentMethodBuilder) NotVerified() *PaymentMethodBuilder {
-	b.paymentMethod.IsVerified = pgtype.Bool{Bool: false, Valid: true}
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusPending)
+	return b
+}
+
+// Pending sets status to pending
+func (b *PaymentMethodBuilder) Pending() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusPending)
+	return b
+}
+
+// Failed sets status to failed
+func (b *PaymentMethodBuilder) Failed() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusFailed)
+	return b
+}
+
+// Expired sets status to expired
+func (b *PaymentMethodBuilder) Expired() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusExpired)
+	return b
+}
+
+// Revoked sets status to revoked
+func (b *PaymentMethodBuilder) Revoked() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusRevoked)
 	return b
 }
 
@@ -154,7 +188,6 @@ func VisaCard(merchantID uuid.UUID, customerID string, bric string) sqlc.Custome
 		CreditCard().
 		WithCardBrand("visa").
 		WithLastFour("4242").
-		Verified().
 		Active().
 		Build()
 }
@@ -168,7 +201,6 @@ func DefaultVisaCard(merchantID uuid.UUID, customerID string, bric string) sqlc.
 		CreditCard().
 		WithCardBrand("visa").
 		WithLastFour("4242").
-		Verified().
 		Active().
 		Default().
 		Build()
@@ -184,7 +216,6 @@ func CheckingAccount(merchantID uuid.UUID, customerID string, bric string) sqlc.
 		WithLastFour("6789").
 		WithBankName("Test Bank").
 		WithAccountType("checking").
-		Verified().
 		Active().
 		Build()
 }

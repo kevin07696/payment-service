@@ -55,18 +55,18 @@ const privateKey = credentials.private_key;
 // Generate JWT token
 const token = jwt.sign({
   iss: 'my-app',                    // Your service_id
-  sub: 'merchant-uuid-here',        // Merchant ID
-  merchant_id: 'merchant-uuid-here',
-  service_id: 'my-app',
-  scopes: ['payment:create', 'payment:read'],
+  sub: 'my-app',                    // Same as iss (service_id)
+  scopes: ['payments:create', 'payments:read'],
   exp: Math.floor(Date.now() / 1000) + 300,  // 5 minutes
   iat: Math.floor(Date.now() / 1000),
+  nbf: Math.floor(Date.now() / 1000),
+  jti: crypto.randomUUID(),         // Unique token ID
 }, privateKey, { algorithm: 'RS256' });
 ```
 
 **Use token in all requests:**
 ```bash
-curl -X POST http://localhost:8080/payment.v1.PaymentService/Sale \
+curl -X POST http://localhost:8081/payment.v1.PaymentService/Sale \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json"
 ```
@@ -180,7 +180,7 @@ import { createConnectTransport } from '@connectrpc/connect-web';
 import { PaymentService } from './gen/payment/v1/payment_connect';
 
 const transport = createConnectTransport({
-  baseUrl: 'http://localhost:8080',
+  baseUrl: 'http://localhost:8081',
   headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' }
 });
 
@@ -208,7 +208,7 @@ if (response.transaction.status === 'approved') {
 
 ### Sandbox Testing
 
-**Endpoint:** `http://localhost:8080` (or your staging environment)
+**Endpoint:** `http://localhost:8081` (or your staging environment)
 
 **Test Credit Cards:**
 | Card Number | Brand | Result |

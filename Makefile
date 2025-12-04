@@ -48,8 +48,7 @@ docker-up: ## Start services with docker-compose
 	@echo "Starting services..."
 	@docker-compose up -d
 	@echo "✓ Services started"
-	@echo "  Payment Server (gRPC): localhost:8080"
-	@echo "  Payment Server (HTTP/Cron): localhost:8081"
+	@echo "  Payment Server: localhost:8081 (ConnectRPC + REST)"
 	@echo "  PostgreSQL: localhost:5432"
 
 docker-down: ## Stop services
@@ -80,7 +79,6 @@ proto: ## Generate protobuf code
 	@protoc -I. -Iproto --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		--connect-go_out=. --connect-go_opt=paths=source_relative \
-		proto/admin/v1/admin.proto \
 		proto/merchant/v1/merchant.proto \
 		proto/chargeback/v1/chargeback.proto \
 		proto/payment_method/v1/payment_method.proto \
@@ -120,13 +118,8 @@ migrate-create: ## Create new migration (usage: make migrate-create NAME=add_use
 	@goose -dir internal/db/migrations create $(NAME) sql
 	@echo "✓ Migration created: internal/db/migrations/$(NAME).sql"
 
-seed: ## Seed database with initial admin account and test data
-	@echo "Seeding database..."
-	@go run cmd/seed/main.go
-	@echo "✓ Database seeded successfully"
-
-admin: ## Run admin CLI tool for managing services and merchants
-	@go run cmd/admin/main.go $(ARGS)
+paycli: ## Run paycli for managing services and merchants
+	@go run cmd/paycli/main.go $(ARGS)
 
 lint: ## Run linters
 	@echo "Running linters..."

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"go.uber.org/zap"
 )
 

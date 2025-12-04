@@ -45,28 +45,28 @@ func TestGetChargeback_Validation(t *testing.T) {
 	tests := []struct {
 		name          string
 		chargebackID  string
-		agentID       string
+		merchantID    string
 		expectedCode  connect.Code
 		expectedError string
 	}{
 		{
 			name:          "Missing chargeback_id",
 			chargebackID:  "",
-			agentID:       "test-merchant",
+			merchantID:    "test-merchant",
 			expectedCode:  connect.CodeInvalidArgument,
 			expectedError: "chargeback_id is required",
 		},
 		{
-			name:          "Missing agent_id",
+			name:          "Missing merchant_id",
 			chargebackID:  uuid.New().String(),
-			agentID:       "",
+			merchantID:    "",
 			expectedCode:  connect.CodeInvalidArgument,
-			expectedError: "agent_id is required",
+			expectedError: "merchant_id is required",
 		},
 		{
 			name:          "Invalid chargeback_id format",
 			chargebackID:  "not-a-uuid",
-			agentID:       "test-merchant",
+			merchantID:    "test-merchant",
 			expectedCode:  connect.CodeInvalidArgument,
 			expectedError: "invalid chargeback_id format",
 		},
@@ -76,7 +76,7 @@ func TestGetChargeback_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 				ChargebackId: tt.chargebackID,
-				AgentId:      tt.agentID,
+				MerchantId:   tt.merchantID,
 			})
 
 			_, err := handler.GetChargeback(context.Background(), req)
@@ -101,24 +101,24 @@ func TestListChargebacks_Validation(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		agentID       string
+		merchantID    string
 		expectedCode  connect.Code
 		expectedError string
 	}{
 		{
-			name:          "Missing agent_id",
-			agentID:       "",
+			name:          "Missing merchant_id",
+			merchantID:   "",
 			expectedCode:  connect.CodeInvalidArgument,
-			expectedError: "agent_id is required",
+			expectedError: "merchant_id is required",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-				AgentId: tt.agentID,
-				Limit:   10,
-				Offset:  0,
+				MerchantId: tt.merchantID,
+				Limit:      10,
+				Offset:     0,
 			})
 
 			_, err := handler.ListChargebacks(context.Background(), req)
@@ -147,7 +147,7 @@ func TestGetChargeback_NotFound(t *testing.T) {
 
 	req := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 		ChargebackId: chargebackID.String(),
-		AgentId:      "test-merchant",
+		MerchantId:   "test-merchant",
 	})
 
 	_, err := handler.GetChargeback(context.Background(), req)
@@ -198,9 +198,9 @@ func TestListChargebacks_LimitDefaults(t *testing.T) {
 				Return(int64(0), nil).Once()
 
 			req := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-				AgentId: "test-merchant",
-				Limit:   tt.inputLimit,
-				Offset:  0,
+				MerchantId: "test-merchant",
+				Limit:      tt.inputLimit,
+				Offset:     0,
 			})
 
 			_, err := handler.ListChargebacks(context.Background(), req)

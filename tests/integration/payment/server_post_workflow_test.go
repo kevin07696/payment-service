@@ -6,6 +6,7 @@ package payment_test
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,7 +122,7 @@ func TestServerPost_SaleWithStoredCard(t *testing.T) {
 	assert.True(t, saleResp.Msg.IsApproved, "Sale should be approved")
 	assert.NotEmpty(t, saleResp.Msg.AuthorizationCode)
 	assert.NotNil(t, saleResp.Msg.Card)
-	assert.Equal(t, "mastercard", saleResp.Msg.Card.Brand)
+	assert.True(t, strings.EqualFold("mastercard", saleResp.Msg.Card.Brand), "Card brand should be mastercard (case-insensitive)")
 
 	t.Logf("✅ SALE successful via ConnectRPC - TX: %s", saleResp.Msg.TransactionId)
 }

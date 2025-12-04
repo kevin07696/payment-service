@@ -148,6 +148,7 @@
 - `merchant_id` (UUID, FK) - Owner merchant
 - `parent_transaction_id` (UUID, FK, nullable) - Links REFUND/VOID/CAPTURE to original
 - `customer_id` (TEXT, nullable) - Customer identifier
+- `order_id` (VARCHAR(255), nullable) - Merchant's external order/invoice ID
 - `subscription_id` (UUID, FK, nullable) - Links recurring billing transactions
 - `payment_method_id` (UUID, FK, nullable) - Payment method used
 - `amount_cents` (BIGINT) - Amount in cents (2999 = $29.99)

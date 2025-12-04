@@ -141,7 +141,7 @@ jobs:
   #
       - name: Run integration tests
         env:
-          SERVICE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:8080
+          SERVICE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:8081
           CALLBACK_BASE_URL: http://${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:8081
           # Database connection for integration tests (connects to staging PostgreSQL)
           TEST_DATABASE_URL: postgres://payment_service:${{ secrets.DB_PASSWORD }}@${{ needs.ensure-staging-infrastructure.outputs.oracle_cloud_host }}:5432/payment_service?sslmode=disable

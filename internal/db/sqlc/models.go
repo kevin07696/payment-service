@@ -309,26 +309,24 @@ type CustomerPaymentMethod struct {
 	BankName     pgtype.Text        `json:"bank_name"`
 	AccountType  pgtype.Text        `json:"account_type"`
 	IsDefault    pgtype.Bool        `json:"is_default"`
-	IsActive     pgtype.Bool        `json:"is_active"`
-	IsVerified   pgtype.Bool        `json:"is_verified"`
-	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
 	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
-	// ACH verification status: pending (pre-note sent, awaiting clearance), verified (pre-note cleared after 3 days), failed (return code received)
-	VerificationStatus pgtype.Text `json:"verification_status"`
-	// Links to the pre-note (CKC0) transaction used for ACH verification
-	PrenoteTransactionID pgtype.UUID `json:"prenote_transaction_id"`
 	// Timestamp when ACH verification completed (3 days after pre-note with no returns)
 	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
 	// Reason for verification failure (e.g., "R03: No Account/Unable to Locate")
 	VerificationFailureReason pgtype.Text `json:"verification_failure_reason"`
 	// Number of ACH returns received. Auto-deactivate after 2+ returns
 	ReturnCount int32 `json:"return_count"`
-	// Reason for deactivation (e.g., "excessive_returns", "manual_deactivation")
-	DeactivationReason pgtype.Text `json:"deactivation_reason"`
-	// Timestamp when payment method was deactivated
-	DeactivatedAt pgtype.Timestamptz `json:"deactivated_at"`
+	// Prenote status: not_required (credit cards), pending (needs send), sent (successful), failed (transient error, needs retry), max_retries (gave up after 5 attempts)
+	PrenoteStatus pgtype.Text `json:"prenote_status"`
+	// Number of prenote send attempts (max 5)
+	PrenoteAttempts pgtype.Int4 `json:"prenote_attempts"`
+	// Next scheduled retry time for failed prenotes (exponential backoff)
+	PrenoteNextRetryAt pgtype.Timestamptz `json:"prenote_next_retry_at"`
+	Status             string             `json:"status"`
+	StatusReason       pgtype.Text        `json:"status_reason"`
+	StatusChangedAt    pgtype.Timestamptz `json:"status_changed_at"`
 }
 
 type EpxIpWhitelist struct {
@@ -443,6 +441,18 @@ type Subscription struct {
 	CreatedAt             time.Time          `json:"created_at"`
 	UpdatedAt             time.Time          `json:"updated_at"`
 	CancelledAt           pgtype.Timestamptz `json:"cancelled_at"`
+	// Timestamp when subscription entered past_due status. Used for grace period calculation.
+	PastDueSince pgtype.Timestamptz `json:"past_due_since"`
+	// Number of days to wait before auto-cancelling a past_due subscription. Default 30.
+	GracePeriodDays int32 `json:"grace_period_days"`
+	// Reason for cancellation: user_requested, payment_failed, grace_period_expired, admin
+	CancellationReason pgtype.Text `json:"cancellation_reason"`
+	// Next scheduled billing retry time. Set only for transient errors (network issues). NULL means eligible for immediate retry.
+	NextBillingRetryAt pgtype.Timestamptz `json:"next_billing_retry_at"`
+	// Last billing error message for debugging.
+	LastBillingError pgtype.Text `json:"last_billing_error"`
+	// Timestamp of last billing error.
+	LastBillingErrorAt pgtype.Timestamptz `json:"last_billing_error_at"`
 }
 
 type Transaction struct {
@@ -473,6 +483,8 @@ type Transaction struct {
 	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
 	CreatedAt   time.Time          `json:"created_at"`
 	UpdatedAt   time.Time          `json:"updated_at"`
+	// Merchant external order/invoice ID. Nullable for transactions without orders (prenote, tokenization). Multiple transactions can share the same order_id (AUTH→CAPTURE→REFUND chain).
+	OrderID pgtype.Text `json:"order_id"`
 }
 
 // Webhook delivery log for tracking and retries
@@ -493,7 +505,7 @@ type WebhookDelivery struct {
 // Merchant webhook subscriptions for chargeback events
 type WebhookSubscription struct {
 	ID         uuid.UUID `json:"id"`
-	AgentID    string    `json:"agent_id"`
+	MerchantID string    `json:"merchant_id"`
 	EventType  string    `json:"event_type"`
 	WebhookUrl string    `json:"webhook_url"`
 	Secret     string    `json:"secret"`

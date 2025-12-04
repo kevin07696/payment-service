@@ -1,0 +1,26 @@
+{{ define "title" }}Payment Error{{ end }}
+
+{{ define "content" }}
+<div class="header">
+    <div class="icon error">&#9888;</div>
+    <div class="status error">Payment Error</div>
+</div>
+
+<p class="message" style="text-align: center; color: #6b7280; margin: 20px 0;">
+    {{ .Message }}
+</p>
+
+{{ if .Details }}
+<div class="error-box">
+    {{ .Details }}
+</div>
+{{ end }}
+
+<div class="footer">
+    {{ if .ReturnURL }}
+    <a href="{{ .ReturnURL }}" class="button">Return to Application</a>
+    {{ else }}
+    <a href="/" class="button">Return to Home</a>
+    {{ end }}
+</div>
+{{ end }}

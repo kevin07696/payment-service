@@ -102,9 +102,10 @@ func GetRealBRICFromEPX(t *testing.T, client *Client, cfg *Config, amount string
 		"AMOUNT":     {amount},
 
 		// Test card data (EPX Sandbox test card)
-		"CARD_NBR": {"4111111111111111"}, // Visa test card
-		"EXP_DATE": {"1225"},             // Dec 2025 (MMYY format)
-		"CVV":      {"123"},
+		// Per North Developer Browser Post API Guide: ACCOUNT_NBR, CVV2
+		"ACCOUNT_NBR": {"4111111111111111"}, // Visa test card
+		"EXP_DATE":    {"1225"},             // Dec 2025 (MMYY format)
+		"CVV2":        {"123"},
 
 		// Return URL (EPX will redirect here after processing)
 		"REDIRECT_URL": {returnURL},

@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/adapters/database"
-	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/services/webhook"
 	"go.uber.org/zap"
@@ -18,15 +18,15 @@ import (
 
 // webhookJob represents a webhook delivery job
 type webhookJob struct {
-	ctx       context.Context
-	agentID   string
-	eventType string
-	event     *webhook.WebhookEvent
+	ctx        context.Context
+	merchantID string
+	eventType  string
+	event      *webhook.WebhookEvent
 }
 
 // DisputeSyncHandler handles cron job endpoints for dispute synchronization
 type DisputeSyncHandler struct {
-	merchantReporting adapterports.MerchantReportingAdapter
+	merchantReporting ports.MerchantReportingAdapter
 	db                *database.PostgreSQLAdapter
 	webhookService    *webhook.WebhookDeliveryService
 	logger            *zap.Logger
@@ -38,7 +38,7 @@ type DisputeSyncHandler struct {
 
 // NewDisputeSyncHandler creates a new dispute sync cron handler
 func NewDisputeSyncHandler(
-	merchantReporting adapterports.MerchantReportingAdapter,
+	merchantReporting ports.MerchantReportingAdapter,
 	db *database.PostgreSQLAdapter,
 	webhookService *webhook.WebhookDeliveryService,
 	logger *zap.Logger,
@@ -81,7 +81,7 @@ func (h *DisputeSyncHandler) startWebhookWorkers() {
 						h.logger.Error("Failed to deliver chargeback webhook",
 							zap.Int("worker_id", workerID),
 							zap.String("event_type", job.eventType),
-							zap.String("merchant_id", job.agentID),
+							zap.String("merchant_id", job.merchantID),
 							zap.Error(err),
 						)
 					}
@@ -247,7 +247,7 @@ func (h *DisputeSyncHandler) SyncDisputes(w http.ResponseWriter, r *http.Request
 // syncAgentDisputes syncs disputes for a single agent
 func (h *DisputeSyncHandler) syncAgentDisputes(ctx context.Context, agent *sqlc.Merchant, fromDate, toDate *time.Time) (newCount, updatedCount int, err error) {
 	// Call North API to search disputes
-	searchReq := &adapterports.DisputeSearchRequest{
+	searchReq := &ports.DisputeSearchRequest{
 		MerchantID: agent.ID.String(),
 		FromDate:   fromDate,
 		ToDate:     toDate,
@@ -286,16 +286,16 @@ func (h *DisputeSyncHandler) syncAgentDisputes(ctx context.Context, agent *sqlc.
 }
 
 // upsertChargeback inserts or updates a chargeback record
-func (h *DisputeSyncHandler) upsertChargeback(ctx context.Context, agentID string, dispute *adapterports.Dispute) (isNew bool, err error) {
+func (h *DisputeSyncHandler) upsertChargeback(ctx context.Context, merchantID string, dispute *ports.Dispute) (isNew bool, err error) {
 	// Check if chargeback already exists
 	existing, err := h.db.Queries().GetChargebackByCaseNumber(ctx, sqlc.GetChargebackByCaseNumberParams{
-		MerchantID: agentID,
+		MerchantID: merchantID,
 		CaseNumber: dispute.CaseNumber,
 	})
 
 	if err != nil {
 		// Chargeback doesn't exist - create new one
-		return true, h.createChargeback(ctx, agentID, dispute)
+		return true, h.createChargeback(ctx, merchantID, dispute)
 	}
 
 	// Chargeback exists - update it
@@ -303,7 +303,7 @@ func (h *DisputeSyncHandler) upsertChargeback(ctx context.Context, agentID strin
 }
 
 // createChargeback creates a new chargeback record and triggers webhook
-func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID string, dispute *adapterports.Dispute) error {
+func (h *DisputeSyncHandler) createChargeback(ctx context.Context, merchantID string, dispute *ports.Dispute) error {
 	// Parse dates
 	disputeDate, err := time.Parse("2006-01-02", dispute.DisputeDate)
 	if err != nil {
@@ -353,7 +353,7 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID strin
 	params := sqlc.CreateChargebackParams{
 		ID:                chargebackID,
 		TransactionID:     transactionID,
-		MerchantID:        agentID,
+		MerchantID:        merchantID,
 		CustomerID:        pgtype.Text{Valid: false}, // Not available from North API
 		CaseNumber:        dispute.CaseNumber,
 		DisputeDate:       disputeDate,
@@ -377,14 +377,14 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, agentID strin
 
 	// Trigger webhook notification for new chargeback
 	if h.webhookService != nil {
-		h.triggerChargebackWebhook(ctx, agentID, "chargeback.created", &chargeback)
+		h.triggerChargebackWebhook(ctx, merchantID, "chargeback.created", &chargeback)
 	}
 
 	return nil
 }
 
 // updateChargeback updates an existing chargeback record and triggers webhook
-func (h *DisputeSyncHandler) updateChargeback(ctx context.Context, existing *sqlc.Chargeback, dispute *adapterports.Dispute) error {
+func (h *DisputeSyncHandler) updateChargeback(ctx context.Context, existing *sqlc.Chargeback, dispute *ports.Dispute) error {
 	// Parse dates
 	disputeDate, _ := time.Parse("2006-01-02", dispute.DisputeDate)
 	chargebackDate, _ := time.Parse("2006-01-02", dispute.ChargebackDate)
@@ -472,7 +472,7 @@ func (h *DisputeSyncHandler) respondError(w http.ResponseWriter, statusCode int,
 }
 
 // triggerChargebackWebhook sends a webhook notification for chargeback events
-func (h *DisputeSyncHandler) triggerChargebackWebhook(ctx context.Context, agentID, eventType string, chargeback *sqlc.Chargeback) {
+func (h *DisputeSyncHandler) triggerChargebackWebhook(ctx context.Context, merchantID, eventType string, chargeback *sqlc.Chargeback) {
 	// Build webhook event data
 	eventData := map[string]interface{}{
 		"chargeback_id":      chargeback.ID.String(),
@@ -492,19 +492,19 @@ func (h *DisputeSyncHandler) triggerChargebackWebhook(ctx context.Context, agent
 	}
 
 	event := &webhook.WebhookEvent{
-		EventType: eventType,
-		AgentID:   agentID,
-		Data:      eventData,
-		Timestamp: time.Now(),
+		EventType:  eventType,
+		MerchantID: merchantID,
+		Data:       eventData,
+		Timestamp:  time.Now(),
 	}
 
 	// Send webhook job to worker pool (non-blocking with select)
 	// If queue is full, drop the webhook and log error
 	job := webhookJob{
-		ctx:       context.Background(),
-		agentID:   agentID,
-		eventType: eventType,
-		event:     event,
+		ctx:        context.Background(),
+		merchantID: merchantID,
+		eventType:  eventType,
+		event:      event,
 	}
 
 	select {
@@ -512,13 +512,13 @@ func (h *DisputeSyncHandler) triggerChargebackWebhook(ctx context.Context, agent
 		// Successfully queued for delivery
 		h.logger.Debug("Webhook job queued",
 			zap.String("event_type", eventType),
-			zap.String("merchant_id", agentID),
+			zap.String("merchant_id", merchantID),
 		)
 	default:
 		// Queue is full - drop webhook and log critical error
 		h.logger.Error("Webhook queue full - dropping webhook",
 			zap.String("event_type", eventType),
-			zap.String("merchant_id", agentID),
+			zap.String("merchant_id", merchantID),
 			zap.String("case_number", chargeback.CaseNumber),
 			zap.Int("queue_capacity", cap(h.webhookJobs)),
 			zap.String("recommendation", "Increase queue size or worker count"),

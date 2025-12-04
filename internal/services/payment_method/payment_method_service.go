@@ -564,19 +564,19 @@ func (s *paymentMethodService) SendPrenote(ctx context.Context, req *ports.SendP
 	industryType := "E"
 
 	prenoteReq := &ports.ServerPostRequest{
-		CustNbr:         merchant.CustNbr,
-		MerchNbr:        merchant.MerchNbr,
-		DBAnbr:          merchant.DbaNbr,
-		TerminalNbr:     merchant.TerminalNbr,
-		TransactionType: prenoteType,
-		Amount:          "0.00",
-		TranNbr:         prenoteTranNbr,
-		TranGroup:       "PRENOTE",
-		AuthGUID:        req.BRIC,
-		PaymentType:     ports.PaymentMethodTypeACH,
-		CardEntryMethod: &cardEntryMethod,
-		StdEntryClass:   &stdEntryClass,
-		IndustryType:    &industryType,
+		CustNbr:          merchant.CustNbr,
+		MerchNbr:         merchant.MerchNbr,
+		DBAnbr:           merchant.DbaNbr,
+		TerminalNbr:      merchant.TerminalNbr,
+		TransactionType:  prenoteType,
+		Amount:           "0.00",
+		TranNbr:          prenoteTranNbr,
+		TranGroup:        "PRENOTE",
+		OriginalAuthGUID: req.BRIC, // Use OriginalAuthGUID for stored BRIC reference
+		PaymentType:      ports.PaymentMethodTypeACH,
+		CardEntryMethod:  &cardEntryMethod,
+		StdEntryClass:    &stdEntryClass,
+		IndustryType:     &industryType,
 	}
 
 	prenoteResp, err := s.serverPost.ProcessTransaction(ctx, prenoteReq)

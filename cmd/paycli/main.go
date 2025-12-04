@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -12,7 +11,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/netip"
 	"os"
 	"strings"
 	"time"
@@ -22,13 +20,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
-	"golang.org/x/crypto/bcrypt"
 
-	"github.com/kevin07696/payment-service/internal/db/seed"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/pkg/crypto"
+)
+
+// Rate limit constraints to prevent abuse
+const (
+	MaxRequestsPerSecond = 10000 // Maximum allowed requests per second
+	MaxBurstLimit        = 20000 // Maximum allowed burst limit
 )
 
 type PayCLI struct {
@@ -61,12 +63,9 @@ func main() {
 		fmt.Println()
 		fmt.Println("Usage: paycli -action=<action> [options]")
 		fmt.Println()
-		fmt.Println("Seeding Actions:")
-		fmt.Println("  seed            - Seed merchant from environment variables (staging/local)")
-		fmt.Println("  seed-dev        - Quick dev seed with test data (admin, service, merchant)")
-		fmt.Println()
 		fmt.Println("Management Actions:")
 		fmt.Println("  create-service  - Create a new service with RSA keypair")
+		fmt.Println("  update-service  - Update service settings (name, rate limits, active status)")
 		fmt.Println("  create-merchant - Create a new merchant with API credentials")
 		fmt.Println("  grant-access    - Grant service access to merchant")
 		fmt.Println("  list-services   - List all registered services")
@@ -82,18 +81,7 @@ func main() {
 		fmt.Println("  -o, --output       Output format: token, json, curl")
 		fmt.Println("      --decode       Show decoded claims")
 		fmt.Println()
-		fmt.Println("Seed Environment Variables (for seed action):")
-		fmt.Println("  SEED_ENABLED=true          Enable seeding")
-		fmt.Println("  SEED_MERCHANT_ID           Merchant UUID")
-		fmt.Println("  SEED_MERCHANT_SLUG         Merchant slug")
-		fmt.Println("  SEED_MERCHANT_NAME         Merchant name")
-		fmt.Println("  SEED_CUST_NBR              North customer number")
-		fmt.Println("  SEED_MERCH_NBR             North merchant number")
-		fmt.Println("  SEED_DBA_NBR               DBA number")
-		fmt.Println("  SEED_TERMINAL_NBR          Terminal number")
-		fmt.Println("  SEED_MAC_SECRET            MAC secret (stored in secret manager)")
-		fmt.Println("  SEED_MAC_SECRET_PATH       Path in secret manager")
-		fmt.Println("  SEED_ENVIRONMENT           Environment (test/sandbox/production)")
+		fmt.Println("Note: Sandbox merchant is auto-seeded on server startup in development/staging.")
 		os.Exit(1)
 	}
 
@@ -137,14 +125,11 @@ func main() {
 	}
 
 	switch *action {
-	// Seeding actions
-	case "seed":
-		cli.seedFromEnv()
-	case "seed-dev":
-		cli.seedDev()
 	// Management actions
 	case "create-service":
 		cli.createService(*jsonFile)
+	case "update-service":
+		cli.updateService(*jsonFile)
 	case "create-merchant":
 		cli.createMerchant(*jsonFile)
 	case "grant-access":
@@ -165,223 +150,6 @@ func resolveFlag(short, long string) string {
 		return short
 	}
 	return long
-}
-
-// ============================================================================
-// Seeding Actions
-// ============================================================================
-
-// seedFromEnv seeds merchant data from environment variables.
-// Uses the db/seed package for idempotent, dynamic seeding.
-func (cli *PayCLI) seedFromEnv() {
-	cfg := seed.LoadConfig()
-	if cfg == nil {
-		fmt.Println("Seeding is disabled. Set SEED_ENABLED=true to enable.")
-		fmt.Println()
-		fmt.Println("Required environment variables:")
-		fmt.Println("  SEED_ENABLED=true")
-		fmt.Println("  SEED_MERCHANT_ID=<uuid>")
-		fmt.Println("  SEED_MERCHANT_SLUG=<slug>")
-		fmt.Println("  SEED_CUST_NBR=<customer-number>")
-		fmt.Println("  SEED_MERCH_NBR=<merchant-number>")
-		fmt.Println()
-		fmt.Println("Optional:")
-		fmt.Println("  SEED_MERCHANT_NAME=<name>")
-		fmt.Println("  SEED_DBA_NBR=<dba-number>")
-		fmt.Println("  SEED_TERMINAL_NBR=<terminal-number>")
-		fmt.Println("  SEED_MAC_SECRET=<mac-secret>")
-		fmt.Println("  SEED_MAC_SECRET_PATH=<path>")
-		fmt.Println("  SEED_ENVIRONMENT=test|sandbox|production")
-		os.Exit(1)
-	}
-
-	seeder := seed.NewSeeder(cli.queries, cli.secretManager, cli.logger)
-	if err := seeder.RunWithConfig(cli.ctx, cfg); err != nil {
-		log.Fatalf("Seed failed: %v", err)
-	}
-
-	fmt.Println()
-	fmt.Println("========================================")
-	fmt.Println("SEED COMPLETED SUCCESSFULLY")
-	fmt.Println("========================================")
-	fmt.Printf("Merchant ID:   %s\n", cfg.MerchantID)
-	fmt.Printf("Merchant Slug: %s\n", cfg.MerchantSlug)
-	fmt.Printf("Environment:   %s\n", cfg.Environment)
-	if cfg.MacSecret != "" {
-		fmt.Printf("MAC Secret:    Stored at %s\n", cfg.MacSecretPath)
-	}
-	fmt.Println("========================================")
-}
-
-// seedDev creates a complete development environment with test data.
-// Creates admin account, test service, test merchant, and grants access.
-func (cli *PayCLI) seedDev() {
-	fmt.Println("========================================")
-	fmt.Println("CREATING DEVELOPMENT SEED DATA")
-	fmt.Println("========================================")
-	fmt.Println()
-
-	// Generate admin credentials
-	adminEmail := "admin@payment-service.local"
-	adminPassword := generateSecurePassword()
-	adminPasswordHash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), 10)
-	if err != nil {
-		log.Fatal("Failed to hash admin password:", err)
-	}
-
-	adminID := uuid.New()
-
-	// Insert or update admin account using sqlc
-	_, err = cli.queries.UpsertAdmin(cli.ctx, sqlc.UpsertAdminParams{
-		ID:           adminID,
-		Email:        adminEmail,
-		PasswordHash: string(adminPasswordHash),
-		Role:         pgtype.Text{String: "super_admin", Valid: true},
-		IsActive:     pgtype.Bool{Bool: true, Valid: true},
-	})
-	if err != nil {
-		log.Fatal("Failed to create admin account:", err)
-	}
-	fmt.Printf("Admin account: %s\n", adminEmail)
-
-	// Generate RSA keypair for test service
-	keypair, err := crypto.GenerateRSAKeyPair()
-	if err != nil {
-		log.Fatal("Failed to generate RSA keypair:", err)
-	}
-
-	serviceUUID := uuid.New()
-
-	// Insert test service using sqlc
-	_, err = cli.queries.UpsertService(cli.ctx, sqlc.UpsertServiceParams{
-		ID:                   serviceUUID,
-		ServiceID:            "test-pos-system",
-		ServiceName:          "Test POS System (Development)",
-		PublicKey:            keypair.PublicKeyPEM,
-		PublicKeyFingerprint: keypair.Fingerprint,
-		Environment:          "staging",
-		RequestsPerSecond:    pgtype.Int4{Int32: 1000, Valid: true},
-		BurstLimit:           pgtype.Int4{Int32: 2000, Valid: true},
-		IsActive:             pgtype.Bool{Bool: true, Valid: true},
-	})
-	if err != nil {
-		log.Fatal("Failed to create test service:", err)
-	}
-	fmt.Printf("Test service:  test-pos-system\n")
-
-	// Create or get test merchant using sqlc
-	merchantUUID := uuid.New()
-
-	// Check if merchant already exists
-	existingMerchant, err := cli.queries.GetMerchantBySlug(cli.ctx, "test-merchant-dev")
-	if err == nil {
-		merchantUUID = existingMerchant.ID
-		fmt.Printf("Test merchant: test-merchant-dev (existing)\n")
-	} else {
-		// Create new merchant using sqlc
-		merchant, err := cli.queries.UpsertMerchant(cli.ctx, sqlc.UpsertMerchantParams{
-			ID:            merchantUUID,
-			Slug:          "test-merchant-dev",
-			Name:          "Test Merchant (Development)",
-			CustNbr:       "9001",
-			MerchNbr:      "900300",
-			DbaNbr:        "2",
-			TerminalNbr:   "77",
-			MacSecretPath: "/secrets/test-merchant",
-			Environment:   "staging",
-			IsActive:      true,
-		})
-		if err != nil {
-			log.Fatal("Failed to create test merchant:", err)
-		}
-		merchantUUID = merchant.ID
-		fmt.Printf("Test merchant: test-merchant-dev (created)\n")
-	}
-
-	// Grant service access to merchant using sqlc
-	_, err = cli.queries.GrantServiceAccess(cli.ctx, sqlc.GrantServiceAccessParams{
-		ServiceID:  serviceUUID,
-		MerchantID: merchantUUID,
-		Scopes: []string{
-			"payment:create",
-			"payment:read",
-			"payment:update",
-			"payment:refund",
-			"subscription:manage",
-			"payment_method:manage",
-		},
-		ExpiresAt: pgtype.Timestamptz{}, // No expiration
-	})
-	if err != nil {
-		log.Fatal("Failed to grant service access:", err)
-	}
-
-	// Add EPX IPs for development using sqlc
-	epxIPs := []struct {
-		ip   string
-		desc string
-	}{
-		{"10.0.0.1", "Development EPX Gateway 1"},
-		{"10.0.0.2", "Development EPX Gateway 2"},
-		{"192.168.1.100", "Test EPX Gateway"},
-	}
-
-	for _, epx := range epxIPs {
-		ipAddr, err := netip.ParseAddr(epx.ip)
-		if err != nil {
-			log.Printf("Warning: Invalid IP address %s: %v", epx.ip, err)
-			continue
-		}
-		_ = cli.queries.UpsertIPWhitelist(cli.ctx, sqlc.UpsertIPWhitelistParams{
-			IpAddress:   ipAddr,
-			Description: pgtype.Text{String: epx.desc, Valid: true},
-		})
-	}
-
-	// Save credentials to file
-	credentialsFile := "seed_credentials.txt"
-	file, err := os.Create(credentialsFile)
-	if err != nil {
-		log.Printf("Warning: Could not create credentials file: %v\n", err)
-	} else {
-		defer file.Close()
-		fmt.Fprintf(file, "===========================================\n")
-		fmt.Fprintf(file, "SEED CREDENTIALS - GENERATED AUTOMATICALLY\n")
-		fmt.Fprintf(file, "===========================================\n\n")
-		fmt.Fprintf(file, "Admin Account:\n")
-		fmt.Fprintf(file, "  Email: %s\n", adminEmail)
-		fmt.Fprintf(file, "  Password: %s\n", adminPassword)
-		fmt.Fprintf(file, "  ID: %s\n\n", adminID.String())
-		fmt.Fprintf(file, "Test Merchant:\n")
-		fmt.Fprintf(file, "  ID: %s\n", merchantUUID.String())
-		fmt.Fprintf(file, "  Slug: test-merchant-dev\n\n")
-		fmt.Fprintf(file, "Test Service:\n")
-		fmt.Fprintf(file, "  ID: %s\n", serviceUUID.String())
-		fmt.Fprintf(file, "  Service ID: test-pos-system\n")
-		fmt.Fprintf(file, "  Private Key (for JWT signing):\n%s\n", keypair.PrivateKeyPEM)
-		fmt.Fprintf(file, "===========================================\n")
-	}
-
-	fmt.Println()
-	fmt.Println("========================================")
-	fmt.Println("DEV SEED COMPLETED SUCCESSFULLY")
-	fmt.Println("========================================")
-	fmt.Println()
-	fmt.Println("Admin Account:")
-	fmt.Printf("  Email:    %s\n", adminEmail)
-	fmt.Printf("  Password: %s\n", adminPassword)
-	fmt.Println("  (SAVE THIS PASSWORD - IT CANNOT BE RECOVERED)")
-	fmt.Println()
-	fmt.Println("Test Merchant:")
-	fmt.Printf("  Merchant ID: %s\n", merchantUUID.String())
-	fmt.Println("  Slug:        test-merchant-dev")
-	fmt.Println()
-	fmt.Println("Test Service:")
-	fmt.Println("  Service ID:  test-pos-system")
-	fmt.Println("  Has access to test merchant")
-	fmt.Println()
-	fmt.Printf("Credentials saved to: %s\n", credentialsFile)
-	fmt.Println("========================================")
 }
 
 // ============================================================================
@@ -407,6 +175,13 @@ func (cli *PayCLI) createService(jsonFile string) {
 		if err := json.Unmarshal(data, &serviceData); err != nil {
 			log.Fatal("Failed to parse JSON:", err)
 		}
+		// Validate rate limits from JSON
+		if serviceData.RequestsPerSecond > MaxRequestsPerSecond {
+			log.Fatalf("Requests per second cannot exceed %d", MaxRequestsPerSecond)
+		}
+		if serviceData.BurstLimit > MaxBurstLimit {
+			log.Fatalf("Burst limit cannot exceed %d", MaxBurstLimit)
+		}
 	} else {
 		// Interactive mode
 		reader := bufio.NewReader(os.Stdin)
@@ -426,14 +201,20 @@ func (cli *PayCLI) createService(jsonFile string) {
 			serviceData.Environment = "staging"
 		}
 
-		fmt.Print("Requests per second [1000]: ")
+		fmt.Printf("Requests per second [1000] (max %d): ", MaxRequestsPerSecond)
 		if _, err := fmt.Fscanf(reader, "%d\n", &serviceData.RequestsPerSecond); err != nil || serviceData.RequestsPerSecond == 0 {
 			serviceData.RequestsPerSecond = 1000
 		}
+		if serviceData.RequestsPerSecond > MaxRequestsPerSecond {
+			log.Fatalf("Requests per second cannot exceed %d", MaxRequestsPerSecond)
+		}
 
-		fmt.Print("Burst limit [2000]: ")
+		fmt.Printf("Burst limit [2000] (max %d): ", MaxBurstLimit)
 		if _, err := fmt.Fscanf(reader, "%d\n", &serviceData.BurstLimit); err != nil || serviceData.BurstLimit == 0 {
 			serviceData.BurstLimit = 2000
+		}
+		if serviceData.BurstLimit > MaxBurstLimit {
+			log.Fatalf("Burst limit cannot exceed %d", MaxBurstLimit)
 		}
 
 		fmt.Print("Generate new RSA keypair? (y/n) [y]: ")
@@ -505,6 +286,191 @@ func (cli *PayCLI) createService(jsonFile string) {
 	if privateKeyPEM != "" {
 		fmt.Printf("\n📁 Credentials saved to: %s\n", outputFile)
 		fmt.Println("⚠️  Keep the private key secure!")
+	}
+	fmt.Println("========================================")
+}
+
+func (cli *PayCLI) updateService(jsonFile string) {
+	var updateData struct {
+		ServiceID         string `json:"service_id"`
+		ServiceName       string `json:"service_name,omitempty"`
+		RequestsPerSecond *int   `json:"requests_per_second,omitempty"`
+		BurstLimit        *int   `json:"burst_limit,omitempty"`
+		IsActive          *bool  `json:"is_active,omitempty"`
+		RotateKey         bool   `json:"rotate_key,omitempty"`
+	}
+
+	if jsonFile != "" {
+		data, err := os.ReadFile(jsonFile)
+		if err != nil {
+			log.Fatal("Failed to read JSON file:", err)
+		}
+		if err := json.Unmarshal(data, &updateData); err != nil {
+			log.Fatal("Failed to parse JSON:", err)
+		}
+		// Validate rate limits from JSON
+		if updateData.RequestsPerSecond != nil && *updateData.RequestsPerSecond > MaxRequestsPerSecond {
+			log.Fatalf("Requests per second cannot exceed %d", MaxRequestsPerSecond)
+		}
+		if updateData.BurstLimit != nil && *updateData.BurstLimit > MaxBurstLimit {
+			log.Fatalf("Burst limit cannot exceed %d", MaxBurstLimit)
+		}
+	} else {
+		// Interactive mode
+		reader := bufio.NewReader(os.Stdin)
+
+		fmt.Print("Service ID to update: ")
+		updateData.ServiceID, _ = reader.ReadString('\n')
+		updateData.ServiceID = strings.TrimSpace(updateData.ServiceID)
+	}
+
+	if updateData.ServiceID == "" {
+		log.Fatal("Service ID is required")
+	}
+
+	// Get existing service
+	service, err := cli.queries.GetServiceByServiceID(cli.ctx, updateData.ServiceID)
+	if err != nil {
+		log.Fatal("Service not found:", updateData.ServiceID)
+	}
+
+	// Interactive mode - prompt for updates
+	if jsonFile == "" {
+		reader := bufio.NewReader(os.Stdin)
+
+		fmt.Printf("\nCurrent settings for '%s':\n", service.ServiceID)
+		fmt.Printf("  Name: %s\n", service.ServiceName)
+		fmt.Printf("  Rate Limit: %d req/s (burst: %d)\n", service.RequestsPerSecond.Int32, service.BurstLimit.Int32)
+		fmt.Printf("  Active: %v\n", service.IsActive.Bool)
+		fmt.Println()
+
+		fmt.Printf("New service name [%s]: ", service.ServiceName)
+		newName, _ := reader.ReadString('\n')
+		newName = strings.TrimSpace(newName)
+		if newName != "" {
+			updateData.ServiceName = newName
+		}
+
+		fmt.Printf("New requests per second [%d] (max %d): ", service.RequestsPerSecond.Int32, MaxRequestsPerSecond)
+		var newRPS int
+		if _, err := fmt.Fscanf(reader, "%d\n", &newRPS); err == nil && newRPS > 0 {
+			if newRPS > MaxRequestsPerSecond {
+				log.Fatalf("Requests per second cannot exceed %d", MaxRequestsPerSecond)
+			}
+			updateData.RequestsPerSecond = &newRPS
+		} else {
+			// Clear the buffer if scan failed
+			_, _ = reader.ReadString('\n')
+		}
+
+		fmt.Printf("New burst limit [%d] (max %d): ", service.BurstLimit.Int32, MaxBurstLimit)
+		var newBurst int
+		if _, err := fmt.Fscanf(reader, "%d\n", &newBurst); err == nil && newBurst > 0 {
+			if newBurst > MaxBurstLimit {
+				log.Fatalf("Burst limit cannot exceed %d", MaxBurstLimit)
+			}
+			updateData.BurstLimit = &newBurst
+		} else {
+			_, _ = reader.ReadString('\n')
+		}
+
+		fmt.Printf("Active status (true/false) [%v]: ", service.IsActive.Bool)
+		activeStr, _ := reader.ReadString('\n')
+		activeStr = strings.TrimSpace(strings.ToLower(activeStr))
+		if activeStr == "true" {
+			active := true
+			updateData.IsActive = &active
+		} else if activeStr == "false" {
+			active := false
+			updateData.IsActive = &active
+		}
+
+		fmt.Print("Rotate RSA keypair? (y/n) [n]: ")
+		rotateStr, _ := reader.ReadString('\n')
+		updateData.RotateKey = strings.HasPrefix(strings.ToLower(strings.TrimSpace(rotateStr)), "y")
+	}
+
+	// Handle key rotation
+	var newPrivateKeyPEM string
+	newPublicKeyPEM := service.PublicKey
+	newFingerprint := service.PublicKeyFingerprint
+
+	if updateData.RotateKey {
+		keypair, err := crypto.GenerateRSAKeyPair()
+		if err != nil {
+			log.Fatal("Failed to generate new RSA keypair:", err)
+		}
+		newPublicKeyPEM = keypair.PublicKeyPEM
+		newPrivateKeyPEM = keypair.PrivateKeyPEM
+		newFingerprint = generateFingerprint([]byte(newPublicKeyPEM))
+	}
+
+	// Prepare update values
+	serviceName := service.ServiceName
+	if updateData.ServiceName != "" {
+		serviceName = updateData.ServiceName
+	}
+
+	rps := service.RequestsPerSecond.Int32
+	if updateData.RequestsPerSecond != nil {
+		rps = int32(*updateData.RequestsPerSecond)
+	}
+
+	burst := service.BurstLimit.Int32
+	if updateData.BurstLimit != nil {
+		burst = int32(*updateData.BurstLimit)
+	}
+
+	isActive := service.IsActive.Bool
+	if updateData.IsActive != nil {
+		isActive = *updateData.IsActive
+	}
+
+	// Update service in database
+	_, err = cli.queries.UpdateService(cli.ctx, sqlc.UpdateServiceParams{
+		ID:                   service.ID,
+		ServiceName:          serviceName,
+		PublicKey:            newPublicKeyPEM,
+		PublicKeyFingerprint: newFingerprint,
+		RequestsPerSecond:    pgtype.Int4{Int32: rps, Valid: true},
+		BurstLimit:           pgtype.Int4{Int32: burst, Valid: true},
+		IsActive:             pgtype.Bool{Bool: isActive, Valid: true},
+	})
+	if err != nil {
+		log.Fatal("Failed to update service:", err)
+	}
+
+	// Save new credentials if key was rotated
+	if updateData.RotateKey && newPrivateKeyPEM != "" {
+		outputFile := fmt.Sprintf("service_%s_credentials.json", updateData.ServiceID)
+		output := map[string]interface{}{
+			"service_id":   updateData.ServiceID,
+			"service_name": serviceName,
+			"environment":  service.Environment,
+			"public_key":   newPublicKeyPEM,
+			"private_key":  newPrivateKeyPEM,
+			"note":         "Keep the private key secure! Use it to sign JWT tokens.",
+			"rotated_at":   time.Now().Format(time.RFC3339),
+		}
+
+		data, _ := json.MarshalIndent(output, "", "  ")
+		if err := os.WriteFile(outputFile, data, 0600); err != nil {
+			log.Printf("Warning: Failed to save credentials file: %v", err)
+		} else {
+			fmt.Printf("\n📁 New credentials saved to: %s\n", outputFile)
+			fmt.Println("⚠️  Update your application with the new private key!")
+		}
+	}
+
+	fmt.Println("\n========================================")
+	fmt.Println("✅ SERVICE UPDATED SUCCESSFULLY")
+	fmt.Println("========================================")
+	fmt.Printf("Service ID: %s\n", updateData.ServiceID)
+	fmt.Printf("Service Name: %s\n", serviceName)
+	fmt.Printf("Rate Limit: %d req/s (burst: %d)\n", rps, burst)
+	fmt.Printf("Active: %v\n", isActive)
+	if updateData.RotateKey {
+		fmt.Println("🔑 RSA keypair rotated")
 	}
 	fmt.Println("========================================")
 }
@@ -992,22 +958,6 @@ func showDecodedClaims(tokenStr string) {
 
 	data, _ := json.MarshalIndent(claims, "", "  ")
 	fmt.Fprintln(os.Stderr, string(data))
-}
-
-// ============================================================================
-// Utilities
-// ============================================================================
-
-func generateSecurePassword() string {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
-	}
-	for i := range b {
-		b[i] = charset[b[i]%byte(len(charset))]
-	}
-	return string(b)
 }
 
 // ============================================================================

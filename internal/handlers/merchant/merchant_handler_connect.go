@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	merchantv1 "github.com/kevin07696/payment-service/proto/merchant/v1"
 )
 

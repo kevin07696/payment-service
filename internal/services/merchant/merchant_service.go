@@ -7,10 +7,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/adapters/database"
-	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"go.uber.org/zap"
 )
 
@@ -18,7 +17,7 @@ import (
 type merchantService struct {
 	queries       sqlc.Querier
 	txManager     database.TransactionManager
-	secretManager adapterports.SecretManagerAdapter
+	secretManager ports.SecretManagerAdapter
 	logger        *zap.Logger
 }
 
@@ -26,7 +25,7 @@ type merchantService struct {
 func NewMerchantService(
 	queries sqlc.Querier,
 	txManager database.TransactionManager,
-	secretManager adapterports.SecretManagerAdapter,
+	secretManager ports.SecretManagerAdapter,
 	logger *zap.Logger,
 ) ports.MerchantService {
 	return &merchantService{

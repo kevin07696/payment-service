@@ -295,8 +295,10 @@ func TestJWTAuthentication_BlacklistedToken(t *testing.T) {
 }
 
 // TestJWTAuthentication_RateLimit tests rate limiting enforces request limits
+// Requires test-service-001 to have low rate limit (e.g., 5 req/s)
+// Use: ./paycli -action=update-service -json='{"service_id":"test-service-001","requests_per_second":5,"burst_limit":10}'
 func TestJWTAuthentication_RateLimit(t *testing.T) {
-	t.Skip("Rate limiting test requires special setup with low rate limit")
+	t.Skip("Rate limiting test requires low rate limit setup - run manually after configuring service")
 
 	// Load test services
 	testServices, err := testutil.LoadTestServices()

@@ -60,7 +60,7 @@ A service represents an application (POS, e-commerce site, mobile app) that auth
 
 ```bash
 # Generate RSA keypair and register service
-./admin -action=create-service
+./paycli -action=create-service
 
 # Parameters:
 # --service-id: Unique identifier (e.g., acme-pos-system)
@@ -74,7 +74,7 @@ A service represents an application (POS, e-commerce site, mobile app) that auth
 ### Create a Service
 
 ```bash
-./admin -action=create-service
+./paycli -action=create-service
 ```
 ```
 
@@ -275,7 +275,7 @@ docs/
 ```markdown
 Run the admin CLI to create a service:
 ```bash
-./admin -action=create-service
+./paycli -action=create-service
 ```
 The command generates an RSA keypair and returns the private key.
 ```
@@ -353,15 +353,15 @@ another-command
 ```bash
 # Complete workflow example
 # 1. Create service
-./admin -action=create-service
+./paycli -action=create-service
 # → Returns private key (save it!)
 
 # 2. Create merchant
-./admin -action=create-merchant
+./paycli -action=create-merchant
 # → Stores EPX credentials
 
 # 3. Grant access
-./admin -action=grant-access
+./paycli -action=grant-access
 # → Service can now access merchant
 ```
 
@@ -556,7 +556,7 @@ openssl rsa -in keys/acme-pos-system.pem -pubout | openssl dgst -sha256
 psql $DATABASE_URL -c "DELETE FROM services WHERE service_id = 'acme-pos-system'"
 
 # Create new service
-./admin -action=create-service
+./paycli -action=create-service
 
 # Update client application with new private key
 ```

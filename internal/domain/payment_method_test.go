@@ -11,28 +11,26 @@ import (
 func TestPaymentMethod_CanUseForAmount_ACHUnverified(t *testing.T) {
 	pm := &PaymentMethod{
 		PaymentType: PaymentMethodTypeACH,
-		IsActive:    true,
-		IsVerified:  false, // Unverified
+		Status:      PaymentMethodStatusPending, // Unverified (pending)
 		CreatedAt:   time.Now(),
 	}
 
 	// Try with low amount
 	canUse, reason := pm.CanUseForAmount(10000) // $100.00
 	assert.False(t, canUse, "Unverified ACH should be blocked")
-	assert.Contains(t, reason, "must be verified", "Error should mention verification requirement")
+	assert.Contains(t, reason, "pending verification", "Error should mention pending status")
 
 	// Try with high amount
 	canUse, reason = pm.CanUseForAmount(250000) // $2,500.00
 	assert.False(t, canUse, "Unverified ACH should be blocked")
-	assert.Contains(t, reason, "must be verified")
+	assert.Contains(t, reason, "pending")
 }
 
 // TestPaymentMethod_CanUseForAmount_ACHVerified tests that verified ACH accounts are allowed
 func TestPaymentMethod_CanUseForAmount_ACHVerified(t *testing.T) {
 	pm := &PaymentMethod{
 		PaymentType: PaymentMethodTypeACH,
-		IsActive:    true,
-		IsVerified:  true,                                // Verified
+		Status:      PaymentMethodStatusActive,           // Verified (active)
 		CreatedAt:   time.Now().Add(-4 * 24 * time.Hour), // 4 days old
 	}
 
@@ -51,14 +49,13 @@ func TestPaymentMethod_CanUseForAmount_ACHVerified(t *testing.T) {
 func TestPaymentMethod_CanUseForAmount_ACHInactive(t *testing.T) {
 	pm := &PaymentMethod{
 		PaymentType: PaymentMethodTypeACH,
-		IsActive:    false, // Inactive (e.g., failed verification)
-		IsVerified:  true,
+		Status:      PaymentMethodStatusRevoked, // Inactive (revoked)
 		CreatedAt:   time.Now(),
 	}
 
 	canUse, reason := pm.CanUseForAmount(10000)
 	assert.False(t, canUse, "Inactive ACH should be blocked")
-	assert.Contains(t, reason, "not active", "Error should mention inactive status")
+	assert.Contains(t, reason, "revoked", "Error should mention revoked status")
 }
 
 // TestPaymentMethod_CanUseForAmount_CreditCard tests credit card validation
@@ -67,7 +64,7 @@ func TestPaymentMethod_CanUseForAmount_CreditCard(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		isActive    bool
+		status      PaymentMethodStatus
 		expMonth    int
 		expYear     int
 		amountCents int64
@@ -76,7 +73,7 @@ func TestPaymentMethod_CanUseForAmount_CreditCard(t *testing.T) {
 	}{
 		{
 			name:        "Active_NotExpired",
-			isActive:    true,
+			status:      PaymentMethodStatusActive,
 			expMonth:    12,
 			expYear:     now.Year() + 1,
 			amountCents: 10000,
@@ -84,8 +81,8 @@ func TestPaymentMethod_CanUseForAmount_CreditCard(t *testing.T) {
 			expectedMsg: "",
 		},
 		{
-			name:        "Active_Expired",
-			isActive:    true,
+			name:        "Expired_Status",
+			status:      PaymentMethodStatusExpired,
 			expMonth:    1,
 			expYear:     now.Year() - 1,
 			amountCents: 10000,
@@ -93,13 +90,13 @@ func TestPaymentMethod_CanUseForAmount_CreditCard(t *testing.T) {
 			expectedMsg: "expired",
 		},
 		{
-			name:        "Inactive",
-			isActive:    false,
+			name:        "Revoked",
+			status:      PaymentMethodStatusRevoked,
 			expMonth:    12,
 			expYear:     now.Year() + 1,
 			amountCents: 10000,
 			expectedOK:  false,
-			expectedMsg: "not active",
+			expectedMsg: "revoked",
 		},
 	}
 
@@ -107,7 +104,7 @@ func TestPaymentMethod_CanUseForAmount_CreditCard(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pm := &PaymentMethod{
 				PaymentType:  PaymentMethodTypeCreditCard,
-				IsActive:     tt.isActive,
+				Status:       tt.status,
 				CardExpMonth: &tt.expMonth,
 				CardExpYear:  &tt.expYear,
 			}
@@ -186,47 +183,41 @@ func TestPaymentMethod_CanBeUsed(t *testing.T) {
 	tests := []struct {
 		name        string
 		paymentType PaymentMethodType
-		isActive    bool
-		isVerified  bool
+		status      PaymentMethodStatus
 		expMonth    *int
 		expYear     *int
 		expected    bool
 	}{
 		{
-			name:        "ACH_Verified_Active",
+			name:        "ACH_Active",
 			paymentType: PaymentMethodTypeACH,
-			isActive:    true,
-			isVerified:  true,
+			status:      PaymentMethodStatusActive,
 			expected:    true,
 		},
 		{
-			name:        "ACH_Unverified_Active",
+			name:        "ACH_Pending",
 			paymentType: PaymentMethodTypeACH,
-			isActive:    true,
-			isVerified:  false,
-			expected:    false, // Must be verified
+			status:      PaymentMethodStatusPending,
+			expected:    false, // Pending = not usable
 		},
 		{
-			name:        "ACH_Verified_Inactive",
+			name:        "ACH_Revoked",
 			paymentType: PaymentMethodTypeACH,
-			isActive:    false,
-			isVerified:  true,
+			status:      PaymentMethodStatusRevoked,
 			expected:    false,
 		},
 		{
-			name:        "CreditCard_Active_NotExpired",
+			name:        "CreditCard_Active",
 			paymentType: PaymentMethodTypeCreditCard,
-			isActive:    true,
-			isVerified:  true,
+			status:      PaymentMethodStatusActive,
 			expMonth:    intPtr(12),
 			expYear:     intPtr(now.Year() + 1),
 			expected:    true,
 		},
 		{
-			name:        "CreditCard_Active_Expired",
+			name:        "CreditCard_Expired",
 			paymentType: PaymentMethodTypeCreditCard,
-			isActive:    true,
-			isVerified:  true,
+			status:      PaymentMethodStatusExpired,
 			expMonth:    intPtr(1),
 			expYear:     intPtr(now.Year() - 1),
 			expected:    false,
@@ -237,8 +228,7 @@ func TestPaymentMethod_CanBeUsed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pm := &PaymentMethod{
 				PaymentType:  tt.paymentType,
-				IsActive:     tt.isActive,
-				IsVerified:   tt.isVerified,
+				Status:       tt.status,
 				CardExpMonth: tt.expMonth,
 				CardExpYear:  tt.expYear,
 			}
@@ -559,8 +549,7 @@ func TestPaymentMethod_MarkUsed_PreservesOtherFields(t *testing.T) {
 		PaymentToken: "token_abc",
 		LastFour:     "4242",
 		CardBrand:    strPtr("Visa"),
-		IsActive:     true,
-		IsVerified:   true,
+		Status:       PaymentMethodStatusActive,
 		LastUsedAt:   nil,
 	}
 
@@ -571,8 +560,7 @@ func TestPaymentMethod_MarkUsed_PreservesOtherFields(t *testing.T) {
 	originalPaymentType := pm.PaymentType
 	originalToken := pm.PaymentToken
 	originalLastFour := pm.LastFour
-	originalIsActive := pm.IsActive
-	originalIsVerified := pm.IsVerified
+	originalStatus := pm.Status
 
 	// Mark as used
 	pm.MarkUsed()
@@ -584,8 +572,7 @@ func TestPaymentMethod_MarkUsed_PreservesOtherFields(t *testing.T) {
 	assert.Equal(t, originalPaymentType, pm.PaymentType)
 	assert.Equal(t, originalToken, pm.PaymentToken)
 	assert.Equal(t, originalLastFour, pm.LastFour)
-	assert.Equal(t, originalIsActive, pm.IsActive)
-	assert.Equal(t, originalIsVerified, pm.IsVerified)
+	assert.Equal(t, originalStatus, pm.Status)
 
 	// Only LastUsedAt should be updated
 	assert.NotNil(t, pm.LastUsedAt)

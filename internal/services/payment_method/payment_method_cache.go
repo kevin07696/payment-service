@@ -313,8 +313,7 @@ func convertSqlcToPaymentMethod(dbPM *sqlc.CustomerPaymentMethod) *domain.Paymen
 		PaymentType:  domain.PaymentMethodType(dbPM.PaymentType),
 		LastFour:     dbPM.LastFour,
 		IsDefault:    dbPM.IsDefault.Bool,
-		IsActive:     dbPM.IsActive.Bool,
-		IsVerified:   dbPM.IsVerified.Bool,
+		Status:       domain.PaymentMethodStatus(dbPM.Status),
 		CreatedAt:    dbPM.CreatedAt,
 		UpdatedAt:    dbPM.UpdatedAt,
 	}
@@ -344,24 +343,21 @@ func convertSqlcToPaymentMethod(dbPM *sqlc.CustomerPaymentMethod) *domain.Paymen
 	if dbPM.LastUsedAt.Valid {
 		pm.LastUsedAt = &dbPM.LastUsedAt.Time
 	}
-	if dbPM.VerificationStatus.Valid {
-		pm.VerificationStatus = &dbPM.VerificationStatus.String
-	}
 	if dbPM.VerifiedAt.Valid {
 		pm.VerifiedAt = &dbPM.VerifiedAt.Time
 	}
-	if dbPM.DeactivatedAt.Valid {
-		pm.DeactivatedAt = &dbPM.DeactivatedAt.Time
+	if dbPM.StatusReason.Valid {
+		pm.StatusReason = &dbPM.StatusReason.String
 	}
-	if dbPM.DeactivationReason.Valid {
-		pm.DeactivationReason = &dbPM.DeactivationReason.String
+	if dbPM.StatusChangedAt.Valid {
+		pm.StatusChangedAt = &dbPM.StatusChangedAt.Time
 	}
-	if dbPM.VerificationFailureReason.Valid {
-		pm.VerificationFailureReason = &dbPM.VerificationFailureReason.String
+	if dbPM.PrenoteStatus.Valid {
+		pm.PrenoteStatus = &dbPM.PrenoteStatus.String
 	}
-	if dbPM.PrenoteTransactionID.Valid {
-		prenoteID := uuid.UUID(dbPM.PrenoteTransactionID.Bytes).String()
-		pm.PreNoteTransactionID = &prenoteID
+	if dbPM.PrenoteAttempts.Valid {
+		attempts := int(dbPM.PrenoteAttempts.Int32)
+		pm.PrenoteAttempts = &attempts
 	}
 
 	returnCount := int(dbPM.ReturnCount)

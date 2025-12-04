@@ -9,11 +9,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/pkg/pool"
 	"github.com/kevin07696/payment-service/pkg/resilience"
 	"go.uber.org/zap"
@@ -47,12 +48,24 @@ type ServerPostConfig struct {
 }
 
 // DefaultServerPostConfig returns default configuration for Server Post adapter
-func DefaultServerPostConfig(environment string) *ServerPostConfig {
-	baseURL := "https://epxnow.com/epx/server_post" // Production
-	socketEndpoint := "epxnow.com:8086"             // Production
+// Production endpoints must be set via environment variables:
+// - EPX_SERVER_POST_ENDPOINT: HTTPS POST endpoint
+// - EPX_SERVER_POST_SOCKET_ENDPOINT: XML Socket endpoint (host:port)
+func DefaultServerPostConfig(environment string) (*ServerPostConfig, error) {
+	var baseURL, socketEndpoint string
+
 	if environment == "sandbox" {
 		baseURL = "https://secure.epxuap.com"
 		socketEndpoint = "secure.epxuap.com:8087"
+	} else {
+		baseURL = os.Getenv("EPX_SERVER_POST_ENDPOINT")
+		if baseURL == "" {
+			return nil, fmt.Errorf("EPX_SERVER_POST_ENDPOINT environment variable is required for %s environment", environment)
+		}
+		socketEndpoint = os.Getenv("EPX_SERVER_POST_SOCKET_ENDPOINT")
+		if socketEndpoint == "" {
+			return nil, fmt.Errorf("EPX_SERVER_POST_SOCKET_ENDPOINT environment variable is required for %s environment", environment)
+		}
 	}
 
 	return &ServerPostConfig{
@@ -64,7 +77,7 @@ func DefaultServerPostConfig(environment string) *ServerPostConfig {
 		MaxRetries:         3,
 		RetryDelay:         1 * time.Second,
 		RetryableErrors:    []string{"timeout", "connection", "temporary"},
-	}
+	}, nil
 }
 
 // serverPostAdapter implements the ServerPostAdapter port
@@ -147,9 +160,16 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 
 	// Build form data
 	formData := a.buildFormData(req)
+	requestBody := formData.Encode()
+
+	// Log full request for certification/debugging (mask sensitive fields)
+	a.logger.Info("EPX Server Post request",
+		zap.String("url", a.config.BaseURL),
+		zap.String("request_body", requestBody),
+	)
 
 	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", a.config.BaseURL, strings.NewReader(formData.Encode()))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", a.config.BaseURL, strings.NewReader(requestBody))
 	if err != nil {
 		a.logger.Error("Failed to create HTTP request", zap.Error(err))
 		return nil, fmt.Errorf("failed to create request: %w", err)

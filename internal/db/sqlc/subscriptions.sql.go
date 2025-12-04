@@ -12,11 +12,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const advisoryUnlock = `-- name: AdvisoryUnlock :one
+SELECT pg_advisory_unlock($1::bigint) as released
+`
+
+// Releases an advisory lock. Returns true if lock was held and released.
+func (q *Queries) AdvisoryUnlock(ctx context.Context, lockID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, advisoryUnlock, lockID)
+	var released bool
+	err := row.Scan(&released)
+	return released, err
+}
+
 const cancelSubscription = `-- name: CancelSubscription :one
 UPDATE subscriptions
 SET status = $1, cancelled_at = $2, updated_at = CURRENT_TIMESTAMP
 WHERE id = $3
-RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at
 `
 
 type CancelSubscriptionParams struct {
@@ -47,8 +59,82 @@ func (q *Queries) CancelSubscription(ctx context.Context, arg CancelSubscription
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
 	)
 	return i, err
+}
+
+const cancelSubscriptionWithReason = `-- name: CancelSubscriptionWithReason :one
+UPDATE subscriptions
+SET
+    status = 'cancelled',
+    cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP),
+    cancellation_reason = COALESCE(cancellation_reason, $1),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+  AND deleted_at IS NULL
+RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at
+`
+
+type CancelSubscriptionWithReasonParams struct {
+	CancellationReason pgtype.Text `json:"cancellation_reason"`
+	ID                 uuid.UUID   `json:"id"`
+}
+
+// Cancels subscription with reason tracking (idempotent - won't overwrite existing cancellation)
+// Returns the subscription even if already cancelled (for idempotency)
+func (q *Queries) CancelSubscriptionWithReason(ctx context.Context, arg CancelSubscriptionWithReasonParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, cancelSubscriptionWithReason, arg.CancellationReason, arg.ID)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.MerchantID,
+		&i.CustomerID,
+		&i.AmountCents,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
+	)
+	return i, err
+}
+
+const clearBillingRetryBackoff = `-- name: ClearBillingRetryBackoff :exec
+UPDATE subscriptions
+SET
+    next_billing_retry_at = NULL,
+    last_billing_error = NULL,
+    last_billing_error_at = NULL,
+    failure_retry_count = 0,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+// Clears retry backoff after successful billing. Resets error tracking.
+func (q *Queries) ClearBillingRetryBackoff(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearBillingRetryBackoff, id)
+	return err
 }
 
 const countSubscriptions = `-- name: CountSubscriptions :one
@@ -85,7 +171,7 @@ INSERT INTO subscriptions (
     $9, $10,
     $11, $12,
     $13, $14
-) RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+) RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at
 `
 
 type CreateSubscriptionParams struct {
@@ -142,12 +228,18 @@ func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscription
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
 	)
 	return i, err
 }
 
 const getSubscriptionByID = `-- name: GetSubscriptionByID :one
-SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
+SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at FROM subscriptions
 WHERE id = $1
 `
 
@@ -173,6 +265,84 @@ func (q *Queries) GetSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscr
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
+	)
+	return i, err
+}
+
+const getSubscriptionByIDForUpdate = `-- name: GetSubscriptionByIDForUpdate :one
+SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at FROM subscriptions
+WHERE id = $1
+FOR UPDATE
+`
+
+// Locks the row for update to prevent race conditions during concurrent modifications
+func (q *Queries) GetSubscriptionByIDForUpdate(ctx context.Context, id uuid.UUID) (Subscription, error) {
+	row := q.db.QueryRow(ctx, getSubscriptionByIDForUpdate, id)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.MerchantID,
+		&i.CustomerID,
+		&i.AmountCents,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
+	)
+	return i, err
+}
+
+const getSubscriptionStats = `-- name: GetSubscriptionStats :one
+SELECT
+    COUNT(*) FILTER (WHERE status = 'active') as active_count,
+    COUNT(*) FILTER (WHERE status = 'paused') as paused_count,
+    COUNT(*) FILTER (WHERE status = 'past_due') as past_due_count,
+    COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled_count,
+    COUNT(*) FILTER (WHERE status = 'past_due' AND past_due_since + make_interval(days => grace_period_days) < CURRENT_TIMESTAMP) as expired_past_due_count
+FROM subscriptions
+WHERE ($1::uuid IS NULL OR merchant_id = $1)
+`
+
+type GetSubscriptionStatsRow struct {
+	ActiveCount         int64 `json:"active_count"`
+	PausedCount         int64 `json:"paused_count"`
+	PastDueCount        int64 `json:"past_due_count"`
+	CancelledCount      int64 `json:"cancelled_count"`
+	ExpiredPastDueCount int64 `json:"expired_past_due_count"`
+}
+
+// Gets subscription statistics for monitoring
+func (q *Queries) GetSubscriptionStats(ctx context.Context, merchantID pgtype.UUID) (GetSubscriptionStatsRow, error) {
+	row := q.db.QueryRow(ctx, getSubscriptionStats, merchantID)
+	var i GetSubscriptionStatsRow
+	err := row.Scan(
+		&i.ActiveCount,
+		&i.PausedCount,
+		&i.PastDueCount,
+		&i.CancelledCount,
+		&i.ExpiredPastDueCount,
 	)
 	return i, err
 }
@@ -182,9 +352,17 @@ UPDATE subscriptions
 SET
     failure_retry_count = $1,
     status = $2,
+    past_due_since = CASE
+        -- Transitioning TO past_due: set fresh timestamp
+        WHEN $2 = 'past_due' AND status != 'past_due' THEN CURRENT_TIMESTAMP
+        -- Leaving past_due status: clear the timestamp
+        WHEN $2 != 'past_due' AND status = 'past_due' THEN NULL
+        -- Otherwise keep existing value
+        ELSE past_due_since
+    END,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $3
-RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at
 `
 
 type IncrementSubscriptionFailureCountParams struct {
@@ -193,6 +371,9 @@ type IncrementSubscriptionFailureCountParams struct {
 	ID                uuid.UUID `json:"id"`
 }
 
+// Updates failure count and manages past_due_since timestamp:
+// - Sets past_due_since when transitioning TO past_due (fresh grace period)
+// - Clears past_due_since when leaving past_due status (e.g., successful retry)
 func (q *Queries) IncrementSubscriptionFailureCount(ctx context.Context, arg IncrementSubscriptionFailureCountParams) (Subscription, error) {
 	row := q.db.QueryRow(ctx, incrementSubscriptionFailureCount, arg.FailureRetryCount, arg.Status, arg.ID)
 	var i Subscription
@@ -215,6 +396,12 @@ func (q *Queries) IncrementSubscriptionFailureCount(ctx context.Context, arg Inc
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
 	)
 	return i, err
 }
@@ -231,7 +418,7 @@ func (q *Queries) IncrementSubscriptionRetryCount(ctx context.Context, id uuid.U
 }
 
 const listDueSubscriptions = `-- name: ListDueSubscriptions :many
-SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
+SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at FROM subscriptions
 WHERE status = 'active' AND next_billing_date <= $1
 ORDER BY next_billing_date ASC
 LIMIT $2
@@ -270,6 +457,69 @@ func (q *Queries) ListDueSubscriptions(ctx context.Context, arg ListDueSubscript
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CancelledAt,
+			&i.PastDueSince,
+			&i.GracePeriodDays,
+			&i.CancellationReason,
+			&i.NextBillingRetryAt,
+			&i.LastBillingError,
+			&i.LastBillingErrorAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExpiredPastDueSubscriptions = `-- name: ListExpiredPastDueSubscriptions :many
+SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at FROM subscriptions
+WHERE status = 'past_due'
+  AND past_due_since IS NOT NULL
+  AND deleted_at IS NULL
+  AND past_due_since + make_interval(days => grace_period_days) < CURRENT_TIMESTAMP
+ORDER BY past_due_since ASC
+LIMIT $1
+`
+
+// Lists subscriptions where grace period has expired and should be auto-cancelled
+// Uses make_interval for safer interval calculation
+func (q *Queries) ListExpiredPastDueSubscriptions(ctx context.Context, limitVal int32) ([]Subscription, error) {
+	rows, err := q.db.Query(ctx, listExpiredPastDueSubscriptions, limitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Subscription{}
+	for rows.Next() {
+		var i Subscription
+		if err := rows.Scan(
+			&i.ID,
+			&i.MerchantID,
+			&i.CustomerID,
+			&i.AmountCents,
+			&i.Currency,
+			&i.IntervalValue,
+			&i.IntervalUnit,
+			&i.Status,
+			&i.PaymentMethodID,
+			&i.NextBillingDate,
+			&i.FailureRetryCount,
+			&i.MaxRetries,
+			&i.GatewaySubscriptionID,
+			&i.Metadata,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CancelledAt,
+			&i.PastDueSince,
+			&i.GracePeriodDays,
+			&i.CancellationReason,
+			&i.NextBillingRetryAt,
+			&i.LastBillingError,
+			&i.LastBillingErrorAt,
 		); err != nil {
 			return nil, err
 		}
@@ -282,7 +532,7 @@ func (q *Queries) ListDueSubscriptions(ctx context.Context, arg ListDueSubscript
 }
 
 const listSubscriptions = `-- name: ListSubscriptions :many
-SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
+SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at FROM subscriptions
 WHERE
     ($1::uuid IS NULL OR merchant_id = $1) AND
     ($2::varchar IS NULL OR customer_id = $2) AND
@@ -333,6 +583,12 @@ func (q *Queries) ListSubscriptions(ctx context.Context, arg ListSubscriptionsPa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CancelledAt,
+			&i.PastDueSince,
+			&i.GracePeriodDays,
+			&i.CancellationReason,
+			&i.NextBillingRetryAt,
+			&i.LastBillingError,
+			&i.LastBillingErrorAt,
 		); err != nil {
 			return nil, err
 		}
@@ -345,7 +601,7 @@ func (q *Queries) ListSubscriptions(ctx context.Context, arg ListSubscriptionsPa
 }
 
 const listSubscriptionsByCustomer = `-- name: ListSubscriptionsByCustomer :many
-SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
+SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at FROM subscriptions
 WHERE merchant_id = $1 AND customer_id = $2
 ORDER BY created_at DESC
 `
@@ -383,6 +639,12 @@ func (q *Queries) ListSubscriptionsByCustomer(ctx context.Context, arg ListSubsc
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CancelledAt,
+			&i.PastDueSince,
+			&i.GracePeriodDays,
+			&i.CancellationReason,
+			&i.NextBillingRetryAt,
+			&i.LastBillingError,
+			&i.LastBillingErrorAt,
 		); err != nil {
 			return nil, err
 		}
@@ -395,8 +657,10 @@ func (q *Queries) ListSubscriptionsByCustomer(ctx context.Context, arg ListSubsc
 }
 
 const listSubscriptionsDueForBilling = `-- name: ListSubscriptionsDueForBilling :many
-SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at FROM subscriptions
-WHERE status = 'active' AND next_billing_date <= $1
+SELECT id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at FROM subscriptions
+WHERE status = 'active'
+  AND next_billing_date <= $1
+  AND (next_billing_retry_at IS NULL OR next_billing_retry_at <= CURRENT_TIMESTAMP)
 ORDER BY next_billing_date ASC
 LIMIT $2
 `
@@ -406,6 +670,10 @@ type ListSubscriptionsDueForBillingParams struct {
 	LimitVal        int32       `json:"limit_val"`
 }
 
+// Lists subscriptions due for billing, respecting retry backoff for transient errors.
+// A subscription is eligible if:
+//  1. status = 'active' AND next_billing_date <= as_of_date
+//  2. AND (no backoff scheduled OR backoff time has passed)
 func (q *Queries) ListSubscriptionsDueForBilling(ctx context.Context, arg ListSubscriptionsDueForBillingParams) ([]Subscription, error) {
 	rows, err := q.db.Query(ctx, listSubscriptionsDueForBilling, arg.NextBillingDate, arg.LimitVal)
 	if err != nil {
@@ -434,6 +702,12 @@ func (q *Queries) ListSubscriptionsDueForBilling(ctx context.Context, arg ListSu
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CancelledAt,
+			&i.PastDueSince,
+			&i.GracePeriodDays,
+			&i.CancellationReason,
+			&i.NextBillingRetryAt,
+			&i.LastBillingError,
+			&i.LastBillingErrorAt,
 		); err != nil {
 			return nil, err
 		}
@@ -445,6 +719,72 @@ func (q *Queries) ListSubscriptionsDueForBilling(ctx context.Context, arg ListSu
 	return items, nil
 }
 
+const reactivateSubscription = `-- name: ReactivateSubscription :one
+UPDATE subscriptions
+SET
+    status = 'active',
+    past_due_since = NULL,
+    failure_retry_count = 0,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND status = 'past_due'
+RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at
+`
+
+// Reactivates a past_due subscription (clears past_due_since, resets status)
+func (q *Queries) ReactivateSubscription(ctx context.Context, id uuid.UUID) (Subscription, error) {
+	row := q.db.QueryRow(ctx, reactivateSubscription, id)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.MerchantID,
+		&i.CustomerID,
+		&i.AmountCents,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
+	)
+	return i, err
+}
+
+const recordBillingFailure = `-- name: RecordBillingFailure :exec
+UPDATE subscriptions
+SET
+    last_billing_error = $1,
+    last_billing_error_at = CURRENT_TIMESTAMP,
+    failure_retry_count = failure_retry_count + 1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+`
+
+type RecordBillingFailureParams struct {
+	LastBillingError pgtype.Text `json:"last_billing_error"`
+	ID               uuid.UUID   `json:"id"`
+}
+
+// Records a billing failure without backoff (for permanent errors like card declined).
+// Increments retry count but does not schedule backoff.
+func (q *Queries) RecordBillingFailure(ctx context.Context, arg RecordBillingFailureParams) error {
+	_, err := q.db.Exec(ctx, recordBillingFailure, arg.LastBillingError, arg.ID)
+	return err
+}
+
 const resetSubscriptionRetryCount = `-- name: ResetSubscriptionRetryCount :exec
 UPDATE subscriptions
 SET failure_retry_count = 0, updated_at = CURRENT_TIMESTAMP
@@ -454,6 +794,43 @@ WHERE id = $1
 func (q *Queries) ResetSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, resetSubscriptionRetryCount, id)
 	return err
+}
+
+const setBillingRetryBackoff = `-- name: SetBillingRetryBackoff :exec
+UPDATE subscriptions
+SET
+    next_billing_retry_at = $1,
+    last_billing_error = $2,
+    last_billing_error_at = CURRENT_TIMESTAMP,
+    failure_retry_count = failure_retry_count + 1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $3
+`
+
+type SetBillingRetryBackoffParams struct {
+	NextBillingRetryAt pgtype.Timestamptz `json:"next_billing_retry_at"`
+	LastBillingError   pgtype.Text        `json:"last_billing_error"`
+	ID                 uuid.UUID          `json:"id"`
+}
+
+// Schedules next billing retry with backoff for transient errors (network issues).
+// Only use for transient errors - permanent failures should not set backoff.
+func (q *Queries) SetBillingRetryBackoff(ctx context.Context, arg SetBillingRetryBackoffParams) error {
+	_, err := q.db.Exec(ctx, setBillingRetryBackoff, arg.NextBillingRetryAt, arg.LastBillingError, arg.ID)
+	return err
+}
+
+const tryAdvisoryLock = `-- name: TryAdvisoryLock :one
+SELECT pg_try_advisory_lock($1::bigint) as acquired
+`
+
+// Tries to acquire an advisory lock (non-blocking). Returns true if lock acquired.
+// Use for preventing concurrent cron job execution.
+func (q *Queries) TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, tryAdvisoryLock, lockID)
+	var acquired bool
+	err := row.Scan(&acquired)
+	return acquired, err
 }
 
 const updateNextBillingDate = `-- name: UpdateNextBillingDate :exec
@@ -481,7 +858,7 @@ SET
     payment_method_id = $4,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $5
-RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at
 `
 
 type UpdateSubscriptionParams struct {
@@ -520,6 +897,12 @@ func (q *Queries) UpdateSubscription(ctx context.Context, arg UpdateSubscription
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
 	)
 	return i, err
 }
@@ -532,7 +915,7 @@ SET
     status = $3,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $4
-RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at
 `
 
 type UpdateSubscriptionBillingParams struct {
@@ -569,6 +952,59 @@ func (q *Queries) UpdateSubscriptionBilling(ctx context.Context, arg UpdateSubsc
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
+	)
+	return i, err
+}
+
+const updateSubscriptionGracePeriod = `-- name: UpdateSubscriptionGracePeriod :one
+UPDATE subscriptions
+SET
+    grace_period_days = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at
+`
+
+type UpdateSubscriptionGracePeriodParams struct {
+	GracePeriodDays int32     `json:"grace_period_days"`
+	ID              uuid.UUID `json:"id"`
+}
+
+// Updates the grace period for a subscription
+func (q *Queries) UpdateSubscriptionGracePeriod(ctx context.Context, arg UpdateSubscriptionGracePeriodParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, updateSubscriptionGracePeriod, arg.GracePeriodDays, arg.ID)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.MerchantID,
+		&i.CustomerID,
+		&i.AmountCents,
+		&i.Currency,
+		&i.IntervalValue,
+		&i.IntervalUnit,
+		&i.Status,
+		&i.PaymentMethodID,
+		&i.NextBillingDate,
+		&i.FailureRetryCount,
+		&i.MaxRetries,
+		&i.GatewaySubscriptionID,
+		&i.Metadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
 	)
 	return i, err
 }
@@ -577,7 +1013,7 @@ const updateSubscriptionStatus = `-- name: UpdateSubscriptionStatus :one
 UPDATE subscriptions
 SET status = $1, updated_at = CURRENT_TIMESTAMP
 WHERE id = $2
-RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at
+RETURNING id, merchant_id, customer_id, amount_cents, currency, interval_value, interval_unit, status, payment_method_id, next_billing_date, failure_retry_count, max_retries, gateway_subscription_id, metadata, deleted_at, created_at, updated_at, cancelled_at, past_due_since, grace_period_days, cancellation_reason, next_billing_retry_at, last_billing_error, last_billing_error_at
 `
 
 type UpdateSubscriptionStatusParams struct {
@@ -607,6 +1043,12 @@ func (q *Queries) UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscr
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelledAt,
+		&i.PastDueSince,
+		&i.GracePeriodDays,
+		&i.CancellationReason,
+		&i.NextBillingRetryAt,
+		&i.LastBillingError,
+		&i.LastBillingErrorAt,
 	)
 	return i, err
 }

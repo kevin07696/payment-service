@@ -200,14 +200,3 @@ func stringPtrToString(s *string) string {
 	return *s
 }
 
-// stdEntryClassToString converts proto StdEntryClass enum to EPX STD_ENTRY_CLASS string
-func stdEntryClassToString(sec paymentmethodv1.StdEntryClass) string {
-	switch sec {
-	case paymentmethodv1.StdEntryClass_STD_ENTRY_CLASS_PPD:
-		return "PPD"
-	case paymentmethodv1.StdEntryClass_STD_ENTRY_CLASS_WEB:
-		return "WEB"
-	default:
-		return ""
-	}
-}

@@ -12,15 +12,15 @@ import (
 )
 
 func TestGetMerchant_FromSeedData(t *testing.T) {
-	t.Skip("AgentService is gRPC-only (no HTTP REST endpoints). Use gRPC client to test agent/merchant management.")
+	t.Skip("MerchantService is gRPC-only (no HTTP REST endpoints). Use gRPC client to test merchant management.")
 
-	// NOTE: The AgentService is designed as an internal/admin-only service
-	// accessible via gRPC only. To test agent retrieval, use a gRPC client:
+	// NOTE: The MerchantService is designed as an internal/admin-only service
+	// accessible via gRPC only. To test merchant retrieval, use a gRPC client:
 	//
-	// import agentv1 "github.com/kevin07696/payment-service/proto/agent/v1"
+	// import merchantv1 "github.com/kevin07696/payment-service/proto/merchant/v1"
 	// conn, _ := grpc.Dial("localhost:8080", grpc.WithTransportCredentials(insecure.NewCredentials()))
-	// client := agentv1.NewAgentServiceClient(conn)
-	// resp, _ := client.GetAgent(ctx, &agentv1.GetAgentRequest{AgentId: "test-merchant-staging"})
+	// client := merchantv1.NewMerchantServiceClient(conn)
+	// resp, _ := client.GetMerchant(ctx, &merchantv1.GetMerchantRequest{MerchantId: "test-merchant-staging"})
 }
 
 func TestHealthCheck(t *testing.T) {

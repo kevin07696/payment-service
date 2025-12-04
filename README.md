@@ -42,8 +42,7 @@ curl http://localhost:8081/cron/health
 ```
 
 **Services Running:**
-- gRPC API: `localhost:8080`
-- HTTP endpoints: `http://localhost:8081`
+- Payment Server: `localhost:8081` (ConnectRPC + REST)
 - PostgreSQL: `localhost:5432`
 - Metrics: `http://localhost:9090/metrics`
 
@@ -222,22 +221,28 @@ make docker-down       # Stop all services
 Required environment variables (`.env` file):
 
 ```bash
+# Server & Environment
+PORT=8081
+ENVIRONMENT=development
+
 # Database
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable
 
-# EPX Credentials (from EPX merchant account)
+# Sandbox Merchant (auto-seeded on startup in dev/staging)
+SANDBOX_MERCHANT_ID=00000000-0000-0000-0000-000000000001
+SANDBOX_MERCHANT_SLUG=sandbox-merchant
+SANDBOX_MERCHANT_NAME=Sandbox Merchant
+
+# EPX Sandbox Credentials
 EPX_CUST_NBR=9001
 EPX_MERCH_NBR=900300
 EPX_DBA_NBR=2
 EPX_TERMINAL_NBR=77
-EPX_MAC_SECRET=your-mac-secret-here
+EPX_SANDBOX_MAC=your-sandbox-mac-here
 
 # EPX URLs (Sandbox)
-EPX_API_URL=https://api.epxuap.com
-EPX_BROWSER_POST_URL=https://services.epxuap.com/browserpost/
-
-# Server Configuration
-SERVICE_URL=http://localhost:8081
+EPX_SERVER_POST_ENDPOINT=https://secure.epxuap.com
+EPX_BROWSER_POST_ENDPOINT=https://services.epxuap.com/browserpost/
 ```
 
 **[Complete Setup Guide](../../wiki/EPX-Credentials#configuring-the-payment-service)** - Detailed environment configuration.

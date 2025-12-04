@@ -69,3 +69,25 @@ SELECT EXISTS(SELECT 1 FROM merchants WHERE id = sqlc.arg(id) AND deleted_at IS 
 SELECT * FROM merchants
 WHERE is_active = true AND deleted_at IS NULL
 ORDER BY created_at DESC;
+
+-- name: UpsertMerchant :one
+-- Upserts a merchant record for dynamic seeding from environment variables.
+-- Creates if not exists, updates credentials if exists (idempotent).
+INSERT INTO merchants (
+    id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr,
+    mac_secret_path, environment, is_active, name
+) VALUES (
+    sqlc.arg(id), sqlc.arg(slug), sqlc.arg(cust_nbr), sqlc.arg(merch_nbr), sqlc.arg(dba_nbr), sqlc.arg(terminal_nbr),
+    sqlc.arg(mac_secret_path), sqlc.arg(environment), sqlc.arg(is_active), sqlc.arg(name)
+)
+ON CONFLICT (id) DO UPDATE SET
+    cust_nbr = EXCLUDED.cust_nbr,
+    merch_nbr = EXCLUDED.merch_nbr,
+    dba_nbr = EXCLUDED.dba_nbr,
+    terminal_nbr = EXCLUDED.terminal_nbr,
+    mac_secret_path = EXCLUDED.mac_secret_path,
+    environment = EXCLUDED.environment,
+    name = EXCLUDED.name,
+    is_active = EXCLUDED.is_active,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING *;

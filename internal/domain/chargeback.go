@@ -42,7 +42,7 @@ type Chargeback struct {
 	Currency            string                 `json:"currency"`
 	CaseNumber          string                 `json:"case_number"`
 	ChargebackAmount    decimal.Decimal        `json:"chargeback_amount"`
-	AgentID             string                 `json:"agent_id"`
+	MerchantID          string                 `json:"merchant_id"`
 	TransactionID       string                 `json:"transaction_id"`
 	EvidenceFileURLs    []string               `json:"evidence_file_urls"`
 }

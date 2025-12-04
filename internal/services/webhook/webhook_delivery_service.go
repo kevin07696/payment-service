@@ -33,10 +33,10 @@ type WebhookDeliveryService struct {
 
 // WebhookEvent represents an event to be sent via webhook
 type WebhookEvent struct {
-	EventType string                 `json:"event_type"`
-	AgentID   string                 `json:"agent_id"`
-	Data      map[string]interface{} `json:"data"`
-	Timestamp time.Time              `json:"timestamp"`
+	EventType  string                 `json:"event_type"`
+	MerchantID string                 `json:"merchant_id"`
+	Data       map[string]interface{} `json:"data"`
+	Timestamp  time.Time              `json:"timestamp"`
 }
 
 // NewWebhookDeliveryService creates a new webhook delivery service
@@ -58,19 +58,19 @@ func NewWebhookDeliveryService(db DatabaseAdapter, httpClient *http.Client, logg
 func (s *WebhookDeliveryService) DeliverEvent(ctx context.Context, event *WebhookEvent) error {
 	s.logger.Info("Delivering webhook event",
 		zap.String("event_type", event.EventType),
-		zap.String("agent_id", event.AgentID),
+		zap.String("merchant_id", event.MerchantID),
 	)
 
 	// Find active webhook subscriptions for this event type
 	subscriptions, err := s.db.Queries().ListActiveWebhooksByEvent(ctx, sqlc.ListActiveWebhooksByEventParams{
-		AgentID:   event.AgentID,
-		EventType: event.EventType,
+		MerchantID: event.MerchantID,
+		EventType:  event.EventType,
 	})
 
 	if err != nil {
 		s.logger.Error("Failed to fetch webhook subscriptions",
 			zap.Error(err),
-			zap.String("agent_id", event.AgentID),
+			zap.String("merchant_id", event.MerchantID),
 			zap.String("event_type", event.EventType),
 		)
 		return fmt.Errorf("fetch webhook subscriptions: %w", err)
@@ -78,7 +78,7 @@ func (s *WebhookDeliveryService) DeliverEvent(ctx context.Context, event *Webhoo
 
 	if len(subscriptions) == 0 {
 		s.logger.Debug("No active webhook subscriptions found",
-			zap.String("agent_id", event.AgentID),
+			zap.String("merchant_id", event.MerchantID),
 			zap.String("event_type", event.EventType),
 		)
 		return nil

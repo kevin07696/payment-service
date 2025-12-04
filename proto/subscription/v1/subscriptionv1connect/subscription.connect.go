@@ -51,12 +51,9 @@ const (
 	// SubscriptionServiceGetSubscriptionProcedure is the fully-qualified name of the
 	// SubscriptionService's GetSubscription RPC.
 	SubscriptionServiceGetSubscriptionProcedure = "/subscription.v1.SubscriptionService/GetSubscription"
-	// SubscriptionServiceListCustomerSubscriptionsProcedure is the fully-qualified name of the
-	// SubscriptionService's ListCustomerSubscriptions RPC.
-	SubscriptionServiceListCustomerSubscriptionsProcedure = "/subscription.v1.SubscriptionService/ListCustomerSubscriptions"
-	// SubscriptionServiceProcessDueBillingProcedure is the fully-qualified name of the
-	// SubscriptionService's ProcessDueBilling RPC.
-	SubscriptionServiceProcessDueBillingProcedure = "/subscription.v1.SubscriptionService/ProcessDueBilling"
+	// SubscriptionServiceListSubscriptionsProcedure is the fully-qualified name of the
+	// SubscriptionService's ListSubscriptions RPC.
+	SubscriptionServiceListSubscriptionsProcedure = "/subscription.v1.SubscriptionService/ListSubscriptions"
 )
 
 // SubscriptionServiceClient is a client for the subscription.v1.SubscriptionService service.
@@ -73,10 +70,8 @@ type SubscriptionServiceClient interface {
 	ResumeSubscription(context.Context, *connect.Request[v1.ResumeSubscriptionRequest]) (*connect.Response[v1.SubscriptionResponse], error)
 	// GetSubscription retrieves subscription details
 	GetSubscription(context.Context, *connect.Request[v1.GetSubscriptionRequest]) (*connect.Response[v1.Subscription], error)
-	// ListCustomerSubscriptions lists all subscriptions for a customer
-	ListCustomerSubscriptions(context.Context, *connect.Request[v1.ListCustomerSubscriptionsRequest]) (*connect.Response[v1.ListCustomerSubscriptionsResponse], error)
-	// ProcessDueBilling processes subscriptions due for billing (internal/admin use)
-	ProcessDueBilling(context.Context, *connect.Request[v1.ProcessDueBillingRequest]) (*connect.Response[v1.ProcessDueBillingResponse], error)
+	// ListSubscriptions lists subscriptions with optional filters
+	ListSubscriptions(context.Context, *connect.Request[v1.ListSubscriptionsRequest]) (*connect.Response[v1.ListSubscriptionsResponse], error)
 }
 
 // NewSubscriptionServiceClient constructs a client for the subscription.v1.SubscriptionService
@@ -126,16 +121,10 @@ func NewSubscriptionServiceClient(httpClient connect.HTTPClient, baseURL string,
 			connect.WithSchema(subscriptionServiceMethods.ByName("GetSubscription")),
 			connect.WithClientOptions(opts...),
 		),
-		listCustomerSubscriptions: connect.NewClient[v1.ListCustomerSubscriptionsRequest, v1.ListCustomerSubscriptionsResponse](
+		listSubscriptions: connect.NewClient[v1.ListSubscriptionsRequest, v1.ListSubscriptionsResponse](
 			httpClient,
-			baseURL+SubscriptionServiceListCustomerSubscriptionsProcedure,
-			connect.WithSchema(subscriptionServiceMethods.ByName("ListCustomerSubscriptions")),
-			connect.WithClientOptions(opts...),
-		),
-		processDueBilling: connect.NewClient[v1.ProcessDueBillingRequest, v1.ProcessDueBillingResponse](
-			httpClient,
-			baseURL+SubscriptionServiceProcessDueBillingProcedure,
-			connect.WithSchema(subscriptionServiceMethods.ByName("ProcessDueBilling")),
+			baseURL+SubscriptionServiceListSubscriptionsProcedure,
+			connect.WithSchema(subscriptionServiceMethods.ByName("ListSubscriptions")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -143,14 +132,13 @@ func NewSubscriptionServiceClient(httpClient connect.HTTPClient, baseURL string,
 
 // subscriptionServiceClient implements SubscriptionServiceClient.
 type subscriptionServiceClient struct {
-	createSubscription        *connect.Client[v1.CreateSubscriptionRequest, v1.SubscriptionResponse]
-	updateSubscription        *connect.Client[v1.UpdateSubscriptionRequest, v1.SubscriptionResponse]
-	cancelSubscription        *connect.Client[v1.CancelSubscriptionRequest, v1.SubscriptionResponse]
-	pauseSubscription         *connect.Client[v1.PauseSubscriptionRequest, v1.SubscriptionResponse]
-	resumeSubscription        *connect.Client[v1.ResumeSubscriptionRequest, v1.SubscriptionResponse]
-	getSubscription           *connect.Client[v1.GetSubscriptionRequest, v1.Subscription]
-	listCustomerSubscriptions *connect.Client[v1.ListCustomerSubscriptionsRequest, v1.ListCustomerSubscriptionsResponse]
-	processDueBilling         *connect.Client[v1.ProcessDueBillingRequest, v1.ProcessDueBillingResponse]
+	createSubscription *connect.Client[v1.CreateSubscriptionRequest, v1.SubscriptionResponse]
+	updateSubscription *connect.Client[v1.UpdateSubscriptionRequest, v1.SubscriptionResponse]
+	cancelSubscription *connect.Client[v1.CancelSubscriptionRequest, v1.SubscriptionResponse]
+	pauseSubscription  *connect.Client[v1.PauseSubscriptionRequest, v1.SubscriptionResponse]
+	resumeSubscription *connect.Client[v1.ResumeSubscriptionRequest, v1.SubscriptionResponse]
+	getSubscription    *connect.Client[v1.GetSubscriptionRequest, v1.Subscription]
+	listSubscriptions  *connect.Client[v1.ListSubscriptionsRequest, v1.ListSubscriptionsResponse]
 }
 
 // CreateSubscription calls subscription.v1.SubscriptionService.CreateSubscription.
@@ -183,14 +171,9 @@ func (c *subscriptionServiceClient) GetSubscription(ctx context.Context, req *co
 	return c.getSubscription.CallUnary(ctx, req)
 }
 
-// ListCustomerSubscriptions calls subscription.v1.SubscriptionService.ListCustomerSubscriptions.
-func (c *subscriptionServiceClient) ListCustomerSubscriptions(ctx context.Context, req *connect.Request[v1.ListCustomerSubscriptionsRequest]) (*connect.Response[v1.ListCustomerSubscriptionsResponse], error) {
-	return c.listCustomerSubscriptions.CallUnary(ctx, req)
-}
-
-// ProcessDueBilling calls subscription.v1.SubscriptionService.ProcessDueBilling.
-func (c *subscriptionServiceClient) ProcessDueBilling(ctx context.Context, req *connect.Request[v1.ProcessDueBillingRequest]) (*connect.Response[v1.ProcessDueBillingResponse], error) {
-	return c.processDueBilling.CallUnary(ctx, req)
+// ListSubscriptions calls subscription.v1.SubscriptionService.ListSubscriptions.
+func (c *subscriptionServiceClient) ListSubscriptions(ctx context.Context, req *connect.Request[v1.ListSubscriptionsRequest]) (*connect.Response[v1.ListSubscriptionsResponse], error) {
+	return c.listSubscriptions.CallUnary(ctx, req)
 }
 
 // SubscriptionServiceHandler is an implementation of the subscription.v1.SubscriptionService
@@ -208,10 +191,8 @@ type SubscriptionServiceHandler interface {
 	ResumeSubscription(context.Context, *connect.Request[v1.ResumeSubscriptionRequest]) (*connect.Response[v1.SubscriptionResponse], error)
 	// GetSubscription retrieves subscription details
 	GetSubscription(context.Context, *connect.Request[v1.GetSubscriptionRequest]) (*connect.Response[v1.Subscription], error)
-	// ListCustomerSubscriptions lists all subscriptions for a customer
-	ListCustomerSubscriptions(context.Context, *connect.Request[v1.ListCustomerSubscriptionsRequest]) (*connect.Response[v1.ListCustomerSubscriptionsResponse], error)
-	// ProcessDueBilling processes subscriptions due for billing (internal/admin use)
-	ProcessDueBilling(context.Context, *connect.Request[v1.ProcessDueBillingRequest]) (*connect.Response[v1.ProcessDueBillingResponse], error)
+	// ListSubscriptions lists subscriptions with optional filters
+	ListSubscriptions(context.Context, *connect.Request[v1.ListSubscriptionsRequest]) (*connect.Response[v1.ListSubscriptionsResponse], error)
 }
 
 // NewSubscriptionServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -257,16 +238,10 @@ func NewSubscriptionServiceHandler(svc SubscriptionServiceHandler, opts ...conne
 		connect.WithSchema(subscriptionServiceMethods.ByName("GetSubscription")),
 		connect.WithHandlerOptions(opts...),
 	)
-	subscriptionServiceListCustomerSubscriptionsHandler := connect.NewUnaryHandler(
-		SubscriptionServiceListCustomerSubscriptionsProcedure,
-		svc.ListCustomerSubscriptions,
-		connect.WithSchema(subscriptionServiceMethods.ByName("ListCustomerSubscriptions")),
-		connect.WithHandlerOptions(opts...),
-	)
-	subscriptionServiceProcessDueBillingHandler := connect.NewUnaryHandler(
-		SubscriptionServiceProcessDueBillingProcedure,
-		svc.ProcessDueBilling,
-		connect.WithSchema(subscriptionServiceMethods.ByName("ProcessDueBilling")),
+	subscriptionServiceListSubscriptionsHandler := connect.NewUnaryHandler(
+		SubscriptionServiceListSubscriptionsProcedure,
+		svc.ListSubscriptions,
+		connect.WithSchema(subscriptionServiceMethods.ByName("ListSubscriptions")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/subscription.v1.SubscriptionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -283,10 +258,8 @@ func NewSubscriptionServiceHandler(svc SubscriptionServiceHandler, opts ...conne
 			subscriptionServiceResumeSubscriptionHandler.ServeHTTP(w, r)
 		case SubscriptionServiceGetSubscriptionProcedure:
 			subscriptionServiceGetSubscriptionHandler.ServeHTTP(w, r)
-		case SubscriptionServiceListCustomerSubscriptionsProcedure:
-			subscriptionServiceListCustomerSubscriptionsHandler.ServeHTTP(w, r)
-		case SubscriptionServiceProcessDueBillingProcedure:
-			subscriptionServiceProcessDueBillingHandler.ServeHTTP(w, r)
+		case SubscriptionServiceListSubscriptionsProcedure:
+			subscriptionServiceListSubscriptionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -320,10 +293,6 @@ func (UnimplementedSubscriptionServiceHandler) GetSubscription(context.Context, 
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("subscription.v1.SubscriptionService.GetSubscription is not implemented"))
 }
 
-func (UnimplementedSubscriptionServiceHandler) ListCustomerSubscriptions(context.Context, *connect.Request[v1.ListCustomerSubscriptionsRequest]) (*connect.Response[v1.ListCustomerSubscriptionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("subscription.v1.SubscriptionService.ListCustomerSubscriptions is not implemented"))
-}
-
-func (UnimplementedSubscriptionServiceHandler) ProcessDueBilling(context.Context, *connect.Request[v1.ProcessDueBillingRequest]) (*connect.Response[v1.ProcessDueBillingResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("subscription.v1.SubscriptionService.ProcessDueBilling is not implemented"))
+func (UnimplementedSubscriptionServiceHandler) ListSubscriptions(context.Context, *connect.Request[v1.ListSubscriptionsRequest]) (*connect.Response[v1.ListSubscriptionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("subscription.v1.SubscriptionService.ListSubscriptions is not implemented"))
 }

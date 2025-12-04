@@ -24,17 +24,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o payment-server \
     ./cmd/server
 
-# Build the admin CLI
+# Build the paycli CLI
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-w -s" \
-    -o admin \
-    ./cmd/admin
-
-# Build the seed CLI
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-w -s" \
-    -o seed \
-    ./cmd/seed
+    -o paycli \
+    ./cmd/paycli
 
 # Install goose for database migrations
 RUN go install github.com/pressly/goose/v3/cmd/goose@latest
@@ -56,11 +50,8 @@ WORKDIR /home/appuser
 # Copy binary from builder with correct ownership
 COPY --from=builder --chown=appuser:appuser /app/payment-server .
 
-# Copy admin CLI from builder
-COPY --from=builder --chown=appuser:appuser /app/admin .
-
-# Copy seed CLI from builder
-COPY --from=builder --chown=appuser:appuser /app/seed .
+# Copy paycli CLI from builder
+COPY --from=builder --chown=appuser:appuser /app/paycli .
 
 # Copy goose binary from builder
 COPY --from=builder --chown=appuser:appuser /go/bin/goose /usr/local/bin/goose
@@ -78,13 +69,10 @@ RUN mkdir -p secrets && chown appuser:appuser secrets
 # Switch to non-root user
 USER appuser
 
-# Expose ports
-# 8080: gRPC server
-# 8081: HTTP server (cron endpoints + Browser Post)
-EXPOSE 8080 8081
+# Expose port (unified for ConnectRPC + REST)
+EXPOSE 8081
 
 # Health check for container orchestration
-# Using curl for consistency with cloud-init docker-compose
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8081/cron/health || exit 1
 

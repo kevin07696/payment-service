@@ -27,14 +27,26 @@ const (
 	IntervalUnitYear  IntervalUnit = "year"
 )
 
+// CancellationReason represents why a subscription was cancelled
+type CancellationReason string
+
+const (
+	CancellationReasonUserRequested     CancellationReason = "user_requested"
+	CancellationReasonPaymentFailed     CancellationReason = "payment_failed"
+	CancellationReasonGracePeriodExpired CancellationReason = "grace_period_expired"
+	CancellationReasonAdmin             CancellationReason = "admin"
+)
+
 // Subscription represents a recurring billing subscription
 type Subscription struct {
 	NextBillingDate       time.Time              `json:"next_billing_date"`
 	UpdatedAt             time.Time              `json:"updated_at"`
 	CreatedAt             time.Time              `json:"created_at"`
 	CancelledAt           *time.Time             `json:"cancelled_at"`
+	PastDueSince          *time.Time             `json:"past_due_since,omitempty"`
 	Metadata              map[string]interface{} `json:"metadata"`
 	GatewaySubscriptionID *string                `json:"gateway_subscription_id"`
+	CancellationReason    *string                `json:"cancellation_reason,omitempty"`
 	Currency              string                 `json:"currency"`
 	Status                SubscriptionStatus     `json:"status"`
 	IntervalUnit          IntervalUnit           `json:"interval_unit"`
@@ -45,6 +57,7 @@ type Subscription struct {
 	IntervalValue         int                    `json:"interval_value"`
 	FailureRetryCount     int                    `json:"failure_retry_count"`
 	MaxRetries            int                    `json:"max_retries"`
+	GracePeriodDays       int                    `json:"grace_period_days"`
 	AmountCents           int64                  `json:"amount_cents"`
 }
 
@@ -56,6 +69,20 @@ func (s *Subscription) IsActive() bool {
 // IsCancelled returns true if the subscription has been cancelled
 func (s *Subscription) IsCancelled() bool {
 	return s.Status == SubscriptionStatusCancelled || s.CancelledAt != nil
+}
+
+// IsPastDue returns true if the subscription is past due
+func (s *Subscription) IsPastDue() bool {
+	return s.Status == SubscriptionStatusPastDue
+}
+
+// IsGracePeriodExpired returns true if the subscription is past due and grace period has expired
+func (s *Subscription) IsGracePeriodExpired() bool {
+	if s.Status != SubscriptionStatusPastDue || s.PastDueSince == nil {
+		return false
+	}
+	gracePeriodEnd := s.PastDueSince.AddDate(0, 0, s.GracePeriodDays)
+	return timeutil.Now().After(gracePeriodEnd)
 }
 
 // CanBeBilled returns true if the subscription is due for billing

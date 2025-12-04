@@ -7,6 +7,674 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-12-04)
+
+**Service Update CLI Command**
+
+Added `update-service` command to paycli for modifying existing service configurations.
+
+```bash
+# Interactive mode
+./paycli -action=update-service
+
+# JSON mode
+./paycli -action=update-service -json=update-service.json
+```
+
+**Capabilities:**
+- Update service display name
+- Modify rate limits (requests_per_second, burst_limit)
+- Activate/deactivate services
+- Rotate RSA keypair (generates new credentials file)
+
+**JSON format:**
+```json
+{
+  "service_id": "my-app",
+  "service_name": "New Name",
+  "requests_per_second": 2000,
+  "burst_limit": 4000,
+  "is_active": true,
+  "rotate_key": false
+}
+```
+
+**Pagination for List Endpoints**
+
+Added pagination support to `ListPaymentMethods` and `ListSubscriptions` ConnectRPC endpoints:
+- `limit` parameter (default: 100, max: 1000)
+- `offset` parameter for pagination
+- `total_count` in response for client-side pagination UI
+
+**Real Billing Stats Endpoint**
+
+Updated `/cron/stats` endpoint to return real subscription counts from database instead of placeholder data:
+- `total_subscriptions`
+- `active_subscriptions`
+- `paused_subscriptions`
+- `past_due_subscriptions`
+- `cancelled_subscriptions`
+
+---
+
+### Fixed (2025-12-04)
+
+**Documentation Fixes**
+
+- Fixed JWT example in `GETTING_STARTED.md` to match `TOKEN_GENERATION.md`:
+  - Changed `sub` claim from merchant_id to service_id
+  - Removed unnecessary `merchant_id` and `service_id` fields from token
+  - Fixed scope names: `payment:create` → `payments:create`
+  - Added missing `nbf` and `jti` claims
+
+- Fixed environment variable naming in `.env.production.example` and `.env.staging.example`:
+  - Renamed `EPX_MAC_SECRET` → `EPX_SANDBOX_MAC` to match code
+  - Production now correctly comments out the variable (uses per-merchant MACs from DB)
+
+---
+
+### Removed (2025-12-04)
+
+**Deleted Redundant Protos and Commands**
+
+Cleaned up redundant code that duplicated CLI functionality or was no longer needed:
+
+**Protos Removed:**
+- `proto/admin/v1/` - AdminService proto (redundant with paycli)
+- `proto/agent/v1/` - AgentService proto (unused)
+- `proto/subscription/v1/subscription.pb.gw.go` - grpc-gateway (using ConnectRPC)
+- `proto/payment/v1/payment.pb.gw.go` - grpc-gateway (using ConnectRPC)
+
+**Commands Removed:**
+- `cmd/admin/` - Merged functionality into `cmd/paycli/`
+- `cmd/jwtgen/` - Token generation merged into paycli (`-action=generate-token`)
+- `cmd/seed/` - Replaced by auto-seeding on server startup
+- `cmd/connect-poc/` - Proof of concept cleanup
+
+**RPCs Removed:**
+- `ProcessDueBilling` from SubscriptionService - Billing runs via HTTP cron endpoint (`/cron/process-billing`)
+
+**Ports Consolidation:**
+- Consolidated all port interfaces into `internal/ports/`
+- Removed duplicate directories: `internal/adapters/ports/`, `internal/services/ports/`
+
+**Archive Cleanup:**
+- Moved historical analysis and planning docs to `docs/archive/`
+
+---
+
+### Changed (2025-12-04)
+
+**Simplified ACH API**
+
+Removed `std_entry_class` from the public API (SaleRequest proto). ACH transactions now automatically default to WEB (internet-initiated). For subscriptions, the billing service automatically uses PPD.
+
+- Removed `std_entry_class` field from `payment.v1.SaleRequest`
+- Removed dead code: `stdEntryClassToString` converter function
+- Removed unused grpc-gateway files (*.pb.gw.go) - project uses ConnectRPC
+
+**Simplified Sandbox Merchant Seeding**
+
+Refactored the seeding system to automatically seed the sandbox merchant on server startup in development/staging environments.
+
+**Changes:**
+- **Auto-seeding**: Sandbox merchant is now automatically created on server startup when `ENVIRONMENT != production`
+- **Environment variables**: All sandbox configuration now comes from environment variables (no hardcoded defaults)
+- **Removed CLI seed commands**: `paycli -action=seed` and `paycli -action=seed-dev` removed (use auto-seeding instead)
+- **Renamed**: `EPX_MAC_SECRET` → `EPX_SANDBOX_MAC` for clarity
+
+**New Environment Variables:**
+```bash
+# Sandbox Merchant Identity
+SANDBOX_MERCHANT_ID=00000000-0000-0000-0000-000000000001
+SANDBOX_MERCHANT_SLUG=sandbox-merchant
+SANDBOX_MERCHANT_NAME=Sandbox Merchant
+
+# EPX Sandbox Credentials
+EPX_CUST_NBR=9001
+EPX_MERCH_NBR=900300
+EPX_DBA_NBR=2
+EPX_TERMINAL_NBR=77
+EPX_SANDBOX_MAC=your-sandbox-mac-here
+```
+
+**Migration:**
+- Update `.env` files with new `SANDBOX_MERCHANT_*` variables
+- Rename `EPX_MAC_SECRET` to `EPX_SANDBOX_MAC`
+- Remove any `SEED_*` variables (no longer used)
+- For additional merchants, use: `./paycli -action=create-merchant`
+
+---
+
+### Added (2025-12-03)
+
+**EPX Transaction Specifications Compliance Review**
+
+Completed comprehensive review of EPX payment processor documentation to ensure compliance with card network requirements for our subscription-based business model.
+
+**Transaction Types Reviewed:**
+| Specification | Purpose | Status |
+|--------------|---------|--------|
+| EPX Ecommerce Trans Specs | Web-initiated payments | Compliant |
+| EPX MOTO Trans Specs | Phone order payments | Compliant |
+| EPX Card on File/Recurring Specs | Subscriptions & stored cards | Compliant |
+
+**Key ACI_EXT (Authorization Characteristics Indicator Extension) Values:**
+| Code | Description | Card Types | Our Usage |
+|------|-------------|------------|-----------|
+| RB | Recurring Billing | All cards | Subscription payments |
+| IP | Installment Payment | Discover, MC, Visa | Future: payment plans |
+| UP | Unscheduled Payment (MIT) | Discover, MC, Visa | Account top-ups |
+| SA | Subscription/Standing Auth | Discover, MC, Visa | Variable subscriptions |
+| CA | AFD Completion Advice | Visa | Auto-fuel (N/A) |
+| DS | Delayed Card Sale | Discover, MC, Visa | Travel (N/A) |
+| NS | No Show Charge | Discover, MC, Visa | Hospitality (N/A) |
+| RA | Re-authorization | Discover, Visa | Auth extensions |
+| RS | Resubmission of Card Sale | Discover, MC, Visa | Failed payment retry |
+
+**Card Entry Methods (CARD_ENT_METH) for COF/MIT:**
+| Value | Description | Our Implementation |
+|-------|-------------|-------------------|
+| Z | BRIC/GUID Token Transaction | Using EPX tokens for stored cards |
+| 6 | PAN via COF (Merchant's Card on File) | Fallback for PAN-based COF |
+| E | Ecommerce Key Entry | Initial card collection |
+
+**COF_PERIOD Configuration:**
+- Default: 13 months (EPX auto-sets if not provided)
+- Configurable: 1-24 months for BRIC/GUID availability
+- Value 0: Disable COF (one-time transactions only)
+
+**Recurring/Subscription Implementation Notes:**
+1. **First Payment (Customer-Initiated)**:
+   - No ACI_EXT field
+   - Regular sale transaction (CCE1)
+   - Returns AUTH_GUID and AUTH_TRAN_IDENT for COF linking
+
+2. **Subsequent Payments (Merchant-Initiated)**:
+   - Include ACI_EXT=RB for recurring billing
+   - Include CARD_ENT_METH=Z for BRIC-based
+   - Include ORIG_AUTH_GUID for transaction linkage
+
+3. **Required Response Fields to Store:**
+   - AUTH_GUID: EPX BRIC token (for subsequent transactions)
+   - AUTH_TRAN_IDENT: Network Transaction ID (for PAN-based COF)
+   - AUTH_AMOUNT: Original auth amount (for COF compliance)
+
+**ACH SEC Codes Integration:**
+| SEC Code | ACI_EXT Equivalent | Use Case |
+|----------|-------------------|----------|
+| WEB | N/A (ecommerce default) | Web-initiated one-time ACH |
+| TEL | N/A (MOTO default) | Phone-initiated ACH |
+| PPD | Similar to RB | Prearranged/recurring ACH |
+| CCD | N/A | Corporate ACH payments |
+
+**Compliance Checklist:**
+- [x] Store AUTH_GUID for subsequent transactions
+- [x] Store AUTH_TRAN_IDENT for PAN-based COF
+- [x] Use ACI_EXT=RB for recurring payments
+- [x] Use CARD_ENT_METH=Z for BRIC-based transactions
+- [x] First recurring payment: no ACI_EXT (customer-initiated)
+- [x] Use PPD SEC code for ACH subscriptions
+- [x] BRIC renewal: each transaction renews 13-month window
+
+---
+
+**ACH Standard Entry Class (SEC) Support**
+
+Added `std_entry_class` field to ACH transactions to support NACHA SEC code requirements:
+
+**Proto Changes:**
+- Added `std_entry_class` field (enum) to `SaleRequest` in `payment.proto`
+- Uses `StdEntryClass` enum from `payment_method.proto`: WEB, TEL, PPD, CCD
+
+**Handler/Service Changes:**
+- Payment handler now passes `std_entry_class` from proto to service
+- Payment service passes `StdEntryClass` to EPX `ServerPostRequest`
+- Subscription billing automatically uses PPD for ACH subscriptions
+
+**SEC Code Usage:**
+| Code | Description | Use Case |
+|------|-------------|----------|
+| WEB | Internet-initiated | Web checkout (default for web apps) |
+| TEL | Telephone-initiated | Phone orders |
+| PPD | Prearranged Payment | Recurring/subscription billing |
+| CCD | Corporate Credit/Debit | Business-to-business |
+
+**Test Results (2025-12-03):**
+All ACH Sale transactions with `std_entry_class` verified against EPX sandbox:
+
+| std_entry_class | Amount | Status | Auth Code |
+|----------------|--------|--------|-----------|
+| `STD_ENTRY_CLASS_WEB` | $15.00 | APPROVED | 182352 |
+| `STD_ENTRY_CLASS_TEL` | $20.00 | APPROVED | 705483 |
+| `STD_ENTRY_CLASS_PPD` | $25.00 | APPROVED | 393511 |
+| `STD_ENTRY_CLASS_CCD` | $30.00 | APPROVED | 226682 |
+
+---
+
+**Configurable Environment Variables for Cron and Subscription Settings**
+
+Added environment variables to make previously hardcoded values configurable:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CRON_JOB_TIMEOUT_SECONDS` | 300 | Timeout for cron jobs (5 min) |
+| `CRON_DEFAULT_BATCH_SIZE` | 100 | Default batch size for cron jobs |
+| `CRON_MAX_BATCH_SIZE` | 1000 | Maximum allowed batch size |
+| `SUBSCRIPTION_DEFAULT_MAX_RETRIES` | 3 | Max retries before `past_due` |
+| `SUBSCRIPTION_DEFAULT_GRACE_PERIOD_DAYS` | 30 | Grace period before auto-cancel |
+| `SUBSCRIPTION_RETRY_BASE_DELAY_SECS` | 300 | Base delay for transient error backoff (5 min) |
+| `SUBSCRIPTION_RETRY_MAX_DELAY_SECS` | 7200 | Max delay for transient error backoff (2 hr) |
+| `SUBSCRIPTION_RETRY_MULTIPLIER` | 2.0 | Backoff multiplier |
+
+**Conditional Exponential Backoff for Billing Retries**
+
+Implemented smart retry logic that backs off only for transient errors:
+
+**Database Changes (Migration 030):**
+- `next_billing_retry_at` - Scheduled time for next billing retry attempt
+- `last_billing_error` - Stores last billing error for debugging
+- `last_billing_error_at` - When the last error occurred
+
+**New SQL Queries:**
+- `SetBillingRetryBackoff` - Schedule retry with backoff for transient errors
+- `ClearBillingRetryBackoff` - Clear backoff after successful billing
+- `RecordBillingFailure` - Record failure without backoff for permanent errors
+- Updated `ListSubscriptionsDueForBilling` to respect `next_billing_retry_at`
+
+**Retry Logic:**
+- **Transient errors** (timeout, connection, network, 502/503/504): Exponential backoff
+  - Schedule: 5min → 10min → 20min → 40min → ... (capped at 2hr)
+  - Jitter: ±10% to prevent thundering herd
+- **Permanent errors** (card declined, insufficient funds): No backoff
+  - Will retry on next cron run
+  - Error tracked for debugging
+
+**Transient Error Detection:**
+- Detects: timeout, connection, network, temporary, unavailable, 502, 503, 504, gateway, econnrefused, econnreset
+
+---
+
+### Fixed (2025-12-03)
+
+**Critical Concurrency and Safety Fixes for Expired Past-Due Processing**
+
+Fixed critical issues identified in code review for the auto-cancellation feature:
+
+**Race Condition Prevention:**
+- Added `GetSubscriptionByIDForUpdate` query with `SELECT ... FOR UPDATE` for row-level locking
+- `cancelExpiredSubscription()` now validates status hasn't changed before cancelling
+- Validates grace period hasn't been extended since batch was fetched
+
+**Distributed Locking:**
+- Added `TryAdvisoryLock` and `AdvisoryUnlock` queries for PostgreSQL advisory locks
+- `ProcessExpiredPastDue()` acquires advisory lock to prevent concurrent cron runs
+- Lock ID: `0x70617374647565` ("pastdue" in hex)
+
+**Idempotent Cancellation:**
+- `CancelSubscriptionWithReason` now uses `COALESCE` to preserve existing values
+- Won't overwrite `cancelled_at` or `cancellation_reason` if already set
+- Safe for retry scenarios
+
+**Past-Due Timestamp Management:**
+- Fixed `IncrementSubscriptionFailureCount` CASE logic:
+  - Sets `past_due_since` when transitioning TO `past_due` (fresh grace period)
+  - Clears `past_due_since` when leaving `past_due` (e.g., successful retry reactivates)
+  - Preserves existing value otherwise
+
+**Context Timeout:**
+- Added configurable timeout to both cron handlers (`ProcessBilling`, `ProcessExpiredPastDue`)
+- Configurable via `CRON_JOB_TIMEOUT_SECONDS` environment variable (default: 300 = 5 minutes)
+- Prevents runaway jobs from consuming resources indefinitely
+
+**Safer SQL:**
+- Changed `past_due_since + (grace_period_days || ' days')::interval` to `make_interval(days => grace_period_days)`
+
+---
+
+### Added (2025-12-03)
+
+**Automatic Cancellation of Expired Past-Due Subscriptions**
+
+Implemented automatic cancellation of subscriptions that remain in `past_due` status beyond their grace period.
+
+**Database Changes:**
+- Migration 029: Added subscription grace period tracking
+  - `past_due_since` (TIMESTAMPTZ, nullable) - When subscription entered past_due status
+  - `grace_period_days` (INTEGER, default 30) - Configurable grace period per subscription
+  - `cancellation_reason` (VARCHAR(50), nullable) - Tracks why subscription was cancelled
+- Index for efficient past_due cleanup queries
+
+**New SQL Queries:**
+- `ListExpiredPastDueSubscriptions` - Finds subscriptions where grace period expired
+- `CancelSubscriptionWithReason` - Cancels with reason tracking
+- `ReactivateSubscription` - Reactivates past_due subscriptions
+- `GetSubscriptionStats` - Monitoring statistics
+
+**Service Layer:**
+- `ProcessExpiredPastDue(ctx, batchSize)` - Auto-cancels expired subscriptions
+- `cancelExpiredSubscription()` - Internal cancellation with reason
+
+**Cron Endpoint:**
+- `POST /cron/process-expired-past-due` - Triggers expired past_due processing
+- Batch processing with configurable size (default 100, max 1000)
+
+**Status Transitions:**
+- `active` → `past_due` (billing failed, max retries reached) - sets `past_due_since`
+- `past_due` → `cancelled` (grace period expired) - sets `cancellation_reason = 'grace_period_expired'`
+
+**Domain Model Updates:**
+- Added `PastDueSince`, `GracePeriodDays`, `CancellationReason` fields
+- Added `CancellationReason` type with constants
+- Added `IsPastDue()`, `IsGracePeriodExpired()` helper methods
+
+---
+
+**Order ID Support for Transactions**
+
+Added `order_id` field to transactions table allowing merchants to link transactions to their external order/invoice system.
+
+**Database Changes:**
+- Migration 028: Added nullable `order_id` VARCHAR(255) column to transactions table
+- Partial indexes for efficient `merchant_id + order_id` and `merchant_id + customer_id + order_id` lookups
+- New query `ListTransactionsByOrderID` for retrieving all transactions for an order
+
+**API Changes:**
+- `AuthorizeRequest`: Added optional `order_id` field
+- `SaleRequest`: Added optional `order_id` field
+- `ListTransactionsRequest`: Added `order_id` filter
+- `Transaction`: Added `order_id` field in response
+
+**Usage:**
+- Nullable: Some transactions don't have orders (prenote, tokenization)
+- Multiple transactions can share the same `order_id` (AUTH → CAPTURE → REFUND chain)
+- Filter transactions by merchant + order to see complete order payment history
+
+### Documentation (2025-12-03)
+
+**Fixed Browser Post Form Documentation to Match Working Implementation**
+
+The `docs/integration/BROWSER_POST_FORM_SETUP.md` documentation was corrected to match the actual working Browser Post implementation verified against EPX:
+
+**Required Hidden Fields Updated:**
+- Added `CUST_NBR`, `MERCH_NBR`, `DBA_NBR`, `TERMINAL_NBR` (merchant credentials) - required in form
+- Added `AMOUNT` - required in form (was incorrectly documented as embedded in TAC)
+- Added `INDUSTRY_TYPE` - moved from optional to required
+- Removed `REDIRECT_URL` - this is embedded in TAC during Key Exchange, NOT sent in form
+
+**HTML Form Examples Fixed:**
+- Basic Payment Form: added merchant credentials, amount
+- Credit Card Storage Form: added merchant credentials, amount (0.00)
+- ACH Bank Account Storage Form: added merchant credentials, amount (0.00)
+- ACH Storage Fields Reference form: added merchant credentials
+
+**JavaScript Examples Fixed:**
+- `createPaymentForm()`: added merchant credentials from config response
+- Card Storage `initializeForm()`: added merchant credentials
+- ACH Storage `initializeForm()`: added merchant credentials
+
+**EPX_API_REFERENCE.md Fixes:**
+- Fixed production Server Post URL: `https://epxnow.com/epx/server_post` (was incorrectly `https://secure.epxnow.com`)
+- Fixed Browser Post TRAN_CODE values: `SALE`, `AUTH`, `STORAGE`, `ACH_STORAGE_C`, `ACH_STORAGE_S` (was using outdated `U` and `A` codes)
+
+**Verification:**
+- All API endpoints tested and working (Sale, Refund, Void)
+- All Browser Post form configurations tested (SALE, AUTH, STORAGE, ACH_STORAGE_C, ACH_STORAGE_S)
+- Browser Post integration tests pass via headless Chrome
+
+### Documentation (2025-12-02)
+
+**Code Review Against Official North API Guides**
+
+Conducted full code review of EPX adapter implementations against official North Developer API Integration Guides (Browser Post and Server Post PDFs).
+
+**MODULE_INTEGRATION.md Fixes:**
+- Removed references to non-existent `BRICStorageAdapter` interface
+- BRIC storage is handled through `ServerPostAdapter` using `TransactionTypeBRICStorageCC/ACH`
+- Updated `initEPXAdapters()` to return 3 adapters instead of 4
+- Updated `initPaymentServices()` to remove `bricStorage` parameter
+- Updated main.go example code to match new signature
+
+**WEBHOOK_ARCHITECTURE.md Fixes:**
+- Standardized `agent_id` to `merchant_id` throughout documentation
+- Updated database schema example to use `merchant_id UUID NOT NULL`
+- Updated webhook event payload examples to use `"merchant_id"` field
+- Updated Go code example to use `MerchantID` instead of `AgentID`
+- Changed version to 1.1
+
+**Documentation Organization:**
+- Moved `docs/certification_sheets.md` to `docs/integration/certification_sheets.md`
+- Archived `docs/integration/DOCS_REVIEW_2025-11-23.md` to `docs/archive/reviews/`
+
+### Security (2025-12-02)
+
+**Fixed MAC Secret Exposure in Key Exchange Logs**
+- Removed `form_data` field from Key Exchange request logging in `key_exchange_adapter.go:113`
+- The form data contained the MAC secret which was being logged in plain text
+- Added security comment to prevent future re-introduction of this vulnerability
+- File: `internal/adapters/epx/key_exchange_adapter.go`
+
+### Refactored (2025-12-02)
+
+**Browser Post Handler Architecture Refactoring**
+
+Refactored Browser Post callback handler to follow clean architecture principles:
+
+**New Services**
+- `internal/services/browser_post/browser_post_service.go`:
+  - New `BrowserPostService` for form config generation and callback processing
+  - `GenerateFormConfig()` - validates merchant, gets TAC, creates pending transaction
+  - `ProcessCallback()` - updates transaction with EPX response
+  - Depends on ports (interfaces), not concrete implementations
+
+- `internal/services/ports/browser_post_service.go`:
+  - Port interface defining `BrowserPostService` contract
+  - Request/response types for `GenerateFormConfig` and `ProcessCallback`
+
+**Handler Slimmed Down**
+- `internal/handlers/payment/browser_post_callback_handler.go`:
+  - Now HTTP concerns only: parse requests, call services, format responses
+  - Orchestrates `BrowserPostService` → `PaymentMethodService` calls
+  - No longer contains business logic (moved to services)
+  - Dependencies: `BrowserPostService`, `BrowserPostAdapter`, `PaymentMethodService`, `TemplateRenderer`
+
+**HTML Templates for Browser Post Responses**
+- `internal/handlers/payment/templates/base.html` - shared layout with CSS styles
+- `internal/handlers/payment/templates/receipt.html` - SALE/AUTH transaction receipt
+- `internal/handlers/payment/templates/payment_method_credit_card.html` - credit card saved (verified)
+- `internal/handlers/payment/templates/payment_method_bank_account.html` - bank account saved (pending verification)
+- `internal/handlers/payment/templates/error.html` - error page with return link
+- `internal/handlers/payment/templates.go` - template renderer with `//go:embed`
+
+**Domain Utilities Consolidated**
+- `internal/domain/payment_method.go`:
+  - Added `ExtractLastFour(masked string) string` - extracts last 4 from masked account
+  - Added `FormatExpirationDateMMYY(mmyy string) string` - formats MMYY to MM/YY
+  - Added `ExpirationDate.String()` - returns MM/YY format
+
+- `internal/handlers/payment/payment_converters.go`:
+  - Removed duplicate `extractLastFour(tx)` and `epxCardTypeToBrand()`
+  - Refactored `extractCardInfo(tx)` → `buildCardInfo(authCardType, metadata)`
+  - Now uses `domain.CardBrandFromEPXCode()` and `domain.ExtractLastFour()`
+
+- `internal/services/payment_method/payment_method_service.go`:
+  - Removed duplicate `extractLastFour()`, uses `domain.ExtractLastFour()`
+
+**Main.go Updates**
+- `cmd/server/main.go`:
+  - Creates `BrowserPostService` with required dependencies
+  - Creates `TemplateRenderer` for HTML responses
+  - Updated handler constructor with new dependencies
+
+**Browser Post Callback HTTP Method Fix**
+- `internal/handlers/payment/browser_post_callback_handler.go`:
+  - Now accepts GET requests (in addition to POST)
+  - EPX redirects via 302 which browsers follow as GET with query parameters
+  - Callback is idempotent: transaction update only works for `status = 'pending'`
+
+### Fixed (2025-12-02)
+
+**EXP_DATE Format Bug Fix (YYMM → MMYY)**
+
+Fixed incorrect expiration date parsing in callback handler:
+- `internal/handlers/payment/browser_post_callback_handler.go`:
+  - Fixed `saveStorageBRICToPaymentMethod()` to parse EXP_DATE as MMYY format (not YYMM)
+  - Example: "1225" is now correctly parsed as Month=12, Year=2025
+- `internal/adapters/epx/testdata/README.md`:
+  - Corrected documentation from "YYMM format" to "MMYY format"
+
+### Documentation (2025-12-02)
+
+**Credit Card Storage Form Documentation**
+
+Added complete Credit Card Storage Form section to Browser Post documentation:
+- `docs/integration/BROWSER_POST_FORM_SETUP.md`:
+  - Added "Credit Card Storage Form" section with complete HTML/CSS/JS example
+  - Includes Luhn algorithm for client-side card number validation
+  - Includes expiration date validation (MM/YY format with hidden MMYY field for EPX)
+  - Includes card number formatting (spaces for display)
+  - Includes `initializeForm()` function for payment service integration
+  - Documents the storage flow: TAC request → form submit → BRIC returned → payment method saved
+  - Documents using stored card for future transactions
+  - Updated Table of Contents with all three form types
+
+### Added (2025-12-01)
+
+**ACH Browser Post Storage with Automatic Prenote Verification**
+
+Implemented ACH account storage via Browser Post with automatic prenote submission:
+
+**New Transaction Types**
+- `ACH_STORAGE_C` - Store checking account via Browser Post
+- `ACH_STORAGE_S` - Store savings account via Browser Post
+
+**Implementation Changes**
+- `internal/handlers/payment/browser_post_callback_handler.go`:
+  - Added `serverPost` field to handler struct for prenote submission
+  - Added `isACHStorageTransaction()` and `isCheckingAccount()` helper functions
+  - Added `saveACHStorageAndSendPrenote()` function that:
+    1. Saves storage BRIC as unverified payment method (`is_active=false`, `verification_status=pending`)
+    2. Automatically sends prenote (CKC0 for checking, CKS0 for savings) using the storage BRIC
+    3. Creates prenote transaction record
+    4. Updates payment method with prenote_transaction_id
+  - Updated `mapRequestTypeToTransactionType()` to handle ACH_STORAGE_C/ACH_STORAGE_S
+  - Updated transaction type validation to accept new types
+  - Updated payment_method_type determination based on transaction type
+
+- `internal/db/queries/payment_methods.sql`:
+  - Added `UpdatePaymentMethodPrenoteID` query
+
+- `cmd/server/main.go`:
+  - Updated `NewBrowserPostCallbackHandler` call to pass ServerPostAdapter
+
+- `internal/testutil/mocks/database.go`:
+  - Added mock for `UpdatePaymentMethodPrenoteID`
+
+**Documentation Updates**
+- `docs/integration/BROWSER_POST_FORM_SETUP.md`:
+  - Added ACH transaction types (ACH_STORAGE_C, ACH_STORAGE_S) to query parameters
+  - Added ACH Form Fields section with bank account input fields
+  - Added ACH Browser Post form HTML example
+  - Added ACH_STORAGE_C and ACH_STORAGE_S transaction type sections
+
+- `docs/certification_sheets.md` (v3.1):
+  - Added Browser POST ACH STORAGE Checking (ACH_STORAGE_C) sample
+  - Added Browser POST ACH STORAGE Savings (ACH_STORAGE_S) sample
+  - Updated test count from 15 to 17
+  - Updated Table of Contents with new ACH Browser Post sections
+
+**ACH Verification Flow**
+1. User selects checking/savings via radio button on form
+2. User submits bank account via Browser Post form (`ACH_STORAGE_C` or `ACH_STORAGE_S`)
+3. EPX stores account and returns storage BRIC
+4. Callback handler saves unverified payment method and sends prenote
+5. SFTP return file processing (to be configured) verifies no returns and activates payment method
+6. Payment method ready for recurring ACH debits
+
+### Documentation (2025-12-01)
+
+**EPX Certification Documentation Updates (v3.0)**
+
+Addressed EPX certification review feedback with comprehensive documentation fixes:
+
+**Browser Post Form Field Names Fixed**
+- Changed `CARDHOLDER_NAME` to separate `FIRST_NAME` and `LAST_NAME` fields
+- Changed split `EXP_MONTH`/`EXP_YEAR` to single `EXP_DATE` field (MMYY format)
+- Changed `BILLING_ADDRESS`, `BILLING_CITY`, `BILLING_STATE`, `BILLING_ZIP` to EPX field names: `ADDRESS`, `CITY`, `STATE`, `ZIP_CODE`
+- Added missing `TRAN_CODE` field (1=SALE, 2=AUTH, 8=STORAGE)
+- Changed `CVV` to `CVV2`
+- Files updated:
+  - `docs/certification_sheets.md` - Certification requirements section HTML form
+  - `docs/integration/BROWSER_POST_FORM_SETUP.md` - HTML examples and JavaScript code
+
+**Browser Post POST Request Samples Added**
+- Added Browser POST form submission samples for each TRAN_CODE after Key Exchange
+- SALE (TRAN_CODE=1) - Complete request and redirect response
+- AUTH (TRAN_CODE=2) - Complete request and redirect response
+- STORAGE (TRAN_CODE=8) - Complete request and redirect response with NETWORK_TRANSACTION_ID
+
+**Server Post ACH Field Name Fixed**
+- Changed `SEC_CODE` to correct EPX field name `STD_ENTRY_CLASS` in ACH prenote sample
+- Code already uses correct field name in `server_post_adapter.go:670-671`
+
+**Credit Card Recurring (Card-on-File) Samples Added**
+- CCE1 (Credit Card Sale) - Via BRIC token with CARD_ENT_METH=Z
+- CCE1 with ACI_EXT=RB (Credit Card Recurring) - MIT for recurring billing
+- CCE9 (Credit Card Refund) - Via BRIC token
+- CCEX (Credit Card Void) - Via BRIC token
+
+**Certification Sheet Summary Updated**
+- Version bumped to 3.0
+- Total tests increased from 8 to 15
+- Added new Table of Contents entries for Browser POST Form Submissions and Server POST Credit Card Transactions
+
+**No Code Changes Required**
+- Verified `server_post_adapter.go` already uses correct EPX field names
+- Verified `browser_post_adapter.go` callback handling is correct
+- API_SPECS.md uses correct proto field names (adapter handles EPX field mapping)
+
+### Documentation (2025-11-28)
+
+**API Test Data Setup Documentation**
+- Added "Test Data Setup" section to `docs/integration/API_SPECS.md`
+- Documents test merchant (test-merchant-staging with EPX sandbox 900300)
+- Documents test service (test-service-001) and how to generate tokens
+- Documents test payment methods with their associated customer IDs
+- Added important notes:
+  - Idempotency keys must be UUIDs (non-UUID formats rejected)
+  - Customer ID must match payment method's customer_id
+  - Service JWT must have access to requested merchant
+- Added example test flow with curl commands
+
+**API Verification Results**
+All API endpoints verified working with test data:
+- Payment Service: Sale, Refund, Authorize, Capture, Void, GetTransaction, ListTransactions
+- Payment Method Service: ListPaymentMethods, GetPaymentMethod, StoreACHAccount
+- Subscription Service: CreateSubscription, GetSubscription, ListCustomerSubscriptions, PauseSubscription, ResumeSubscription, CancelSubscription
+- Chargeback Service: GetChargeback, ListChargebacks
+
+### Refactored (2025-11-28)
+
+**agent_id → merchant_id Naming Standardization**
+- Renamed `agent_id` to `merchant_id` throughout the codebase for consistency
+- Files modified:
+  - `proto/chargeback/v1/chargeback.proto` - Request/response fields renamed
+  - `internal/db/queries/webhooks.sql` - Query parameter names updated
+  - `internal/domain/chargeback.go` - Struct field renamed (AgentID → MerchantID)
+  - `internal/handlers/chargeback/chargeback_handler_connect.go` - Handler field mappings
+  - `internal/handlers/chargeback/chargeback_handler_connect_test.go` - Test field names
+  - `internal/services/webhook/webhook_delivery_service.go` - WebhookEvent struct field
+  - `internal/handlers/cron/dispute_sync_handler.go` - webhookJob struct and function params
+  - `tests/integration/chargeback/chargeback_test.go` - Integration test field names
+- Created migration `025_rename_agent_id_to_merchant_id.sql` to rename column in `webhook_subscriptions` table
+- Deleted duplicate `proto/agent/v1/` directory (was duplicate of merchant.proto)
+- Regenerated proto and sqlc code
+
+**Documentation Updates**
+- Added Chargeback Service request/response examples to `docs/integration/API_SPECS.md`
+  - GetChargeback and ListChargebacks examples with all filter options
+  - Chargeback status value descriptions
+
 ### Fixed (2025-11-26)
 
 **Cron Test Bug Fix**

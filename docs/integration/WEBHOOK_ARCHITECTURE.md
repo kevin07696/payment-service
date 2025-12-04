@@ -1,6 +1,6 @@
 # Webhook Architecture Guide
 
-**Last Updated**: 2025-11-22
+**Last Updated**: 2025-12-02
 **Status**: Current Implementation + Future Enhancements
 
 ---
@@ -78,7 +78,7 @@ Webhooks are **server-to-server HTTP callbacks** that notify your application wh
 │  │ Body:                                                    │  │
 │  │   {                                                      │  │
 │  │     "event_type": "subscription.payment_failed",        │  │
-│  │     "agent_id": "merchant-123",                         │  │
+│  │     "merchant_id": "merchant-123",                         │  │
 │  │     "data": { ... },                                    │  │
 │  │     "timestamp": "2025-11-22T12:00:00Z"                 │  │
 │  │   }                                                      │  │
@@ -115,7 +115,7 @@ Webhooks are **server-to-server HTTP callbacks** that notify your application wh
 ```sql
 CREATE TABLE webhook_subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    agent_id VARCHAR(100) NOT NULL,           -- Merchant ID
+    merchant_id UUID NOT NULL,                -- Merchant ID (references merchants table)
     event_type VARCHAR(50) NOT NULL,          -- Event to subscribe to
     webhook_url TEXT NOT NULL,                -- Your endpoint URL
     secret VARCHAR(255) NOT NULL,             -- HMAC signing secret
@@ -124,7 +124,7 @@ CREATE TABLE webhook_subscriptions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     -- One active webhook per merchant per event type per URL
-    CONSTRAINT unique_active_webhook UNIQUE (agent_id, event_type, webhook_url)
+    CONSTRAINT unique_active_webhook UNIQUE (merchant_id, event_type, webhook_url)
 );
 ```
 
@@ -233,7 +233,7 @@ err := chargebackRepo.Create(ctx, chargeback)
 // Create webhook event
 event := &webhook.WebhookEvent{
     EventType: "chargeback.created",
-    AgentID:   chargeback.MerchantID,
+    MerchantID: chargeback.MerchantID.String(),
     Data: map[string]interface{}{
         "chargeback_id":  chargeback.ID.String(),
         "transaction_id": chargeback.TransactionID.String(),
@@ -275,7 +275,7 @@ X-Signature: a3f4b2c1... (HMAC-SHA256)
 
 {
   "event_type": "chargeback.created",
-  "agent_id": "merchant-123",
+  "merchant_id": "merchant-123",
   "data": {
     "chargeback_id": "cb_1a2b3c",
     "transaction_id": "tx_9z8y7x",
@@ -655,7 +655,7 @@ curl -X POST https://your-app.com/webhooks/payment-service \
   -H "X-Signature: $(echo -n '{"event_type":"subscription.payment_failed"}' | openssl dgst -sha256 -hmac 'your-secret' | awk '{print $2}')" \
   -d '{
     "event_type": "subscription.payment_failed",
-    "agent_id": "merchant-123",
+    "merchant_id": "merchant-123",
     "data": {
       "subscription_id": "sub_abc123",
       "customer_id": "cus_xyz789",
@@ -683,7 +683,7 @@ SELECT
     wd.delivered_at
 FROM webhook_deliveries wd
 JOIN webhook_subscriptions ws ON wd.subscription_id = ws.id
-WHERE ws.agent_id = 'your-merchant-id'
+WHERE ws.merchant_id = 'your-merchant-id'
 ORDER BY wd.created_at DESC
 LIMIT 50;
 ```
@@ -833,6 +833,6 @@ LIMIT 50;
 
 ---
 
-**Last Updated**: 2025-11-22
-**Version**: 1.0
+**Last Updated**: 2025-12-02
+**Version**: 1.1
 **Status**: Production Ready (Chargeback webhooks), In Development (Subscription webhooks)

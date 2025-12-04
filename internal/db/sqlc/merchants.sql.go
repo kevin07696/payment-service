@@ -359,3 +359,73 @@ func (q *Queries) UpdateMerchantMACPath(ctx context.Context, arg UpdateMerchantM
 	_, err := q.db.Exec(ctx, updateMerchantMACPath, arg.MacSecretPath, arg.ID)
 	return err
 }
+
+const upsertMerchant = `-- name: UpsertMerchant :one
+INSERT INTO merchants (
+    id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr,
+    mac_secret_path, environment, is_active, name
+) VALUES (
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10
+)
+ON CONFLICT (id) DO UPDATE SET
+    cust_nbr = EXCLUDED.cust_nbr,
+    merch_nbr = EXCLUDED.merch_nbr,
+    dba_nbr = EXCLUDED.dba_nbr,
+    terminal_nbr = EXCLUDED.terminal_nbr,
+    mac_secret_path = EXCLUDED.mac_secret_path,
+    environment = EXCLUDED.environment,
+    name = EXCLUDED.name,
+    is_active = EXCLUDED.is_active,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier
+`
+
+type UpsertMerchantParams struct {
+	ID            uuid.UUID `json:"id"`
+	Slug          string    `json:"slug"`
+	CustNbr       string    `json:"cust_nbr"`
+	MerchNbr      string    `json:"merch_nbr"`
+	DbaNbr        string    `json:"dba_nbr"`
+	TerminalNbr   string    `json:"terminal_nbr"`
+	MacSecretPath string    `json:"mac_secret_path"`
+	Environment   string    `json:"environment"`
+	IsActive      bool      `json:"is_active"`
+	Name          string    `json:"name"`
+}
+
+// Upserts a merchant record for dynamic seeding from environment variables.
+// Creates if not exists, updates credentials if exists (idempotent).
+func (q *Queries) UpsertMerchant(ctx context.Context, arg UpsertMerchantParams) (Merchant, error) {
+	row := q.db.QueryRow(ctx, upsertMerchant,
+		arg.ID,
+		arg.Slug,
+		arg.CustNbr,
+		arg.MerchNbr,
+		arg.DbaNbr,
+		arg.TerminalNbr,
+		arg.MacSecretPath,
+		arg.Environment,
+		arg.IsActive,
+		arg.Name,
+	)
+	var i Merchant
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.CustNbr,
+		&i.MerchNbr,
+		&i.DbaNbr,
+		&i.TerminalNbr,
+		&i.MacSecretPath,
+		&i.Environment,
+		&i.IsActive,
+		&i.Name,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Status,
+		&i.Tier,
+	)
+	return i, err
+}

@@ -89,7 +89,7 @@ func (ChargebackStatus) EnumDescriptor() ([]byte, []int) {
 type GetChargebackRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ChargebackId  string                 `protobuf:"bytes,1,opt,name=chargeback_id,json=chargebackId,proto3" json:"chargeback_id,omitempty"` // UUID
-	AgentId       string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                // For authorization
+	MerchantId    string                 `protobuf:"bytes,2,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`       // For authorization
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -131,9 +131,9 @@ func (x *GetChargebackRequest) GetChargebackId() string {
 	return ""
 }
 
-func (x *GetChargebackRequest) GetAgentId() string {
+func (x *GetChargebackRequest) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -141,7 +141,7 @@ func (x *GetChargebackRequest) GetAgentId() string {
 // ListChargebacksRequest lists chargebacks with flexible filters
 type ListChargebacksRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	AgentId         string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                                 // Required: merchant/agent ID
+	MerchantId      string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`                        // Required: merchant ID (UUID)
 	CustomerId      *string                `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3,oneof" json:"customer_id,omitempty"`                  // Optional: filter by customer
 	TransactionId   *string                `protobuf:"bytes,3,opt,name=transaction_id,json=transactionId,proto3,oneof" json:"transaction_id,omitempty"`         // Optional: filter by specific transaction
 	Status          *ChargebackStatus      `protobuf:"varint,4,opt,name=status,proto3,enum=chargeback.v1.ChargebackStatus,oneof" json:"status,omitempty"`       // Optional: filter by status
@@ -183,9 +183,9 @@ func (*ListChargebacksRequest) Descriptor() ([]byte, []int) {
 	return file_proto_chargeback_v1_chargeback_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ListChargebacksRequest) GetAgentId() string {
+func (x *ListChargebacksRequest) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -297,7 +297,7 @@ type Chargeback struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	TransactionId string                 `protobuf:"bytes,2,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // Links to specific disputed transaction (UUID)
-	AgentId       string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MerchantId    string                 `protobuf:"bytes,3,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId    string                 `protobuf:"bytes,4,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
 	// North API fields
 	CaseNumber        string                 `protobuf:"bytes,5,opt,name=case_number,json=caseNumber,proto3" json:"case_number,omitempty"` // North's caseNumber
@@ -366,9 +366,9 @@ func (x *Chargeback) GetTransactionId() string {
 	return ""
 }
 
-func (x *Chargeback) GetAgentId() string {
+func (x *Chargeback) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -496,12 +496,14 @@ var File_proto_chargeback_v1_chargeback_proto protoreflect.FileDescriptor
 
 const file_proto_chargeback_v1_chargeback_proto_rawDesc = "" +
 	"\n" +
-	"$proto/chargeback/v1/chargeback.proto\x12\rchargeback.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"V\n" +
+	"$proto/chargeback/v1/chargeback.proto\x12\rchargeback.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\\\n" +
 	"\x14GetChargebackRequest\x12#\n" +
-	"\rchargeback_id\x18\x01 \x01(\tR\fchargebackId\x12\x19\n" +
-	"\bagent_id\x18\x02 \x01(\tR\aagentId\"\xdf\x03\n" +
-	"\x16ListChargebacksRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12$\n" +
+	"\rchargeback_id\x18\x01 \x01(\tR\fchargebackId\x12\x1f\n" +
+	"\vmerchant_id\x18\x02 \x01(\tR\n" +
+	"merchantId\"\xe5\x03\n" +
+	"\x16ListChargebacksRequest\x12\x1f\n" +
+	"\vmerchant_id\x18\x01 \x01(\tR\n" +
+	"merchantId\x12$\n" +
 	"\vcustomer_id\x18\x02 \x01(\tH\x00R\n" +
 	"customerId\x88\x01\x01\x12*\n" +
 	"\x0etransaction_id\x18\x03 \x01(\tH\x01R\rtransactionId\x88\x01\x01\x12<\n" +
@@ -518,12 +520,13 @@ const file_proto_chargeback_v1_chargeback_proto_rawDesc = "" +
 	"\x17ListChargebacksResponse\x12;\n" +
 	"\vchargebacks\x18\x01 \x03(\v2\x19.chargeback.v1.ChargebackR\vchargebacks\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xb3\b\n" +
+	"totalCount\"\xb9\b\n" +
 	"\n" +
 	"Chargeback\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12%\n" +
-	"\x0etransaction_id\x18\x02 \x01(\tR\rtransactionId\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1f\n" +
+	"\x0etransaction_id\x18\x02 \x01(\tR\rtransactionId\x12\x1f\n" +
+	"\vmerchant_id\x18\x03 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x04 \x01(\tR\n" +
 	"customerId\x12\x1f\n" +
 	"\vcase_number\x18\x05 \x01(\tR\n" +

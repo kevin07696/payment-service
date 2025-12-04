@@ -148,10 +148,9 @@ WHERE order_id = 'ORDER-123';
   <input type="hidden" name="REDIRECT_URL" value="http://payment-service:8081/callback">
 
   <!-- User-entered card data -->
-  <input type="text" name="CARD_NBR" placeholder="4111111111111111">
-  <input type="text" name="EXP_MONTH" placeholder="12">
-  <input type="text" name="EXP_YEAR" placeholder="2025">
-  <input type="text" name="CVV" placeholder="123">
+  <input type="text" name="ACCOUNT_NBR" placeholder="4111111111111111">
+  <input type="text" name="EXP_DATE" placeholder="1225">
+  <input type="text" name="CVV2" placeholder="123">
 
   <button type="submit">Pay $99.99</button>
 </form>

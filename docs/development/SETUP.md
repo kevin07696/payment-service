@@ -137,8 +137,7 @@ curl http://localhost:8081/cron/health
 ```
 
 **Services will be available at:**
-- gRPC API: `localhost:8080`
-- HTTP endpoints: `http://localhost:8081`
+- Payment API: `http://localhost:8081` (ConnectRPC + REST unified)
 - PostgreSQL: `localhost:5432`
 - Prometheus metrics: `http://localhost:9090/metrics`
 
@@ -190,73 +189,61 @@ go build -o bin/payment-server ./cmd/server
 
 ### .env File Structure
 
-Create a `.env` file in the project root with your EPX credentials:
+Create a `.env` file in the project root. See `.env.example` for all available variables.
+
+**Key Configuration Sections:**
 
 ```bash
+# =============================================================================
+# Server Configuration
+# =============================================================================
+PORT=8081                                   # Single port for ConnectRPC + REST
+ENVIRONMENT=development                      # development, staging, production
+
 # =============================================================================
 # Database Configuration
 # =============================================================================
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable
 
 # =============================================================================
-# EPX Server Post Credentials (UAT/Sandbox)
+# Sandbox Merchant (Auto-Seeded on Startup)
 # =============================================================================
-# These credentials are for direct API integration (Server Post)
-# Contact EPX to obtain these values for your merchant account
+# In development/staging, a sandbox merchant is automatically created on startup
+# using these environment variables. No manual seeding required.
 
-EPX_CUST_NBR=9001                           # Customer number (merchant ID)
-EPX_MERCH_NBR=900300                        # Merchant number (location ID)
-EPX_DBA_NBR=2                               # DBA number (business name)
-EPX_TERMINAL_NBR=77                         # Terminal number (POS ID)
-EPX_MAC_SECRET=your-mac-secret-here         # HMAC secret for authentication
-EPX_API_URL=https://api.epxuap.com          # UAT/Sandbox URL
+SANDBOX_MERCHANT_ID=00000000-0000-0000-0000-000000000001
+SANDBOX_MERCHANT_SLUG=sandbox-merchant
+SANDBOX_MERCHANT_NAME=Sandbox Merchant
 
 # =============================================================================
-# EPX Browser Post URLs (UAT/Sandbox)
+# EPX Sandbox Credentials
 # =============================================================================
-# These URLs are for PCI-compliant frontend tokenization
+# These credentials are used for the auto-seeded sandbox merchant
+# Contact EPX/North to obtain these values for your sandbox account
 
-EPX_BROWSER_POST_URL=https://services.epxuap.com/browserpost/
-EPX_KEY_EXCHANGE_URL=https://services.epxuap.com/keyexchange/
-
-# =============================================================================
-# Server Configuration
-# =============================================================================
-GRPC_PORT=8080                              # gRPC API port
-HTTP_PORT=8081                              # HTTP endpoints (callbacks, cron jobs)
-METRICS_PORT=9090                           # Prometheus metrics
+EPX_CUST_NBR=9001                           # Customer number
+EPX_MERCH_NBR=900300                        # Merchant number
+EPX_DBA_NBR=2                               # DBA number
+EPX_TERMINAL_NBR=77                         # Terminal number
+EPX_SANDBOX_MAC=your-sandbox-mac-here       # Merchant Authorization Code
 
 # =============================================================================
-# Integration Test Configuration
+# EPX Gateway URLs (Sandbox)
 # =============================================================================
-# Used by integration tests to connect to running service
-
-SERVICE_URL=http://localhost:8081           # Base URL for HTTP endpoints
-EPX_MAC_STAGING=your-mac-secret-here        # Same as EPX_MAC_SECRET (for tests)
+EPX_SERVER_POST_ENDPOINT=https://secure.epxuap.com
+EPX_BROWSER_POST_ENDPOINT=https://services.epxuap.com/browserpost/
+EPX_KEY_EXCHANGE_ENDPOINT=https://keyexch.epxuap.com
 
 # =============================================================================
 # Browser Post Callback URL
 # =============================================================================
-# This is where EPX redirects users after payment processing
-# For local development with Browser Post:
-#   - Use ngrok to expose localhost: ngrok http 8081
-#   - Set CALLBACK_BASE_URL to your ngrok URL
-#   - EPX will redirect to: {CALLBACK_BASE_URL}/api/v1/payments/browser-post/callback
+# Where EPX redirects after payment processing
+# For local dev with Browser Post, use ngrok: ngrok http 8081
 
 CALLBACK_BASE_URL=http://localhost:8081
-
-# For production:
-# CALLBACK_BASE_URL=https://yourdomain.com
-
-# =============================================================================
-# Optional: Webhook Configuration
-# =============================================================================
-# For outbound webhooks to notify external systems of payment events
-
-WEBHOOK_SECRET=your-webhook-hmac-secret     # HMAC secret for webhook signatures
-WEBHOOK_RETRY_ATTEMPTS=3                    # Number of retry attempts
-WEBHOOK_TIMEOUT_SECONDS=30                  # HTTP timeout for webhook delivery
 ```
+
+> **Note:** The sandbox merchant is auto-seeded on server startup in development/staging environments. For additional merchants, use the CLI: `./paycli -action=create-merchant`
 
 ### Production Environment Variables
 
@@ -276,7 +263,8 @@ EPX_CUST_NBR=<production-customer-number>
 EPX_MERCH_NBR=<production-merchant-number>
 EPX_DBA_NBR=<production-dba-number>
 EPX_TERMINAL_NBR=<production-terminal-number>
-EPX_MAC_SECRET=<production-mac-secret>
+# Note: In production, per-merchant MAC is stored in Secret Manager
+# EPX_SANDBOX_MAC is only for sandbox/development
 
 # Production Callback URL
 CALLBACK_BASE_URL=https://api.yourdomain.com
@@ -633,7 +621,7 @@ EPX Error: Code 58 - Authentication Failed
 ```
 
 **Solution:**
-- ✅ Verify `EPX_MAC_SECRET` matches EPX credentials
+- ✅ Verify `EPX_SANDBOX_MAC` matches your EPX sandbox credentials
 - ✅ Check `EPX_CUST_NBR`, `EPX_MERCH_NBR`, `EPX_DBA_NBR`, `EPX_TERMINAL_NBR`
 - ✅ Ensure you're using UAT credentials for sandbox: `EPX_API_URL=https://api.epxuap.com`
 - ✅ Contact EPX to verify credentials are active

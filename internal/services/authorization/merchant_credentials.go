@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
 	merchantsvc "github.com/kevin07696/payment-service/internal/services/merchant"
@@ -24,7 +24,7 @@ type MerchantCredentials struct {
 type MerchantCredentialResolver struct {
 	cache         *merchantsvc.MerchantCredentialCache
 	queries       sqlc.Querier                      // Fallback for transactions
-	secretManager adapterports.SecretManagerAdapter // Fallback for transactions
+	secretManager ports.SecretManagerAdapter // Fallback for transactions
 	logger        *zap.Logger
 }
 
@@ -32,7 +32,7 @@ type MerchantCredentialResolver struct {
 func NewMerchantCredentialResolver(
 	cache *merchantsvc.MerchantCredentialCache,
 	queries sqlc.Querier,
-	secretManager adapterports.SecretManagerAdapter,
+	secretManager ports.SecretManagerAdapter,
 	logger *zap.Logger,
 ) *MerchantCredentialResolver {
 	return &MerchantCredentialResolver{

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,120 @@ const (
 	TransactionTypePreNote TransactionType = "PRE_NOTE" // ACH verification
 	TransactionTypeStorage TransactionType = "STORAGE"  // Tokenization (credit card or ACH)
 )
+
+// RequestTransactionType represents the transaction type from an incoming request
+// This is separate from TransactionType to handle request-specific values like ACH_STORAGE_C/S
+type RequestTransactionType string
+
+const (
+	RequestTransactionTypeSale        RequestTransactionType = "SALE"
+	RequestTransactionTypeAuth        RequestTransactionType = "AUTH"
+	RequestTransactionTypeStorage     RequestTransactionType = "STORAGE"
+	RequestTransactionTypeACHStorageC RequestTransactionType = "ACH_STORAGE_C" // ACH checking storage
+	RequestTransactionTypeACHStorageS RequestTransactionType = "ACH_STORAGE_S" // ACH savings storage
+)
+
+// ParseRequestTransactionType parses a string into a RequestTransactionType
+// Returns RequestTransactionTypeSale as default for unknown values
+func ParseRequestTransactionType(input string) RequestTransactionType {
+	switch strings.ToUpper(input) {
+	case "AUTH":
+		return RequestTransactionTypeAuth
+	case "SALE":
+		return RequestTransactionTypeSale
+	case "STORAGE":
+		return RequestTransactionTypeStorage
+	case "ACH_STORAGE_C":
+		return RequestTransactionTypeACHStorageC
+	case "ACH_STORAGE_S":
+		return RequestTransactionTypeACHStorageS
+	default:
+		return RequestTransactionTypeSale
+	}
+}
+
+// ToTransactionType converts RequestTransactionType to the internal TransactionType
+// ACH_STORAGE_C and ACH_STORAGE_S both map to STORAGE
+func (r RequestTransactionType) ToTransactionType() TransactionType {
+	switch r {
+	case RequestTransactionTypeAuth:
+		return TransactionTypeAuth
+	case RequestTransactionTypeSale:
+		return TransactionTypeSale
+	case RequestTransactionTypeStorage, RequestTransactionTypeACHStorageC, RequestTransactionTypeACHStorageS:
+		return TransactionTypeStorage
+	default:
+		return TransactionTypeSale
+	}
+}
+
+// IsACHStorage returns true if this is an ACH storage request type
+func (r RequestTransactionType) IsACHStorage() bool {
+	return r == RequestTransactionTypeACHStorageC || r == RequestTransactionTypeACHStorageS
+}
+
+// IsCheckingAccount returns true if this is a checking account ACH storage
+func (r RequestTransactionType) IsCheckingAccount() bool {
+	return r == RequestTransactionTypeACHStorageC
+}
+
+// IsStorage returns true if this is any storage transaction type
+func (r RequestTransactionType) IsStorage() bool {
+	return r == RequestTransactionTypeStorage || r.IsACHStorage()
+}
+
+// ToPaymentMethodType returns the payment method type for this transaction
+func (r RequestTransactionType) ToPaymentMethodType() PaymentMethodType {
+	if r.IsACHStorage() {
+		return PaymentMethodTypeACH
+	}
+	return PaymentMethodTypeCreditCard
+}
+
+// IsValid returns true if this is a valid transaction type
+func (r RequestTransactionType) IsValid() bool {
+	switch r {
+	case RequestTransactionTypeSale, RequestTransactionTypeAuth, RequestTransactionTypeStorage,
+		RequestTransactionTypeACHStorageC, RequestTransactionTypeACHStorageS:
+		return true
+	default:
+		return false
+	}
+}
+
+// ToEPXTranCode returns the EPX TRAN_CODE value for Browser POST forms
+// Per North Developer docs: TRAN_CODE uses text values (SALE, AUTH, STORAGE, ACH_STORAGE_C, ACH_STORAGE_S)
+func (r RequestTransactionType) ToEPXTranCode() string {
+	switch r {
+	case RequestTransactionTypeSale:
+		return "SALE"
+	case RequestTransactionTypeAuth:
+		return "AUTH"
+	case RequestTransactionTypeStorage:
+		return "STORAGE"
+	case RequestTransactionTypeACHStorageC:
+		return "ACH_STORAGE_C"
+	case RequestTransactionTypeACHStorageS:
+		return "ACH_STORAGE_S"
+	default:
+		return "SALE"
+	}
+}
+
+// ToEPXTranGroup returns the EPX TRAN_GROUP value for Key Exchange
+// This is the high-level category sent to EPX Key Exchange API
+func (r RequestTransactionType) ToEPXTranGroup() string {
+	switch r {
+	case RequestTransactionTypeSale:
+		return "SALE"
+	case RequestTransactionTypeAuth:
+		return "AUTH"
+	case RequestTransactionTypeStorage, RequestTransactionTypeACHStorageC, RequestTransactionTypeACHStorageS:
+		return "STORAGE"
+	default:
+		return "SALE"
+	}
+}
 
 // PaymentMethodType represents the payment method used
 type PaymentMethodType string
@@ -61,6 +176,7 @@ type Transaction struct {
 	// Pointers (8 bytes each) grouped together
 	ParentTransactionID *string `json:"parent_transaction_id"`
 	CustomerID          *string `json:"customer_id"`
+	OrderID             *string `json:"order_id"` // Merchant's external order/invoice ID
 	SubscriptionID      *string `json:"subscription_id"`
 	PaymentMethodID     *string `json:"payment_method_id"`
 	IdempotencyKey      *string `json:"idempotency_key"`

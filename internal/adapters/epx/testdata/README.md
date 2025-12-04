@@ -32,10 +32,10 @@ export EPX_TEST_TERMINAL_NBR="77"
 
 ## Test Expiration Dates
 
-Always use future dates in YYMM format:
-- **1225** - December 2025
-- **1226** - December 2026
-- **0130** - January 2030
+Always use future dates in MMYY format:
+- **1225** - December 2025 (MM=12, YY=25)
+- **1226** - December 2026 (MM=12, YY=26)
+- **0130** - January 2030 (MM=01, YY=30)
 
 ## Test CVV Codes
 

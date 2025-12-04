@@ -76,7 +76,7 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, arg CreateWebhookDe
 
 const createWebhookSubscription = `-- name: CreateWebhookSubscription :one
 INSERT INTO webhook_subscriptions (
-    agent_id,
+    merchant_id,
     event_type,
     webhook_url,
     secret,
@@ -87,11 +87,11 @@ INSERT INTO webhook_subscriptions (
     $3,
     $4,
     $5
-) RETURNING id, agent_id, event_type, webhook_url, secret, is_active, created_at, updated_at
+) RETURNING id, merchant_id, event_type, webhook_url, secret, is_active, created_at, updated_at
 `
 
 type CreateWebhookSubscriptionParams struct {
-	AgentID    string `json:"agent_id"`
+	MerchantID string `json:"merchant_id"`
 	EventType  string `json:"event_type"`
 	WebhookUrl string `json:"webhook_url"`
 	Secret     string `json:"secret"`
@@ -100,7 +100,7 @@ type CreateWebhookSubscriptionParams struct {
 
 func (q *Queries) CreateWebhookSubscription(ctx context.Context, arg CreateWebhookSubscriptionParams) (WebhookSubscription, error) {
 	row := q.db.QueryRow(ctx, createWebhookSubscription,
-		arg.AgentID,
+		arg.MerchantID,
 		arg.EventType,
 		arg.WebhookUrl,
 		arg.Secret,
@@ -109,7 +109,7 @@ func (q *Queries) CreateWebhookSubscription(ctx context.Context, arg CreateWebho
 	var i WebhookSubscription
 	err := row.Scan(
 		&i.ID,
-		&i.AgentID,
+		&i.MerchantID,
 		&i.EventType,
 		&i.WebhookUrl,
 		&i.Secret,
@@ -122,16 +122,16 @@ func (q *Queries) CreateWebhookSubscription(ctx context.Context, arg CreateWebho
 
 const deleteWebhookSubscription = `-- name: DeleteWebhookSubscription :exec
 DELETE FROM webhook_subscriptions
-WHERE id = $1 AND agent_id = $2
+WHERE id = $1 AND merchant_id = $2
 `
 
 type DeleteWebhookSubscriptionParams struct {
-	ID      uuid.UUID `json:"id"`
-	AgentID string    `json:"agent_id"`
+	ID         uuid.UUID `json:"id"`
+	MerchantID string    `json:"merchant_id"`
 }
 
 func (q *Queries) DeleteWebhookSubscription(ctx context.Context, arg DeleteWebhookSubscriptionParams) error {
-	_, err := q.db.Exec(ctx, deleteWebhookSubscription, arg.ID, arg.AgentID)
+	_, err := q.db.Exec(ctx, deleteWebhookSubscription, arg.ID, arg.MerchantID)
 	return err
 }
 
@@ -182,7 +182,7 @@ func (q *Queries) GetWebhookDeliveryHistory(ctx context.Context, arg GetWebhookD
 }
 
 const getWebhookSubscription = `-- name: GetWebhookSubscription :one
-SELECT id, agent_id, event_type, webhook_url, secret, is_active, created_at, updated_at FROM webhook_subscriptions
+SELECT id, merchant_id, event_type, webhook_url, secret, is_active, created_at, updated_at FROM webhook_subscriptions
 WHERE id = $1
 `
 
@@ -191,7 +191,7 @@ func (q *Queries) GetWebhookSubscription(ctx context.Context, id uuid.UUID) (Web
 	var i WebhookSubscription
 	err := row.Scan(
 		&i.ID,
-		&i.AgentID,
+		&i.MerchantID,
 		&i.EventType,
 		&i.WebhookUrl,
 		&i.Secret,
@@ -203,19 +203,19 @@ func (q *Queries) GetWebhookSubscription(ctx context.Context, id uuid.UUID) (Web
 }
 
 const listActiveWebhooksByEvent = `-- name: ListActiveWebhooksByEvent :many
-SELECT id, agent_id, event_type, webhook_url, secret, is_active, created_at, updated_at FROM webhook_subscriptions
-WHERE agent_id = $1
+SELECT id, merchant_id, event_type, webhook_url, secret, is_active, created_at, updated_at FROM webhook_subscriptions
+WHERE merchant_id = $1
   AND event_type = $2
   AND is_active = true
 `
 
 type ListActiveWebhooksByEventParams struct {
-	AgentID   string `json:"agent_id"`
-	EventType string `json:"event_type"`
+	MerchantID string `json:"merchant_id"`
+	EventType  string `json:"event_type"`
 }
 
 func (q *Queries) ListActiveWebhooksByEvent(ctx context.Context, arg ListActiveWebhooksByEventParams) ([]WebhookSubscription, error) {
-	rows, err := q.db.Query(ctx, listActiveWebhooksByEvent, arg.AgentID, arg.EventType)
+	rows, err := q.db.Query(ctx, listActiveWebhooksByEvent, arg.MerchantID, arg.EventType)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (q *Queries) ListActiveWebhooksByEvent(ctx context.Context, arg ListActiveW
 		var i WebhookSubscription
 		if err := rows.Scan(
 			&i.ID,
-			&i.AgentID,
+			&i.MerchantID,
 			&i.EventType,
 			&i.WebhookUrl,
 			&i.Secret,
@@ -284,19 +284,19 @@ func (q *Queries) ListPendingWebhookDeliveries(ctx context.Context, limitVal int
 }
 
 const listWebhookSubscriptions = `-- name: ListWebhookSubscriptions :many
-SELECT id, agent_id, event_type, webhook_url, secret, is_active, created_at, updated_at FROM webhook_subscriptions
-WHERE agent_id = $1
+SELECT id, merchant_id, event_type, webhook_url, secret, is_active, created_at, updated_at FROM webhook_subscriptions
+WHERE merchant_id = $1
   AND ($2::boolean IS NULL OR is_active = $2)
 ORDER BY created_at DESC
 `
 
 type ListWebhookSubscriptionsParams struct {
-	AgentID  string      `json:"agent_id"`
-	IsActive pgtype.Bool `json:"is_active"`
+	MerchantID string      `json:"merchant_id"`
+	IsActive   pgtype.Bool `json:"is_active"`
 }
 
 func (q *Queries) ListWebhookSubscriptions(ctx context.Context, arg ListWebhookSubscriptionsParams) ([]WebhookSubscription, error) {
-	rows, err := q.db.Query(ctx, listWebhookSubscriptions, arg.AgentID, arg.IsActive)
+	rows, err := q.db.Query(ctx, listWebhookSubscriptions, arg.MerchantID, arg.IsActive)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +306,7 @@ func (q *Queries) ListWebhookSubscriptions(ctx context.Context, arg ListWebhookS
 		var i WebhookSubscription
 		if err := rows.Scan(
 			&i.ID,
-			&i.AgentID,
+			&i.MerchantID,
 			&i.EventType,
 			&i.WebhookUrl,
 			&i.Secret,
@@ -382,7 +382,7 @@ SET
     is_active = COALESCE($3, is_active),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $4
-RETURNING id, agent_id, event_type, webhook_url, secret, is_active, created_at, updated_at
+RETURNING id, merchant_id, event_type, webhook_url, secret, is_active, created_at, updated_at
 `
 
 type UpdateWebhookSubscriptionParams struct {
@@ -402,7 +402,7 @@ func (q *Queries) UpdateWebhookSubscription(ctx context.Context, arg UpdateWebho
 	var i WebhookSubscription
 	err := row.Scan(
 		&i.ID,
-		&i.AgentID,
+		&i.MerchantID,
 		&i.EventType,
 		&i.WebhookUrl,
 		&i.Secret,

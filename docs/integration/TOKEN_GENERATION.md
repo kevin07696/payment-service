@@ -65,7 +65,7 @@ An administrator must register your application as a service before you can gene
 
 ```bash
 # Create service interactively
-podman exec -it payment-server ./admin -action=create-service
+podman exec -it payment-server ./paycli -action=create-service
 
 # Or with JSON file
 podman exec payment-server sh -c 'cat > service.json << EOF
@@ -76,7 +76,7 @@ podman exec payment-server sh -c 'cat > service.json << EOF
   "generate_keypair": true
 }
 EOF'
-podman exec payment-server ./admin -action=create-service -json=service.json
+podman exec payment-server ./paycli -action=create-service -json=service.json
 
 # Copy credentials to host
 podman cp payment-server:/home/appuser/service_acme-web-app_credentials.json .
@@ -86,13 +86,13 @@ podman cp payment-server:/home/appuser/service_acme-web-app_credentials.json .
 
 ```bash
 # Build CLI
-go build -o bin/admin ./cmd/admin
+go build -o bin/paycli ./cmd/paycli
 
 # Set database URL
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payment_service?sslmode=disable"
 
 # Create service
-./bin/admin -action=create-service
+./bin/paycli -action=create-service
 ```
 
 ### Output: Credentials File
@@ -118,7 +118,7 @@ After creating a service and merchant, grant the service access to the merchant:
 
 ```bash
 # Interactive
-./bin/admin -action=grant-access
+./bin/paycli -action=grant-access
 # Enter: service_id, merchant_slug
 
 # This creates an entry in service_merchants table with scopes
@@ -166,25 +166,25 @@ The admin CLI includes token generation. No database connection required.
 
 ```bash
 # Build CLI (if not already built)
-go build -o bin/admin ./cmd/admin
+go build -o bin/paycli ./cmd/paycli
 
 # Generate token with default settings (1h expiry, all scopes)
-./bin/admin -action=generate-token -c service_acme-web-app_credentials.json
+./bin/paycli -action=generate-token -c service_acme-web-app_credentials.json
 
 # Custom expiry duration
-./bin/admin -action=generate-token -c creds.json -e 30m
+./bin/paycli -action=generate-token -c creds.json -e 30m
 
 # Specific scopes only
-./bin/admin -action=generate-token -c creds.json -s "payments:create,payments:read"
+./bin/paycli -action=generate-token -c creds.json -s "payments:create,payments:read"
 
 # Output as JSON (includes metadata)
-./bin/admin -action=generate-token -c creds.json -o json
+./bin/paycli -action=generate-token -c creds.json -o json
 
 # Output as ready-to-use curl command
-./bin/admin -action=generate-token -c creds.json -o curl
+./bin/paycli -action=generate-token -c creds.json -o curl
 
 # Verify token by showing decoded claims
-./bin/admin -action=generate-token -c creds.json --decode
+./bin/paycli -action=generate-token -c creds.json --decode
 ```
 
 **Admin CLI Token Options:**
@@ -200,7 +200,7 @@ go build -o bin/admin ./cmd/admin
 ### Example Output
 
 ```bash
-$ ./bin/admin -action=generate-token -c service_acme-web-app_credentials.json --decode
+$ ./bin/paycli -action=generate-token -c service_acme-web-app_credentials.json --decode
 
 eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjQxNTU...
 
@@ -505,10 +505,10 @@ echo "JWT Token: " . $token . "\n";
 
 ```bash
 # Generate token using admin CLI
-TOKEN=$(./bin/admin -action=generate-token -c service_acme-web-app_credentials.json)
+TOKEN=$(./bin/paycli -action=generate-token -c service_acme-web-app_credentials.json)
 
 # Sale request - merchant_id in request body
-curl -X POST http://localhost:8080/payment.v1.PaymentService/Sale \
+curl -X POST http://localhost:8081/payment.v1.PaymentService/Sale \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -521,7 +521,7 @@ curl -X POST http://localhost:8080/payment.v1.PaymentService/Sale \
   }'
 
 # List transactions request
-curl -X POST http://localhost:8080/payment.v1.PaymentService/ListTransactions \
+curl -X POST http://localhost:8081/payment.v1.PaymentService/ListTransactions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -539,7 +539,7 @@ import { PaymentService } from './gen/payment/v1/payment_connect';
 
 // Create transport with auth interceptor
 const transport = createConnectTransport({
-  baseUrl: 'http://localhost:8080',
+  baseUrl: 'http://localhost:8081',
   httpVersion: '2',
   interceptors: [
     (next) => async (req) => {
@@ -580,28 +580,28 @@ console.log('Transaction:', response);
 podman-compose up -d
 
 # 2. Create service (generates RSA keypair)
-podman exec -it payment-server ./admin -action=create-service
+podman exec -it payment-server ./paycli -action=create-service
 # Enter: acme-web-app, ACME Corp, production, yes (generate keypair)
 
 # 3. Create merchant
-podman exec -it payment-server ./admin -action=create-merchant
+podman exec -it payment-server ./paycli -action=create-merchant
 # Enter: acme-merchant, ACME Store, EPX credentials...
 
 # 4. Grant service access to merchant
-podman exec -it payment-server ./admin -action=grant-access
+podman exec -it payment-server ./paycli -action=grant-access
 # Enter: acme-web-app, acme-merchant
 
 # 5. Copy credentials to local machine
 podman cp payment-server:/home/appuser/service_acme-web-app_credentials.json .
 
 # 6. Build admin CLI locally (for token generation)
-go build -o bin/admin ./cmd/admin
+go build -o bin/paycli ./cmd/paycli
 
 # 7. Generate token
-TOKEN=$(./bin/admin -action=generate-token -c service_acme-web-app_credentials.json)
+TOKEN=$(./bin/paycli -action=generate-token -c service_acme-web-app_credentials.json)
 
 # 8. Make API request
-curl -X POST http://localhost:8080/payment.v1.PaymentService/ListTransactions \
+curl -X POST http://localhost:8081/payment.v1.PaymentService/ListTransactions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"merchant_id": "your-merchant-uuid-from-step-3"}'
@@ -708,8 +708,8 @@ class TokenCache {
 **Cause:** Service→merchant grant doesn't exist.
 
 **Solution:**
-1. Run `./admin -action=grant-access`
-2. Verify with `./admin -action=list-services` to see merchant associations
+1. Run `./paycli -action=grant-access`
+2. Verify with `./paycli -action=list-services` to see merchant associations
 
 ---
 
@@ -732,9 +732,11 @@ Before going to production, verify:
 
 ## Related Documentation
 
-- [Admin CLI](ADMIN_CLI.md) - Service/merchant management and token generation
+- [Payment CLI](ADMIN_CLI.md) - Service/merchant management
 - [Authentication Guide](../development/AUTH.md) - Detailed auth architecture
 - [API Specifications](API_SPECS.md) - Complete API reference
+- [Browser Post Form Setup](BROWSER_POST_FORM_SETUP.md) - PCI-compliant card collection
+- [React Integration](REACT_INTEGRATION.md) - React/ConnectRPC integration
 
 ---
 

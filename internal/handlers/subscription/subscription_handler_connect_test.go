@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
 )
 
@@ -70,7 +70,7 @@ func (m *MockSubscriptionService) GetSubscription(ctx context.Context, subscript
 	return args.Get(0).(*domain.Subscription), args.Error(1)
 }
 
-func (m *MockSubscriptionService) ListCustomerSubscriptions(ctx context.Context, merchantID, customerID string) ([]*domain.Subscription, error) {
+func (m *MockSubscriptionService) ListSubscriptions(ctx context.Context, merchantID, customerID string) ([]*domain.Subscription, error) {
 	args := m.Called(ctx, merchantID, customerID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -83,11 +83,19 @@ func (m *MockSubscriptionService) ProcessDueBilling(ctx context.Context, asOfDat
 	return args.Int(0), args.Int(1), args.Int(2), args.Get(3).([]error)
 }
 
+func (m *MockSubscriptionService) ProcessExpiredPastDue(ctx context.Context, batchSize int) *ports.ExpiredPastDueResult {
+	args := m.Called(ctx, batchSize)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*ports.ExpiredPastDueResult)
+}
+
 // TestCreateSubscription_Validation tests input validation for CreateSubscription
 func TestCreateSubscription_Validation(t *testing.T) {
 	mockService := new(MockSubscriptionService)
 	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
+	handler := NewConnectHandler(mockService, logger, ConnectHandlerConfig{})
 
 	startDate := timestamppb.New(time.Now())
 
@@ -241,7 +249,7 @@ func TestCreateSubscription_Validation(t *testing.T) {
 func TestUpdateSubscription_Validation(t *testing.T) {
 	mockService := new(MockSubscriptionService)
 	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
+	handler := NewConnectHandler(mockService, logger, ConnectHandlerConfig{})
 
 	tests := []struct {
 		name           string
@@ -280,7 +288,7 @@ func TestUpdateSubscription_Validation(t *testing.T) {
 func TestCancelSubscription_Validation(t *testing.T) {
 	mockService := new(MockSubscriptionService)
 	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
+	handler := NewConnectHandler(mockService, logger, ConnectHandlerConfig{})
 
 	req := connect.NewRequest(&subscriptionv1.CancelSubscriptionRequest{
 		SubscriptionId: "",
@@ -301,7 +309,7 @@ func TestCancelSubscription_Validation(t *testing.T) {
 func TestPauseSubscription_Validation(t *testing.T) {
 	mockService := new(MockSubscriptionService)
 	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
+	handler := NewConnectHandler(mockService, logger, ConnectHandlerConfig{})
 
 	req := connect.NewRequest(&subscriptionv1.PauseSubscriptionRequest{
 		SubscriptionId: "",
@@ -322,7 +330,7 @@ func TestPauseSubscription_Validation(t *testing.T) {
 func TestResumeSubscription_Validation(t *testing.T) {
 	mockService := new(MockSubscriptionService)
 	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
+	handler := NewConnectHandler(mockService, logger, ConnectHandlerConfig{})
 
 	req := connect.NewRequest(&subscriptionv1.ResumeSubscriptionRequest{
 		SubscriptionId: "",
@@ -343,7 +351,7 @@ func TestResumeSubscription_Validation(t *testing.T) {
 func TestGetSubscription_Validation(t *testing.T) {
 	mockService := new(MockSubscriptionService)
 	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
+	handler := NewConnectHandler(mockService, logger, ConnectHandlerConfig{})
 
 	req := connect.NewRequest(&subscriptionv1.GetSubscriptionRequest{
 		SubscriptionId: "",
@@ -360,11 +368,11 @@ func TestGetSubscription_Validation(t *testing.T) {
 	mockService.AssertExpectations(t)
 }
 
-// TestListCustomerSubscriptions_Validation tests input validation for ListCustomerSubscriptions
-func TestListCustomerSubscriptions_Validation(t *testing.T) {
+// TestListSubscriptions_Validation tests input validation for ListSubscriptions
+func TestListSubscriptions_Validation(t *testing.T) {
 	mockService := new(MockSubscriptionService)
 	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
+	handler := NewConnectHandler(mockService, logger, ConnectHandlerConfig{})
 
 	tests := []struct {
 		name          string
@@ -380,23 +388,16 @@ func TestListCustomerSubscriptions_Validation(t *testing.T) {
 			expectedCode:  connect.CodeInvalidArgument,
 			expectedError: "merchant_id is required",
 		},
-		{
-			name:          "Missing customer_id",
-			merchantID:    "merchant_123",
-			customerID:    "",
-			expectedCode:  connect.CodeInvalidArgument,
-			expectedError: "customer_id is required",
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := connect.NewRequest(&subscriptionv1.ListCustomerSubscriptionsRequest{
+			req := connect.NewRequest(&subscriptionv1.ListSubscriptionsRequest{
 				MerchantId: tt.merchantID,
 				CustomerId: tt.customerID,
 			})
 
-			_, err := handler.ListCustomerSubscriptions(context.Background(), req)
+			_, err := handler.ListSubscriptions(context.Background(), req)
 
 			require.Error(t, err)
 			var connectErr *connect.Error
@@ -413,7 +414,7 @@ func TestListCustomerSubscriptions_Validation(t *testing.T) {
 func TestGetSubscription_NotFound(t *testing.T) {
 	mockService := new(MockSubscriptionService)
 	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
+	handler := NewConnectHandler(mockService, logger, ConnectHandlerConfig{})
 
 	subscriptionID := "sub_123"
 	mockService.On("GetSubscription", mock.Anything, subscriptionID).
@@ -434,58 +435,11 @@ func TestGetSubscription_NotFound(t *testing.T) {
 	mockService.AssertExpectations(t)
 }
 
-// TestProcessDueBilling_BatchSizeDefault tests default batch size handling
-func TestProcessDueBilling_BatchSizeDefault(t *testing.T) {
-	mockService := new(MockSubscriptionService)
-	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
-
-	tests := []struct {
-		name              string
-		inputBatchSize    int32
-		expectedBatchSize int
-	}{
-		{
-			name:              "Zero batch_size defaults to 100",
-			inputBatchSize:    0,
-			expectedBatchSize: 100,
-		},
-		{
-			name:              "Negative batch_size defaults to 100",
-			inputBatchSize:    -10,
-			expectedBatchSize: 100,
-		},
-		{
-			name:              "Valid batch_size unchanged",
-			inputBatchSize:    50,
-			expectedBatchSize: 50,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			asOfDate := time.Now()
-			mockService.On("ProcessDueBilling", mock.Anything, mock.AnythingOfType("time.Time"), tt.expectedBatchSize).
-				Return(0, 0, 0, []error{}).Once()
-
-			req := connect.NewRequest(&subscriptionv1.ProcessDueBillingRequest{
-				AsOfDate:  timestamppb.New(asOfDate),
-				BatchSize: tt.inputBatchSize,
-			})
-
-			_, err := handler.ProcessDueBilling(context.Background(), req)
-			require.NoError(t, err)
-		})
-	}
-
-	mockService.AssertExpectations(t)
-}
-
 // TestCreateSubscription_MaxRetriesDefault tests default maxRetries handling
 func TestCreateSubscription_MaxRetriesDefault(t *testing.T) {
 	mockService := new(MockSubscriptionService)
 	logger := zap.NewNop()
-	handler := NewConnectHandler(mockService, logger)
+	handler := NewConnectHandler(mockService, logger, ConnectHandlerConfig{})
 
 	startDate := time.Now()
 

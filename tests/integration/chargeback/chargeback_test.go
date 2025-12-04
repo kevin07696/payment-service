@@ -72,9 +72,9 @@ func addAuthToRequest[T any](t *testing.T, req *connect.Request[T], merchantID s
 // TestChargeback_ListChargebacks tests listing chargebacks with various filters
 func TestChargeback_ListChargebacks(t *testing.T) {
 	_, client := setupChargebackTest(t)
-	// Use constants for merchant and agent IDs to ensure consistency
+	// Use constants for merchant IDs to ensure consistency
 	merchantID := testutil.TestMerchantUUID
-	agentID := testutil.TestMerchantSlug
+	testMerchantID := testutil.TestMerchantSlug
 
 	tests := []struct {
 		name        string
@@ -84,16 +84,16 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 		{
 			name: "List all chargebacks",
 			request: &chargebackv1.ListChargebacksRequest{
-				AgentId: agentID,
-				Limit:   10,
-				Offset:  0,
+				MerchantId: testMerchantID,
+				Limit:      10,
+				Offset:     0,
 			},
 			description: "Basic list without filters",
 		},
 		{
 			name: "Filter by NEW status",
 			request: &chargebackv1.ListChargebacksRequest{
-				AgentId: agentID,
+				MerchantId: testMerchantID,
 				Status: func() *chargebackv1.ChargebackStatus {
 					s := chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_NEW
 					return &s
@@ -106,9 +106,9 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 		{
 			name: "Pagination with offset",
 			request: &chargebackv1.ListChargebacksRequest{
-				AgentId: agentID,
-				Limit:   5,
-				Offset:  5,
+				MerchantId: testMerchantID,
+				Limit:      5,
+				Offset:     5,
 			},
 			description: "Test pagination",
 		},
@@ -146,15 +146,15 @@ func TestChargeback_GetChargeback(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Use constants for merchant and agent IDs to ensure consistency
+	// Use constants for merchant IDs to ensure consistency
 	merchantID := testutil.TestMerchantUUID
-	agentID := testutil.TestMerchantSlug
+	testMerchantID := testutil.TestMerchantSlug
 
 	// First, list chargebacks to get a valid ID
 	listReq := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		AgentId: agentID,
-		Limit:   1,
-		Offset:  0,
+		MerchantId: testMerchantID,
+		Limit:      1,
+		Offset:     0,
 	})
 	addAuthToRequest(t, listReq, merchantID)
 
@@ -170,7 +170,7 @@ func TestChargeback_GetChargeback(t *testing.T) {
 
 	getReq := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 		ChargebackId: chargebackID,
-		AgentId:      agentID,
+		MerchantId:   testMerchantID,
 	})
 	addAuthToRequest(t, getReq, merchantID)
 
@@ -189,14 +189,14 @@ func TestChargeback_GetChargebackNotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Use constants for merchant and agent IDs to ensure consistency
+	// Use constants for merchant IDs to ensure consistency
 	merchantID := testutil.TestMerchantUUID
-	agentID := testutil.TestMerchantSlug
+	testMerchantID := testutil.TestMerchantSlug
 	nonExistentID := uuid.New().String()
 
 	req := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 		ChargebackId: nonExistentID,
-		AgentId:      agentID,
+		MerchantId:   testMerchantID,
 	})
 	addAuthToRequest(t, req, merchantID)
 
@@ -220,16 +220,16 @@ func TestChargeback_UnauthorizedAccess(t *testing.T) {
 
 	// Use constants for correct merchant credentials
 	correctMerchantID := testutil.TestMerchantUUID
-	correctAgentID := testutil.TestMerchantSlug
+	testMerchantID := testutil.TestMerchantSlug
 
-	// Wrong agent ID to test access control
-	wrongAgentID := "wrong-merchant"
+	// Wrong merchant ID to test access control
+	wrongMerchantID := "wrong-merchant"
 
 	// First, get a real chargeback ID from correct merchant
 	listReq := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		AgentId: correctAgentID,
-		Limit:   1,
-		Offset:  0,
+		MerchantId: testMerchantID,
+		Limit:      1,
+		Offset:     0,
 	})
 	addAuthToRequest(t, listReq, correctMerchantID)
 
@@ -242,10 +242,10 @@ func TestChargeback_UnauthorizedAccess(t *testing.T) {
 
 	chargebackID := listResp.Msg.Chargebacks[0].Id
 
-	// Try to get the chargeback with wrong agent ID (but valid merchant JWT)
+	// Try to get the chargeback with wrong merchant ID (but valid merchant JWT)
 	getReq := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 		ChargebackId: chargebackID,
-		AgentId:      wrongAgentID,
+		MerchantId:   wrongMerchantID,
 	})
 	addAuthToRequest(t, getReq, correctMerchantID)
 

@@ -3,8 +3,8 @@ package pool_test
 import (
 	"testing"
 
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/pkg/pool"
 )
 
@@ -77,53 +77,6 @@ func Benchmark_EPXPool_ServerPost(b *testing.B) {
 			resp := &ports.ServerPostResponse{}
 			// Simulate usage
 			resp.AuthGUID = "test-bric"
-			resp.AuthResp = "00"
-			_ = resp
-		}
-	})
-}
-
-// Benchmark_BRICPool measures BRIC storage request/response pooling
-func Benchmark_BRICPool(b *testing.B) {
-	b.Run("request_with_pool", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			req := pool.GetBRICStorageRequest()
-			// Simulate usage
-			req.CustNbr = "12345"
-			req.TranNbr = "test-tran"
-			pool.PutBRICStorageRequest(req)
-		}
-	})
-
-	b.Run("request_without_pool", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			req := &ports.BRICStorageRequest{}
-			// Simulate usage
-			req.CustNbr = "12345"
-			req.TranNbr = "test-tran"
-			_ = req
-		}
-	})
-
-	b.Run("response_with_pool", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			resp := pool.GetBRICStorageResponse()
-			// Simulate usage
-			resp.StorageBRIC = "test-bric"
-			resp.AuthResp = "00"
-			pool.PutBRICStorageResponse(resp)
-		}
-	})
-
-	b.Run("response_without_pool", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			resp := &ports.BRICStorageResponse{}
-			// Simulate usage
-			resp.StorageBRIC = "test-bric"
 			resp.AuthResp = "00"
 			_ = resp
 		}

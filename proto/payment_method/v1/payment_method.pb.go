@@ -174,6 +174,8 @@ type ListPaymentMethodsRequest struct {
 	CustomerId    string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
 	PaymentType   *PaymentMethodType     `protobuf:"varint,3,opt,name=payment_type,json=paymentType,proto3,enum=payment_method.v1.PaymentMethodType,oneof" json:"payment_type,omitempty"` // Optional: filter by type
 	IsActive      *bool                  `protobuf:"varint,4,opt,name=is_active,json=isActive,proto3,oneof" json:"is_active,omitempty"`                                                   // Optional: filter by active status
+	Limit         int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`                                                                               // Default: 100, max: 1000
+	Offset        int32                  `protobuf:"varint,6,opt,name=offset,proto3" json:"offset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -236,10 +238,25 @@ func (x *ListPaymentMethodsRequest) GetIsActive() bool {
 	return false
 }
 
+func (x *ListPaymentMethodsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListPaymentMethodsRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
 // ListPaymentMethodsResponse contains payment method list
 type ListPaymentMethodsResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	PaymentMethods []*PaymentMethod       `protobuf:"bytes,1,rep,name=payment_methods,json=paymentMethods,proto3" json:"payment_methods,omitempty"`
+	TotalCount     int32                  `protobuf:"varint,2,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -279,6 +296,13 @@ func (x *ListPaymentMethodsResponse) GetPaymentMethods() []*PaymentMethod {
 		return x.PaymentMethods
 	}
 	return nil
+}
+
+func (x *ListPaymentMethodsResponse) GetTotalCount() int32 {
+	if x != nil {
+		return x.TotalCount
+	}
+	return 0
 }
 
 // UpdatePaymentMethodStatusRequest updates payment method status
@@ -981,19 +1005,23 @@ const file_proto_payment_method_v1_payment_method_proto_rawDesc = "" +
 	"\n" +
 	",proto/payment_method/v1/payment_method.proto\x12\x11payment_method.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"E\n" +
 	"\x17GetPaymentMethodRequest\x12*\n" +
-	"\x11payment_method_id\x18\x01 \x01(\tR\x0fpaymentMethodId\"\xec\x01\n" +
+	"\x11payment_method_id\x18\x01 \x01(\tR\x0fpaymentMethodId\"\x9a\x02\n" +
 	"\x19ListPaymentMethodsRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12L\n" +
 	"\fpayment_type\x18\x03 \x01(\x0e2$.payment_method.v1.PaymentMethodTypeH\x00R\vpaymentType\x88\x01\x01\x12 \n" +
-	"\tis_active\x18\x04 \x01(\bH\x01R\bisActive\x88\x01\x01B\x0f\n" +
+	"\tis_active\x18\x04 \x01(\bH\x01R\bisActive\x88\x01\x01\x12\x14\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06offset\x18\x06 \x01(\x05R\x06offsetB\x0f\n" +
 	"\r_payment_typeB\f\n" +
 	"\n" +
-	"_is_active\"g\n" +
+	"_is_active\"\x88\x01\n" +
 	"\x1aListPaymentMethodsResponse\x12I\n" +
-	"\x0fpayment_methods\x18\x01 \x03(\v2 .payment_method.v1.PaymentMethodR\x0epaymentMethods\"\xad\x01\n" +
+	"\x0fpayment_methods\x18\x01 \x03(\v2 .payment_method.v1.PaymentMethodR\x0epaymentMethods\x12\x1f\n" +
+	"\vtotal_count\x18\x02 \x01(\x05R\n" +
+	"totalCount\"\xad\x01\n" +
 	" UpdatePaymentMethodStatusRequest\x12*\n" +
 	"\x11payment_method_id\x18\x01 \x01(\tR\x0fpaymentMethodId\x12\x1f\n" +
 	"\vmerchant_id\x18\x02 \x01(\tR\n" +

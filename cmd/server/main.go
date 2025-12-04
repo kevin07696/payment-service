@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"connectrpc.com/connect"
@@ -21,6 +22,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	"github.com/kevin07696/payment-service/internal/adapters/epx"
 	"github.com/kevin07696/payment-service/internal/adapters/north"
+	"github.com/kevin07696/payment-service/internal/db/seed"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	chargebackHandler "github.com/kevin07696/payment-service/internal/handlers/chargeback"
 	cronHandler "github.com/kevin07696/payment-service/internal/handlers/cron"
@@ -29,6 +31,7 @@ import (
 	paymentmethodHandler "github.com/kevin07696/payment-service/internal/handlers/payment_method"
 	subscriptionHandler "github.com/kevin07696/payment-service/internal/handlers/subscription"
 	authMiddleware "github.com/kevin07696/payment-service/internal/middleware"
+	browserpostService "github.com/kevin07696/payment-service/internal/services/browser_post"
 	merchantService "github.com/kevin07696/payment-service/internal/services/merchant"
 	paymentService "github.com/kevin07696/payment-service/internal/services/payment"
 	paymentmethodService "github.com/kevin07696/payment-service/internal/services/payment_method"
@@ -85,7 +88,7 @@ func main() {
 
 	// Initialize authentication interceptor
 	var authInterceptor *authMiddleware.AuthInterceptor
-	if !cfg.DisableAuth {
+	if cfg.AuthEnabled {
 		var err error
 		authInterceptor, err = authMiddleware.NewAuthInterceptor(queries, logger)
 		if err != nil {
@@ -171,13 +174,8 @@ func main() {
 		zap.String("protocols", "gRPC, Connect, gRPC-Web, HTTP/JSON"),
 	)
 
-	// Setup separate HTTP server for cron endpoints and Browser Post callback
-	httpMux := http.NewServeMux()
-
 	// Initialize in-flight request tracking (P2-5) - Zero-downtime deployments
-	// Created early so health checks can use draining-aware wrappers
-	httpServerTracker := shutdown.NewHTTPInFlightTracker("http_server", logger)
-	connectServerTracker := shutdown.NewHTTPInFlightTracker("connect_server", logger)
+	serverTracker := shutdown.NewHTTPInFlightTracker("server", logger)
 
 	// Create rate limiter (10 requests per second per IP, burst of 20)
 	// Adjust these values based on expected staging traffic
@@ -185,7 +183,7 @@ func main() {
 
 	// Initialize EPX callback authentication
 	var epxAuth *authMiddleware.EPXCallbackAuth
-	if !cfg.DisableAuth && cfg.EPXMacSecret != "" {
+	if cfg.AuthEnabled && cfg.EPXMacSecret != "" {
 		var err error
 		epxAuth, err = authMiddleware.NewEPXCallbackAuth(queries, cfg.EPXMacSecret, logger)
 		if err != nil {
@@ -199,7 +197,7 @@ func main() {
 	cronAuthMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			// Skip auth if disabled
-			if cfg.DisableAuth {
+			if !cfg.AuthEnabled {
 				next(w, r)
 				return
 			}
@@ -218,27 +216,30 @@ func main() {
 		}
 	}
 
-	// Cron endpoints requiring authentication
-	httpMux.HandleFunc("/cron/process-billing", cronAuthMiddleware(deps.billingCronHandler.ProcessBilling))
-	httpMux.HandleFunc("/cron/sync-disputes", cronAuthMiddleware(deps.disputeSyncCronHandler.SyncDisputes))
-	httpMux.HandleFunc("/cron/verify-ach", cronAuthMiddleware(deps.achVerificationCronHandler.VerifyACH))
-	httpMux.HandleFunc("/cron/cleanup-audit-logs", cronAuthMiddleware(deps.auditCleanupCronHandler.CleanupAuditLogs))
-	httpMux.HandleFunc("/cron/cleanup-rate-limits", cronAuthMiddleware(deps.rateLimitCleanupCronHandler.CleanupRateLimitBuckets))
-	httpMux.HandleFunc("/cron/stats", cronAuthMiddleware(deps.billingCronHandler.Stats))
-	httpMux.HandleFunc("/cron/ach/stats", cronAuthMiddleware(deps.achVerificationCronHandler.Stats))
-	httpMux.HandleFunc("/cron/audit/stats", cronAuthMiddleware(deps.auditCleanupCronHandler.Stats))
-	httpMux.HandleFunc("/cron/rate-limit/stats", cronAuthMiddleware(deps.rateLimitCleanupCronHandler.Stats))
+	// Cron endpoints requiring authentication (added to main mux)
+	mux.HandleFunc("/cron/process-billing", cronAuthMiddleware(deps.billingCronHandler.ProcessBilling))
+	mux.HandleFunc("/cron/process-expired-past-due", cronAuthMiddleware(deps.billingCronHandler.ProcessExpiredPastDue))
+	mux.HandleFunc("/cron/sync-disputes", cronAuthMiddleware(deps.disputeSyncCronHandler.SyncDisputes))
+	mux.HandleFunc("/cron/verify-ach", cronAuthMiddleware(deps.achVerificationCronHandler.VerifyACH))
+	mux.HandleFunc("/cron/prenote-retry", cronAuthMiddleware(deps.prenoteRetryCronHandler.RetryPrenotes))
+	mux.HandleFunc("/cron/cleanup-audit-logs", cronAuthMiddleware(deps.auditCleanupCronHandler.CleanupAuditLogs))
+	mux.HandleFunc("/cron/cleanup-rate-limits", cronAuthMiddleware(deps.rateLimitCleanupCronHandler.CleanupRateLimitBuckets))
+	mux.HandleFunc("/cron/stats", cronAuthMiddleware(deps.billingCronHandler.Stats))
+	mux.HandleFunc("/cron/ach/stats", cronAuthMiddleware(deps.achVerificationCronHandler.Stats))
+	mux.HandleFunc("/cron/prenote/stats", cronAuthMiddleware(deps.prenoteRetryCronHandler.Stats))
+	mux.HandleFunc("/cron/audit/stats", cronAuthMiddleware(deps.auditCleanupCronHandler.Stats))
+	mux.HandleFunc("/cron/rate-limit/stats", cronAuthMiddleware(deps.rateLimitCleanupCronHandler.Stats))
 
 	// Health endpoints (no auth required for monitoring/load balancers)
 	// Wrap health checks with draining awareness - returns 503 during shutdown
 	// This allows load balancers to remove instances from rotation before draining
-	httpMux.Handle("/cron/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.billingCronHandler.HealthCheck)))
-	httpMux.Handle("/cron/ach/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.achVerificationCronHandler.HealthCheck)))
-	httpMux.Handle("/cron/audit/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.auditCleanupCronHandler.HealthCheck)))
-	httpMux.Handle("/cron/rate-limit/health", httpServerTracker.DrainingHealthCheck(http.HandlerFunc(deps.rateLimitCleanupCronHandler.HealthCheck)))
+	mux.Handle("/cron/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.billingCronHandler.HealthCheck)))
+	mux.Handle("/cron/ach/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.achVerificationCronHandler.HealthCheck)))
+	mux.Handle("/cron/audit/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.auditCleanupCronHandler.HealthCheck)))
+	mux.Handle("/cron/rate-limit/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.rateLimitCleanupCronHandler.HealthCheck)))
 
 	// Browser Post endpoints (with rate limiting and EPX auth for callbacks)
-	httpMux.HandleFunc("/api/v1/payments/browser-post/form",
+	mux.HandleFunc("/api/v1/payments/browser-post/form",
 		rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm))
 
 	// Apply EPX auth to callback endpoint
@@ -246,11 +247,11 @@ func main() {
 	if epxAuth != nil {
 		callbackHandler = epxAuth.Middleware(callbackHandler)
 	}
-	httpMux.HandleFunc("/api/v1/payments/browser-post/callback",
+	mux.HandleFunc("/api/v1/payments/browser-post/callback",
 		rateLimiter.HTTPHandlerFunc(callbackHandler))
 
 	// Serve Browser Post demo form (avoids CORS issues with file:// protocol)
-	httpMux.HandleFunc("/browser-post-demo", serveBrowserPostDemo)
+	mux.HandleFunc("/browser-post-demo", serveBrowserPostDemo)
 
 	// Initialize security headers middleware
 	isDevelopment := getEnv("ENVIRONMENT", "development") != "production"
@@ -275,35 +276,18 @@ func main() {
 	// Request size limits for DOS protection
 	const maxRequestBodySize = 1 << 20 // 1 MB limit for request bodies
 
-	httpServer := &http.Server{
-		Addr: fmt.Sprintf(":%d", cfg.HTTPPort),
-		// Middleware chain (innermost to outermost):
-		// 1. httpMux (routes)
-		// 2. rateLimiter (DOS protection)
-		// 3. compressionMiddleware (gzip)
-		// 4. securityHeaders (CSP, HSTS, etc.)
-		// 5. httpServerTracker (in-flight request tracking + draining)
-		// 6. MaxBytesHandler (request size limit)
-		Handler:           http.MaxBytesHandler(httpServerTracker.Middleware(securityHeaders.Middleware(compressionMiddleware(rateLimiter.Middleware(httpMux)))), maxRequestBodySize),
-		ReadTimeout:       65 * time.Second, // Slightly longer than handler timeout (60s)
-		WriteTimeout:      65 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,
-		MaxHeaderBytes:    1 << 20, // 1 MB max header size
-	}
-
-	// Create ConnectRPC server with H2C support (HTTP/2 without TLS)
-	// This allows the server to accept gRPC, Connect, gRPC-Web, and HTTP/JSON requests
-	connectServer := &http.Server{
+	// Create unified server with H2C support (HTTP/2 without TLS)
+	// This allows the server to accept gRPC, Connect, gRPC-Web, HTTP/JSON, and REST requests
+	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
 		// Middleware chain (innermost to outermost):
-		// 1. mux (ConnectRPC routes)
+		// 1. mux (ConnectRPC + REST routes)
 		// 2. h2c.NewHandler (HTTP/2 cleartext)
 		// 3. compressionMiddleware (gzip)
 		// 4. securityHeaders (CSP, HSTS, etc.)
-		// 5. connectServerTracker (in-flight request tracking + draining)
+		// 5. serverTracker (in-flight request tracking + draining)
 		// 6. MaxBytesHandler (request size limit)
-		Handler:           http.MaxBytesHandler(connectServerTracker.Middleware(securityHeaders.Middleware(compressionMiddleware(h2c.NewHandler(mux, &http2.Server{})))), maxRequestBodySize),
+		Handler:           http.MaxBytesHandler(serverTracker.Middleware(securityHeaders.Middleware(compressionMiddleware(h2c.NewHandler(mux, &http2.Server{})))), maxRequestBodySize),
 		ReadTimeout:       65 * time.Second, // Slightly longer than handler timeout (60s)
 		WriteTimeout:      65 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -357,11 +341,10 @@ func main() {
 		})
 	}
 
-	// 3. HTTP servers (shut down first - stop accepting new requests)
+	// 3. HTTP server (shut down first - stop accepting new requests)
 	// Use draining shutdown: first drain in-flight requests, then shutdown server
 	// This enables zero-downtime deployments by completing all active requests
-	shutdownMgr.RegisterHTTPServerWithDraining("http_server", httpServer, httpServerTracker)
-	shutdownMgr.RegisterHTTPServerWithDraining("connect_server", connectServer, connectServerTracker)
+	shutdownMgr.RegisterHTTPServerWithDraining("server", server, serverTracker)
 
 	logger.Info("Shutdown manager initialized - all components registered")
 
@@ -374,25 +357,14 @@ func main() {
 	<-monitorStarted // Wait for monitoring to start
 	logger.Info("Goroutine leak monitoring started")
 
-	// NOW start servers (after shutdown manager is ready)
-	// Start ConnectRPC server in goroutine
+	// NOW start server (after shutdown manager is ready)
 	go func() {
-		logger.Info("ConnectRPC server listening",
+		logger.Info("Server listening",
 			zap.Int("port", cfg.Port),
-			zap.String("protocols", "gRPC, Connect, gRPC-Web, HTTP/JSON"),
+			zap.String("protocols", "gRPC, Connect, gRPC-Web, HTTP/JSON, REST"),
 		)
-		if err := connectServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Failed to serve ConnectRPC", zap.Error(err))
-		}
-	}()
-
-	// Start HTTP server for cron and browser post in goroutine
-	go func() {
-		logger.Info("HTTP cron server listening",
-			zap.Int("port", cfg.HTTPPort),
-		)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Failed to serve HTTP", zap.Error(err))
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Failed to serve", zap.Error(err))
 		}
 	}()
 
@@ -402,8 +374,7 @@ func main() {
 
 // Config holds application configuration
 type Config struct {
-	Port     int
-	HTTPPort int // HTTP port for cron endpoints
+	Port int // Server port for all endpoints (ConnectRPC + REST)
 
 	// Database
 	DBHost     string
@@ -415,30 +386,39 @@ type Config struct {
 	MaxConns   int32
 	MinConns   int32
 
-	// EPX Payment Gateway (Server Post API for transactions)
-	EPXServerPostURL  string // EPX Server Post API URL (e.g., https://secure.epxuap.com)
-	EPXKeyExchangeURL string // EPX Key Exchange URL (e.g., https://keyexch.epxuap.com)
-	EPXBrowserPostURL string // EPX Browser Post URL (e.g., https://services.epxuap.com/browserpost/)
-	EPXTimeout        int
-	EPXCustNbr        string // EPX Customer Number
-	EPXMerchNbr       string // EPX Merchant Number
-	EPXDBAnbr         string // EPX DBA Number
-	EPXTerminalNbr    string // EPX Terminal Number
+	// EPX Payment Gateway - endpoints configured via environment variables in adapters
+	// Requires: EPX_SERVER_POST_ENDPOINT, EPX_SERVER_POST_SOCKET_ENDPOINT,
+	//           EPX_BROWSER_POST_ENDPOINT, EPX_KEY_EXCHANGE_ENDPOINT
+	EPXTimeout     int
+	EPXCustNbr     string
+	EPXMerchNbr    string
+	EPXDBAnbr      string
+	EPXTerminalNbr string
 
-	// North Merchant Reporting API (for disputes/chargebacks, NOT payments)
-	NorthMerchantReportingURL string // North Reporting API URL (e.g., https://api.north.com)
+	// North Merchant Reporting API (for disputes/chargebacks)
+	NorthMerchantReportingURL string
 	NorthTimeout              int
 
 	// Browser Post Configuration
-	CallbackBaseURL string // Base URL for Browser Post callbacks (e.g., "http://localhost:8081")
+	CallbackBaseURL string
 
-	// Cron authentication
-	CronSecret string
+	// Cron configuration
+	CronSecret            string
+	CronJobTimeoutSeconds int
+	CronDefaultBatchSize  int
+	CronMaxBatchSize      int
+
+	// Subscription configuration
+	SubscriptionDefaultMaxRetries  int
+	SubscriptionDefaultGracePeriod int
+	SubscriptionRetryBaseDelaySecs int
+	SubscriptionRetryMaxDelaySecs  int
+	SubscriptionRetryMultiplier    float64
 
 	// Authentication
-	AuthSaltPrefix string // Salt prefix for hashing API keys/secrets
-	EPXMacSecret   string // MAC secret for EPX callback signature verification
-	DisableAuth    bool   // Disable auth for development/testing
+	AuthSaltPrefix string
+	EPXMacSecret   string
+	AuthEnabled    bool
 }
 
 // Dependencies holds all initialized services and handlers
@@ -455,49 +435,78 @@ type Dependencies struct {
 	billingCronHandler          *cronHandler.BillingHandler
 	disputeSyncCronHandler      *cronHandler.DisputeSyncHandler
 	achVerificationCronHandler  *cronHandler.ACHVerificationHandler
+	prenoteRetryCronHandler     *cronHandler.PrenoteRetryHandler
 	auditCleanupCronHandler     *cronHandler.AuditCleanupHandler
 	rateLimitCleanupCronHandler *cronHandler.RateLimitCleanupHandler
 	browserPostCallbackHandler  *paymentHandler.BrowserPostCallbackHandler
 }
 
 // loadConfig loads configuration from environment variables
+// All environment variables are required - no defaults to avoid configuration confusion
 func loadConfig(logger *zap.Logger) *Config {
 	cfg := &Config{
-		Port:       getEnvInt("PORT", 8080),
-		HTTPPort:   getEnvInt("HTTP_PORT", 8081),
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnvInt("DB_PORT", 5432),
-		DBUser:     getEnv("DB_USER", "postgres"),
-		DBPassword: getEnv("DB_PASSWORD", "postgres"),
-		DBName:     getEnv("DB_NAME", "payment_service"),
-		DBSSLMode:  getEnv("DB_SSL_MODE", "disable"),
-		MaxConns:   int32(getEnvInt("DB_MAX_CONNS", 25)),
-		MinConns:   int32(getEnvInt("DB_MIN_CONNS", 5)),
-		// EPX URLs are required - no fallbacks to ensure proper configuration
-		EPXServerPostURL:          getEnvWithFallback("EPX_SERVER_POST_URL", "EPX_BASE_URL", ""),
-		EPXKeyExchangeURL:         getEnv("EPX_KEY_EXCHANGE_URL", ""),
-		EPXBrowserPostURL:         getEnv("EPX_BROWSER_POST_URL", ""),
-		EPXTimeout:                getEnvInt("EPX_TIMEOUT", 30),
-		EPXCustNbr:                getEnv("EPX_CUST_NBR", "9001"),    // EPX sandbox customer number
-		EPXMerchNbr:               getEnv("EPX_MERCH_NBR", "900300"), // EPX sandbox merchant number
-		EPXDBAnbr:                 getEnv("EPX_DBA_NBR", "2"),        // EPX sandbox DBA number
-		EPXTerminalNbr:            getEnv("EPX_TERMINAL_NBR", "77"),  // EPX sandbox terminal number
-		NorthMerchantReportingURL: getEnvWithFallback("NORTH_MERCHANT_REPORTING_URL", "NORTH_API_URL", "https://api.north.com"),
-		NorthTimeout:              getEnvInt("NORTH_TIMEOUT", 30),
-		CallbackBaseURL:           getEnv("CALLBACK_BASE_URL", "http://localhost:8081"),
-		CronSecret:                getEnv("CRON_SECRET", "change-me-in-production"),
-		AuthSaltPrefix:            getEnv("AUTH_SALT_PREFIX", "payment_service_"),
-		EPXMacSecret:              getEnv("EPX_MAC_SECRET", ""),
-		DisableAuth:               getEnvBool("DISABLE_AUTH", false),
+		// Port (unified for ConnectRPC + REST)
+		Port: requireEnvInt("PORT", logger),
+
+		// Database
+		DBHost:     requireEnv("DB_HOST", logger),
+		DBPort:     requireEnvInt("DB_PORT", logger),
+		DBUser:     requireEnv("DB_USER", logger),
+		DBPassword: requireEnv("DB_PASSWORD", logger),
+		DBName:     requireEnv("DB_NAME", logger),
+		DBSSLMode:  requireEnv("DB_SSL_MODE", logger),
+		MaxConns:   int32(requireEnvInt("DB_MAX_CONNS", logger)),
+		MinConns:   int32(requireEnvInt("DB_MIN_CONNS", logger)),
+
+		// EPX configuration (endpoints configured in adapters via EPX_*_ENDPOINT env vars)
+		EPXTimeout:     requireEnvInt("EPX_TIMEOUT", logger),
+		EPXCustNbr:     requireEnv("EPX_CUST_NBR", logger),
+		EPXMerchNbr:    requireEnv("EPX_MERCH_NBR", logger),
+		EPXDBAnbr:      requireEnv("EPX_DBA_NBR", logger),
+		EPXTerminalNbr: requireEnv("EPX_TERMINAL_NBR", logger),
+
+		// North Reporting API
+		NorthMerchantReportingURL: requireEnv("NORTH_MERCHANT_REPORTING_URL", logger),
+		NorthTimeout:              requireEnvInt("NORTH_TIMEOUT", logger),
+
+		// Browser POST callback
+		CallbackBaseURL: requireEnv("CALLBACK_BASE_URL", logger),
+
+		// Cron configuration
+		CronSecret:            requireEnv("CRON_SECRET", logger),
+		CronJobTimeoutSeconds: requireEnvInt("CRON_JOB_TIMEOUT_SECONDS", logger),
+		CronDefaultBatchSize:  requireEnvInt("CRON_DEFAULT_BATCH_SIZE", logger),
+		CronMaxBatchSize:      requireEnvInt("CRON_MAX_BATCH_SIZE", logger),
+
+		// Subscription configuration
+		SubscriptionDefaultMaxRetries:  requireEnvInt("SUBSCRIPTION_DEFAULT_MAX_RETRIES", logger),
+		SubscriptionDefaultGracePeriod: requireEnvInt("SUBSCRIPTION_DEFAULT_GRACE_PERIOD_DAYS", logger),
+		SubscriptionRetryBaseDelaySecs: requireEnvInt("SUBSCRIPTION_RETRY_BASE_DELAY_SECS", logger),
+		SubscriptionRetryMaxDelaySecs:  requireEnvInt("SUBSCRIPTION_RETRY_MAX_DELAY_SECS", logger),
+		SubscriptionRetryMultiplier:    requireEnvFloat("SUBSCRIPTION_RETRY_MULTIPLIER", logger),
+
+		// Authentication
+		AuthSaltPrefix: requireEnv("AUTH_SALT_PREFIX", logger),
+		EPXMacSecret:   getEnv("EPX_SANDBOX_MAC", ""), // Optional: Merchant Authorization Code for sandbox callback auth
+		AuthEnabled:    requireEnvBool("AUTH_ENABLED", logger),
 	}
 
-	// Validate cron secret entropy for production security
+	// Validate CRON_SECRET security requirements
+	// Empty check - redundant with requireEnv but explicit for test verification
 	if cfg.CronSecret == "" {
-		logger.Fatal("CRON_SECRET environment variable is required")
+		logger.Fatal("CRON_SECRET environment variable is required",
+			zap.String("suggestion", "Generate with: openssl rand -base64 32"),
+		)
 	}
+
+	// Default value check - prevent production use of placeholder
 	if cfg.CronSecret == "change-me-in-production" {
-		logger.Fatal("CRON_SECRET must be changed from default value")
+		logger.Fatal("CRON_SECRET must be changed from default value",
+			zap.String("suggestion", "Generate with: openssl rand -base64 32"),
+		)
 	}
+
+	// Minimum length check - ensure sufficient entropy (256 bits recommended)
 	if len(cfg.CronSecret) < 32 {
 		logger.Fatal("CRON_SECRET must be at least 32 characters for sufficient entropy",
 			zap.Int("current_length", len(cfg.CronSecret)),
@@ -510,8 +519,6 @@ func loadConfig(logger *zap.Logger) *Config {
 		zap.Int("port", cfg.Port),
 		zap.String("db_host", cfg.DBHost),
 		zap.Int("db_port", cfg.DBPort),
-		zap.String("epx_server_post_url", cfg.EPXServerPostURL),
-		zap.String("north_merchant_reporting_url", cfg.NorthMerchantReportingURL),
 	)
 
 	return cfg
@@ -599,24 +606,25 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	}
 
 	// Server Post adapter configuration
-	serverPostCfg := epx.DefaultServerPostConfig(epxEnv)
-	serverPostCfg.BaseURL = cfg.EPXServerPostURL // Override with env var
+	serverPostCfg, err := epx.DefaultServerPostConfig(epxEnv)
+	if err != nil {
+		logger.Fatal("Failed to create Server Post config", zap.Error(err))
+	}
 	serverPost := epx.NewServerPostAdapter(serverPostCfg, logger)
 
 	// Browser Post adapter configuration
-	browserPostCfg := epx.DefaultBrowserPostConfig(epxEnv)
-	browserPostCfg.PostURL = cfg.EPXBrowserPostURL // Use env var directly - no fallback
+	browserPostCfg, err := epx.DefaultBrowserPostConfig(epxEnv)
+	if err != nil {
+		logger.Fatal("Failed to create Browser Post config", zap.Error(err))
+	}
 	browserPost := epx.NewBrowserPostAdapter(browserPostCfg, logger)
 
 	// Key Exchange adapter configuration
-	keyExchangeCfg := epx.DefaultKeyExchangeConfig(epxEnv)
-	keyExchangeCfg.BaseURL = cfg.EPXKeyExchangeURL // Use env var directly - no fallback
+	keyExchangeCfg, err := epx.DefaultKeyExchangeConfig(epxEnv)
+	if err != nil {
+		logger.Fatal("Failed to create Key Exchange config", zap.Error(err))
+	}
 	keyExchange := epx.NewKeyExchangeAdapter(keyExchangeCfg, logger)
-
-	// BRIC Storage adapter configuration
-	bricStorageCfg := epx.DefaultBRICStorageConfig(epxEnv)
-	bricStorageCfg.BaseURL = cfg.EPXServerPostURL // Same as Server Post
-	bricStorage := epx.NewBRICStorageAdapter(bricStorageCfg, logger)
 
 	// Business Reporting adapter configuration (for ACH return checks)
 	businessReportingCfg := epx.DefaultBusinessReportingConfig(epxEnv)
@@ -633,6 +641,13 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	// Initialize secret manager based on environment
 	// Supports: GCP Secret Manager (production) or Mock (development)
 	secretManager := initSecretManager(context.Background(), cfg, logger)
+
+	// Auto-seed sandbox merchant in development/staging (not production)
+	seeder := seed.NewSeeder(queries, secretManager, logger)
+	if err := seeder.SeedIfNeeded(context.Background()); err != nil {
+		logger.Error("Failed to auto-seed sandbox merchant", zap.Error(err))
+		// Non-fatal: continue startup even if seeding fails
+	}
 
 	// Initialize P2 optimizations
 
@@ -678,6 +693,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		secretManager,
 		merchantCache, // P2-1: Merchant credential cache (70% DB load reduction)
 		logger,
+		nil, // Use default config (DEFAULT_ACH_CLASS env var or "WEB")
 	)
 
 	subscriptionSvc := subscriptionService.NewSubscriptionService(
@@ -686,6 +702,11 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		serverPost,
 		secretManager,
 		logger,
+		&subscriptionService.BillingRetryConfig{
+			BaseDelaySecs: cfg.SubscriptionRetryBaseDelaySecs,
+			MaxDelaySecs:  cfg.SubscriptionRetryMaxDelaySecs,
+			Multiplier:    cfg.SubscriptionRetryMultiplier,
+		},
 	)
 
 	paymentMethodSvc := paymentmethodService.NewPaymentMethodService(
@@ -693,7 +714,6 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		dbAdapter,
 		browserPost,
 		serverPost,
-		bricStorage,
 		secretManager,
 		paymentMethodCache, // P2-2: Payment method cache (60% faster lookups)
 		logger,
@@ -715,27 +735,47 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 
 	// Initialize ConnectRPC handlers
 	paymentHdlr := paymentHandler.NewConnectHandler(paymentSvc, logger)
-	subscriptionHdlr := subscriptionHandler.NewConnectHandler(subscriptionSvc, logger)
+	subscriptionHdlr := subscriptionHandler.NewConnectHandler(subscriptionSvc, logger, subscriptionHandler.ConnectHandlerConfig{
+		DefaultMaxRetries: cfg.SubscriptionDefaultMaxRetries,
+	})
 	paymentMethodHdlr := paymentmethodHandler.NewConnectHandler(paymentMethodSvc, logger)
 	chargebackHdlr := chargebackHandler.NewConnectHandler(dbAdapter, logger)
 	merchantHdlr := merchantHandler.NewConnectHandler(merchantSvc, logger)
 
 	// Initialize cron handlers (for HTTP endpoints)
-	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, logger, cfg.CronSecret)
+	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, queries, logger, cronHandler.BillingHandlerConfig{
+		CronSecret:       cfg.CronSecret,
+		JobTimeoutSecs:   cfg.CronJobTimeoutSeconds,
+		DefaultBatchSize: cfg.CronDefaultBatchSize,
+		MaxBatchSize:     cfg.CronMaxBatchSize,
+	})
 	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
 	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(queries, businessReporting, logger, cfg.CronSecret)
+	prenoteRetryCronHdlr := cronHandler.NewPrenoteRetryHandler(queries, serverPost, logger, cfg.CronSecret)
 	auditCleanupCronHdlr := cronHandler.NewAuditCleanupHandler(queries, logger, cfg.CronSecret)
 	rateLimitCleanupCronHdlr := cronHandler.NewRateLimitCleanupHandler(queries, logger, cfg.CronSecret)
 
-	// Initialize Browser Post callback handler
-	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(
-		dbAdapter,
-		browserPost,
+	// Initialize Browser Post service and handler
+	browserPostSvc := browserpostService.NewBrowserPostService(
+		queries,
 		keyExchange,
-		secretManager, // Secret manager for fetching merchant-specific MACs
+		browserPost,
+		secretManager,
 		logger,
-		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
-		cfg.CallbackBaseURL,    // Base URL for callbacks
+		browserPostCfg.PostURL,
+		cfg.CallbackBaseURL,
+	)
+
+	templateRenderer, err := paymentHandler.NewTemplateRenderer()
+	if err != nil {
+		logger.Fatal("Failed to initialize template renderer", zap.Error(err))
+	}
+
+	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(
+		browserPostSvc,
+		paymentMethodSvc,
+		templateRenderer,
+		logger,
 	)
 
 	return &Dependencies{
@@ -751,6 +791,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		billingCronHandler:          billingCronHdlr,
 		disputeSyncCronHandler:      disputeSyncCronHdlr,
 		achVerificationCronHandler:  achVerificationCronHdlr,
+		prenoteRetryCronHandler:     prenoteRetryCronHdlr,
 		auditCleanupCronHandler:     auditCleanupCronHdlr,
 		rateLimitCleanupCronHandler: rateLimitCleanupCronHdlr,
 		browserPostCallbackHandler:  browserPostCallbackHdlr,
@@ -776,28 +817,69 @@ func getEnvInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
-// getEnvWithFallback tries the primary key first, then fallback key, then default value
-// This provides backwards compatibility when renaming environment variables
-func getEnvWithFallback(primaryKey, fallbackKey, defaultValue string) string {
-	if value := os.Getenv(primaryKey); value != "" {
-		return value
-	}
-	if value := os.Getenv(fallbackKey); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
 func getEnvDuration(key string, defaultMinutes int) time.Duration {
 	minutes := getEnvInt(key, defaultMinutes)
 	return time.Duration(minutes) * time.Minute
 }
 
-func getEnvBool(key string, defaultValue bool) bool {
-	if value := os.Getenv(key); value != "" {
-		return value == "true" || value == "1" || value == "yes"
+// requireEnv returns the environment variable value or fails if not set
+func requireEnv(key string, logger *zap.Logger) string {
+	value := os.Getenv(key)
+	if value == "" {
+		logger.Fatal("Required environment variable not set", zap.String("variable", key))
 	}
-	return defaultValue
+	return value
+}
+
+// requireEnvInt returns the environment variable as int or fails if not set/invalid
+func requireEnvInt(key string, logger *zap.Logger) int {
+	value := os.Getenv(key)
+	if value == "" {
+		logger.Fatal("Required environment variable not set", zap.String("variable", key))
+	}
+	intValue, err := strconv.Atoi(value)
+	if err != nil {
+		logger.Fatal("Environment variable must be an integer",
+			zap.String("variable", key),
+			zap.String("value", value),
+		)
+	}
+	return intValue
+}
+
+// requireEnvFloat returns the environment variable as float64 or fails if not set/invalid
+func requireEnvFloat(key string, logger *zap.Logger) float64 {
+	value := os.Getenv(key)
+	if value == "" {
+		logger.Fatal("Required environment variable not set", zap.String("variable", key))
+	}
+	floatValue, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		logger.Fatal("Environment variable must be a float",
+			zap.String("variable", key),
+			zap.String("value", value),
+		)
+	}
+	return floatValue
+}
+
+// requireEnvBool returns the environment variable as bool or fails if not set/invalid
+func requireEnvBool(key string, logger *zap.Logger) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		logger.Fatal("Required environment variable not set", zap.String("variable", key))
+	}
+	if value == "true" || value == "1" {
+		return true
+	}
+	if value == "false" || value == "0" {
+		return false
+	}
+	logger.Fatal("Environment variable must be 'true', 'false', '1', or '0'",
+		zap.String("variable", key),
+		zap.String("value", value),
+	)
+	return false
 }
 
 // serveBrowserPostDemo serves the Browser Post demo HTML form
@@ -980,9 +1062,9 @@ func serveBrowserPostDemo(w http.ResponseWriter, r *http.Request) {
             <input type="hidden" name="TRAN_NBR" id="tranNbr">
             <input type="hidden" name="TRAN_GROUP" id="tranGroup">
             <input type="hidden" name="AMOUNT" id="amountHidden">
-            <input type="hidden" name="CARD_NBR" id="cardNbrHidden">
+            <input type="hidden" name="ACCOUNT_NBR" id="cardNbrHidden">
             <input type="hidden" name="EXP_DATE" id="expDateHidden">
-            <input type="hidden" name="CVV" id="cvvHidden">
+            <input type="hidden" name="CVV2" id="cvvHidden">
             <input type="hidden" name="REDIRECT_URL" id="redirectUrl">
             <input type="hidden" name="USER_DATA_1" id="userData1">
             <input type="hidden" name="USER_DATA_2" value="browser-post-demo">

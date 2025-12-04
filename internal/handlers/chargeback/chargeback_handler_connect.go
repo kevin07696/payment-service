@@ -57,15 +57,15 @@ func (h *ConnectHandler) GetChargeback(
 
 	h.logger.Info("GetChargeback request received",
 		zap.String("chargeback_id", msg.ChargebackId),
-		zap.String("agent_id", msg.AgentId),
+		zap.String("merchant_id", msg.MerchantId),
 	)
 
 	// Validate inputs
 	if msg.ChargebackId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("chargeback_id is required"))
 	}
-	if msg.AgentId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("agent_id is required"))
+	if msg.MerchantId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("merchant_id is required"))
 	}
 
 	// Parse UUID
@@ -84,12 +84,12 @@ func (h *ConnectHandler) GetChargeback(
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("chargeback not found"))
 	}
 
-	// Verify agent authorization
-	if chargeback.MerchantID != msg.AgentId {
+	// Verify merchant authorization
+	if chargeback.MerchantID != msg.MerchantId {
 		h.logger.Warn("Unauthorized chargeback access attempt",
 			zap.String("chargeback_id", msg.ChargebackId),
-			zap.String("requested_agent", msg.AgentId),
-			zap.String("actual_agent", chargeback.MerchantID),
+			zap.String("requested_merchant", msg.MerchantId),
+			zap.String("actual_merchant", chargeback.MerchantID),
 		)
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("not authorized to access this chargeback"))
 	}
@@ -106,12 +106,12 @@ func (h *ConnectHandler) ListChargebacks(
 	msg := req.Msg
 
 	h.logger.Info("ListChargebacks request received",
-		zap.String("agent_id", msg.AgentId),
+		zap.String("merchant_id", msg.MerchantId),
 	)
 
 	// Validate required fields
-	if msg.AgentId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("agent_id is required"))
+	if msg.MerchantId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("merchant_id is required"))
 	}
 
 	// Set defaults
@@ -124,7 +124,7 @@ func (h *ConnectHandler) ListChargebacks(
 
 	// Build query params
 	params := sqlc.ListChargebacksParams{
-		MerchantID: pgtype.Text{String: msg.AgentId, Valid: true},
+		MerchantID: pgtype.Text{String: msg.MerchantId, Valid: true},
 		LimitVal:   msg.Limit,
 		OffsetVal:  msg.Offset,
 	}
@@ -171,7 +171,7 @@ func (h *ConnectHandler) ListChargebacks(
 	chargebacks, err := h.queries.ListChargebacks(ctx, params)
 	if err != nil {
 		h.logger.Error("Failed to list chargebacks",
-			zap.String("agent_id", msg.AgentId),
+			zap.String("merchant_id", msg.MerchantId),
 			zap.Error(err),
 		)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list chargebacks"))
@@ -200,7 +200,7 @@ func (h *ConnectHandler) ListChargebacks(
 	}
 
 	h.logger.Info("Chargebacks retrieved",
-		zap.String("agent_id", msg.AgentId),
+		zap.String("merchant_id", msg.MerchantId),
 		zap.Int("total_count", int(totalCount)),
 		zap.Int("returned_count", len(protoChargebacks)),
 	)
@@ -217,7 +217,7 @@ func (h *ConnectHandler) ListChargebacks(
 func convertChargebackToProto(cb *sqlc.Chargeback) *chargebackv1.Chargeback {
 	proto := &chargebackv1.Chargeback{
 		Id:               cb.ID.String(),
-		AgentId:          cb.MerchantID,
+		MerchantId:       cb.MerchantID,
 		CaseNumber:       cb.CaseNumber,
 		DisputeDate:      timestamppb.New(cb.DisputeDate),
 		ChargebackDate:   timestamppb.New(cb.ChargebackDate),

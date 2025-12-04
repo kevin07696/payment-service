@@ -1,0 +1,50 @@
+{{ define "title" }}Payment Method Saved{{ end }}
+
+{{ define "content" }}
+<div class="header">
+    <div class="icon success">&#10003;</div>
+    <div class="status success">Payment Method Saved</div>
+</div>
+
+<div class="details">
+    <div class="detail-row">
+        <span class="detail-label">Card Type</span>
+        <span class="detail-value">{{ .CardBrand }}</span>
+    </div>
+
+    <div class="detail-row">
+        <span class="detail-label">Card Number</span>
+        <span class="detail-value">**** **** **** {{ .LastFour }}</span>
+    </div>
+
+    {{ if .ExpirationDate }}
+    <div class="detail-row">
+        <span class="detail-label">Expiration</span>
+        <span class="detail-value">{{ .ExpirationDate }}</span>
+    </div>
+    {{ end }}
+
+    <div class="detail-row">
+        <span class="detail-label">Status</span>
+        <span class="detail-value"><span class="badge verified">Verified</span></span>
+    </div>
+
+    {{ if .PaymentMethodID }}
+    <div class="detail-row">
+        <span class="detail-label">Payment Method ID</span>
+        <span class="detail-value">{{ .PaymentMethodID }}</span>
+    </div>
+    {{ end }}
+</div>
+
+<div class="info-box">
+    Your card has been securely saved and is ready for use.
+</div>
+
+<div class="footer">
+    <p>Your payment method has been saved successfully.</p>
+    {{ if .ReturnURL }}
+    <a href="{{ .ReturnURL }}" class="button">Return to Application</a>
+    {{ end }}
+</div>
+{{ end }}

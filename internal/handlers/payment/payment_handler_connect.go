@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
 )
 
@@ -54,6 +54,9 @@ func (h *ConnectHandler) Authorize(
 
 	if msg.CustomerId != "" {
 		serviceReq.CustomerID = &msg.CustomerId
+	}
+	if msg.OrderId != "" {
+		serviceReq.OrderID = &msg.OrderId
 	}
 
 	// Handle payment method oneof
@@ -148,6 +151,9 @@ func (h *ConnectHandler) Sale(
 	if msg.CustomerId != "" {
 		serviceReq.CustomerID = &msg.CustomerId
 	}
+	if msg.OrderId != "" {
+		serviceReq.OrderID = &msg.OrderId
+	}
 
 	// Handle payment method oneof
 	switch pm := msg.PaymentMethod.(type) {
@@ -162,6 +168,8 @@ func (h *ConnectHandler) Sale(
 	if msg.IdempotencyKey != "" {
 		serviceReq.IdempotencyKey = &msg.IdempotencyKey
 	}
+
+	// StdEntryClass defaults to WEB internally for ACH transactions
 
 	tx, err := h.service.Sale(ctx, serviceReq)
 	if err != nil {
@@ -279,6 +287,9 @@ func (h *ConnectHandler) ListTransactions(
 	// Add optional filters
 	if msg.CustomerId != "" {
 		filters.CustomerID = &msg.CustomerId
+	}
+	if msg.OrderId != "" {
+		filters.OrderID = &msg.OrderId
 	}
 	if msg.ParentTransactionId != "" {
 		filters.ParentTransactionID = &msg.ParentTransactionId

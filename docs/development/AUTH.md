@@ -103,7 +103,7 @@ CREATE TABLE service_merchants (
 
 **1. Create a Service (POS system, e-commerce backend, etc.):**
 ```bash
-./admin -action=create-service
+./paycli -action=create-service
 ```
 
 This generates:
@@ -114,7 +114,7 @@ This generates:
 
 **2. Create a Merchant (business entity):**
 ```bash
-./admin -action=create-merchant
+./paycli -action=create-merchant
 ```
 
 This creates:
@@ -124,7 +124,7 @@ This creates:
 
 **3. Grant Service Access to Merchant:**
 ```bash
-./admin -action=grant-access
+./paycli -action=grant-access
 ```
 
 This creates:
@@ -262,46 +262,46 @@ type SaleRequest struct {
 
 ---
 
-## jwtgen CLI Tool
+## Token Generation (paycli)
 
-For local development and testing, use the `jwtgen` CLI tool to generate tokens:
+For local development and testing, use paycli to generate tokens:
 
 ### Build
 
 ```bash
-go build -o bin/jwtgen ./cmd/jwtgen
+go build -o bin/paycli ./cmd/paycli
 ```
 
 ### Usage
 
 ```bash
-# Basic usage - generate token with default scopes
-./bin/jwtgen -c service_acme_credentials.json -m "550e8400-e29b-41d4-a716-446655440000"
+# Basic usage - generate token with default scopes (1h expiry)
+./bin/paycli -action=generate-token -c service_acme_credentials.json
 
 # Custom expiry and scopes
-./bin/jwtgen -c creds.json -m "uuid" -e 30m -s "payments:create,payments:read"
+./bin/paycli -action=generate-token -c creds.json -e 30m -s "payments:create,payments:read"
 
 # Output as curl command
-./bin/jwtgen -c creds.json -m "uuid" -o curl
+./bin/paycli -action=generate-token -c creds.json -o curl
 
 # JSON output with metadata
-./bin/jwtgen -c creds.json -m "uuid" -o json
+./bin/paycli -action=generate-token -c creds.json -o json
 
 # Show decoded claims for verification
-./bin/jwtgen -c creds.json -m "uuid" --decode
+./bin/paycli -action=generate-token -c creds.json --decode
 ```
+
+**Note:** The merchant_id is NOT in the token - it's passed in each API request body.
 
 ### Options
 
 | Flag | Description |
 |------|-------------|
 | `-c, --credentials` | Path to service credentials JSON file (required) |
-| `-m, --merchant-id` | Merchant UUID (required) |
 | `-e, --expires` | Token expiry duration (default: 1h) |
 | `-s, --scopes` | Comma-separated scopes (default: all payment scopes) |
 | `-o, --output` | Output format: token, json, curl (default: token) |
 | `--decode` | Show decoded claims for verification |
-| `-h, --help` | Show help message |
 
 ---
 

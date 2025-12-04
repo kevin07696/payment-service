@@ -52,11 +52,14 @@ message ListPaymentMethodsRequest {
   string customer_id = 2;
   optional PaymentMethodType payment_type = 3; // Optional: filter by type
   optional bool is_active = 4; // Optional: filter by active status
+  int32 limit = 5; // Default: 100, max: 1000
+  int32 offset = 6;
 }
 
 // ListPaymentMethodsResponse contains payment method list
 message ListPaymentMethodsResponse {
   repeated PaymentMethod payment_methods = 1;
+  int32 total_count = 2;
 }
 
 // UpdatePaymentMethodStatusRequest updates payment method status

@@ -81,8 +81,7 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	}
 	returnURL := callbackBaseURL + "/api/v1/payments/browser-post/callback"
 
-	// Browser Post form endpoint is on HTTP server (port 8081), not ConnectRPC server (port 8080)
-	// Create a separate client for HTTP endpoints - use cfg.CallbackBaseURL
+	// Browser Post form endpoint
 	httpClient := NewClient(cfg.CallbackBaseURL)
 
 	// Set JWT auth header for form generation endpoint
@@ -197,7 +196,7 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
     <input type="hidden" name="AMOUNT" value="%s">
     <input type="hidden" name="ACCOUNT_NBR" value="%s">
     <input type="hidden" name="EXP_DATE" value="%s">
-    <input type="hidden" name="CVV" value="%s">
+    <input type="hidden" name="CVV2" value="%s">
     <input type="hidden" name="ADDRESS" value="%s">
     <input type="hidden" name="ZIP_CODE" value="%s">
     <input type="hidden" name="USER_DATA_1" value="%s">
@@ -242,8 +241,7 @@ func GetRealBRICAutomated(t *testing.T, client *Client, cfg *Config, amount stri
 	// Step 4: Verify transaction was created with real BRIC
 	t.Logf("🔍 Querying database for transaction...")
 
-	// GetTransaction is a ConnectRPC endpoint on port 8080, not HTTP port 8081
-	// Create a ConnectRPC client using cfg.ServiceURL
+	// GetTransaction is a ConnectRPC endpoint
 	connectRPCClient := NewClient(cfg.ServiceURL)
 
 	// Set JWT auth if provided

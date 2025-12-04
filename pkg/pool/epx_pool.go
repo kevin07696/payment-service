@@ -3,7 +3,7 @@ package pool
 import (
 	"sync"
 
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 )
 
 // ServerPostRequestPool provides object pooling for EPX Server Post requests
@@ -53,47 +53,4 @@ func PutServerPostResponse(resp *ports.ServerPostResponse) {
 	}
 	*resp = ports.ServerPostResponse{}
 	ServerPostResponsePool.Put(resp)
-}
-
-// BRICStorageRequestPool provides object pooling for BRIC storage requests
-// Used when storing/retrieving payment methods (tokenization)
-var BRICStorageRequestPool = sync.Pool{
-	New: func() interface{} {
-		return &ports.BRICStorageRequest{}
-	},
-}
-
-// GetBRICStorageRequest retrieves a request from the pool
-func GetBRICStorageRequest() *ports.BRICStorageRequest {
-	return BRICStorageRequestPool.Get().(*ports.BRICStorageRequest)
-}
-
-// PutBRICStorageRequest returns a request to the pool after resetting
-func PutBRICStorageRequest(req *ports.BRICStorageRequest) {
-	if req == nil {
-		return
-	}
-	*req = ports.BRICStorageRequest{}
-	BRICStorageRequestPool.Put(req)
-}
-
-// BRICStorageResponsePool provides object pooling for BRIC storage responses
-var BRICStorageResponsePool = sync.Pool{
-	New: func() interface{} {
-		return &ports.BRICStorageResponse{}
-	},
-}
-
-// GetBRICStorageResponse retrieves a response from the pool
-func GetBRICStorageResponse() *ports.BRICStorageResponse {
-	return BRICStorageResponsePool.Get().(*ports.BRICStorageResponse)
-}
-
-// PutBRICStorageResponse returns a response to the pool after resetting
-func PutBRICStorageResponse(resp *ports.BRICStorageResponse) {
-	if resp == nil {
-		return
-	}
-	*resp = ports.BRICStorageResponse{}
-	BRICStorageResponsePool.Put(resp)
 }

@@ -52,12 +52,8 @@ service SubscriptionService {
   rpc GetSubscription(GetSubscriptionRequest) returns (Subscription) {
   }
 
-  // ListCustomerSubscriptions lists all subscriptions for a customer
-  rpc ListCustomerSubscriptions(ListCustomerSubscriptionsRequest) returns (ListCustomerSubscriptionsResponse) {
-  }
-
-  // ProcessDueBilling processes subscriptions due for billing (internal/admin use)
-  rpc ProcessDueBilling(ProcessDueBillingRequest) returns (ProcessDueBillingResponse) {
+  // ListSubscriptions lists subscriptions with optional filters
+  rpc ListSubscriptions(ListSubscriptionsRequest) returns (ListSubscriptionsResponse) {
   }
 }
 
@@ -112,39 +108,19 @@ message GetSubscriptionRequest {
   string subscription_id = 1;
 }
 
-// ListCustomerSubscriptionsRequest lists customer subscriptions
-message ListCustomerSubscriptionsRequest {
+// ListSubscriptionsRequest lists subscriptions with filters
+message ListSubscriptionsRequest {
   string merchant_id = 1;
-  string customer_id = 2;
+  string customer_id = 2; // Optional: filter by customer
   optional SubscriptionStatus status = 3; // Optional: filter by status
+  int32 limit = 4; // Default: 100, max: 1000
+  int32 offset = 5;
 }
 
-// ListCustomerSubscriptionsResponse contains subscription list
-message ListCustomerSubscriptionsResponse {
+// ListSubscriptionsResponse contains subscription list
+message ListSubscriptionsResponse {
   repeated Subscription subscriptions = 1;
-}
-
-// ProcessDueBillingRequest processes billing batch
-message ProcessDueBillingRequest {
-  google.protobuf.Timestamp as_of_date = 1;
-  int32 batch_size = 2; // Default: 100
-}
-
-// ProcessDueBillingResponse contains billing results
-message ProcessDueBillingResponse {
-  int32 processed_count = 1;
-  int32 success_count = 2;
-  int32 failed_count = 3;
-  int32 skipped_count = 4;
-  repeated BillingError errors = 5;
-}
-
-// BillingError represents a billing failure
-message BillingError {
-  string subscription_id = 1;
-  string customer_id = 2;
-  string error = 3;
-  bool retriable = 4;
+  int32 total_count = 2;
 }
 
 // SubscriptionResponse is returned from subscription operations

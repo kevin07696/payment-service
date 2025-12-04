@@ -7,6 +7,7 @@
 package paymentv1
 
 import (
+	v1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -137,61 +138,12 @@ func (TransactionType) EnumDescriptor() ([]byte, []int) {
 	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{1}
 }
 
-// PaymentMethodType represents the payment method used
-type PaymentMethodType int32
-
-const (
-	PaymentMethodType_PAYMENT_METHOD_TYPE_UNSPECIFIED PaymentMethodType = 0
-	PaymentMethodType_PAYMENT_METHOD_TYPE_CREDIT_CARD PaymentMethodType = 1
-	PaymentMethodType_PAYMENT_METHOD_TYPE_ACH         PaymentMethodType = 2
-)
-
-// Enum value maps for PaymentMethodType.
-var (
-	PaymentMethodType_name = map[int32]string{
-		0: "PAYMENT_METHOD_TYPE_UNSPECIFIED",
-		1: "PAYMENT_METHOD_TYPE_CREDIT_CARD",
-		2: "PAYMENT_METHOD_TYPE_ACH",
-	}
-	PaymentMethodType_value = map[string]int32{
-		"PAYMENT_METHOD_TYPE_UNSPECIFIED": 0,
-		"PAYMENT_METHOD_TYPE_CREDIT_CARD": 1,
-		"PAYMENT_METHOD_TYPE_ACH":         2,
-	}
-)
-
-func (x PaymentMethodType) Enum() *PaymentMethodType {
-	p := new(PaymentMethodType)
-	*p = x
-	return p
-}
-
-func (x PaymentMethodType) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (PaymentMethodType) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_payment_v1_payment_proto_enumTypes[2].Descriptor()
-}
-
-func (PaymentMethodType) Type() protoreflect.EnumType {
-	return &file_proto_payment_v1_payment_proto_enumTypes[2]
-}
-
-func (x PaymentMethodType) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use PaymentMethodType.Descriptor instead.
-func (PaymentMethodType) EnumDescriptor() ([]byte, []int) {
-	return file_proto_payment_v1_payment_proto_rawDescGZIP(), []int{2}
-}
-
 // AuthorizeRequest authorizes a payment without capturing
 type AuthorizeRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	MerchantId  string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`     // Multi-tenant: which agent/merchant
 	CustomerId  string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`     // Customer ID (nullable for guest transactions)
+	OrderId     string                 `protobuf:"bytes,9,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`              // Merchant's external order/invoice ID (optional)
 	AmountCents int64                  `protobuf:"varint,3,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (e.g., 2999 = $29.99)
 	Currency    string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`                           // ISO 4217 code (e.g., "USD")
 	// Payment method - exactly one required
@@ -247,6 +199,13 @@ func (x *AuthorizeRequest) GetMerchantId() string {
 func (x *AuthorizeRequest) GetCustomerId() string {
 	if x != nil {
 		return x.CustomerId
+	}
+	return ""
+}
+
+func (x *AuthorizeRequest) GetOrderId() string {
+	if x != nil {
+		return x.OrderId
 	}
 	return ""
 }
@@ -386,6 +345,7 @@ type SaleRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	MerchantId  string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId  string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`     // Nullable for guest transactions
+	OrderId     string                 `protobuf:"bytes,10,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`             // Merchant's external order/invoice ID (optional)
 	AmountCents int64                  `protobuf:"varint,3,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (e.g., 2999 = $29.99)
 	Currency    string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
 	// Payment method - exactly one required
@@ -441,6 +401,13 @@ func (x *SaleRequest) GetMerchantId() string {
 func (x *SaleRequest) GetCustomerId() string {
 	if x != nil {
 		return x.CustomerId
+	}
+	return ""
+}
+
+func (x *SaleRequest) GetOrderId() string {
+	if x != nil {
+		return x.OrderId
 	}
 	return ""
 }
@@ -686,6 +653,7 @@ type ListTransactionsRequest struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	MerchantId          string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId          string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`                              // Optional: filter by customer
+	OrderId             string                 `protobuf:"bytes,7,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`                                       // Optional: filter by merchant's external order/invoice ID
 	ParentTransactionId string                 `protobuf:"bytes,3,opt,name=parent_transaction_id,json=parentTransactionId,proto3" json:"parent_transaction_id,omitempty"` // Optional: filter by parent (get transaction chain)
 	Status              TransactionStatus      `protobuf:"varint,4,opt,name=status,proto3,enum=payment.v1.TransactionStatus" json:"status,omitempty"`                     // Optional: filter by status
 	Limit               int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`                                                         // Default: 100
@@ -734,6 +702,13 @@ func (x *ListTransactionsRequest) GetMerchantId() string {
 func (x *ListTransactionsRequest) GetCustomerId() string {
 	if x != nil {
 		return x.CustomerId
+	}
+	return ""
+}
+
+func (x *ListTransactionsRequest) GetOrderId() string {
+	if x != nil {
+		return x.OrderId
 	}
 	return ""
 }
@@ -1010,11 +985,12 @@ type Transaction struct {
 	ParentTransactionId string                 `protobuf:"bytes,2,opt,name=parent_transaction_id,json=parentTransactionId,proto3" json:"parent_transaction_id,omitempty"` // Links related transactions (auth → capture → refund)
 	MerchantId          string                 `protobuf:"bytes,3,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId          string                 `protobuf:"bytes,4,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`     // Nullable for guest transactions
+	OrderId             string                 `protobuf:"bytes,17,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`             // Merchant's external order/invoice ID (optional)
 	AmountCents         int64                  `protobuf:"varint,5,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (e.g., 10050 = $100.50)
 	Currency            string                 `protobuf:"bytes,6,opt,name=currency,proto3" json:"currency,omitempty"`
 	Status              TransactionStatus      `protobuf:"varint,7,opt,name=status,proto3,enum=payment.v1.TransactionStatus" json:"status,omitempty"`
 	Type                TransactionType        `protobuf:"varint,8,opt,name=type,proto3,enum=payment.v1.TransactionType" json:"type,omitempty"`
-	PaymentMethodType   PaymentMethodType      `protobuf:"varint,9,opt,name=payment_method_type,json=paymentMethodType,proto3,enum=payment.v1.PaymentMethodType" json:"payment_method_type,omitempty"`
+	PaymentMethodType   v1.PaymentMethodType   `protobuf:"varint,9,opt,name=payment_method_type,json=paymentMethodType,proto3,enum=payment_method.v1.PaymentMethodType" json:"payment_method_type,omitempty"`
 	PaymentMethodId     string                 `protobuf:"bytes,10,opt,name=payment_method_id,json=paymentMethodId,proto3" json:"payment_method_id,omitempty"` // Saved payment method used (if any)
 	// Receipt details (abstracted from gateway)
 	AuthorizationCode string `protobuf:"bytes,11,opt,name=authorization_code,json=authorizationCode,proto3" json:"authorization_code,omitempty"` // Bank authorization code
@@ -1086,6 +1062,13 @@ func (x *Transaction) GetCustomerId() string {
 	return ""
 }
 
+func (x *Transaction) GetOrderId() string {
+	if x != nil {
+		return x.OrderId
+	}
+	return ""
+}
+
 func (x *Transaction) GetAmountCents() int64 {
 	if x != nil {
 		return x.AmountCents
@@ -1114,11 +1097,11 @@ func (x *Transaction) GetType() TransactionType {
 	return TransactionType_TRANSACTION_TYPE_UNSPECIFIED
 }
 
-func (x *Transaction) GetPaymentMethodType() PaymentMethodType {
+func (x *Transaction) GetPaymentMethodType() v1.PaymentMethodType {
 	if x != nil {
 		return x.PaymentMethodType
 	}
-	return PaymentMethodType_PAYMENT_METHOD_TYPE_UNSPECIFIED
+	return v1.PaymentMethodType(0)
 }
 
 func (x *Transaction) GetPaymentMethodId() string {
@@ -1175,12 +1158,13 @@ var File_proto_payment_v1_payment_proto protoreflect.FileDescriptor
 const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"\x1eproto/payment/v1/payment.proto\x12\n" +
-	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa8\x03\n" +
+	"payment.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a,proto/payment_method/v1/payment_method.proto\"\xc3\x03\n" +
 	"\x10AuthorizeRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12!\n" +
+	"customerId\x12\x19\n" +
+	"\border_id\x18\t \x01(\tR\aorderId\x12!\n" +
 	"\famount_cents\x18\x03 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12,\n" +
 	"\x11payment_method_id\x18\x05 \x01(\tH\x00R\x0fpaymentMethodId\x12%\n" +
@@ -1194,12 +1178,14 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x0eCaptureRequest\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12!\n" +
 	"\famount_cents\x18\x02 \x01(\x03R\vamountCents\x12'\n" +
-	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"\x9e\x03\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"\xb9\x03\n" +
 	"\vSaleRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12!\n" +
+	"customerId\x12\x19\n" +
+	"\border_id\x18\n" +
+	" \x01(\tR\aorderId\x12!\n" +
 	"\famount_cents\x18\x03 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12,\n" +
 	"\x11payment_method_id\x18\x05 \x01(\tH\x00R\x0fpaymentMethodId\x12%\n" +
@@ -1219,12 +1205,13 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12'\n" +
 	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\">\n" +
 	"\x15GetTransactionRequest\x12%\n" +
-	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\"\xf4\x01\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\"\x8f\x02\n" +
 	"\x17ListTransactionsRequest\x12\x1f\n" +
 	"\vmerchant_id\x18\x01 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x122\n" +
+	"customerId\x12\x19\n" +
+	"\border_id\x18\a \x01(\tR\aorderId\x122\n" +
 	"\x15parent_transaction_id\x18\x03 \x01(\tR\x13parentTransactionId\x125\n" +
 	"\x06status\x18\x04 \x01(\x0e2\x1d.payment.v1.TransactionStatusR\x06status\x12\x14\n" +
 	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x16\n" +
@@ -1250,19 +1237,20 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x04card\x18\n" +
 	" \x01(\v2\x14.payment.v1.CardInfoR\x04card\x129\n" +
 	"\n" +
-	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xc7\x05\n" +
+	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xe9\x05\n" +
 	"\vTransaction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x122\n" +
 	"\x15parent_transaction_id\x18\x02 \x01(\tR\x13parentTransactionId\x12\x1f\n" +
 	"\vmerchant_id\x18\x03 \x01(\tR\n" +
 	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x04 \x01(\tR\n" +
-	"customerId\x12!\n" +
+	"customerId\x12\x19\n" +
+	"\border_id\x18\x11 \x01(\tR\aorderId\x12!\n" +
 	"\famount_cents\x18\x05 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x06 \x01(\tR\bcurrency\x125\n" +
 	"\x06status\x18\a \x01(\x0e2\x1d.payment.v1.TransactionStatusR\x06status\x12/\n" +
-	"\x04type\x18\b \x01(\x0e2\x1b.payment.v1.TransactionTypeR\x04type\x12M\n" +
-	"\x13payment_method_type\x18\t \x01(\x0e2\x1d.payment.v1.PaymentMethodTypeR\x11paymentMethodType\x12*\n" +
+	"\x04type\x18\b \x01(\x0e2\x1b.payment.v1.TransactionTypeR\x04type\x12T\n" +
+	"\x13payment_method_type\x18\t \x01(\x0e2$.payment_method.v1.PaymentMethodTypeR\x11paymentMethodType\x12*\n" +
 	"\x11payment_method_id\x18\n" +
 	" \x01(\tR\x0fpaymentMethodId\x12-\n" +
 	"\x12authorization_code\x18\v \x01(\tR\x11authorizationCode\x12\x18\n" +
@@ -1284,11 +1272,7 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x17TRANSACTION_TYPE_CHARGE\x10\x03\x12\x1b\n" +
 	"\x17TRANSACTION_TYPE_REFUND\x10\x04\x12\x19\n" +
 	"\x15TRANSACTION_TYPE_VOID\x10\x05\x12\x1d\n" +
-	"\x19TRANSACTION_TYPE_PRE_NOTE\x10\x06*z\n" +
-	"\x11PaymentMethodType\x12#\n" +
-	"\x1fPAYMENT_METHOD_TYPE_UNSPECIFIED\x10\x00\x12#\n" +
-	"\x1fPAYMENT_METHOD_TYPE_CREDIT_CARD\x10\x01\x12\x1b\n" +
-	"\x17PAYMENT_METHOD_TYPE_ACH\x10\x022\x87\x04\n" +
+	"\x19TRANSACTION_TYPE_PRE_NOTE\x10\x062\x87\x04\n" +
 	"\x0ePaymentService\x12F\n" +
 	"\tAuthorize\x12\x1c.payment.v1.AuthorizeRequest\x1a\x1b.payment.v1.PaymentResponse\x12B\n" +
 	"\aCapture\x12\x1a.payment.v1.CaptureRequest\x1a\x1b.payment.v1.PaymentResponse\x12<\n" +
@@ -1310,56 +1294,56 @@ func file_proto_payment_v1_payment_proto_rawDescGZIP() []byte {
 	return file_proto_payment_v1_payment_proto_rawDescData
 }
 
-var file_proto_payment_v1_payment_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_proto_payment_v1_payment_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_proto_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_proto_payment_v1_payment_proto_goTypes = []any{
 	(TransactionStatus)(0),           // 0: payment.v1.TransactionStatus
 	(TransactionType)(0),             // 1: payment.v1.TransactionType
-	(PaymentMethodType)(0),           // 2: payment.v1.PaymentMethodType
-	(*AuthorizeRequest)(nil),         // 3: payment.v1.AuthorizeRequest
-	(*CaptureRequest)(nil),           // 4: payment.v1.CaptureRequest
-	(*SaleRequest)(nil),              // 5: payment.v1.SaleRequest
-	(*VoidRequest)(nil),              // 6: payment.v1.VoidRequest
-	(*RefundRequest)(nil),            // 7: payment.v1.RefundRequest
-	(*GetTransactionRequest)(nil),    // 8: payment.v1.GetTransactionRequest
-	(*ListTransactionsRequest)(nil),  // 9: payment.v1.ListTransactionsRequest
-	(*ListTransactionsResponse)(nil), // 10: payment.v1.ListTransactionsResponse
-	(*CardInfo)(nil),                 // 11: payment.v1.CardInfo
-	(*PaymentResponse)(nil),          // 12: payment.v1.PaymentResponse
-	(*Transaction)(nil),              // 13: payment.v1.Transaction
-	nil,                              // 14: payment.v1.AuthorizeRequest.MetadataEntry
-	nil,                              // 15: payment.v1.SaleRequest.MetadataEntry
-	(*timestamppb.Timestamp)(nil),    // 16: google.protobuf.Timestamp
+	(*AuthorizeRequest)(nil),         // 2: payment.v1.AuthorizeRequest
+	(*CaptureRequest)(nil),           // 3: payment.v1.CaptureRequest
+	(*SaleRequest)(nil),              // 4: payment.v1.SaleRequest
+	(*VoidRequest)(nil),              // 5: payment.v1.VoidRequest
+	(*RefundRequest)(nil),            // 6: payment.v1.RefundRequest
+	(*GetTransactionRequest)(nil),    // 7: payment.v1.GetTransactionRequest
+	(*ListTransactionsRequest)(nil),  // 8: payment.v1.ListTransactionsRequest
+	(*ListTransactionsResponse)(nil), // 9: payment.v1.ListTransactionsResponse
+	(*CardInfo)(nil),                 // 10: payment.v1.CardInfo
+	(*PaymentResponse)(nil),          // 11: payment.v1.PaymentResponse
+	(*Transaction)(nil),              // 12: payment.v1.Transaction
+	nil,                              // 13: payment.v1.AuthorizeRequest.MetadataEntry
+	nil,                              // 14: payment.v1.SaleRequest.MetadataEntry
+	(*timestamppb.Timestamp)(nil),    // 15: google.protobuf.Timestamp
+	(v1.PaymentMethodType)(0),        // 16: payment_method.v1.PaymentMethodType
 }
 var file_proto_payment_v1_payment_proto_depIdxs = []int32{
-	14, // 0: payment.v1.AuthorizeRequest.metadata:type_name -> payment.v1.AuthorizeRequest.MetadataEntry
-	15, // 1: payment.v1.SaleRequest.metadata:type_name -> payment.v1.SaleRequest.MetadataEntry
+	13, // 0: payment.v1.AuthorizeRequest.metadata:type_name -> payment.v1.AuthorizeRequest.MetadataEntry
+	14, // 1: payment.v1.SaleRequest.metadata:type_name -> payment.v1.SaleRequest.MetadataEntry
 	0,  // 2: payment.v1.ListTransactionsRequest.status:type_name -> payment.v1.TransactionStatus
-	13, // 3: payment.v1.ListTransactionsResponse.transactions:type_name -> payment.v1.Transaction
+	12, // 3: payment.v1.ListTransactionsResponse.transactions:type_name -> payment.v1.Transaction
 	0,  // 4: payment.v1.PaymentResponse.status:type_name -> payment.v1.TransactionStatus
 	1,  // 5: payment.v1.PaymentResponse.type:type_name -> payment.v1.TransactionType
-	11, // 6: payment.v1.PaymentResponse.card:type_name -> payment.v1.CardInfo
-	16, // 7: payment.v1.PaymentResponse.created_at:type_name -> google.protobuf.Timestamp
+	10, // 6: payment.v1.PaymentResponse.card:type_name -> payment.v1.CardInfo
+	15, // 7: payment.v1.PaymentResponse.created_at:type_name -> google.protobuf.Timestamp
 	0,  // 8: payment.v1.Transaction.status:type_name -> payment.v1.TransactionStatus
 	1,  // 9: payment.v1.Transaction.type:type_name -> payment.v1.TransactionType
-	2,  // 10: payment.v1.Transaction.payment_method_type:type_name -> payment.v1.PaymentMethodType
-	11, // 11: payment.v1.Transaction.card:type_name -> payment.v1.CardInfo
-	16, // 12: payment.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
-	16, // 13: payment.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
-	3,  // 14: payment.v1.PaymentService.Authorize:input_type -> payment.v1.AuthorizeRequest
-	4,  // 15: payment.v1.PaymentService.Capture:input_type -> payment.v1.CaptureRequest
-	5,  // 16: payment.v1.PaymentService.Sale:input_type -> payment.v1.SaleRequest
-	6,  // 17: payment.v1.PaymentService.Void:input_type -> payment.v1.VoidRequest
-	7,  // 18: payment.v1.PaymentService.Refund:input_type -> payment.v1.RefundRequest
-	8,  // 19: payment.v1.PaymentService.GetTransaction:input_type -> payment.v1.GetTransactionRequest
-	9,  // 20: payment.v1.PaymentService.ListTransactions:input_type -> payment.v1.ListTransactionsRequest
-	12, // 21: payment.v1.PaymentService.Authorize:output_type -> payment.v1.PaymentResponse
-	12, // 22: payment.v1.PaymentService.Capture:output_type -> payment.v1.PaymentResponse
-	12, // 23: payment.v1.PaymentService.Sale:output_type -> payment.v1.PaymentResponse
-	12, // 24: payment.v1.PaymentService.Void:output_type -> payment.v1.PaymentResponse
-	12, // 25: payment.v1.PaymentService.Refund:output_type -> payment.v1.PaymentResponse
-	13, // 26: payment.v1.PaymentService.GetTransaction:output_type -> payment.v1.Transaction
-	10, // 27: payment.v1.PaymentService.ListTransactions:output_type -> payment.v1.ListTransactionsResponse
+	16, // 10: payment.v1.Transaction.payment_method_type:type_name -> payment_method.v1.PaymentMethodType
+	10, // 11: payment.v1.Transaction.card:type_name -> payment.v1.CardInfo
+	15, // 12: payment.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
+	15, // 13: payment.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 14: payment.v1.PaymentService.Authorize:input_type -> payment.v1.AuthorizeRequest
+	3,  // 15: payment.v1.PaymentService.Capture:input_type -> payment.v1.CaptureRequest
+	4,  // 16: payment.v1.PaymentService.Sale:input_type -> payment.v1.SaleRequest
+	5,  // 17: payment.v1.PaymentService.Void:input_type -> payment.v1.VoidRequest
+	6,  // 18: payment.v1.PaymentService.Refund:input_type -> payment.v1.RefundRequest
+	7,  // 19: payment.v1.PaymentService.GetTransaction:input_type -> payment.v1.GetTransactionRequest
+	8,  // 20: payment.v1.PaymentService.ListTransactions:input_type -> payment.v1.ListTransactionsRequest
+	11, // 21: payment.v1.PaymentService.Authorize:output_type -> payment.v1.PaymentResponse
+	11, // 22: payment.v1.PaymentService.Capture:output_type -> payment.v1.PaymentResponse
+	11, // 23: payment.v1.PaymentService.Sale:output_type -> payment.v1.PaymentResponse
+	11, // 24: payment.v1.PaymentService.Void:output_type -> payment.v1.PaymentResponse
+	11, // 25: payment.v1.PaymentService.Refund:output_type -> payment.v1.PaymentResponse
+	12, // 26: payment.v1.PaymentService.GetTransaction:output_type -> payment.v1.Transaction
+	9,  // 27: payment.v1.PaymentService.ListTransactions:output_type -> payment.v1.ListTransactionsResponse
 	21, // [21:28] is the sub-list for method output_type
 	14, // [14:21] is the sub-list for method input_type
 	14, // [14:14] is the sub-list for extension type_name
@@ -1385,7 +1369,7 @@ func file_proto_payment_v1_payment_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_payment_v1_payment_proto_rawDesc), len(file_proto_payment_v1_payment_proto_rawDesc)),
-			NumEnums:      3,
+			NumEnums:      2,
 			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,

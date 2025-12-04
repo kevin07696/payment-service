@@ -1,7 +1,6 @@
 package subscription
 
 import (
-	"errors"
 	"fmt"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -176,22 +175,4 @@ func convertMetadataToProto(meta map[string]interface{}) map[string]string {
 		result[k] = fmt.Sprintf("%v", v)
 	}
 	return result
-}
-
-func isRetriableError(err error) bool {
-	// Determine if error is retriable
-	switch {
-	case errors.Is(err, domain.ErrGatewayTimeout):
-		return true
-	case errors.Is(err, domain.ErrGatewayUnavailable):
-		return true
-	case errors.Is(err, domain.ErrPaymentMethodNotVerified):
-		return false // Need user action
-	case errors.Is(err, domain.ErrPaymentMethodExpired):
-		return false // Need user action
-	case errors.Is(err, domain.ErrPaymentMethodInactive):
-		return false // Need user action
-	default:
-		return false
-	}
 }

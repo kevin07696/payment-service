@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"go.uber.org/zap"
@@ -199,12 +199,9 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 			)
 
 			// Mark account as failed using sqlc
-			err := h.queries.MarkVerificationFailed(ctx, sqlc.MarkVerificationFailedParams{
-				ID: pm.ID,
-				FailureReason: pgtype.Text{
-					String: fmt.Sprintf("ACH Return %s: %s", returnCode, returnReason),
-					Valid:  true,
-				},
+			err := h.queries.FailPaymentMethod(ctx, sqlc.FailPaymentMethodParams{
+				ID:           pm.ID,
+				StatusReason: pgtype.Text{String: fmt.Sprintf("ACH Return %s: %s", returnCode, returnReason), Valid: true},
 			})
 			if err != nil {
 				h.logger.Error("Failed to mark ACH account as failed",
@@ -343,7 +340,7 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		stats.TotalACH = int(totalACH)
 	}
 
-	// Pending verification using sqlc
+	// Pending (unverified) using sqlc
 	pendingACH, err := h.queries.CountPendingACH(ctx)
 	if err != nil {
 		h.logger.Error("Failed to query pending ACH", zap.Error(err))
@@ -351,12 +348,12 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		stats.Pending = int(pendingACH)
 	}
 
-	// Verified using sqlc
-	verifiedACH, err := h.queries.CountVerifiedACH(ctx)
+	// Active (verified) using sqlc
+	activeACH, err := h.queries.CountActiveACH(ctx)
 	if err != nil {
-		h.logger.Error("Failed to query verified ACH", zap.Error(err))
+		h.logger.Error("Failed to query active ACH", zap.Error(err))
 	} else {
-		stats.Verified = int(verifiedACH)
+		stats.Verified = int(activeACH)
 	}
 
 	// Failed using sqlc

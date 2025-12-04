@@ -91,6 +91,33 @@ func (h *ConnectHandler) ListPaymentMethods(
 		pms = filtered
 	}
 
+	// Get total count before pagination
+	totalCount := len(pms)
+
+	// Apply pagination
+	limit := int(msg.Limit)
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	offset := int(msg.Offset)
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Apply offset and limit
+	if offset >= len(pms) {
+		pms = []*domain.PaymentMethod{}
+	} else {
+		end := offset + limit
+		if end > len(pms) {
+			end = len(pms)
+		}
+		pms = pms[offset:end]
+	}
+
 	protoPMs := make([]*paymentmethodv1.PaymentMethod, len(pms))
 	for i, pm := range pms {
 		protoPMs[i] = paymentMethodToProto(pm)
@@ -98,6 +125,7 @@ func (h *ConnectHandler) ListPaymentMethods(
 
 	response := &paymentmethodv1.ListPaymentMethodsResponse{
 		PaymentMethods: protoPMs,
+		TotalCount:     int32(totalCount),
 	}
 
 	return connect.NewResponse(response), nil

@@ -1,0 +1,81 @@
+{{ define "title" }}Payment {{ if .Approved }}Successful{{ else }}Failed{{ end }}{{ end }}
+
+{{ define "content" }}
+<div class="header">
+    <div class="icon {{ if .Approved }}success{{ else }}error{{ end }}">
+        {{ if .Approved }}&#10003;{{ else }}&#10007;{{ end }}
+    </div>
+    <div class="status {{ if .Approved }}success{{ else }}error{{ end }}">
+        Payment {{ if .Approved }}Successful{{ else }}Failed{{ end }}
+    </div>
+</div>
+
+{{ if .Approved }}
+<div class="amount">${{ .Amount }} {{ .Currency }}</div>
+
+<div class="details">
+    {{ if .CardType }}
+    <div class="detail-row">
+        <span class="detail-label">Card Type</span>
+        <span class="detail-value">{{ .CardType }}</span>
+    </div>
+    {{ end }}
+
+    {{ if .MaskedCard }}
+    <div class="detail-row">
+        <span class="detail-label">Card Number</span>
+        <span class="detail-value">{{ .MaskedCard }}</span>
+    </div>
+    {{ end }}
+
+    {{ if .AuthCode }}
+    <div class="detail-row">
+        <span class="detail-label">Authorization Code</span>
+        <span class="detail-value">{{ .AuthCode }}</span>
+    </div>
+    {{ end }}
+
+    {{ if .TransactionID }}
+    <div class="detail-row">
+        <span class="detail-label">Transaction ID</span>
+        <span class="detail-value">{{ .TransactionID }}</span>
+    </div>
+    {{ end }}
+
+    {{ if .TranNbr }}
+    <div class="detail-row">
+        <span class="detail-label">Reference Number</span>
+        <span class="detail-value">{{ .TranNbr }}</span>
+    </div>
+    {{ end }}
+</div>
+
+<div class="footer">
+    <p>Thank you for your payment!</p>
+    {{ if .ReturnURL }}
+    <a href="{{ .ReturnURL }}" class="button">Return to Application</a>
+    {{ end }}
+</div>
+
+{{ else }}
+
+<div class="details">
+    <div class="detail-row">
+        <span class="detail-label">Status</span>
+        <span class="detail-value">{{ .AuthRespText }}</span>
+    </div>
+    <div class="detail-row">
+        <span class="detail-label">Amount</span>
+        <span class="detail-value">${{ .Amount }} {{ .Currency }}</span>
+    </div>
+</div>
+
+<div class="footer">
+    <p>Your payment could not be processed.</p>
+    <p>Please check your payment information and try again.</p>
+    {{ if .ReturnURL }}
+    <a href="{{ .ReturnURL }}" class="button">Try Again</a>
+    {{ end }}
+</div>
+{{ end }}
+{{ end }}

@@ -4,44 +4,113 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/rand"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/adapters/database"
-	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
-	"github.com/kevin07696/payment-service/internal/services/ports"
 	"github.com/kevin07696/payment-service/internal/util"
+	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
+
+// BillingRetryConfig holds configuration for billing retry backoff
+type BillingRetryConfig struct {
+	BaseDelaySecs   int     // Base delay in seconds (default: 300 = 5 min)
+	MaxDelaySecs    int     // Max delay in seconds (default: 7200 = 2 hr)
+	Multiplier      float64 // Backoff multiplier (default: 2.0)
+	Jitter          float64 // Jitter factor 0.0-1.0 (default: 0.1 = ±10%)
+	// RSWindowDays: Window for retrying a failed recurring billing transaction with ACI_EXT=RS.
+	// COMPLIANCE: Visa/MC/Discover require RS retries within 30 days of original decline.
+	RSWindowDays int
+	DefaultACHClass string  // Default STD_ENTRY_CLASS for ACH (default: "WEB")
+}
+
+// DefaultBillingRetryConfig returns sensible defaults for subscription billing retries
+// Reads from environment variables:
+// - RS_WINDOW_DAYS: ACI_EXT=RS window in days (default: 30)
+// - DEFAULT_ACH_CLASS: Default STD_ENTRY_CLASS for ACH (default: "WEB")
+func DefaultBillingRetryConfig() BillingRetryConfig {
+	rsWindowDays := 30 // 30 days per Visa/Mastercard/Discover rules
+	if v := os.Getenv("RS_WINDOW_DAYS"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			rsWindowDays = parsed
+		}
+	}
+
+	defaultACHClass := "WEB" // Internet-initiated (default for e-commerce)
+	if v := os.Getenv("DEFAULT_ACH_CLASS"); v != "" {
+		defaultACHClass = v
+	}
+
+	return BillingRetryConfig{
+		BaseDelaySecs:   300,            // 5 minutes
+		MaxDelaySecs:    7200,           // 2 hours
+		Multiplier:      2.0,
+		Jitter:          0.1,            // ±10%
+		RSWindowDays:    rsWindowDays,
+		DefaultACHClass: defaultACHClass,
+	}
+}
 
 // subscriptionService implements the SubscriptionService port
 type subscriptionService struct {
 	queries             sqlc.Querier
 	txManager           database.TransactionManager
-	serverPost          adapterports.ServerPostAdapter
-	secretManager       adapterports.SecretManagerAdapter
+	serverPost          ports.ServerPostAdapter
+	secretManager       ports.SecretManagerAdapter
 	merchantAuthService *authorization.MerchantAuthorizationService
 	logger              *zap.Logger
+	retryConfig         BillingRetryConfig
 }
 
 // NewSubscriptionService creates a new subscription service
 func NewSubscriptionService(
 	queries sqlc.Querier,
 	txManager database.TransactionManager,
-	serverPost adapterports.ServerPostAdapter,
-	secretManager adapterports.SecretManagerAdapter,
+	serverPost ports.ServerPostAdapter,
+	secretManager ports.SecretManagerAdapter,
 	logger *zap.Logger,
+	retryConfig *BillingRetryConfig,
 ) ports.SubscriptionService {
 	// Create service-merchant access checker for authorization
 	accessChecker := authorization.NewSQLCServiceMerchantAccessChecker(queries)
 
 	// Create merchant authorization service with access checker
 	merchantAuthService := authorization.NewMerchantAuthorizationService(logger, accessChecker)
+
+	// Use default config if not provided
+	cfg := DefaultBillingRetryConfig()
+	if retryConfig != nil {
+		if retryConfig.BaseDelaySecs > 0 {
+			cfg.BaseDelaySecs = retryConfig.BaseDelaySecs
+		}
+		if retryConfig.MaxDelaySecs > 0 {
+			cfg.MaxDelaySecs = retryConfig.MaxDelaySecs
+		}
+		if retryConfig.Multiplier > 0 {
+			cfg.Multiplier = retryConfig.Multiplier
+		}
+		if retryConfig.Jitter > 0 {
+			cfg.Jitter = retryConfig.Jitter
+		}
+		if retryConfig.RSWindowDays > 0 {
+			cfg.RSWindowDays = retryConfig.RSWindowDays
+		}
+		if retryConfig.DefaultACHClass != "" {
+			cfg.DefaultACHClass = retryConfig.DefaultACHClass
+		}
+	}
 
 	return &subscriptionService{
 		queries:             queries,
@@ -50,6 +119,7 @@ func NewSubscriptionService(
 		secretManager:       secretManager,
 		merchantAuthService: merchantAuthService,
 		logger:              logger,
+		retryConfig:         cfg,
 	}
 }
 
@@ -94,7 +164,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 		return nil, fmt.Errorf("payment method does not belong to customer")
 	}
 
-	if !pm.IsActive.Valid || !pm.IsActive.Bool {
+	if pm.Status != string(domain.PaymentMethodStatusActive) {
 		return nil, fmt.Errorf("payment method is not active")
 	}
 
@@ -241,7 +311,7 @@ func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports
 				return fmt.Errorf("payment method does not belong to customer")
 			}
 
-			if !pm.IsActive.Valid || !pm.IsActive.Bool {
+			if pm.Status != string(domain.PaymentMethodStatusActive) {
 				return fmt.Errorf("payment method is not active")
 			}
 
@@ -464,8 +534,8 @@ func (s *subscriptionService) GetSubscription(ctx context.Context, subscriptionI
 	return sqlcSubscriptionToDomain(&dbSub), nil
 }
 
-// ListCustomerSubscriptions lists all subscriptions for a customer
-func (s *subscriptionService) ListCustomerSubscriptions(ctx context.Context, merchantID, customerID string) ([]*domain.Subscription, error) {
+// ListSubscriptions lists subscriptions with optional filters
+func (s *subscriptionService) ListSubscriptions(ctx context.Context, merchantID, customerID string) ([]*domain.Subscription, error) {
 	// Resolve and validate merchant access
 	resolvedMerchantID, err := s.merchantAuthService.ResolveMerchantID(ctx, merchantID)
 	if err != nil {
@@ -585,7 +655,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		return fmt.Errorf("failed to get payment method: %w", err)
 	}
 
-	if !pm.IsActive.Valid || !pm.IsActive.Bool {
+	if pm.Status != string(domain.PaymentMethodStatusActive) {
 		return fmt.Errorf("payment method is not active")
 	}
 
@@ -604,20 +674,56 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 
 	// Recurring billing requires specific EPX fields:
 	// - OriginalAuthGUID: the Storage BRIC (not AuthGUID)
-	// - ACIExt: "RB" (Recurring Billing indicator)
+	// - ACIExt: "RB" (Recurring Billing) or "RS" (Resubmission for retries)
 	// - CardEntryMethod: "Z" (stored credential/token)
-	aciExt := "RB"
+	//
+	// ACI_EXT values per EPX Card on File specs:
+	// - RB: First billing attempt (Recurring Billing)
+	// - RS: Retry of previously declined transaction (Resubmission)
+	//
+	// RS Window Rule (Visa/Mastercard/Discover):
+	// RS can only be used within the configured window (default 30 days) of the original decline.
+	// After the window expires, use RB (treating it as a new billing attempt).
+	var aciExt string
+	if sub.FailureRetryCount > 0 {
+		// Check if within RS window (configurable, default 30 days)
+		rsWindowValid := false
+		if sub.LastBillingErrorAt.Valid {
+			daysSinceFailure := time.Since(sub.LastBillingErrorAt.Time).Hours() / 24
+			rsWindowValid = daysSinceFailure <= float64(s.retryConfig.RSWindowDays)
+		}
+
+		if rsWindowValid {
+			// Within 30-day window - use RS (Resubmission)
+			aciExt = "RS"
+			s.logger.Info("Using ACI_EXT=RS for payment retry (within 30-day window)",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.Int32("retry_count", sub.FailureRetryCount),
+				zap.Time("last_error_at", sub.LastBillingErrorAt.Time),
+			)
+		} else {
+			// Beyond 30-day RS window - use RB (new billing attempt)
+			aciExt = "RB"
+			s.logger.Warn("RS 30-day window expired, using RB instead",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.Int32("retry_count", sub.FailureRetryCount),
+			)
+		}
+	} else {
+		// First attempt for this billing cycle
+		aciExt = "RB" // Recurring Billing
+	}
 	cardEntryMethod := "Z"
 	industryType := "E" // E-commerce
 
-	epxReq := &adapterports.ServerPostRequest{
+	epxReq := &ports.ServerPostRequest{
 		CustNbr:          merchant.CustNbr,
 		MerchNbr:         merchant.MerchNbr,
 		DBAnbr:           merchant.DbaNbr,
 		TerminalNbr:      merchant.TerminalNbr,
-		TransactionType:  adapterports.TransactionTypeSale,
+		TransactionType:  ports.TransactionTypeSale,
 		Amount:           amount.String(),
-		PaymentType:      adapterports.PaymentMethodType(pm.PaymentType),
+		PaymentType:      ports.PaymentMethodType(pm.PaymentType),
 		OriginalAuthGUID: pm.Bric, // Use OriginalAuthGUID for stored BRIC
 		TranNbr:          tranNbr,
 		TranGroup:        uuid.New().String(),
@@ -625,6 +731,13 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		ACIExt:           &aciExt,          // "RB" = Recurring Billing
 		CardEntryMethod:  &cardEntryMethod, // "Z" = stored credential
 		IndustryType:     &industryType,    // "E" = E-commerce
+	}
+
+	// For ACH subscription billing, automatically use PPD (Prearranged Payment and Deposit)
+	// PPD is the correct SEC code for recurring/prearranged consumer ACH transactions
+	if pm.PaymentType == string(domain.PaymentMethodTypeACH) {
+		stdEntryClass := "PPD"
+		epxReq.StdEntryClass = &stdEntryClass
 	}
 
 	// Process transaction through EPX
@@ -703,6 +816,16 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
+		// Clear any retry backoff on successful billing
+		err = q.ClearBillingRetryBackoff(ctx, sub.ID)
+		if err != nil {
+			s.logger.Warn("Failed to clear billing retry backoff (non-fatal)",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.Error(err),
+			)
+			// Non-fatal - billing succeeded, just couldn't clear backoff tracking
+		}
+
 		return nil
 	})
 }
@@ -734,44 +857,136 @@ func (s *subscriptionService) updateNextBillingDate(ctx context.Context, sub *sq
 	})
 }
 
-// handleBillingFailure handles a failed billing attempt
+// handleBillingFailure handles a failed billing attempt with conditional backoff
+// Transient errors (network issues) trigger exponential backoff
+// Permanent errors (card declined) just increment retry count without backoff
 func (s *subscriptionService) handleBillingFailure(ctx context.Context, sub *sqlc.Subscription, billingErr error) error {
 	return s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
 		newRetryCount := sub.FailureRetryCount + 1
-		var newStatus string
+		isTransient := isTransientBillingError(billingErr)
+		errorMsg := truncateErrorMessage(billingErr.Error(), 500)
 
 		if newRetryCount >= sub.MaxRetries {
-			// Max retries reached - mark as past_due
-			newStatus = string(domain.SubscriptionStatusPastDue)
+			// Max retries reached - mark as past_due (uses IncrementSubscriptionFailureCount for status change)
 			s.logger.Warn("Subscription billing failed - max retries reached",
 				zap.String("subscription_id", sub.ID.String()),
 				zap.Int32("retry_count", newRetryCount),
+				zap.Bool("transient_error", isTransient),
 				zap.Error(billingErr),
 			)
+
+			params := sqlc.IncrementSubscriptionFailureCountParams{
+				ID:                sub.ID,
+				FailureRetryCount: newRetryCount,
+				Status:            string(domain.SubscriptionStatusPastDue),
+			}
+			_, err := q.IncrementSubscriptionFailureCount(ctx, params)
+			if err != nil {
+				return fmt.Errorf("failed to update failure count: %w", err)
+			}
+			return billingErr
+		}
+
+		// Still have retries remaining
+		if isTransient {
+			// Transient error - schedule retry with exponential backoff
+			nextRetryAt := s.calculateRetryDelay(int(sub.FailureRetryCount))
+			s.logger.Warn("Subscription billing failed (transient) - scheduling retry with backoff",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.Int32("retry_count", newRetryCount),
+				zap.Int32("max_retries", sub.MaxRetries),
+				zap.Time("next_retry_at", nextRetryAt),
+				zap.Error(billingErr),
+			)
+
+			err := q.SetBillingRetryBackoff(ctx, sqlc.SetBillingRetryBackoffParams{
+				ID:                 sub.ID,
+				NextBillingRetryAt: pgtype.Timestamptz{Time: nextRetryAt, Valid: true},
+				LastBillingError:   pgtype.Text{String: errorMsg, Valid: true},
+			})
+			if err != nil {
+				return fmt.Errorf("failed to set billing retry backoff: %w", err)
+			}
 		} else {
-			// Still have retries remaining
-			newStatus = string(domain.SubscriptionStatusActive)
-			s.logger.Warn("Subscription billing failed - will retry",
+			// Permanent error - just record failure, no backoff (will retry on next cron run)
+			s.logger.Warn("Subscription billing failed (permanent) - will retry on next cron run",
 				zap.String("subscription_id", sub.ID.String()),
 				zap.Int32("retry_count", newRetryCount),
 				zap.Int32("max_retries", sub.MaxRetries),
 				zap.Error(billingErr),
 			)
-		}
 
-		params := sqlc.IncrementSubscriptionFailureCountParams{
-			ID:                sub.ID,
-			FailureRetryCount: newRetryCount,
-			Status:            newStatus,
-		}
-
-		_, err := q.IncrementSubscriptionFailureCount(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to update failure count: %w", err)
+			err := q.RecordBillingFailure(ctx, sqlc.RecordBillingFailureParams{
+				ID:               sub.ID,
+				LastBillingError: pgtype.Text{String: errorMsg, Valid: true},
+			})
+			if err != nil {
+				return fmt.Errorf("failed to record billing failure: %w", err)
+			}
 		}
 
 		return billingErr
 	})
+}
+
+// isTransientBillingError checks if the billing error is transient (network issues)
+// vs permanent (card declined, insufficient funds, etc.)
+// Transient errors warrant exponential backoff; permanent errors do not
+func isTransientBillingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "connection") ||
+		strings.Contains(errStr, "network") ||
+		strings.Contains(errStr, "temporary") ||
+		strings.Contains(errStr, "unavailable") ||
+		strings.Contains(errStr, "503") ||
+		strings.Contains(errStr, "502") ||
+		strings.Contains(errStr, "504") ||
+		strings.Contains(errStr, "gateway") ||
+		strings.Contains(errStr, "econnrefused") ||
+		strings.Contains(errStr, "econnreset")
+}
+
+// calculateRetryDelay calculates the next retry time using exponential backoff with jitter
+func (s *subscriptionService) calculateRetryDelay(attempt int) time.Time {
+	if attempt < 0 {
+		attempt = 0
+	}
+
+	baseDelay := float64(s.retryConfig.BaseDelaySecs)
+	maxDelay := float64(s.retryConfig.MaxDelaySecs)
+
+	// Calculate exponential delay: BaseDelay * (Multiplier ^ attempt)
+	delay := baseDelay * math.Pow(s.retryConfig.Multiplier, float64(attempt))
+
+	// Cap at MaxDelay
+	if delay > maxDelay {
+		delay = maxDelay
+	}
+
+	// Add jitter: delay ± (delay * jitter)
+	jitterAmount := delay * s.retryConfig.Jitter
+	jitter := (rand.Float64()*2 - 1) * jitterAmount
+
+	finalDelay := time.Duration(delay+jitter) * time.Second
+
+	// Ensure minimum delay
+	if finalDelay < time.Duration(s.retryConfig.BaseDelaySecs)*time.Second/2 {
+		finalDelay = time.Duration(s.retryConfig.BaseDelaySecs) * time.Second
+	}
+
+	return timeutil.Now().Add(finalDelay)
+}
+
+// truncateErrorMessage truncates error message to max length
+func truncateErrorMessage(msg string, maxLen int) string {
+	if len(msg) <= maxLen {
+		return msg
+	}
+	return msg[:maxLen-3] + "..."
 }
 
 // getSubscriptionByIdempotencyKey retrieves a subscription by idempotency key
@@ -779,6 +994,146 @@ func (s *subscriptionService) getSubscriptionByIdempotencyKey(ctx context.Contex
 	// Note: This would require a separate SQL query if we want to support idempotency for subscriptions
 	// For now, returning not found error
 	return nil, fmt.Errorf("subscription not found")
+}
+
+// Advisory lock ID for preventing concurrent expired past_due processing
+// Using 'pastdue' as hex: 0x70617374647565
+const expiredPastDueLockID int64 = 0x70617374647565
+
+// ProcessExpiredPastDue auto-cancels subscriptions whose grace period has expired.
+// It queries for past_due subscriptions where past_due_since + grace_period_days < now,
+// then cancels them with reason "grace_period_expired".
+// Uses advisory locking to prevent concurrent execution.
+func (s *subscriptionService) ProcessExpiredPastDue(ctx context.Context, batchSize int) *ports.ExpiredPastDueResult {
+	result := &ports.ExpiredPastDueResult{}
+
+	s.logger.Info("Processing expired past_due subscriptions",
+		zap.Int("batch_size", batchSize),
+	)
+
+	// Try to acquire advisory lock to prevent concurrent runs
+	acquired, err := s.queries.TryAdvisoryLock(ctx, expiredPastDueLockID)
+	if err != nil {
+		s.logger.Error("Failed to acquire advisory lock", zap.Error(err))
+		result.Errors = append(result.Errors, fmt.Errorf("failed to acquire lock: %w", err))
+		return result
+	}
+	if !acquired {
+		s.logger.Info("Another process is already handling expired past_due subscriptions, skipping")
+		return result
+	}
+	defer func() {
+		if _, unlockErr := s.queries.AdvisoryUnlock(ctx, expiredPastDueLockID); unlockErr != nil {
+			s.logger.Error("Failed to release advisory lock", zap.Error(unlockErr))
+		}
+	}()
+
+	// Get subscriptions where grace period has expired
+	expiredSubs, err := s.queries.ListExpiredPastDueSubscriptions(ctx, int32(batchSize))
+	if err != nil {
+		s.logger.Error("Failed to list expired past_due subscriptions", zap.Error(err))
+		result.Errors = append(result.Errors, fmt.Errorf("failed to list expired subscriptions: %w", err))
+		return result
+	}
+
+	result.Processed = len(expiredSubs)
+
+	if len(expiredSubs) == 0 {
+		s.logger.Info("No expired past_due subscriptions found")
+		return result
+	}
+
+	s.logger.Info("Found expired past_due subscriptions",
+		zap.Int("count", len(expiredSubs)),
+	)
+
+	// Cancel each expired subscription
+	for _, sub := range expiredSubs {
+		if err := s.cancelExpiredSubscription(ctx, &sub); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Errorf("failed to cancel subscription %s (merchant=%s): %w",
+				sub.ID.String(), sub.MerchantID.String(), err))
+			s.logger.Error("Failed to cancel expired subscription",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.String("merchant_id", sub.MerchantID.String()),
+				zap.String("customer_id", sub.CustomerID),
+				zap.Error(err),
+			)
+		} else {
+			result.Cancelled++
+			s.logger.Info("Cancelled expired past_due subscription",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.String("merchant_id", sub.MerchantID.String()),
+				zap.String("customer_id", sub.CustomerID),
+				zap.Time("past_due_since", sub.PastDueSince.Time),
+				zap.Int32("grace_period_days", sub.GracePeriodDays),
+			)
+		}
+	}
+
+	s.logger.Info("Expired past_due processing completed",
+		zap.Int("processed", result.Processed),
+		zap.Int("cancelled", result.Cancelled),
+		zap.Int("failed", result.Failed),
+	)
+
+	return result
+}
+
+// cancelExpiredSubscription cancels a subscription due to grace period expiration.
+// Uses row-level locking (SELECT FOR UPDATE) to prevent race conditions.
+func (s *subscriptionService) cancelExpiredSubscription(ctx context.Context, sub *sqlc.Subscription) error {
+	return s.txManager.WithTx(ctx, func(q sqlc.Querier) error {
+		// Lock the row and re-fetch to ensure subscription state hasn't changed
+		current, err := q.GetSubscriptionByIDForUpdate(ctx, sub.ID)
+		if err != nil {
+			return fmt.Errorf("failed to lock subscription: %w", err)
+		}
+
+		// Validate subscription is still in past_due status
+		if current.Status != string(domain.SubscriptionStatusPastDue) {
+			s.logger.Info("Subscription status changed, skipping cancellation",
+				zap.String("subscription_id", sub.ID.String()),
+				zap.String("current_status", current.Status),
+			)
+			return nil // Not an error, just skip
+		}
+
+		// Validate subscription is already cancelled
+		if current.Status == string(domain.SubscriptionStatusCancelled) {
+			s.logger.Info("Subscription already cancelled, skipping",
+				zap.String("subscription_id", sub.ID.String()),
+			)
+			return nil
+		}
+
+		// Double-check grace period hasn't been extended
+		if current.PastDueSince.Valid {
+			gracePeriodEnd := current.PastDueSince.Time.AddDate(0, 0, int(current.GracePeriodDays))
+			if time.Now().Before(gracePeriodEnd) {
+				s.logger.Info("Grace period extended, skipping cancellation",
+					zap.String("subscription_id", sub.ID.String()),
+					zap.Time("new_grace_period_end", gracePeriodEnd),
+				)
+				return nil
+			}
+		}
+
+		params := sqlc.CancelSubscriptionWithReasonParams{
+			ID:                 sub.ID,
+			CancellationReason: pgtype.Text{String: string(domain.CancellationReasonGracePeriodExpired), Valid: true},
+		}
+
+		_, err = q.CancelSubscriptionWithReason(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to cancel subscription: %w", err)
+		}
+
+		// TODO: Send webhook notification for subscription.cancelled event
+		// s.webhookService.SendSubscriptionCancelled(ctx, sub.ID, domain.CancellationReasonGracePeriodExpired)
+
+		return nil
+	})
 }
 
 // Helper functions
@@ -812,6 +1167,7 @@ func sqlcSubscriptionToDomain(dbSub *sqlc.Subscription) *domain.Subscription {
 		NextBillingDate:   dbSub.NextBillingDate.Time,
 		FailureRetryCount: int(dbSub.FailureRetryCount),
 		MaxRetries:        int(dbSub.MaxRetries),
+		GracePeriodDays:   int(dbSub.GracePeriodDays),
 		CreatedAt:         dbSub.CreatedAt,
 		UpdatedAt:         dbSub.UpdatedAt,
 	}
@@ -820,8 +1176,16 @@ func sqlcSubscriptionToDomain(dbSub *sqlc.Subscription) *domain.Subscription {
 		sub.CancelledAt = &dbSub.CancelledAt.Time
 	}
 
+	if dbSub.PastDueSince.Valid {
+		sub.PastDueSince = &dbSub.PastDueSince.Time
+	}
+
 	if dbSub.GatewaySubscriptionID.Valid {
 		sub.GatewaySubscriptionID = &dbSub.GatewaySubscriptionID.String
+	}
+
+	if dbSub.CancellationReason.Valid {
+		sub.CancellationReason = &dbSub.CancellationReason.String
 	}
 
 	if len(dbSub.Metadata) > 0 {

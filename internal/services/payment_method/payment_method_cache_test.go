@@ -28,8 +28,7 @@ func createTestPaymentMethod(id uuid.UUID, customerID string) sqlc.CustomerPayme
 		PaymentType:  "card",
 		LastFour:     "4242",
 		IsDefault:    pgtype.Bool{Bool: true, Valid: true},
-		IsActive:     pgtype.Bool{Bool: true, Valid: true},
-		IsVerified:   pgtype.Bool{Bool: true, Valid: true},
+		Status:       string(domain.PaymentMethodStatusActive),
 		CardBrand:    pgtype.Text{String: "visa", Valid: true},
 		CardExpMonth: pgtype.Int4{Int32: 12, Valid: true},
 		CardExpYear:  pgtype.Int4{Int32: 2025, Valid: true},
@@ -600,8 +599,9 @@ func Test_PaymentMethodCache_ConvertSqlcToPaymentMethod(t *testing.T) {
 	assert.Equal(t, domain.PaymentMethodType("card"), domainPM.PaymentType)
 	assert.Equal(t, "4242", domainPM.LastFour)
 	assert.True(t, domainPM.IsDefault)
-	assert.True(t, domainPM.IsActive)
-	assert.True(t, domainPM.IsVerified)
+	assert.Equal(t, domain.PaymentMethodStatusActive, domainPM.Status)
+	assert.True(t, domainPM.IsActive())   // Method call
+	assert.True(t, domainPM.IsVerified()) // Method call
 	assert.NotNil(t, domainPM.CardBrand)
 	assert.Equal(t, "visa", *domainPM.CardBrand)
 	assert.NotNil(t, domainPM.CardExpMonth)

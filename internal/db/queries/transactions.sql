@@ -7,13 +7,13 @@
 -- tran_nbr stores EPX TRAN_NBR (deterministic 10-digit numeric ID from UUID)
 -- parent_transaction_id links to parent transaction (CAPTURE→AUTH, REFUND→SALE/CAPTURE, etc.)
 INSERT INTO transactions (
-    id, merchant_id, customer_id,
+    id, merchant_id, customer_id, order_id,
     amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id,
     tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type,
     metadata,
     parent_transaction_id, processed_at
 ) VALUES (
-    sqlc.arg(id), sqlc.arg(merchant_id), sqlc.narg(customer_id),
+    sqlc.arg(id), sqlc.arg(merchant_id), sqlc.narg(customer_id), sqlc.narg(order_id),
     sqlc.arg(amount_cents), sqlc.arg(currency), sqlc.arg(type), sqlc.arg(payment_method_type), sqlc.narg(payment_method_id), sqlc.narg(subscription_id),
     sqlc.narg(tran_nbr), sqlc.narg(auth_guid), sqlc.narg(auth_resp), sqlc.narg(auth_code), sqlc.narg(auth_card_type),
     sqlc.arg(metadata),
@@ -48,12 +48,13 @@ find_root AS (
 ),
 -- Step 2: Get the root transaction (has no parent)
 -- Note: Select only the original transaction columns, not the depth from find_root
+-- Column order must match table definition for SQLC struct compatibility
 root AS (
     SELECT
         id, parent_transaction_id, merchant_id, customer_id,
         amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id,
         tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type,
-        status, processed_at, metadata, deleted_at, created_at, updated_at
+        status, processed_at, metadata, deleted_at, created_at, updated_at, order_id
     FROM find_root
     WHERE parent_transaction_id IS NULL
     LIMIT 1
@@ -73,7 +74,7 @@ SELECT
     id, parent_transaction_id, merchant_id, customer_id,
     amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id,
     tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type,
-    status, processed_at, metadata, deleted_at, created_at, updated_at
+    status, processed_at, metadata, deleted_at, created_at, updated_at, order_id
 FROM full_tree
 ORDER BY created_at ASC;
 
@@ -82,6 +83,7 @@ SELECT * FROM transactions
 WHERE
     merchant_id = sqlc.arg(merchant_id) AND
     (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
+    (sqlc.narg(order_id)::varchar IS NULL OR order_id = sqlc.narg(order_id)) AND
     (sqlc.narg(subscription_id)::uuid IS NULL OR subscription_id = sqlc.narg(subscription_id)) AND
     (sqlc.narg(parent_transaction_id)::uuid IS NULL OR parent_transaction_id = sqlc.narg(parent_transaction_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status)) AND
@@ -95,6 +97,7 @@ SELECT COUNT(*) FROM transactions
 WHERE
     merchant_id = sqlc.arg(merchant_id) AND
     (sqlc.narg(customer_id)::varchar IS NULL OR customer_id = sqlc.narg(customer_id)) AND
+    (sqlc.narg(order_id)::varchar IS NULL OR order_id = sqlc.narg(order_id)) AND
     (sqlc.narg(subscription_id)::uuid IS NULL OR subscription_id = sqlc.narg(subscription_id)) AND
     (sqlc.narg(parent_transaction_id)::uuid IS NULL OR parent_transaction_id = sqlc.narg(parent_transaction_id)) AND
     (sqlc.narg(status)::varchar IS NULL OR status = sqlc.narg(status)) AND
@@ -103,6 +106,13 @@ WHERE
 
 -- UpdateTransaction removed: transactions are immutable/append-only
 -- To modify a transaction (VOID/REFUND), create a NEW transaction record with parent_transaction_id
+
+-- name: ListTransactionsByOrderID :many
+-- Get all transactions for a specific order (AUTH, CAPTURE, REFUND chain)
+SELECT * FROM transactions
+WHERE merchant_id = sqlc.arg(merchant_id)
+  AND order_id = sqlc.arg(order_id)
+ORDER BY created_at ASC;
 
 -- name: GetTransactionByTranNbr :one
 SELECT * FROM transactions

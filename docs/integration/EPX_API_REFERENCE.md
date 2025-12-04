@@ -15,7 +15,7 @@ This service integrates with EPX payment gateway using two methods:
 
 **EPX Environments:**
 - **Sandbox:** `https://secure.epxuap.com`
-- **Production:** `https://secure.epxnow.com`
+- **Production:** `https://epxnow.com/epx/server_post`
 
 ---
 
@@ -63,6 +63,16 @@ This service integrates with EPX payment gateway using two methods:
 | **Credit/Refund** | CKS3 | Send funds to savings |
 | **Void** | CKSX | Cancel savings transaction |
 
+### PIN-less Debit Transactions
+
+| Transaction | Code | Use Case | Requires ORIG_AUTH_GUID |
+|-------------|------|----------|-------------------------|
+| **Purchase** | DB0P | Debit card purchase without PIN | No |
+| **Return/Refund** | DB0S | Return funds to debit card | Yes |
+| **Void** | DB0V | Cancel unsettled PIN-less debit | Yes |
+
+**Note:** PIN-less debit uses debit card networks (not ACH) for faster settlement without requiring PIN entry. Supported for specific use cases like bill payments and recurring charges.
+
 ---
 
 ## Browser Post API
@@ -71,8 +81,11 @@ This service integrates with EPX payment gateway using two methods:
 PCI-compliant credit card entry - card data goes directly from customer's browser to EPX, never touching our server.
 
 ### Supported Operations
-- **Sale** (TRAN_CODE=U) - Immediate payment
-- **Auth Only** (TRAN_CODE=A) - Authorization for later capture
+- **Sale** (TRAN_CODE=SALE) - Immediate payment (auth + capture)
+- **Auth Only** (TRAN_CODE=AUTH) - Authorization for later capture
+- **Storage** (TRAN_CODE=STORAGE) - Tokenize credit card for future payments
+- **ACH Checking Storage** (TRAN_CODE=ACH_STORAGE_C) - Tokenize checking account
+- **ACH Savings Storage** (TRAN_CODE=ACH_STORAGE_S) - Tokenize savings account
 
 ### Flow
 1. Backend requests TAC (Temporary Access Code) from EPX Key Exchange API
@@ -111,6 +124,7 @@ PCI-compliant credit card entry - card data goes directly from customer's browse
 | `CVV2` | String(3-4) | `123` | Recommended |
 | `ZIP_CODE` | String | `10001` | For AVS verification |
 | `CARD_ENT_METH` | String(1) | `E` | E=Ecommerce, Z=BRIC |
+| `INDUSTRY_TYPE` | String(1) | `E` | E=Ecommerce (required for all transactions) |
 
 *Not required if using `AUTH_GUID` (BRIC token)
 
@@ -130,9 +144,41 @@ PCI-compliant credit card entry - card data goes directly from customer's browse
 
 | Field | Format | Example | Notes |
 |-------|--------|---------|-------|
-| `AUTH_GUID` | String(19-20) | `09LMQAABBCCDD` | Storage BRIC for recurring |
-| `ORIG_AUTH_GUID` | String(19-20) | `09XYZFINANCIAL` | Financial BRIC to convert or void |
+| `AUTH_GUID` | String(19-20) | `09LMQAABBCCDD` | Storage BRIC for new transactions |
+| `ORIG_AUTH_GUID` | String(19-20) | `09XYZFINANCIAL` | Reference stored BRIC, Financial BRIC to convert, or transaction to void/refund |
 | `CARD_ENT_METH` | String(1) | `Z` | Must be 'Z' when using BRIC |
+
+**Important BRIC Usage:**
+- **New transactions with stored card**: Use `ORIG_AUTH_GUID` with the Storage BRIC
+- **Converting Financial → Storage**: Use `ORIG_AUTH_GUID` with the Financial BRIC
+- **Void/Refund operations**: Use `ORIG_AUTH_GUID` with the original transaction's GUID
+- Response returns new `AUTH_GUID` (Financial BRIC for the new transaction)
+
+### Recurring Billing Fields
+
+| Field | Format | Values | Notes |
+|-------|--------|--------|-------|
+| `ACI_EXT` | String(2) | `RB`, `RS` | Recurring billing indicator |
+
+**ACI_EXT Values:**
+- **`RB`** - Recurring Billing (First attempt for a billing cycle)
+  - Used for the first billing attempt of each cycle
+  - January first try: RB, February first try: RB, etc.
+- **`RS`** - Resubmission (Retry of a declined transaction)
+  - Used when retrying a failed transaction within the same billing cycle
+  - Must be within 30-day window of original decline (Visa/MC/Discover rule)
+  - After 30 days, revert to RB (treat as new billing attempt)
+
+**Example:** Monthly subscription with retry
+1. January 1st (first attempt): `ACI_EXT=RB`
+2. January 1st (retry after network failure): `ACI_EXT=RS`
+3. February 1st (first attempt): `ACI_EXT=RB`
+4. February 1st (retry after decline): `ACI_EXT=RS`
+
+**Retry Logic:**
+- **Transient errors** (network timeout, gateway unavailable): Retry with exponential backoff using `RS`
+- **Permanent errors** (card declined, insufficient funds): Increment retry count, may retry on next cron run
+- **Max retries reached**: Subscription moves to `past_due` status
 
 ---
 
@@ -234,8 +280,20 @@ CARD_ENT_METH=Z
 | Code | Description | Use Case |
 |------|-------------|----------|
 | `E` | Ecommerce | Manual card entry (Server Post with raw card data) |
-| `Z` | BRIC-based | Using tokenized payment method (AUTH_GUID) |
+| `Z` | BRIC-based | Using tokenized payment method (ORIG_AUTH_GUID) |
 | `X` | Browser Post | Customer enters card on EPX-hosted form |
+
+---
+
+## Industry Types
+
+| Code | Description | Use Case |
+|------|-------------|----------|
+| `E` | Ecommerce | Online/internet transactions (default for this service) |
+| `R` | Retail | Card-present retail transactions |
+| `D` | Direct Marketing | Mail order/telephone order (MOTO) |
+
+**Note:** This service uses `INDUSTRY_TYPE=E` for all transactions as we are an ecommerce payment processor.
 
 ---
 
@@ -340,5 +398,5 @@ CARD_ENT_METH=Z
 
 ---
 
-**Last Updated:** 2025-11-22
-**Based on:** Payment Service codebase analysis
+**Last Updated:** 2025-12-03
+**Based on:** Payment Service codebase analysis and EPX certification sheet

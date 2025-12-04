@@ -9,21 +9,33 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
 )
 
+// ConnectHandlerConfig holds configuration for the subscription handler
+type ConnectHandlerConfig struct {
+	DefaultMaxRetries int // Default max retries before past_due (default: 3)
+}
+
 // ConnectHandler implements the Connect RPC SubscriptionServiceHandler interface
 type ConnectHandler struct {
-	service ports.SubscriptionService
-	logger  *zap.Logger
+	service           ports.SubscriptionService
+	logger            *zap.Logger
+	defaultMaxRetries int
 }
 
 // NewConnectHandler creates a new Connect RPC subscription handler
-func NewConnectHandler(service ports.SubscriptionService, logger *zap.Logger) *ConnectHandler {
+func NewConnectHandler(service ports.SubscriptionService, logger *zap.Logger, cfg ConnectHandlerConfig) *ConnectHandler {
+	maxRetries := 3
+	if cfg.DefaultMaxRetries > 0 {
+		maxRetries = cfg.DefaultMaxRetries
+	}
+
 	return &ConnectHandler{
-		service: service,
-		logger:  logger,
+		service:           service,
+		logger:            logger,
+		defaultMaxRetries: maxRetries,
 	}
 }
 
@@ -60,7 +72,7 @@ func (h *ConnectHandler) CreateSubscription(
 	}
 
 	if serviceReq.MaxRetries == 0 {
-		serviceReq.MaxRetries = 3 // Default
+		serviceReq.MaxRetries = h.defaultMaxRetries
 	}
 
 	if msg.IdempotencyKey != "" {
@@ -228,21 +240,18 @@ func (h *ConnectHandler) GetSubscription(
 	return connect.NewResponse(subscriptionToProto(sub)), nil
 }
 
-// ListCustomerSubscriptions lists all subscriptions for a customer
-func (h *ConnectHandler) ListCustomerSubscriptions(
+// ListSubscriptions lists subscriptions with optional filters
+func (h *ConnectHandler) ListSubscriptions(
 	ctx context.Context,
-	req *connect.Request[subscriptionv1.ListCustomerSubscriptionsRequest],
-) (*connect.Response[subscriptionv1.ListCustomerSubscriptionsResponse], error) {
+	req *connect.Request[subscriptionv1.ListSubscriptionsRequest],
+) (*connect.Response[subscriptionv1.ListSubscriptionsResponse], error) {
 	msg := req.Msg
 
 	if msg.MerchantId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("merchant_id is required"))
 	}
-	if msg.CustomerId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("customer_id is required"))
-	}
 
-	subs, err := h.service.ListCustomerSubscriptions(ctx, msg.MerchantId, msg.CustomerId)
+	subs, err := h.service.ListSubscriptions(ctx, msg.MerchantId, msg.CustomerId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list subscriptions"))
 	}
@@ -259,52 +268,41 @@ func (h *ConnectHandler) ListCustomerSubscriptions(
 		subs = filtered
 	}
 
+	// Get total count before pagination
+	totalCount := len(subs)
+
+	// Apply pagination
+	limit := int(msg.Limit)
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	offset := int(msg.Offset)
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Apply offset and limit
+	if offset >= len(subs) {
+		subs = []*domain.Subscription{}
+	} else {
+		end := offset + limit
+		if end > len(subs) {
+			end = len(subs)
+		}
+		subs = subs[offset:end]
+	}
+
 	protoSubs := make([]*subscriptionv1.Subscription, len(subs))
 	for i, sub := range subs {
 		protoSubs[i] = subscriptionToProto(sub)
 	}
 
-	response := &subscriptionv1.ListCustomerSubscriptionsResponse{
+	response := &subscriptionv1.ListSubscriptionsResponse{
 		Subscriptions: protoSubs,
-	}
-
-	return connect.NewResponse(response), nil
-}
-
-// ProcessDueBilling processes subscriptions due for billing (internal/admin use)
-func (h *ConnectHandler) ProcessDueBilling(
-	ctx context.Context,
-	req *connect.Request[subscriptionv1.ProcessDueBillingRequest],
-) (*connect.Response[subscriptionv1.ProcessDueBillingResponse], error) {
-	msg := req.Msg
-
-	h.logger.Info("ProcessDueBilling request received",
-		zap.Time("as_of_date", msg.AsOfDate.AsTime()),
-		zap.Int32("batch_size", msg.BatchSize),
-	)
-
-	batchSize := int(msg.BatchSize)
-	if batchSize <= 0 {
-		batchSize = 100 // Default
-	}
-
-	processed, success, failed, errors := h.service.ProcessDueBilling(ctx, msg.AsOfDate.AsTime(), batchSize)
-
-	// Convert errors to billing errors
-	billingErrors := make([]*subscriptionv1.BillingError, len(errors))
-	for i, err := range errors {
-		billingErrors[i] = &subscriptionv1.BillingError{
-			Error:     err.Error(),
-			Retriable: isRetriableError(err),
-		}
-	}
-
-	response := &subscriptionv1.ProcessDueBillingResponse{
-		ProcessedCount: int32(processed),
-		SuccessCount:   int32(success),
-		FailedCount:    int32(failed),
-		SkippedCount:   int32(0), // Not tracking skipped yet
-		Errors:         billingErrors,
+		TotalCount:    int32(totalCount),
 	}
 
 	return connect.NewResponse(response), nil

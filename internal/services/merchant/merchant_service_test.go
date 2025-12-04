@@ -13,10 +13,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/kevin07696/payment-service/internal/adapters/database"
-	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/testutil/mocks"
 )
 
@@ -39,25 +38,25 @@ func (m *MockTransactionManager) WithTx(ctx context.Context, fn func(sqlc.Querie
 	return args.Error(0)
 }
 
-// MockSecretManagerAdapter implements adapterports.SecretManagerAdapter for testing
+// MockSecretManagerAdapter implements ports.SecretManagerAdapter for testing
 type MockSecretManagerAdapter struct {
 	mock.Mock
 }
 
-func (m *MockSecretManagerAdapter) GetSecret(ctx context.Context, path string) (*adapterports.Secret, error) {
+func (m *MockSecretManagerAdapter) GetSecret(ctx context.Context, path string) (*ports.Secret, error) {
 	args := m.Called(ctx, path)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*adapterports.Secret), args.Error(1)
+	return args.Get(0).(*ports.Secret), args.Error(1)
 }
 
-func (m *MockSecretManagerAdapter) GetSecretVersion(ctx context.Context, path string, version string) (*adapterports.Secret, error) {
+func (m *MockSecretManagerAdapter) GetSecretVersion(ctx context.Context, path string, version string) (*ports.Secret, error) {
 	args := m.Called(ctx, path, version)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*adapterports.Secret), args.Error(1)
+	return args.Get(0).(*ports.Secret), args.Error(1)
 }
 
 func (m *MockSecretManagerAdapter) PutSecret(ctx context.Context, path, value string, metadata map[string]string) (string, error) {
@@ -65,12 +64,12 @@ func (m *MockSecretManagerAdapter) PutSecret(ctx context.Context, path, value st
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockSecretManagerAdapter) RotateSecret(ctx context.Context, path string, newValue string) (*adapterports.SecretRotationInfo, error) {
+func (m *MockSecretManagerAdapter) RotateSecret(ctx context.Context, path string, newValue string) (*ports.SecretRotationInfo, error) {
 	args := m.Called(ctx, path, newValue)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*adapterports.SecretRotationInfo), args.Error(1)
+	return args.Get(0).(*ports.SecretRotationInfo), args.Error(1)
 }
 
 func (m *MockSecretManagerAdapter) DeleteSecret(ctx context.Context, path string) error {
