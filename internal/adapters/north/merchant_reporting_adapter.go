@@ -18,14 +18,6 @@ type MerchantReportingConfig struct {
 	Timeout time.Duration
 }
 
-// DefaultMerchantReportingConfig returns default configuration
-func DefaultMerchantReportingConfig() *MerchantReportingConfig {
-	return &MerchantReportingConfig{
-		BaseURL: "https://api.north.com",
-		Timeout: 30 * time.Second,
-	}
-}
-
 // merchantReportingAdapter implements the MerchantReportingAdapter port
 type merchantReportingAdapter struct {
 	config     *MerchantReportingConfig

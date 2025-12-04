@@ -35,20 +35,3 @@ func ToNullableUUIDFromUUID(id *uuid.UUID) pgtype.UUID {
 	}
 	return pgtype.UUID{Bytes: *id, Valid: true}
 }
-
-// ToNullableInt32 converts an int pointer to pgtype.Int4
-// Returns invalid Int4 if pointer is nil
-func ToNullableInt32(i *int) pgtype.Int4 {
-	if i == nil {
-		return pgtype.Int4{Valid: false}
-	}
-	return pgtype.Int4{Int32: int32(*i), Valid: true}
-}
-
-// StringOrEmpty returns empty string if pointer is nil, otherwise returns the value
-func StringOrEmpty(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}

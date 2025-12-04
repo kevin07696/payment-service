@@ -32,8 +32,9 @@ type ConnectHandler struct {
 	logger  *zap.Logger
 }
 
-// NewConnectHandlerWithQueries creates a new Connect RPC chargeback handler with a custom query executor
-func NewConnectHandlerWithQueries(queries QueryExecutor, logger *zap.Logger) *ConnectHandler {
+// newConnectHandlerWithQueries creates a new Connect RPC chargeback handler with a custom query executor
+// This is used internally and by tests to inject mock query executors
+func newConnectHandlerWithQueries(queries QueryExecutor, logger *zap.Logger) *ConnectHandler {
 	return &ConnectHandler{
 		queries: queries,
 		logger:  logger,

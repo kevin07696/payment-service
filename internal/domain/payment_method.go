@@ -42,30 +42,6 @@ func ParseExpirationDateMMYY(mmyy string) *ExpirationDate {
 	}
 }
 
-// IsExpired returns true if the expiration date has passed
-func (e *ExpirationDate) IsExpired() bool {
-	if e == nil {
-		return false
-	}
-
-	now := timeutil.Now()
-	if e.Year < now.Year() {
-		return true
-	}
-	if e.Year == now.Year() && e.Month < int(now.Month()) {
-		return true
-	}
-	return false
-}
-
-// String returns the expiration date formatted as MM/YY
-func (e *ExpirationDate) String() string {
-	if e == nil {
-		return ""
-	}
-	return fmt.Sprintf("%02d/%02d", e.Month, e.Year%100)
-}
-
 // FormatExpirationDateMMYY formats a raw MMYY string to MM/YY display format
 // Returns the input unchanged if it's not exactly 4 characters
 func FormatExpirationDateMMYY(mmyy string) string {

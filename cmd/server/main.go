@@ -181,17 +181,11 @@ func main() {
 	// Adjust these values based on expected staging traffic
 	rateLimiter := middleware.NewRateLimiter(10, 20)
 
-	// Initialize EPX callback authentication
-	var epxAuth *authMiddleware.EPXCallbackAuth
-	if cfg.AuthEnabled && cfg.EPXMacSecret != "" {
-		var err error
-		epxAuth, err = authMiddleware.NewEPXCallbackAuth(queries, cfg.EPXMacSecret, logger)
-		if err != nil {
-			logger.Error("Failed to initialize EPX callback auth", zap.Error(err))
-		} else {
-			logger.Info("EPX callback authentication enabled")
-		}
-	}
+	// Note: EPX callback MAC validation is performed in the service layer
+	// (BrowserPostService.ProcessCallback) rather than middleware, because:
+	// 1. EPX includes MAC in form parameters, not HTTP headers
+	// 2. Each merchant has their own MAC secret (per-merchant validation)
+	// 3. Browser Post redirects come from user's browser, not EPX servers
 
 	// Cron endpoints with authentication
 	cronAuthMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
@@ -238,17 +232,16 @@ func main() {
 	mux.Handle("/cron/audit/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.auditCleanupCronHandler.HealthCheck)))
 	mux.Handle("/cron/rate-limit/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.rateLimitCleanupCronHandler.HealthCheck)))
 
-	// Browser Post endpoints (with rate limiting and EPX auth for callbacks)
+	// Browser Post endpoints (with rate limiting)
+	// Note: Browser Post callbacks come from user's browser (via EPX 302 redirect)
+	// and cannot include custom HTTP headers. MAC signature validation is performed
+	// in the service layer (BrowserPostService.ProcessCallback) using the MAC field
+	// from form parameters, which is signed by EPX using the merchant's MAC secret.
 	mux.HandleFunc("/api/v1/payments/browser-post/form",
 		rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm))
 
-	// Apply EPX auth to callback endpoint
-	var callbackHandler http.HandlerFunc = deps.browserPostCallbackHandler.HandleCallback
-	if epxAuth != nil {
-		callbackHandler = epxAuth.Middleware(callbackHandler)
-	}
 	mux.HandleFunc("/api/v1/payments/browser-post/callback",
-		rateLimiter.HTTPHandlerFunc(callbackHandler))
+		rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.HandleCallback))
 
 	// Serve Browser Post demo form (avoids CORS issues with file:// protocol)
 	mux.HandleFunc("/browser-post-demo", serveBrowserPostDemo)
@@ -646,6 +639,12 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	seeder := seed.NewSeeder(queries, secretManager, logger)
 	if err := seeder.SeedIfNeeded(context.Background()); err != nil {
 		logger.Error("Failed to auto-seed sandbox merchant", zap.Error(err))
+		// Non-fatal: continue startup even if seeding fails
+	}
+
+	// Seed test data for API documentation (service, subscriptions, etc.)
+	if err := seeder.SeedTestData(context.Background()); err != nil {
+		logger.Error("Failed to seed test data", zap.Error(err))
 		// Non-fatal: continue startup even if seeding fails
 	}
 

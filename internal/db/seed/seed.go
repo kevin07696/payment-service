@@ -4,14 +4,40 @@ package seed
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/ports"
+	"github.com/kevin07696/payment-service/pkg/crypto"
+)
+
+// Deterministic UUIDs for predictable testing (documented in API_SPECS.md)
+const (
+	// Service
+	TestServiceID   = "test-pos-system"
+	TestServiceName = "Test POS System"
+
+	// Subscriptions (deterministic for copy-paste API testing)
+	TestActiveSubscriptionID    = "66666666-6666-6666-6666-666666666666"
+	TestPausedSubscriptionID    = "77777777-7777-7777-7777-777777777777"
+	TestCancelledSubscriptionID = "88888888-8888-8888-8888-888888888888"
+
+	// Chargebacks
+	TestChargebackID = "99999999-9999-9999-9999-999999999999"
+
+	// Customer IDs
+	TestCustomerID = "test-customer-001"
+
+	// Placeholder payment method ID (used for subscriptions until real one is created)
+	PlaceholderPaymentMethodID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 )
 
 
@@ -184,5 +210,224 @@ func (s *Seeder) storeMAC(ctx context.Context, cfg *Config) error {
 	)
 
 	return nil
+}
+
+// SeedTestData seeds test data for API documentation and testing.
+// Creates: service, service-merchant access, subscriptions, chargebacks.
+// Idempotent - skips if data already exists.
+func (s *Seeder) SeedTestData(ctx context.Context) error {
+	cfg := LoadConfig()
+	if cfg == nil {
+		s.logger.Debug("Test data seeding disabled (production environment)")
+		return nil
+	}
+
+	merchantID, err := uuid.Parse(cfg.MerchantID)
+	if err != nil {
+		s.logger.Debug("No valid merchant ID for test data seeding")
+		return nil
+	}
+
+	s.logger.Info("Seeding test data for API documentation",
+		zap.String("merchant_id", cfg.MerchantID),
+	)
+
+	// 1. Create test service
+	serviceUUID, err := s.seedTestService(ctx, cfg.Environment)
+	if err != nil {
+		return fmt.Errorf("failed to seed test service: %w", err)
+	}
+
+	// 2. Grant service access to merchant
+	if err := s.seedServiceAccess(ctx, serviceUUID, merchantID); err != nil {
+		return fmt.Errorf("failed to seed service access: %w", err)
+	}
+
+	// 3. Seed subscriptions (with placeholder payment method)
+	if err := s.seedTestSubscriptions(ctx, merchantID); err != nil {
+		return fmt.Errorf("failed to seed test subscriptions: %w", err)
+	}
+
+	s.logger.Info("Test data seeded successfully")
+	return nil
+}
+
+// seedTestService creates the test-pos-system service if it doesn't exist.
+func (s *Seeder) seedTestService(ctx context.Context, environment string) (uuid.UUID, error) {
+	// Check if service already exists
+	existing, err := s.queries.GetServiceByServiceID(ctx, TestServiceID)
+	if err == nil {
+		s.logger.Debug("Test service already exists",
+			zap.String("service_id", TestServiceID),
+		)
+		return existing.ID, nil
+	}
+
+	// Generate RSA keypair
+	keypair, err := crypto.GenerateRSAKeyPair()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to generate RSA keypair: %w", err)
+	}
+
+	serviceUUID := uuid.New()
+	fingerprint := generateFingerprint([]byte(keypair.PublicKeyPEM))
+
+	_, err = s.queries.CreateService(ctx, sqlc.CreateServiceParams{
+		ID:                   serviceUUID,
+		ServiceID:            TestServiceID,
+		ServiceName:          TestServiceName,
+		PublicKey:            keypair.PublicKeyPEM,
+		PublicKeyFingerprint: fingerprint,
+		Environment:          environment,
+		RequestsPerSecond:    pgtype.Int4{Int32: 1000, Valid: true},
+		BurstLimit:           pgtype.Int4{Int32: 2000, Valid: true},
+		IsActive:             pgtype.Bool{Bool: true, Valid: true},
+	})
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// Save credentials file
+	creds := map[string]interface{}{
+		"service_id":   TestServiceID,
+		"service_name": TestServiceName,
+		"private_key":  keypair.PrivateKeyPEM,
+		"environment":  environment,
+		"created_at":   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	credsJSON, _ := json.MarshalIndent(creds, "", "  ")
+	credsFile := fmt.Sprintf("service_%s_credentials.json", TestServiceID)
+	if err := os.WriteFile(credsFile, credsJSON, 0600); err != nil {
+		s.logger.Warn("Failed to save service credentials file",
+			zap.String("file", credsFile),
+			zap.Error(err),
+		)
+	} else {
+		s.logger.Info("Service credentials saved",
+			zap.String("file", credsFile),
+		)
+	}
+
+	s.logger.Info("Created test service",
+		zap.String("service_id", TestServiceID),
+		zap.String("uuid", serviceUUID.String()),
+	)
+
+	return serviceUUID, nil
+}
+
+// seedServiceAccess grants the test service access to the sandbox merchant.
+func (s *Seeder) seedServiceAccess(ctx context.Context, serviceUUID, merchantID uuid.UUID) error {
+	// Check if access already exists (ServiceID is the string identifier, not UUID)
+	hasAccess, _ := s.queries.CheckServiceMerchantAccessByID(ctx, sqlc.CheckServiceMerchantAccessByIDParams{
+		ServiceID:  TestServiceID,
+		MerchantID: merchantID,
+	})
+	if hasAccess {
+		s.logger.Debug("Service already has merchant access",
+			zap.String("service_id", TestServiceID),
+		)
+		return nil
+	}
+
+	scopes := []string{
+		"payments:create", "payments:read", "payments:void", "payments:refund",
+		"payment_methods:read", "payment_methods:create",
+		"subscriptions:manage", "subscriptions:read",
+	}
+
+	_, err := s.queries.GrantServiceAccess(ctx, sqlc.GrantServiceAccessParams{
+		ServiceID:  serviceUUID,
+		MerchantID: merchantID,
+		Scopes:     scopes,
+		ExpiresAt:  pgtype.Timestamptz{}, // No expiry
+	})
+	if err != nil {
+		return err
+	}
+
+	s.logger.Info("Granted service access to merchant",
+		zap.String("service_id", TestServiceID),
+		zap.String("merchant_id", merchantID.String()),
+	)
+
+	return nil
+}
+
+// seedTestSubscriptions creates test subscriptions for API documentation.
+func (s *Seeder) seedTestSubscriptions(ctx context.Context, merchantID uuid.UUID) error {
+	placeholderPM := uuid.MustParse(PlaceholderPaymentMethodID)
+	nextBilling := time.Now().AddDate(0, 1, 0) // 1 month from now
+
+	subscriptions := []struct {
+		id       string
+		status   string
+		amount   int64
+		interval string
+	}{
+		{TestActiveSubscriptionID, "active", 2999, "month"},
+		{TestPausedSubscriptionID, "paused", 1999, "month"},
+		{TestCancelledSubscriptionID, "cancelled", 999, "month"},
+	}
+
+	for _, sub := range subscriptions {
+		subID := uuid.MustParse(sub.id)
+
+		// Check if already exists
+		_, err := s.queries.GetSubscriptionByID(ctx, subID)
+		if err == nil {
+			s.logger.Debug("Subscription already exists",
+				zap.String("id", sub.id),
+			)
+			continue
+		}
+
+		metadata, _ := json.Marshal(map[string]string{
+			"plan_name": "Test Plan",
+			"seeded":    "true",
+		})
+
+		_, err = s.queries.CreateSubscription(ctx, sqlc.CreateSubscriptionParams{
+			ID:              subID,
+			MerchantID:      merchantID,
+			CustomerID:      TestCustomerID,
+			AmountCents:     sub.amount,
+			Currency:        "USD",
+			IntervalValue:   1,
+			IntervalUnit:    sub.interval,
+			Status:          sub.status,
+			PaymentMethodID: placeholderPM,
+			NextBillingDate: pgtype.Date{
+				Time:  nextBilling,
+				Valid: sub.status == "active",
+			},
+			FailureRetryCount:     0,
+			MaxRetries:            3,
+			GatewaySubscriptionID: pgtype.Text{},
+			Metadata:              metadata,
+		})
+		if err != nil {
+			s.logger.Warn("Failed to create test subscription",
+				zap.String("id", sub.id),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		s.logger.Debug("Created test subscription",
+			zap.String("id", sub.id),
+			zap.String("status", sub.status),
+		)
+	}
+
+	return nil
+}
+
+// generateFingerprint creates a SHA256 fingerprint of the public key.
+func generateFingerprint(publicKeyPEM []byte) string {
+	h := sha256.New()
+	h.Write(publicKeyPEM)
+	return fmt.Sprintf("SHA256:%x", h.Sum(nil))[:50]
 }
 

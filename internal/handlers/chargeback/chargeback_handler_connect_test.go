@@ -40,7 +40,7 @@ func (m *MockQueryExecutor) CountChargebacks(ctx context.Context, params sqlc.Co
 func TestGetChargeback_Validation(t *testing.T) {
 	mockQueries := new(MockQueryExecutor)
 	logger := zap.NewNop()
-	handler := NewConnectHandlerWithQueries(mockQueries, logger)
+	handler := newConnectHandlerWithQueries(mockQueries, logger)
 
 	tests := []struct {
 		name          string
@@ -97,7 +97,7 @@ func TestGetChargeback_Validation(t *testing.T) {
 func TestListChargebacks_Validation(t *testing.T) {
 	mockQueries := new(MockQueryExecutor)
 	logger := zap.NewNop()
-	handler := NewConnectHandlerWithQueries(mockQueries, logger)
+	handler := newConnectHandlerWithQueries(mockQueries, logger)
 
 	tests := []struct {
 		name          string
@@ -139,7 +139,7 @@ func TestListChargebacks_Validation(t *testing.T) {
 func TestGetChargeback_NotFound(t *testing.T) {
 	mockQueries := new(MockQueryExecutor)
 	logger := zap.NewNop()
-	handler := NewConnectHandlerWithQueries(mockQueries, logger)
+	handler := newConnectHandlerWithQueries(mockQueries, logger)
 
 	chargebackID := uuid.New()
 	mockQueries.On("GetChargebackByID", mock.Anything, chargebackID).
@@ -164,7 +164,7 @@ func TestGetChargeback_NotFound(t *testing.T) {
 func TestListChargebacks_LimitDefaults(t *testing.T) {
 	mockQueries := new(MockQueryExecutor)
 	logger := zap.NewNop()
-	handler := NewConnectHandlerWithQueries(mockQueries, logger)
+	handler := newConnectHandlerWithQueries(mockQueries, logger)
 
 	tests := []struct {
 		name          string
