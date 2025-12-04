@@ -37,6 +37,13 @@ Comprehensive update to API documentation with real captured responses:
 
 ### Fixed (2025-12-04)
 
+**paycli grant-access JSON File Bug**
+
+Fixed bug where `grant-access` command ignored the `-json` flag and always entered interactive mode:
+- Changed `grantAccess()` to accept `jsonFile string` parameter
+- Added JSON file reading logic matching other commands (create-service, create-merchant)
+- Also supports custom scopes in JSON (defaults to all scopes if not specified)
+
 **MAC Secret Path Configuration**
 
 Fixed the MAC secret path for the dev merchant to enable Browser POST form generation:

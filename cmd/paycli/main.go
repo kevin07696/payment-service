@@ -133,7 +133,7 @@ func main() {
 	case "create-merchant":
 		cli.createMerchant(*jsonFile)
 	case "grant-access":
-		cli.grantAccess()
+		cli.grantAccess(*jsonFile)
 	case "list-services":
 		cli.listServices()
 	case "list-merchants":
@@ -619,16 +619,36 @@ func (cli *PayCLI) createMerchant(jsonFile string) {
 	fmt.Println("========================================")
 }
 
-func (cli *PayCLI) grantAccess() {
-	reader := bufio.NewReader(os.Stdin)
+func (cli *PayCLI) grantAccess(jsonFile string) {
+	var accessData struct {
+		ServiceID    string   `json:"service_id"`
+		MerchantSlug string   `json:"merchant_slug"`
+		Scopes       []string `json:"scopes,omitempty"`
+	}
 
-	fmt.Print("Service ID (e.g., wordpress-plugin): ")
-	serviceID, _ := reader.ReadString('\n')
-	serviceID = strings.TrimSpace(serviceID)
+	if jsonFile != "" {
+		data, err := os.ReadFile(jsonFile)
+		if err != nil {
+			log.Fatal("Failed to read JSON file:", err)
+		}
+		if err := json.Unmarshal(data, &accessData); err != nil {
+			log.Fatal("Failed to parse JSON:", err)
+		}
+	} else {
+		// Interactive mode
+		reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print("Merchant slug: ")
-	merchantSlug, _ := reader.ReadString('\n')
-	merchantSlug = strings.TrimSpace(merchantSlug)
+		fmt.Print("Service ID (e.g., wordpress-plugin): ")
+		accessData.ServiceID, _ = reader.ReadString('\n')
+		accessData.ServiceID = strings.TrimSpace(accessData.ServiceID)
+
+		fmt.Print("Merchant slug: ")
+		accessData.MerchantSlug, _ = reader.ReadString('\n')
+		accessData.MerchantSlug = strings.TrimSpace(accessData.MerchantSlug)
+	}
+
+	serviceID := accessData.ServiceID
+	merchantSlug := accessData.MerchantSlug
 
 	// Get service and merchant IDs using sqlc
 	service, err := cli.queries.GetServiceByServiceID(cli.ctx, serviceID)
@@ -641,14 +661,17 @@ func (cli *PayCLI) grantAccess() {
 		log.Fatal("Merchant not found:", merchantSlug)
 	}
 
-	// Define scopes
-	scopes := []string{
-		"payment:create",
-		"payment:read",
-		"payment:update",
-		"payment:refund",
-		"subscription:manage",
-		"payment_method:manage",
+	// Define scopes - use from JSON if provided, otherwise default
+	scopes := accessData.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{
+			"payment:create",
+			"payment:read",
+			"payment:update",
+			"payment:refund",
+			"subscription:manage",
+			"payment_method:manage",
+		}
 	}
 
 	fmt.Printf("\nGranting scopes: %v\n", scopes)
