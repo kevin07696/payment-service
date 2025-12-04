@@ -85,10 +85,7 @@ func (h *ConnectHandler) GetMerchant(
 
 	merchant, err := h.service.GetMerchant(ctx, msg.MerchantId)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, domain.ErrMerchantNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("merchant not found"))
-		}
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to get merchant"))
+		return nil, handleServiceErrorConnect(err)
 	}
 
 	return connect.NewResponse(merchantToProto(merchant)), nil
@@ -121,7 +118,7 @@ func (h *ConnectHandler) ListMerchants(
 
 	merchants, totalCount, err := h.service.ListMerchants(ctx, environment, isActive, limit, offset)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list merchants"))
+		return nil, handleServiceErrorConnect(err)
 	}
 
 	protoMerchants := make([]*merchantv1.MerchantSummary, len(merchants))
@@ -267,18 +264,37 @@ func (h *ConnectHandler) RotateMAC(
 func handleServiceErrorConnect(err error) error {
 	// Map domain errors to Connect status codes
 	switch {
+	// Merchant errors - new DomainError instances
+	case errors.Is(err, domain.ErrMerchantNotFoundTyped):
+		return connect.NewError(connect.CodeNotFound, errors.New("merchant not found"))
+	case errors.Is(err, domain.ErrMerchantInactiveTyped):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("merchant is inactive"))
+	case errors.Is(err, domain.ErrMerchantAlreadyExists):
+		return connect.NewError(connect.CodeAlreadyExists, errors.New("merchant already exists"))
+	case errors.Is(err, domain.ErrMerchantInvalidEnv):
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid environment"))
+	// Merchant errors - legacy sentinel errors (for backward compatibility)
 	case errors.Is(err, domain.ErrMerchantNotFound):
 		return connect.NewError(connect.CodeNotFound, errors.New("merchant not found"))
 	case errors.Is(err, domain.ErrMerchantInactive):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("merchant is inactive"))
-	case errors.Is(err, domain.ErrMerchantAlreadyExists):
-		return connect.NewError(connect.CodeAlreadyExists, errors.New("merchant already exists"))
 	case errors.Is(err, domain.ErrInvalidEnvironment):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid environment"))
+	// Validation errors
+	case errors.Is(err, domain.ErrValidationInvalidUUID):
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid UUID format"))
+	// Auth errors
+	case errors.Is(err, domain.ErrAuthAccessDenied):
+		return connect.NewError(connect.CodePermissionDenied, errors.New("access denied"))
+	// Idempotency errors
 	case errors.Is(err, domain.ErrDuplicateIdempotencyKey):
 		return connect.NewError(connect.CodeAlreadyExists, errors.New("duplicate idempotency key"))
+	// Database errors
+	case errors.Is(err, domain.ErrDatabaseError):
+		return connect.NewError(connect.CodeInternal, errors.New("database error"))
 	case errors.Is(err, sql.ErrNoRows):
 		return connect.NewError(connect.CodeNotFound, errors.New("resource not found"))
+	// Context errors
 	case err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
 		return connect.NewError(connect.CodeCanceled, errors.New("request canceled"))
 	default:

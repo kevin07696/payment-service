@@ -151,26 +151,26 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 	// Parse and validate payment method ID
 	pmID, err := uuid.Parse(req.PaymentMethodID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID
 	}
 
 	// Verify payment method exists and belongs to customer
 	pm, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
-		return nil, fmt.Errorf("payment method not found: %w", err)
+		return nil, domain.ErrPMNotFound
 	}
 
 	if pm.MerchantID.String() != resolvedMerchantID || pm.CustomerID != req.CustomerID {
-		return nil, fmt.Errorf("payment method does not belong to customer")
+		return nil, domain.ErrPMNotBelongToCustomer
 	}
 
 	if pm.Status != string(domain.PaymentMethodStatusActive) {
-		return nil, fmt.Errorf("payment method is not active")
+		return nil, domain.ErrPMInactive
 	}
 
 	// Validate amount
 	if req.AmountCents <= 0 {
-		return nil, fmt.Errorf("amount must be greater than zero")
+		return nil, domain.ErrInvalidAmount
 	}
 
 	// Calculate next billing date
@@ -179,7 +179,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 	// Parse merchant ID
 	merchantID, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID
 	}
 
 	// Create subscription in database
@@ -249,19 +249,19 @@ func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports
 	// Parse subscription ID
 	subID, err := uuid.Parse(req.SubscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID
 	}
 
 	// Get existing subscription
 	existing, err := s.queries.GetSubscriptionByID(ctx, subID)
 	if err != nil {
-		return nil, fmt.Errorf("subscription not found: %w", err)
+		return nil, domain.ErrSubscriptionNotFound
 	}
 
 	// Ensure subscription is active or past_due
 	if existing.Status != string(domain.SubscriptionStatusActive) &&
 		existing.Status != string(domain.SubscriptionStatusPastDue) {
-		return nil, fmt.Errorf("cannot update subscription in %s status", existing.Status)
+		return nil, domain.ErrSubscriptionNotActive
 	}
 
 	var subscription *domain.Subscription
@@ -274,7 +274,7 @@ func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports
 		// Update amount if provided
 		if req.AmountCents != nil {
 			if *req.AmountCents <= 0 {
-				return fmt.Errorf("amount must be greater than zero")
+				return domain.ErrInvalidAmount
 			}
 			params.AmountCents = *req.AmountCents
 		} else {
@@ -298,21 +298,21 @@ func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports
 		if req.PaymentMethodID != nil {
 			pmID, err := uuid.Parse(*req.PaymentMethodID)
 			if err != nil {
-				return fmt.Errorf("invalid payment_method_id format: %w", err)
+				return domain.ErrValidationInvalidUUID
 			}
 
 			// Verify payment method exists and belongs to customer
 			pm, err := q.GetPaymentMethodByID(ctx, pmID)
 			if err != nil {
-				return fmt.Errorf("payment method not found: %w", err)
+				return domain.ErrPMNotFound
 			}
 
 			if pm.MerchantID.String() != existing.MerchantID.String() || pm.CustomerID != existing.CustomerID {
-				return fmt.Errorf("payment method does not belong to customer")
+				return domain.ErrPMNotBelongToCustomer
 			}
 
 			if pm.Status != string(domain.PaymentMethodStatusActive) {
-				return fmt.Errorf("payment method is not active")
+				return domain.ErrPMInactive
 			}
 
 			params.PaymentMethodID = pmID
@@ -322,7 +322,7 @@ func (s *subscriptionService) UpdateSubscription(ctx context.Context, req *ports
 
 		dbSub, err := q.UpdateSubscription(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to update subscription: %w", err)
+			return domain.ErrDatabaseError
 		}
 
 		subscription = sqlcSubscriptionToDomain(&dbSub)
@@ -358,7 +358,7 @@ func (s *subscriptionService) CancelSubscription(ctx context.Context, req *ports
 	// Parse subscription ID
 	subID, err := uuid.Parse(req.SubscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID
 	}
 
 	var subscription *domain.Subscription
@@ -366,7 +366,7 @@ func (s *subscriptionService) CancelSubscription(ctx context.Context, req *ports
 		// Get existing subscription
 		existing, err := q.GetSubscriptionByID(ctx, subID)
 		if err != nil {
-			return fmt.Errorf("subscription not found: %w", err)
+			return domain.ErrSubscriptionNotFound
 		}
 
 		// Check if already cancelled
@@ -396,7 +396,7 @@ func (s *subscriptionService) CancelSubscription(ctx context.Context, req *ports
 
 		dbSub, err := q.CancelSubscription(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to cancel subscription: %w", err)
+			return domain.ErrDatabaseError
 		}
 
 		subscription = sqlcSubscriptionToDomain(&dbSub)
@@ -424,7 +424,7 @@ func (s *subscriptionService) PauseSubscription(ctx context.Context, subscriptio
 	// Parse subscription ID
 	subID, err := uuid.Parse(subscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID
 	}
 
 	var subscription *domain.Subscription
@@ -432,12 +432,12 @@ func (s *subscriptionService) PauseSubscription(ctx context.Context, subscriptio
 		// Get existing subscription
 		existing, err := q.GetSubscriptionByID(ctx, subID)
 		if err != nil {
-			return fmt.Errorf("subscription not found: %w", err)
+			return domain.ErrSubscriptionNotFound
 		}
 
 		// Can only pause active subscriptions
 		if existing.Status != string(domain.SubscriptionStatusActive) {
-			return fmt.Errorf("cannot pause subscription in %s status", existing.Status)
+			return domain.ErrSubscriptionNotActive
 		}
 
 		params := sqlc.UpdateSubscriptionStatusParams{
@@ -447,7 +447,7 @@ func (s *subscriptionService) PauseSubscription(ctx context.Context, subscriptio
 
 		dbSub, err := q.UpdateSubscriptionStatus(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to pause subscription: %w", err)
+			return domain.ErrDatabaseError
 		}
 
 		subscription = sqlcSubscriptionToDomain(&dbSub)
@@ -474,7 +474,7 @@ func (s *subscriptionService) ResumeSubscription(ctx context.Context, subscripti
 	// Parse subscription ID
 	subID, err := uuid.Parse(subscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID
 	}
 
 	var subscription *domain.Subscription
@@ -482,12 +482,12 @@ func (s *subscriptionService) ResumeSubscription(ctx context.Context, subscripti
 		// Get existing subscription
 		existing, err := q.GetSubscriptionByID(ctx, subID)
 		if err != nil {
-			return fmt.Errorf("subscription not found: %w", err)
+			return domain.ErrSubscriptionNotFound
 		}
 
 		// Can only resume paused subscriptions
 		if existing.Status != string(domain.SubscriptionStatusPaused) {
-			return fmt.Errorf("cannot resume subscription in %s status", existing.Status)
+			return domain.ErrSubscriptionNotActive
 		}
 
 		params := sqlc.UpdateSubscriptionStatusParams{
@@ -497,7 +497,7 @@ func (s *subscriptionService) ResumeSubscription(ctx context.Context, subscripti
 
 		dbSub, err := q.UpdateSubscriptionStatus(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to resume subscription: %w", err)
+			return domain.ErrDatabaseError
 		}
 
 		subscription = sqlcSubscriptionToDomain(&dbSub)
@@ -519,7 +519,7 @@ func (s *subscriptionService) ResumeSubscription(ctx context.Context, subscripti
 func (s *subscriptionService) GetSubscription(ctx context.Context, subscriptionID string) (*domain.Subscription, error) {
 	subID, err := uuid.Parse(subscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid subscription_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID
 	}
 
 	dbSub, err := s.queries.GetSubscriptionByID(ctx, subID)
@@ -528,7 +528,7 @@ func (s *subscriptionService) GetSubscription(ctx context.Context, subscriptionI
 			zap.String("subscription_id", subscriptionID),
 			zap.Error(err),
 		)
-		return nil, fmt.Errorf("subscription not found: %w", err)
+		return nil, domain.ErrSubscriptionNotFound
 	}
 
 	return sqlcSubscriptionToDomain(&dbSub), nil
@@ -545,7 +545,7 @@ func (s *subscriptionService) ListSubscriptions(ctx context.Context, merchantID,
 	// Parse merchant ID
 	merchantUUID, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID
 	}
 
 	params := sqlc.ListSubscriptionsByCustomerParams{
@@ -555,7 +555,7 @@ func (s *subscriptionService) ListSubscriptions(ctx context.Context, merchantID,
 
 	dbSubs, err := s.queries.ListSubscriptionsByCustomer(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list subscriptions: %w", err)
+		return nil, domain.ErrDatabaseError
 	}
 
 	subscriptions := make([]*domain.Subscription, len(dbSubs))

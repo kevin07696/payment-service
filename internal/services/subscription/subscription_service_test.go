@@ -3,6 +3,7 @@ package subscription
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -226,7 +227,7 @@ func TestCreateSubscription_InvalidPaymentMethodID(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "invalid payment_method_id format")
+	assert.True(t, errors.Is(err, domain.ErrValidationInvalidUUID), "expected ErrValidationInvalidUUID, got: %v", err)
 }
 
 // TestCreateSubscription_PaymentMethodNotFound tests not found error
@@ -292,7 +293,7 @@ func TestCreateSubscription_PaymentMethodBelongsToWrongCustomer(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "does not belong to customer")
+	assert.True(t, errors.Is(err, domain.ErrPMNotBelongToCustomer), "expected ErrPMNotBelongToCustomer, got: %v", err)
 
 	mockQuerier.AssertExpectations(t)
 }
@@ -319,10 +320,10 @@ func TestCreateSubscription_InvalidAmount(t *testing.T) {
 	testCases := []struct {
 		name        string
 		amountCents int64
-		errMsg      string
+		expectedErr error
 	}{
-		{"Zero amount", 0, "amount must be greater than zero"},
-		{"Negative amount", -1000, "amount must be greater than zero"},
+		{"Zero amount", 0, domain.ErrInvalidAmount},
+		{"Negative amount", -1000, domain.ErrInvalidAmount},
 	}
 
 	for _, tc := range testCases {
@@ -341,7 +342,7 @@ func TestCreateSubscription_InvalidAmount(t *testing.T) {
 
 			assert.Error(t, err)
 			assert.Nil(t, result)
-			assert.Contains(t, err.Error(), tc.errMsg)
+			assert.True(t, errors.Is(err, tc.expectedErr), "expected %v, got: %v", tc.expectedErr, err)
 		})
 	}
 }
@@ -504,7 +505,7 @@ func TestUpdateSubscription_PaymentMethodBelongsToWrongCustomer(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "does not belong to customer")
+	assert.True(t, errors.Is(err, domain.ErrPMNotBelongToCustomer), "expected ErrPMNotBelongToCustomer, got: %v", err)
 
 	mockQuerier.AssertExpectations(t)
 	mockTxManager.AssertExpectations(t)
@@ -555,7 +556,7 @@ func TestUpdateSubscription_PaymentMethodNotActive(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "not active")
+	assert.True(t, errors.Is(err, domain.ErrPMInactive), "expected ErrPMInactive, got: %v", err)
 
 	mockQuerier.AssertExpectations(t)
 	mockTxManager.AssertExpectations(t)
@@ -629,7 +630,7 @@ func TestUpdateSubscription_InvalidPaymentMethodIDFormat(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "invalid payment_method_id format")
+	assert.True(t, errors.Is(err, domain.ErrValidationInvalidUUID), "expected ErrValidationInvalidUUID, got: %v", err)
 
 	mockQuerier.AssertExpectations(t)
 	mockTxManager.AssertExpectations(t)
@@ -661,7 +662,7 @@ func TestUpdateSubscription_CannotUpdateCancelled(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "cannot update subscription in cancelled status")
+	assert.True(t, errors.Is(err, domain.ErrSubscriptionNotActive), "expected ErrSubscriptionNotActive, got: %v", err)
 
 	mockQuerier.AssertExpectations(t)
 }
@@ -813,7 +814,7 @@ func TestPauseSubscription_CannotPauseCancelled(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "cannot pause subscription in cancelled status")
+	assert.True(t, errors.Is(err, domain.ErrSubscriptionNotActive), "expected ErrSubscriptionNotActive, got: %v", err)
 
 	mockQuerier.AssertExpectations(t)
 	mockTxManager.AssertExpectations(t)
@@ -879,7 +880,7 @@ func TestResumeSubscription_CannotResumeActive(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "cannot resume subscription in active status")
+	assert.True(t, errors.Is(err, domain.ErrSubscriptionNotActive), "expected ErrSubscriptionNotActive, got: %v", err)
 
 	mockQuerier.AssertExpectations(t)
 	mockTxManager.AssertExpectations(t)

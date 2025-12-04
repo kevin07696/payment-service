@@ -37,6 +37,58 @@ Comprehensive update to API documentation with real captured responses:
 
 ### Fixed (2025-12-04)
 
+**Generic Error Masking in API Handlers**
+
+All handlers previously returned generic `500 Internal Server Error` (`connect.CodeInternal`) for all errors, masking the real error cause. This made debugging difficult as errors like "payment method does not belong to customer" were hidden.
+
+**Changes:**
+- **Domain errors** (`internal/domain/errors.go`):
+  - Added `ErrPMNotBelongToCustomer` - payment method customer mismatch
+  - Added `ErrValidationInvalidUUID` - invalid UUID format
+  - Added comprehensive error codes for proper error classification
+
+- **Service layer** (`internal/services/subscription/subscription_service.go`):
+  - Replaced `fmt.Errorf()` calls with domain errors
+  - Now returns `ErrPMNotBelongToCustomer` instead of generic string
+  - Now returns `ErrValidationInvalidUUID` for malformed UUIDs
+  - Now returns `ErrPMInactive` for inactive payment methods
+  - Now returns `ErrSubscriptionNotActive` for cancelled/paused subscriptions
+
+- **Subscription handler** (`internal/handlers/subscription/subscription_handler_connect.go`):
+  - `GetSubscription` now uses `handleServiceErrorConnect` instead of inline error handling
+  - `ListSubscriptions` now uses `handleServiceErrorConnect` instead of returning generic 500
+  - Enhanced `handleServiceErrorConnect` with new domain error mappings
+
+- **Payment method handler** (`internal/handlers/payment_method/payment_method_handler_connect.go`):
+  - `GetPaymentMethod` now uses `handleServiceErrorConnect`
+  - `ListPaymentMethods` now uses `handleServiceErrorConnect`
+  - `DeletePaymentMethod` now uses `handleServiceErrorConnect`
+  - Enhanced `handleServiceErrorConnect` with comprehensive error mappings
+
+- **Merchant handler** (`internal/handlers/merchant/merchant_handler_connect.go`):
+  - `GetMerchant` now uses `handleServiceErrorConnect`
+  - `ListMerchants` now uses `handleServiceErrorConnect`
+  - Enhanced `handleServiceErrorConnect` with new DomainError instances
+
+- **Chargeback handler** (`internal/handlers/chargeback/chargeback_handler_connect.go`):
+  - `ListChargebacks` now uses `handleQueryError` for proper error mapping
+  - Added `handleQueryError` function for database error classification
+
+**Error Code Mapping:**
+| Domain Error | Connect Code | HTTP Status |
+|--------------|--------------|-------------|
+| ErrPMNotBelongToCustomer | PermissionDenied | 403 |
+| ErrValidationInvalidUUID | InvalidArgument | 400 |
+| ErrPMInactive | FailedPrecondition | 412 |
+| ErrSubscriptionNotActive | FailedPrecondition | 412 |
+| ErrDatabaseError | Internal | 500 |
+| context.Canceled | Canceled | 499 |
+
+**Why this matters:**
+- API consumers now receive accurate error codes for debugging
+- Error messages explain what went wrong (e.g., "payment method does not belong to customer")
+- Proper HTTP status codes enable automated error handling on the client side
+
 **paycli grant-access JSON File Bug**
 
 Fixed bug where `grant-access` command ignored the `-json` flag and always entered interactive mode:

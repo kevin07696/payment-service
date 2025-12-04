@@ -231,10 +231,7 @@ func (h *ConnectHandler) GetSubscription(
 
 	sub, err := h.service.GetSubscription(ctx, msg.SubscriptionId)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, domain.ErrSubscriptionNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("subscription not found"))
-		}
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to get subscription"))
+		return nil, handleServiceErrorConnect(err)
 	}
 
 	return connect.NewResponse(subscriptionToProto(sub)), nil
@@ -253,7 +250,7 @@ func (h *ConnectHandler) ListSubscriptions(
 
 	subs, err := h.service.ListSubscriptions(ctx, msg.MerchantId, msg.CustomerId)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list subscriptions"))
+		return nil, handleServiceErrorConnect(err)
 	}
 
 	// Filter by status if provided
@@ -318,14 +315,18 @@ func handleServiceErrorConnect(err error) error {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("subscription is not active"))
 	case errors.Is(err, domain.ErrSubscriptionAlreadyCancelled):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("subscription is already cancelled"))
-	case errors.Is(err, domain.ErrPaymentMethodNotFound):
+	case errors.Is(err, domain.ErrPMNotFound), errors.Is(err, domain.ErrPaymentMethodNotFound):
 		return connect.NewError(connect.CodeNotFound, errors.New("payment method not found"))
-	case errors.Is(err, domain.ErrPaymentMethodExpired):
+	case errors.Is(err, domain.ErrPMExpired), errors.Is(err, domain.ErrPaymentMethodExpired):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is expired"))
-	case errors.Is(err, domain.ErrPaymentMethodNotVerified):
+	case errors.Is(err, domain.ErrPMNotVerified), errors.Is(err, domain.ErrPaymentMethodNotVerified):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("ACH payment method is not verified"))
-	case errors.Is(err, domain.ErrPaymentMethodInactive):
+	case errors.Is(err, domain.ErrPMInactive), errors.Is(err, domain.ErrPaymentMethodInactive):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is inactive"))
+	case errors.Is(err, domain.ErrPMNotBelongToCustomer):
+		return connect.NewError(connect.CodePermissionDenied, errors.New("payment method does not belong to customer"))
+	case errors.Is(err, domain.ErrValidationInvalidUUID):
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid UUID format"))
 	case errors.Is(err, domain.ErrInvalidBillingInterval):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid billing interval"))
 	case errors.Is(err, domain.ErrInvalidAmount):
@@ -333,9 +334,13 @@ func handleServiceErrorConnect(err error) error {
 	case errors.Is(err, domain.ErrInvalidCurrency):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid currency"))
 	case errors.Is(err, domain.ErrMerchantInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("agent is inactive"))
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("merchant is inactive"))
 	case errors.Is(err, domain.ErrDuplicateIdempotencyKey):
 		return connect.NewError(connect.CodeAlreadyExists, errors.New("duplicate idempotency key"))
+	case errors.Is(err, domain.ErrDatabaseError):
+		return connect.NewError(connect.CodeInternal, errors.New("database error"))
+	case errors.Is(err, domain.ErrAuthAccessDenied):
+		return connect.NewError(connect.CodePermissionDenied, errors.New("access denied"))
 	case errors.Is(err, sql.ErrNoRows):
 		return connect.NewError(connect.CodeNotFound, errors.New("resource not found"))
 	case err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):

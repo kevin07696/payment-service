@@ -33,14 +33,15 @@ const (
 	ErrorCodeTxnInvalidAmount    ErrorCode = "TXN_INVALID_AMOUNT"
 
 	// Payment Method Errors (PM_*)
-	ErrorCodePMNotFound        ErrorCode = "PM_NOT_FOUND"
-	ErrorCodePMRequired        ErrorCode = "PM_REQUIRED"
-	ErrorCodePMInvalid         ErrorCode = "PM_INVALID"
-	ErrorCodePMExpired         ErrorCode = "PM_EXPIRED"
-	ErrorCodePMNotVerified     ErrorCode = "PM_NOT_VERIFIED"
-	ErrorCodePMInactive        ErrorCode = "PM_INACTIVE"
-	ErrorCodePMInvalidType     ErrorCode = "PM_INVALID_TYPE"
-	ErrorCodePMInsufficientACH ErrorCode = "PM_INSUFFICIENT_ACH_VERIFICATIONS"
+	ErrorCodePMNotFound            ErrorCode = "PM_NOT_FOUND"
+	ErrorCodePMRequired            ErrorCode = "PM_REQUIRED"
+	ErrorCodePMInvalid             ErrorCode = "PM_INVALID"
+	ErrorCodePMExpired             ErrorCode = "PM_EXPIRED"
+	ErrorCodePMNotVerified         ErrorCode = "PM_NOT_VERIFIED"
+	ErrorCodePMInactive            ErrorCode = "PM_INACTIVE"
+	ErrorCodePMInvalidType         ErrorCode = "PM_INVALID_TYPE"
+	ErrorCodePMInsufficientACH     ErrorCode = "PM_INSUFFICIENT_ACH_VERIFICATIONS"
+	ErrorCodePMNotBelongToCustomer ErrorCode = "PM_NOT_BELONG_TO_CUSTOMER"
 
 	// Customer Errors (CUSTOMER_*)
 	ErrorCodeCustomerNotFound ErrorCode = "CUSTOMER_NOT_FOUND"
@@ -68,6 +69,7 @@ const (
 	ErrorCodeValidationMissingField    ErrorCode = "VALIDATION_MISSING_FIELD"
 	ErrorCodeValidationInvalidAmount   ErrorCode = "VALIDATION_INVALID_AMOUNT"
 	ErrorCodeValidationInvalidCurrency ErrorCode = "VALIDATION_INVALID_CURRENCY"
+	ErrorCodeValidationInvalidUUID     ErrorCode = "VALIDATION_INVALID_UUID"
 
 	// Payment Gateway Errors (GATEWAY_*)
 	ErrorCodeGatewayError       ErrorCode = "GATEWAY_ERROR"
@@ -142,13 +144,14 @@ var (
 	ErrTxnCannotBeRefunded = NewDomainError(ErrorCodeTxnCannotBeRefunded, "transaction cannot be refunded")
 	ErrTxnInvalidAmount    = NewDomainError(ErrorCodeTxnInvalidAmount, "invalid transaction amount")
 
-	ErrPMNotFound    = NewDomainError(ErrorCodePMNotFound, "payment method not found")
-	ErrPMRequired    = NewDomainError(ErrorCodePMRequired, "payment method required")
-	ErrPMInvalid     = NewDomainError(ErrorCodePMInvalid, "invalid payment method")
-	ErrPMExpired     = NewDomainError(ErrorCodePMExpired, "payment method has expired")
-	ErrPMNotVerified = NewDomainError(ErrorCodePMNotVerified, "ACH payment method not verified")
-	ErrPMInactive    = NewDomainError(ErrorCodePMInactive, "payment method is inactive")
-	ErrPMInvalidType = NewDomainError(ErrorCodePMInvalidType, "invalid payment method type")
+	ErrPMNotFound            = NewDomainError(ErrorCodePMNotFound, "payment method not found")
+	ErrPMRequired            = NewDomainError(ErrorCodePMRequired, "payment method required")
+	ErrPMInvalid             = NewDomainError(ErrorCodePMInvalid, "invalid payment method")
+	ErrPMExpired             = NewDomainError(ErrorCodePMExpired, "payment method has expired")
+	ErrPMNotVerified         = NewDomainError(ErrorCodePMNotVerified, "ACH payment method not verified")
+	ErrPMInactive            = NewDomainError(ErrorCodePMInactive, "payment method is inactive")
+	ErrPMInvalidType         = NewDomainError(ErrorCodePMInvalidType, "invalid payment method type")
+	ErrPMNotBelongToCustomer = NewDomainError(ErrorCodePMNotBelongToCustomer, "payment method does not belong to customer")
 
 	ErrSubscriptionNotFound         = NewDomainError(ErrorCodeSubscriptionNotFound, "subscription not found")
 	ErrSubscriptionNotActive        = NewDomainError(ErrorCodeSubscriptionNotActive, "subscription is not active")
@@ -178,6 +181,7 @@ var (
 	ErrValidationFailed        = NewDomainError(ErrorCodeValidationFailed, "validation failed")
 	ErrValidationAmountInvalid = NewDomainError(ErrorCodeValidationAmountInvalid, "invalid amount")
 	ErrValidationMissingField  = NewDomainError(ErrorCodeValidationMissingField, "required field missing")
+	ErrValidationInvalidUUID   = NewDomainError(ErrorCodeValidationInvalidUUID, "invalid UUID format")
 
 	ErrGatewayError    = NewDomainError(ErrorCodeGatewayError, "payment gateway error")
 	ErrGatewayTimedOut = NewDomainError(ErrorCodeGatewayTimeout, "payment gateway timeout")

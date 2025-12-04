@@ -175,7 +175,7 @@ func (h *ConnectHandler) ListChargebacks(
 			zap.String("merchant_id", msg.MerchantId),
 			zap.Error(err),
 		)
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list chargebacks"))
+		return nil, handleQueryError(err)
 	}
 
 	// Get total count
@@ -303,4 +303,14 @@ func mapProtoStatusToDomain(protoStatus chargebackv1.ChargebackStatus) string {
 	default:
 		return "new"
 	}
+}
+
+// handleQueryError maps query errors to Connect error codes
+func handleQueryError(err error) error {
+	// Context errors
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return connect.NewError(connect.CodeCanceled, errors.New("request canceled"))
+	}
+	// Default to internal error for database issues
+	return connect.NewError(connect.CodeInternal, errors.New("database error"))
 }
