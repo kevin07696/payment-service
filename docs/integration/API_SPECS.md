@@ -171,6 +171,13 @@ curl -s -X POST "http://localhost:8081/payment.v1.PaymentService/Authorize" \
 
 </details>
 
+<details>
+<summary>Response Fields</summary>
+
+*Same structure as Sale response (see section 1.1)*
+
+</details>
+
 ---
 
 ### 1.3 Capture
@@ -215,6 +222,24 @@ curl -s -X POST "http://localhost:8081/payment.v1.PaymentService/Capture" \
 
 </details>
 
+<details>
+<summary>Response Fields</summary>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transactionId` | UUID | New capture transaction ID |
+| `parentTransactionId` | UUID | Original authorization ID |
+| `amountCents` | string | Captured amount in cents |
+| `currency` | string | Currency code |
+| `status` | enum | Transaction status |
+| `type` | enum | `TRANSACTION_TYPE_CAPTURE` |
+| `isApproved` | bool | Whether capture succeeded |
+| `message` | string | Gateway response message |
+| `card` | object | Card info (brand) |
+| `createdAt` | timestamp | Capture timestamp |
+
+</details>
+
 ---
 
 ### 1.4 Void
@@ -255,6 +280,22 @@ curl -s -X POST "http://localhost:8081/payment.v1.PaymentService/Void" \
 
 </details>
 
+<details>
+<summary>Response Fields</summary>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transactionId` | UUID | New void transaction ID |
+| `parentTransactionId` | UUID | Voided transaction ID |
+| `amountCents` | string | Voided amount in cents |
+| `currency` | string | Currency code |
+| `status` | enum | `TRANSACTION_STATUS_APPROVED` if successful |
+| `isApproved` | bool | Whether void succeeded |
+| `message` | string | Gateway response message |
+| `createdAt` | timestamp | Void timestamp |
+
+</details>
+
 ---
 
 ### 1.5 Refund
@@ -275,15 +316,17 @@ curl -s -X POST "http://localhost:8081/payment.v1.PaymentService/Refund" \
 **Response:**
 ```json
 {
-  "transactionId": "abc12345-...",
-  "parentTransactionId": "original-tx-id",
-  "amountCents": "2500",
+  "transactionId": "f6115dd9-6f60-47a5-93af-fb609e91f270",
+  "parentTransactionId": "5de23743-0d05-44fd-8eef-e7dd34a14706",
+  "amountCents": "500",
   "currency": "USD",
   "status": "TRANSACTION_STATUS_APPROVED",
   "type": "TRANSACTION_TYPE_REFUND",
   "isApproved": true,
-  "message": "APPROVAL",
-  "createdAt": "2025-12-04T12:00:00.000000Z"
+  "authorizationCode": "056933",
+  "message": "EXACT MATCH",
+  "card": {"brand": "Visa"},
+  "createdAt": "2025-12-04T12:15:42.094820Z"
 }
 ```
 
@@ -297,6 +340,25 @@ curl -s -X POST "http://localhost:8081/payment.v1.PaymentService/Refund" \
 | `amount_cents` | int64 | No | Amount to refund (default: full amount) |
 | `reason` | string | No | Reason for refund |
 | `idempotency_key` | UUID | Yes | Unique key to prevent duplicates |
+
+</details>
+
+<details>
+<summary>Response Fields</summary>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transactionId` | UUID | New refund transaction ID |
+| `parentTransactionId` | UUID | Original transaction being refunded |
+| `amountCents` | string | Refunded amount in cents |
+| `currency` | string | Currency code |
+| `status` | enum | Transaction status |
+| `type` | enum | `TRANSACTION_TYPE_REFUND` |
+| `isApproved` | bool | Whether refund succeeded |
+| `authorizationCode` | string | Gateway authorization code |
+| `message` | string | Gateway response message |
+| `card` | object | Card info (brand) |
+| `createdAt` | timestamp | Refund timestamp |
 
 </details>
 
@@ -337,6 +399,29 @@ curl -s -X POST "http://localhost:8081/payment.v1.PaymentService/GetTransaction"
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `transaction_id` | UUID | Yes | Transaction to retrieve |
+
+</details>
+
+<details>
+<summary>Response Fields</summary>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Transaction identifier |
+| `merchantId` | UUID | Merchant identifier |
+| `customerId` | string | Customer identifier |
+| `amountCents` | string | Transaction amount in cents |
+| `currency` | string | Currency code |
+| `status` | enum | Transaction status |
+| `type` | enum | Transaction type |
+| `paymentMethodType` | enum | Payment method type used |
+| `paymentMethodId` | UUID | Payment method identifier |
+| `parentTransactionId` | UUID | Parent transaction (for capture/void/refund) |
+| `authorizationCode` | string | Gateway authorization code |
+| `message` | string | Gateway response message |
+| `card` | object | Card info (brand, last4) |
+| `createdAt` | timestamp | Creation timestamp |
+| `updatedAt` | timestamp | Last update timestamp |
 
 </details>
 
@@ -388,6 +473,16 @@ curl -s -X POST "http://localhost:8081/payment.v1.PaymentService/ListTransaction
 | `status` | enum | No | Filter by status |
 | `limit` | int32 | No | Max results (default: 100, max: 1000) |
 | `offset` | int32 | No | Pagination offset |
+
+</details>
+
+<details>
+<summary>Response Fields</summary>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transactions` | array | List of transaction objects (see GetTransaction response) |
+| `totalCount` | int32 | Total number of matching transactions |
 
 </details>
 
@@ -510,6 +605,13 @@ curl -s -X POST "http://localhost:8081/payment_method.v1.PaymentMethodService/Ge
 
 </details>
 
+<details>
+<summary>Response Fields</summary>
+
+*Same structure as ListPaymentMethods item (see section 2.1)*
+
+</details>
+
 ---
 
 ### 2.3 Set Default Payment Method
@@ -572,6 +674,130 @@ curl -s -X POST "http://localhost:8081/payment_method.v1.PaymentMethodService/De
 
 ---
 
+### 2.5 Update Payment Method Status
+
+Activate or deactivate a payment method.
+
+```bash
+curl -s -X POST "http://localhost:8081/payment_method.v1.PaymentMethodService/UpdatePaymentMethodStatus" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "merchant_id": "00000000-0000-0000-0000-000000000001",
+    "customer_id": "00000000-0000-0000-0000-000000000010",
+    "payment_method_id": "b921374c-643f-40cd-9aec-c24f92953ab7",
+    "is_active": false
+  }'
+```
+
+**Response:**
+```json
+{
+  "paymentMethodId": "b921374c-643f-40cd-9aec-c24f92953ab7",
+  "merchantId": "00000000-0000-0000-0000-000000000001",
+  "customerId": "00000000-0000-0000-0000-000000000010",
+  "paymentType": "PAYMENT_METHOD_TYPE_CREDIT_CARD",
+  "lastFour": "1111",
+  "cardBrand": "Visa",
+  "isActive": false,
+  "isDefault": false
+}
+```
+
+<details>
+<summary>Request Fields</summary>
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `merchant_id` | UUID | Yes | Merchant identifier |
+| `customer_id` | string | Yes | Customer identifier |
+| `payment_method_id` | UUID | Yes | Payment method to update |
+| `is_active` | bool | Yes | `true` to activate, `false` to deactivate |
+
+</details>
+
+<details>
+<summary>Response Fields</summary>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `paymentMethodId` | UUID | Payment method identifier |
+| `merchantId` | UUID | Merchant identifier |
+| `customerId` | string | Customer identifier |
+| `paymentType` | enum | Payment method type |
+| `lastFour` | string | Last 4 digits |
+| `cardBrand` | string | Card brand (if credit card) |
+| `isActive` | bool | Current active status |
+| `isDefault` | bool | Whether this is the default payment method |
+
+</details>
+
+---
+
+### 2.6 Update Payment Method
+
+Update billing information or nickname for a payment method.
+
+```bash
+curl -s -X POST "http://localhost:8081/payment_method.v1.PaymentMethodService/UpdatePaymentMethod" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{
+    \"merchant_id\": \"00000000-0000-0000-0000-000000000001\",
+    \"customer_id\": \"00000000-0000-0000-0000-000000000010\",
+    \"payment_method_id\": \"b921374c-643f-40cd-9aec-c24f92953ab7\",
+    \"nickname\": \"My Primary Card\",
+    \"billing_name\": \"John Doe\",
+    \"billing_address\": \"123 Main St\",
+    \"billing_city\": \"Austin\",
+    \"billing_state\": \"TX\",
+    \"billing_zip\": \"78701\",
+    \"idempotency_key\": \"$(cat /proc/sys/kernel/random/uuid)\"
+  }"
+```
+
+**Response:**
+```json
+{
+  "paymentMethodId": "b921374c-643f-40cd-9aec-c24f92953ab7",
+  "merchantId": "00000000-0000-0000-0000-000000000001",
+  "customerId": "00000000-0000-0000-0000-000000000010",
+  "paymentType": "PAYMENT_METHOD_TYPE_CREDIT_CARD",
+  "lastFour": "1111",
+  "cardBrand": "Visa",
+  "isActive": true,
+  "isDefault": false
+}
+```
+
+<details>
+<summary>Request Fields</summary>
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `merchant_id` | UUID | Yes | Merchant identifier |
+| `customer_id` | string | Yes | Customer identifier |
+| `payment_method_id` | UUID | Yes | Payment method to update |
+| `nickname` | string | No | Friendly name for the payment method |
+| `billing_name` | string | No | Cardholder/account holder name |
+| `billing_address` | string | No | Billing street address |
+| `billing_city` | string | No | Billing city |
+| `billing_state` | string | No | Billing state (2-letter code) |
+| `billing_zip` | string | No | Billing ZIP code |
+| `is_default` | bool | No | Set as default payment method |
+| `idempotency_key` | UUID | Yes | Unique key to prevent duplicates |
+
+</details>
+
+<details>
+<summary>Response Fields</summary>
+
+*Same structure as UpdatePaymentMethodStatus response (see section 2.5)*
+
+</details>
+
+---
+
 ## 3. Subscription Service
 
 ### 3.1 Create Subscription
@@ -596,7 +822,21 @@ curl -s -X POST "http://localhost:8081/subscription.v1.SubscriptionService/Creat
 
 **Response:**
 ```json
-{"subscriptionId":"sub_xyz...","status":"SUBSCRIPTION_STATUS_ACTIVE","nextBillingDate":"2025-12-05T00:00:00Z"}
+{
+  "subscriptionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "merchantId": "ea164cb1-3995-4f62-b331-f846ecf42f2d",
+  "customerId": "test-customer-001",
+  "amountCents": "2999",
+  "currency": "USD",
+  "intervalValue": 1,
+  "intervalUnit": "INTERVAL_UNIT_MONTH",
+  "status": "SUBSCRIPTION_STATUS_ACTIVE",
+  "paymentMethodId": "your-payment-method-id",
+  "nextBillingDate": "2025-12-05T00:00:00Z",
+  "maxRetries": 3,
+  "createdAt": "2025-12-04T12:00:00Z",
+  "updatedAt": "2025-12-04T12:00:00Z"
+}
 ```
 
 <details>
@@ -615,6 +855,27 @@ curl -s -X POST "http://localhost:8081/subscription.v1.SubscriptionService/Creat
 | `max_retries` | int32 | No | Max retry attempts (default: 3) |
 | `metadata` | map | No | Custom key-value pairs |
 | `idempotency_key` | UUID | Yes | Unique key to prevent duplicates |
+
+</details>
+
+<details>
+<summary>Response Fields</summary>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `subscriptionId` | UUID | Subscription identifier |
+| `merchantId` | UUID | Merchant identifier |
+| `customerId` | string | Customer identifier |
+| `amountCents` | string | Billing amount in cents |
+| `currency` | string | Currency code |
+| `intervalValue` | int32 | Interval count |
+| `intervalUnit` | enum | Interval unit |
+| `status` | enum | Subscription status (see below) |
+| `paymentMethodId` | UUID | Payment method to charge |
+| `nextBillingDate` | timestamp | Next scheduled billing date |
+| `maxRetries` | int32 | Max retry attempts |
+| `createdAt` | timestamp | Creation timestamp |
+| `updatedAt` | timestamp | Last update timestamp |
 
 </details>
 
@@ -650,27 +911,7 @@ curl -s -X POST "http://localhost:8081/subscription.v1.SubscriptionService/Creat
 curl -s -X POST "http://localhost:8081/subscription.v1.SubscriptionService/GetSubscription" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"subscription_id": "YOUR_SUBSCRIPTION_ID"}'
-```
-
-**Response:**
-```json
-{
-  "id": "sub-uuid-here",
-  "merchantId": "ea164cb1-3995-4f62-b331-f846ecf42f2d",
-  "customerId": "test-customer-001",
-  "amountCents": "2999",
-  "currency": "USD",
-  "intervalValue": 1,
-  "intervalUnit": "INTERVAL_UNIT_MONTH",
-  "status": "SUBSCRIPTION_STATUS_ACTIVE",
-  "paymentMethodId": "pm-uuid-here",
-  "nextBillingDate": "2025-01-04T00:00:00Z",
-  "failureRetryCount": 0,
-  "maxRetries": 3,
-  "createdAt": "2025-12-04T12:00:00Z",
-  "updatedAt": "2025-12-04T12:00:00Z"
-}
+  -d '{"subscription_id": "66666666-6666-6666-6666-666666666666"}'
 ```
 
 <details>
@@ -719,30 +960,6 @@ curl -s -X POST "http://localhost:8081/subscription.v1.SubscriptionService/ListS
   }'
 ```
 
-**Response:**
-```json
-{
-  "subscriptions": [
-    {
-      "id": "sub-uuid-here",
-      "merchantId": "ea164cb1-3995-4f62-b331-f846ecf42f2d",
-      "customerId": "test-customer-001",
-      "amountCents": "2999",
-      "currency": "USD",
-      "intervalValue": 1,
-      "intervalUnit": "INTERVAL_UNIT_MONTH",
-      "status": "SUBSCRIPTION_STATUS_ACTIVE",
-      "paymentMethodId": "pm-uuid-here",
-      "nextBillingDate": "2025-01-04T00:00:00Z",
-      "createdAt": "2025-12-04T12:00:00Z"
-    }
-  ],
-  "totalCount": 1
-}
-```
-
-*Note: Returns empty `{"subscriptions": [], "totalCount": 0}` if no subscriptions exist.*
-
 **Filter by status:**
 
 ```bash
@@ -778,29 +995,10 @@ curl -s -X POST "http://localhost:8081/subscription.v1.SubscriptionService/Updat
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d "{
-    \"subscription_id\": \"YOUR_SUBSCRIPTION_ID\",
+    \"subscription_id\": \"66666666-6666-6666-6666-666666666666\",
     \"amount_cents\": 3999,
     \"idempotency_key\": \"$(cat /proc/sys/kernel/random/uuid)\"
   }"
-```
-
-**Response:**
-```json
-{
-  "subscription": {
-    "id": "sub-uuid-here",
-    "merchantId": "ea164cb1-3995-4f62-b331-f846ecf42f2d",
-    "customerId": "test-customer-001",
-    "amountCents": "3999",
-    "currency": "USD",
-    "intervalValue": 1,
-    "intervalUnit": "INTERVAL_UNIT_MONTH",
-    "status": "SUBSCRIPTION_STATUS_ACTIVE",
-    "paymentMethodId": "pm-uuid-here",
-    "nextBillingDate": "2025-01-04T00:00:00Z",
-    "updatedAt": "2025-12-04T12:05:00Z"
-  }
-}
 ```
 
 <details>
@@ -1042,14 +1240,14 @@ curl -s "http://localhost:8081/api/v1/payments/browser-post/form?merchant_id=ea1
 <details>
 <summary>Query Parameters</summary>
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `merchant_id` | UUID | Yes | Merchant UUID |
-| `transaction_type` | string | Yes | SALE, AUTH, STORAGE, ACH_STORAGE_C, ACH_STORAGE_S |
-| `amount` | string | Yes | Amount as decimal string (e.g., "50.00", "0.00" for STORAGE) |
-| `customer_id` | string | Yes | Your customer identifier |
-| `return_url` | string | Yes | Callback URL after EPX processing |
-| `transaction_id` | UUID | Yes | Your unique transaction ID |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `merchant_id` | Yes | Merchant UUID |
+| `transaction_type` | Yes | SALE, AUTH, STORAGE, ACH_STORAGE_C, ACH_STORAGE_S |
+| `amount` | Yes | Amount as decimal string (e.g., "50.00", "0.00" for STORAGE) |
+| `customer_id` | Yes | Customer identifier |
+| `return_url` | Yes | Callback URL after EPX processing |
+| `transaction_id` | Yes | Your unique transaction ID |
 
 </details>
 
