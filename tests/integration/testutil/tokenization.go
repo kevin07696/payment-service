@@ -4,19 +4,13 @@
 package testutil
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // TestCard represents a test credit card
@@ -206,95 +200,6 @@ func TokenizeCard(cfg *Config, card TestCard) (string, error) {
 	return authGuid, nil
 }
 
-// TokenizeACH tokenizes an ACH account using EPX Server Post API with CKC0 (pre-note)
-// Returns the AUTH_GUID (Storage BRIC) that can be used for future ACH transactions
-// Based on EPX ACH Transaction Specs - Server Post API (HTTPS POST method)
-func TokenizeACH(cfg *Config, ach TestACH) (string, error) {
-	// Validate EPX credentials are configured
-	if cfg.EPXMac == "" {
-		return "", fmt.Errorf("EPX_MAC_STAGING environment variable is required for tokenization")
-	}
-
-	// Build form data for Server Post API with CKC0 (ACH Pre-Note Debit)
-	now := time.Now()
-	batchID := now.Format("20060102") // YYYYMMDD
-	tranNbr := fmt.Sprintf("%d", now.Unix())
-	localDate := now.Format("010206") // MMDDYY
-	localTime := now.Format("150405") // HHMMSS
-
-	formData := url.Values{}
-	formData.Set("CUST_NBR", cfg.EPXCustNbr)
-	formData.Set("MERCH_NBR", cfg.EPXMerchNbr)
-	formData.Set("DBA_NBR", cfg.EPXDBANbr)
-	formData.Set("TERMINAL_NBR", cfg.EPXTerminalNbr)
-	formData.Set("TRAN_TYPE", "CKC0") // ACH Checking Pre-Note Debit
-	formData.Set("AMOUNT", "0.00")    // Pre-note is $0.00
-	formData.Set("TRAN_NBR", tranNbr)
-	formData.Set("BATCH_ID", batchID)
-	formData.Set("LOCAL_DATE", localDate)
-	formData.Set("LOCAL_TIME", localTime)
-	formData.Set("ACCOUNT_NBR", ach.AccountNumber)
-	formData.Set("ROUTING_NBR", ach.RoutingNumber)
-	formData.Set("CARD_ENT_METH", "X") // Manually entered
-	formData.Set("INDUSTRY_TYPE", "E") // E-commerce
-	formData.Set("FIRST_NAME", "Test")
-	formData.Set("LAST_NAME", "Customer")
-
-	// Calculate MAC signature (concatenate all values excluding MAC itself)
-	macPayload := ""
-	for key := range formData {
-		if key != "MAC" {
-			macPayload += formData.Get(key)
-		}
-	}
-	formData.Set("MAC", calculateMAC(macPayload, cfg.EPXMac))
-
-	// Send request to EPX Server Post API (sandbox)
-	epxURL := "https://secure.epxuap.com"
-	resp, err := http.PostForm(epxURL, formData)
-	if err != nil {
-		return "", fmt.Errorf("EPX Server Post request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read EPX response: %w", err)
-	}
-
-	// Parse XML response (EPX returns <RESPONSE><FIELDS><FIELD KEY="xxx">value</FIELD></FIELDS></RESPONSE>)
-	var xmlResp struct {
-		Fields []struct {
-			Key   string `xml:"KEY,attr"`
-			Value string `xml:",chardata"`
-		} `xml:"FIELDS>FIELD"`
-	}
-
-	if err := xml.Unmarshal(body, &xmlResp); err != nil {
-		return "", fmt.Errorf("failed to parse XML response: %w\nRaw: %s", err, string(body))
-	}
-
-	// Extract fields from XML
-	fields := make(map[string]string)
-	for _, field := range xmlResp.Fields {
-		fields[field.Key] = field.Value
-	}
-
-	authResp := fields["AUTH_RESP"]
-	authGuid := fields["AUTH_GUID"]
-	authRespText := fields["AUTH_RESP_TEXT"]
-
-	// Check for approval (00 = approved)
-	if authResp != "00" {
-		return "", fmt.Errorf("EPX ACH pre-note failed: %s (code: %s)", authRespText, authResp)
-	}
-
-	if authGuid == "" {
-		return "", fmt.Errorf("EPX did not return AUTH_GUID (Storage BRIC)")
-	}
-
-	return authGuid, nil
-}
 
 // TokenizeAndSaveCardViaBrowserPost uses Browser Post API to tokenize and save a credit card
 // This is the preferred method for merchants using Browser Post API
@@ -338,8 +243,8 @@ func TokenizeAndSaveCardViaBrowserPost(t *testing.T, cfg *Config, client *Client
 	}
 
 	// List payment methods for this customer to find the one we just created
-	// ListPaymentMethods is a ConnectRPC endpoint on port 8080, not HTTP port 8081
-	connectRPCClient := NewClient("http://localhost:8080")
+	// ListPaymentMethods is a ConnectRPC endpoint on port 8081
+	connectRPCClient := NewClient("http://localhost:8081")
 	connectRPCClient.SetHeader("Authorization", "Bearer "+jwtToken)
 	defer connectRPCClient.ClearHeaders()
 
@@ -384,81 +289,8 @@ func parseMonth(month string) int {
 	return m
 }
 
-// TokenizeAndSaveACH tokenizes and stores an ACH account using StoreACHAccount ConnectRPC
-// Returns the payment method ID
-// jwtToken is required for authentication
-func TokenizeAndSaveACH(cfg *Config, client *Client, jwtToken, merchantID, customerID string, achAccount TestACH) (string, error) {
-	// Validate JWT token is provided
-	if jwtToken == "" {
-		return "", fmt.Errorf("jwtToken is required for TokenizeAndSaveACH")
-	}
-
-	// StoreACHAccount is on ConnectRPC port 8080
-	connectRPCClient := NewClient("http://localhost:8080")
-	connectRPCClient.SetHeader("Authorization", "Bearer "+jwtToken)
-	defer connectRPCClient.ClearHeaders()
-
-	// Determine account type enum value
-	var accountTypeValue int32
-	if achAccount.AccountType == "checking" {
-		accountTypeValue = 1 // ACCOUNT_TYPE_CHECKING
-	} else {
-		accountTypeValue = 2 // ACCOUNT_TYPE_SAVINGS
-	}
-
-	// Call StoreACHAccount RPC
-	requestBody := map[string]interface{}{
-		"merchant_id":         merchantID,
-		"customer_id":         customerID,
-		"account_number":      achAccount.AccountNumber,
-		"routing_number":      achAccount.RoutingNumber,
-		"account_holder_name": "Test Customer",
-		"account_type":        accountTypeValue,
-		"std_entry_class":     3, // WEB (internet-initiated)
-		"first_name":          "Test",
-		"last_name":           "Customer",
-		"address":             "123 Test St",
-		"city":                "Test City",
-		"state":               "CA",
-		"zip_code":            "12345",
-		"is_default":          false,
-		"idempotency_key":     uuid.New().String(),
-	}
-
-	resp, err := connectRPCClient.DoConnectRPC("payment_method.v1.PaymentMethodService", "StoreACHAccount", requestBody)
-	if err != nil {
-		return "", fmt.Errorf("StoreACHAccount RPC failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("StoreACHAccount failed: status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result map[string]interface{}
-	if err := DecodeResponse(resp, &result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	// ConnectRPC returns camelCase field names (paymentMethodId not payment_method_id)
-	paymentMethodID, ok := result["paymentMethodId"].(string)
-	if !ok || paymentMethodID == "" {
-		return "", fmt.Errorf("paymentMethodId not found in response")
-	}
-
-	return paymentMethodID, nil
-}
-
 func parseYear(year string) int {
 	var y int
 	fmt.Sscanf(year, "%d", &y)
 	return y
-}
-
-// calculateMAC calculates HMAC-SHA256 MAC for EPX Server Post requests
-func calculateMAC(payload, macKey string) string {
-	h := hmac.New(sha256.New, []byte(macKey))
-	h.Write([]byte(payload))
-	return hex.EncodeToString(h.Sum(nil))
 }

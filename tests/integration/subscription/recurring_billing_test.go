@@ -40,7 +40,7 @@ func TestRecurringBilling(t *testing.T) {
 
 	cfg, _ := testutil.Setup(t)
 	// ConnectRPC client on port 8080 for subscription RPCs
-	client := testutil.NewClient("http://localhost:8080")
+	client := testutil.NewClient("http://localhost:8081")
 	customerID := "00000000-0000-0000-0000-000000000004" // Valid UUID for test customer
 	merchantID := "00000000-0000-0000-0000-000000000001"
 	time.Sleep(2 * time.Second)
@@ -148,7 +148,7 @@ func TestSubscription_FailedRecurringBilling(t *testing.T) {
 
 	cfg, _ := testutil.Setup(t)
 	// ConnectRPC client on port 8080 for subscription RPCs
-	client := testutil.NewClient("http://localhost:8080")
+	client := testutil.NewClient("http://localhost:8081")
 	customerID := "00000000-0000-0000-0000-000000000008" // Valid UUID for test customer
 	merchantID := "00000000-0000-0000-0000-000000000001"
 	time.Sleep(2 * time.Second)

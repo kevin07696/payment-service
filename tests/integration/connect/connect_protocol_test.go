@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	connectAddress = "http://localhost:8080"
+	connectAddress = "http://localhost:8081"
 )
 
 // setupConnectClient creates a Connect protocol client

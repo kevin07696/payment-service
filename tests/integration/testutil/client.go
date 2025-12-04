@@ -140,6 +140,42 @@ func (c *Client) DoConnectRPC(serviceName, method string, body interface{}) (*ht
 	return resp, nil
 }
 
+// DoCronRequest makes a request to a cron endpoint with cron secret authentication
+// path: e.g., "/cron/process-billing"
+// body: request body as map or struct
+// cronSecret: the cron secret for authentication
+func (c *Client) DoCronRequest(path string, body interface{}, cronSecret string) (*http.Response, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request body: %w", err)
+		}
+		bodyReader = bytes.NewReader(jsonBody)
+	}
+
+	req, err := http.NewRequest("POST", c.BaseURL+path, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	// Cron endpoint authentication
+	req.Header.Set("X-Cron-Secret", cronSecret)
+
+	// Apply any custom headers
+	c.applyHeaders(req)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+
+	return resp, nil
+}
+
 // DecodeResponse decodes JSON response body, handling gzip compression automatically
 // Detects gzip compression even if Content-Encoding header is not set
 func DecodeResponse(resp *http.Response, v interface{}) error {

@@ -20,7 +20,7 @@ import (
 // TestPayment_ListTransactions tests the ListTransactions endpoint
 func TestPayment_ListTransactions(t *testing.T) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	client := paymentv1connect.NewPaymentServiceClient(httpClient, "http://localhost:8080")
+	client := paymentv1connect.NewPaymentServiceClient(httpClient, "http://localhost:8081")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	connectAddress = "http://localhost:8080"
+	connectAddress = "http://localhost:8081"
 )
 
 // setupChargebackTest initializes test environment and returns Connect client

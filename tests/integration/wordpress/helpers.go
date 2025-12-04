@@ -14,7 +14,7 @@ import (
 
 const (
 	wordpressURL  = "http://localhost:8082"
-	paymentAPIURL = "http://localhost:8080"
+	paymentAPIURL = "http://localhost:8081"
 	merchantID    = "00000000-0000-0000-0000-000000000001"
 	serviceID     = "test-service-001"
 	adminUser     = "admin"
