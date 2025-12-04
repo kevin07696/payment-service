@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-12-04)
+
+**MAC Secret Path Configuration**
+
+Fixed the MAC secret path for the dev merchant to enable Browser POST form generation:
+- Updated `mac_secret_path` from `/secrets/test-merchant` to `merchants/test-merchant-dev/mac`
+- Created `secrets/merchants/test-merchant-dev/mac` with EPX sandbox MAC value
+- The mock secret manager joins `./secrets` + path, so paths must be relative without leading slash
+
+**Browser Post MAC Signature Validation**
+
+Fixed MAC signature validation for EPX Browser Post callbacks. The previous implementation incorrectly checked for an `X-EPX-Signature` HTTP header, but EPX actually includes the MAC as a form parameter in the redirect URL.
+
+**Changes:**
+- Added `ValidateResponseMAC(params, macSecret)` method to `BrowserPostAdapter` interface (`internal/ports/browser_post_adapter.go:39-43`)
+- Implemented HMAC-SHA256 validation in adapter (`internal/adapters/epx/browser_post_adapter.go:136-188`)
+  - Validates MAC field against signed fields: `CUST_NBR + MERCH_NBR + AUTH_GUID + AUTH_RESP + AMOUNT + TRAN_NBR + TRAN_GROUP`
+  - Uses constant-time comparison to prevent timing attacks
+- Added `validateMACSignature()` in `BrowserPostService.ProcessCallback` (`internal/services/browser_post/browser_post_service.go:328-368`)
+  - Fetches merchant-specific MAC secret from secret manager
+  - Validates MAC before processing callback
+- Removed unused header-based EPXCallbackAuth middleware from browser post routes (`cmd/server/main.go:241-250`)
+
+**Why this matters:**
+- Browser Post redirects come from the user's browser (via EPX 302 redirect), not from EPX servers
+- Browsers cannot include custom HTTP headers in redirects
+- Each merchant has their own MAC secret, requiring per-merchant validation in the service layer
+
+### Added (2025-12-04)
+
+**Test Data Seeding for API Documentation**
+
+Added automatic seeding of test data for API documentation and testing:
+
+- **New seed functions** in `internal/db/seed/seed.go`:
+  - `SeedTestData()` - Main entry point for test data seeding
+  - `seedTestService()` - Creates `test-pos-system` service with RSA keypair
+  - `seedServiceAccess()` - Grants service access to sandbox merchant
+  - `seedTestSubscriptions()` - Creates active/paused/cancelled subscriptions
+
+- **Deterministic test data** (seeded on startup):
+  | Entity | ID | Description |
+  |--------|-----|-------------|
+  | Service | `test-pos-system` | Auto-created with credentials file |
+  | Active Subscription | `66666666-6666-6666-6666-666666666666` | For testing |
+  | Paused Subscription | `77777777-7777-7777-7777-777777777777` | For testing |
+  | Cancelled Subscription | `88888888-8888-8888-8888-888888888888` | For testing |
+  | Customer | `test-customer-001` | Default test customer |
+
+- **Helper script** `scripts/seed_test_payment_methods.sh`:
+  - Generates JWT token
+  - Shows Browser POST form URL for creating payment methods
+  - Provides copy-paste ready API test commands
+
+**API_SPECS.md Rewritten to Copy-Paste Format**
+
+Completely rewrote `docs/integration/API_SPECS.md` to match certification_sheets.md pattern:
+- Quick Start section with setup commands
+- Test Data Reference table at top
+- All curl examples use environment variables
+- Expected response examples for each endpoint
+- Collapsible field reference tables
+- Reduced from 1437 lines to ~920 focused lines
+
+**API_SPECS.md Fixes (2025-12-04)**
+
+Fixed copy-paste curl commands to work out of the box:
+- Updated merchant ID from placeholder to actual dev merchant (`ea164cb1-3995-4f62-b331-f846ecf42f2d`)
+- Fixed Browser POST parameter: `amount_cents` → `amount` (decimal string format)
+- Removed unnecessary `currency` parameter from Browser POST endpoints
+- All ConnectRPC endpoints verified working: ListPaymentMethods, ListSubscriptions, ListChargebacks, ListTransactions
+
+### Removed (2025-12-04)
+
+**Deleted Outdated Test File**
+
+- `tests/auth_test.go` - Referenced removed auth functions (`auth.GenerateRSAKeyPair`, `auth.NewJWTManager`, etc.)
+
+---
+
 ### Added (2025-12-04)
 
 **Service Update CLI Command**
