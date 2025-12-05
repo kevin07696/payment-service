@@ -2,13 +2,13 @@ package payment_method
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 
 	"connectrpc.com/connect"
 	"go.uber.org/zap"
 
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/handlers"
 	"github.com/kevin07696/payment-service/internal/ports"
 	paymentmethodv1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
 )
@@ -40,7 +40,7 @@ func (h *ConnectHandler) GetPaymentMethod(
 
 	pm, err := h.service.GetPaymentMethod(ctx, msg.PaymentMethodId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(paymentMethodToProto(pm)), nil
@@ -62,7 +62,7 @@ func (h *ConnectHandler) ListPaymentMethods(
 
 	pms, err := h.service.ListPaymentMethods(ctx, msg.MerchantId, msg.CustomerId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	// Filter by payment type if provided
@@ -153,7 +153,7 @@ func (h *ConnectHandler) UpdatePaymentMethodStatus(
 
 	pm, err := h.service.UpdatePaymentMethodStatus(ctx, msg.PaymentMethodId, msg.MerchantId, msg.CustomerId, msg.IsActive)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(paymentMethodToResponse(pm)), nil
@@ -176,7 +176,7 @@ func (h *ConnectHandler) DeletePaymentMethod(
 
 	err := h.service.DeletePaymentMethod(ctx, msg.PaymentMethodId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	response := &paymentmethodv1.DeletePaymentMethodResponse{
@@ -211,7 +211,7 @@ func (h *ConnectHandler) SetDefaultPaymentMethod(
 
 	pm, err := h.service.SetDefaultPaymentMethod(ctx, msg.PaymentMethodId, msg.MerchantId, msg.CustomerId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(paymentMethodToResponse(pm)), nil
@@ -240,56 +240,3 @@ func (h *ConnectHandler) UpdatePaymentMethod(
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("UpdatePaymentMethod requires billing fields schema migration"))
 }
 
-// handleServiceErrorConnect maps domain errors to Connect error codes
-func handleServiceErrorConnect(err error) error {
-	// Map domain errors to Connect status codes
-	switch {
-	// Payment method errors - new DomainError instances
-	case errors.Is(err, domain.ErrPMNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("payment method not found"))
-	case errors.Is(err, domain.ErrPMExpired):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is expired"))
-	case errors.Is(err, domain.ErrPMNotVerified):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("ACH payment method is not verified"))
-	case errors.Is(err, domain.ErrPMInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is inactive"))
-	case errors.Is(err, domain.ErrPMInvalidType):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid payment method type"))
-	case errors.Is(err, domain.ErrPMNotBelongToCustomer):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("payment method does not belong to customer"))
-	// Payment method errors - legacy sentinel errors (for backward compatibility)
-	case errors.Is(err, domain.ErrPaymentMethodNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("payment method not found"))
-	case errors.Is(err, domain.ErrPaymentMethodExpired):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is expired"))
-	case errors.Is(err, domain.ErrPaymentMethodNotVerified):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("ACH payment method is not verified"))
-	case errors.Is(err, domain.ErrPaymentMethodInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is inactive"))
-	case errors.Is(err, domain.ErrInvalidPaymentMethodType):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid payment method type"))
-	// Merchant errors
-	case errors.Is(err, domain.ErrMerchantInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("merchant is inactive"))
-	// Validation errors
-	case errors.Is(err, domain.ErrValidationInvalidUUID):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid UUID format"))
-	// Auth errors
-	case errors.Is(err, domain.ErrAuthAccessDenied):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("access denied"))
-	// Idempotency errors
-	case errors.Is(err, domain.ErrDuplicateIdempotencyKey):
-		return connect.NewError(connect.CodeAlreadyExists, errors.New("duplicate idempotency key"))
-	// Database errors
-	case errors.Is(err, domain.ErrDatabaseError):
-		return connect.NewError(connect.CodeInternal, errors.New("database error"))
-	case errors.Is(err, sql.ErrNoRows):
-		return connect.NewError(connect.CodeNotFound, errors.New("resource not found"))
-	// Context errors
-	case err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
-		return connect.NewError(connect.CodeCanceled, errors.New("request canceled"))
-	default:
-		// Log internal errors but don't expose details to client
-		return connect.NewError(connect.CodeInternal, errors.New("internal server error"))
-	}
-}

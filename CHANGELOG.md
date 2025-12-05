@@ -62,6 +62,85 @@ Full observability implementation for debugging and tracing production issues:
 }
 ```
 
+**EPX Gateway Tracing Spans**
+
+Added tracing spans to all EPX gateway adapter calls for end-to-end visibility:
+
+- **Server POST Adapter** (`internal/adapters/epx/server_post_adapter.go`):
+  - `epx.server_post.process_transaction` - HTTPS POST transactions
+  - `epx.server_post.process_transaction_socket` - XML Socket transactions
+  - `epx.server_post.validate_token` - Token validation
+  - Records: gateway.name, gateway.endpoint, gateway.method, epx.transaction_type, epx.auth_guid, epx.is_approved
+
+- **Key Exchange Adapter** (`internal/adapters/epx/key_exchange_adapter.go`):
+  - `epx.key_exchange.get_tac` - TAC acquisition
+  - Records: gateway.duration_ms, http.status_code, epx.tac
+
+- **Business Reporting Adapter** (`internal/adapters/epx/business_reporting_adapter.go`):
+  - `epx.business_reporting.get_transaction` - Single transaction lookup
+  - `epx.business_reporting.query_transactions` - Transaction queries
+  - Records: epx.transaction_status, epx.is_ach_return, epx.result_count
+
+**Database Query Tracing**
+
+Added database span helpers and instrumented key service queries:
+
+- **Observability Package** (`pkg/observability/tracing_interceptor.go`):
+  - `StartDBSpan(ctx, operation, table)` - Start database operation span
+  - `EndDBSpan(span, err)` - Record database operation result
+  - `AddDBResultAttributes(span, rowsAffected)` - Add result count to span
+
+- **Subscription Service** (`internal/services/subscription/subscription_service.go`):
+  - GetSubscriptionByID, ListSubscriptionsByCustomer traced
+
+- **Payment Method Service** (`internal/services/payment_method/payment_method_service.go`):
+  - ListPaymentMethodsByCustomer traced
+
+**Prometheus Metrics Server**
+
+Enabled Prometheus metrics endpoint for monitoring:
+
+- **Main Server** (`cmd/server/main.go`):
+  - Starts metrics server on port 9090 (configurable via `METRICS_PORT`)
+  - Health check endpoint includes database connectivity status
+  - Enabled by default (set `METRICS_ENABLED=false` to disable)
+
+- **Environment Variables:**
+  | Variable | Default | Description |
+  |----------|---------|-------------|
+  | `METRICS_ENABLED` | `true` | Enable/disable Prometheus metrics |
+  | `METRICS_PORT` | `9090` | Port for metrics server |
+
+**Observability Stack Docker Compose**
+
+Added docker-compose for local observability testing:
+
+- **Jaeger** (`docker-compose.observability.yaml`):
+  - Jaeger All-in-One for distributed tracing UI
+  - OTLP HTTP (4318) and gRPC (4317) receivers
+  - UI available at http://localhost:16686
+
+- **Prometheus** (`docker-compose.observability.yaml`):
+  - Metrics collection from payment service
+  - UI available at http://localhost:9091
+  - Config: `configs/prometheus.yml`
+
+**Usage:**
+```bash
+# Start observability stack
+docker-compose -f docker-compose.observability.yaml up -d
+
+# Configure payment service
+export TRACING_ENABLED=true
+export OTLP_ENDPOINT=localhost:4318
+export TRACING_SAMPLE_RATE=1.0
+export METRICS_ENABLED=true
+
+# Access UIs
+open http://localhost:16686  # Jaeger
+open http://localhost:9091   # Prometheus
+```
+
 ### Changed (2025-12-04)
 
 **API_SPECS.md Documentation - Real Response Examples**

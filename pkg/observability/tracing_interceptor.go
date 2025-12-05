@@ -85,6 +85,57 @@ func StartSpan(ctx context.Context, spanName string, opts ...trace.SpanStartOpti
 	return tracer.Start(ctx, spanName, opts...)
 }
 
+// StartDBSpan starts a span for database operations with standard attributes
+// Usage:
+//
+//	ctx, span := observability.StartDBSpan(ctx, "GetPaymentMethod", "payment_methods")
+//	defer span.End()
+//	result, err := queries.GetPaymentMethod(ctx, id)
+//	observability.EndDBSpan(span, err)
+func StartDBSpan(ctx context.Context, operation string, table string) (context.Context, trace.Span) {
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "db."+operation,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "postgresql"),
+			attribute.String("db.operation", operation),
+			attribute.String("db.sql.table", table),
+		),
+	)
+	return ctx, span
+}
+
+// EndDBSpan records the result of a database operation on the span
+func EndDBSpan(span trace.Span, err error) {
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "database operation failed")
+	} else {
+		span.SetStatus(codes.Ok, "success")
+	}
+}
+
+// StartDBSpanWithQuery starts a span for database operations including the SQL query
+// SECURITY: Only use this for debugging - queries may contain sensitive data
+func StartDBSpanWithQuery(ctx context.Context, operation string, table string, query string) (context.Context, trace.Span) {
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "db."+operation,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "postgresql"),
+			attribute.String("db.operation", operation),
+			attribute.String("db.sql.table", table),
+			attribute.String("db.statement", query),
+		),
+	)
+	return ctx, span
+}
+
+// AddDBResultAttributes adds result-specific attributes to a database span
+func AddDBResultAttributes(span trace.Span, rowsAffected int64) {
+	span.SetAttributes(attribute.Int64("db.rows_affected", rowsAffected))
+}
+
 // P2-7: ConnectRPC Tracing Interceptors
 // These interceptors automatically trace all RPC calls, extract/inject distributed context,
 // and record errors for comprehensive request flow visibility

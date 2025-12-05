@@ -14,6 +14,7 @@ Complete guide to setting up and running the payment service locally and in prod
 - [Environment Configuration](#environment-configuration)
 - [Running Integration Tests](#running-integration-tests)
 - [Troubleshooting](#troubleshooting)
+- [Observability Setup](#observability-setup)
 
 ## Prerequisites
 
@@ -687,6 +688,71 @@ goose -dir internal/db/migrations postgres "$DATABASE_URL" up
 docker-compose down -v
 docker-compose up -d
 ```
+
+## Observability Setup
+
+The payment service includes built-in distributed tracing and metrics for debugging and monitoring.
+
+### Quick Start (Jaeger + Prometheus)
+
+```bash
+# Start observability stack (from project root)
+docker-compose -f docker-compose.observability.yaml up -d
+
+# Configure payment service environment
+export TRACING_ENABLED=true
+export OTLP_ENDPOINT=localhost:4318
+export TRACING_SAMPLE_RATE=1.0  # 100% for dev, 0.1 for prod
+export METRICS_ENABLED=true
+export METRICS_PORT=9090
+
+# Access UIs
+open http://localhost:16686  # Jaeger (traces)
+open http://localhost:9091   # Prometheus (metrics)
+```
+
+### What's Traced
+
+- **API Requests**: All ConnectRPC/REST calls with request_id, merchant_id, trace_id
+- **EPX Gateway**: Server POST, Browser POST, Key Exchange, Business Reporting calls
+- **Database**: Query operations with table names and row counts
+- **Errors**: Full error context with correlation IDs
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRACING_ENABLED` | `false` | Enable OpenTelemetry distributed tracing |
+| `OTLP_ENDPOINT` | `localhost:4318` | OTLP HTTP endpoint (Jaeger, Tempo, etc.) |
+| `TRACING_SAMPLE_RATE` | `0.1` | Sample rate 0.0-1.0 (1.0 = 100%) |
+| `METRICS_ENABLED` | `true` | Enable Prometheus metrics server |
+| `METRICS_PORT` | `9090` | Port for metrics/health endpoints |
+
+### Production Observability
+
+For production deployments:
+
+```bash
+# GCP Cloud Trace
+export TRACING_ENABLED=true
+export OTLP_ENDPOINT=cloudtrace.googleapis.com:443
+export TRACING_SAMPLE_RATE=0.1  # 10% sampling
+
+# Or Grafana Tempo
+export OTLP_ENDPOINT=tempo.yourcompany.com:4318
+```
+
+### Viewing Traces
+
+1. Make an API request (e.g., create a subscription)
+2. Open Jaeger UI at http://localhost:16686
+3. Select "payment-service" from the Service dropdown
+4. Click "Find Traces"
+5. Click on a trace to see the full request flow including:
+   - Handler processing time
+   - Database query duration
+   - EPX gateway call timing
+   - Error details if any
 
 ## Next Steps
 

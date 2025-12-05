@@ -2,13 +2,13 @@ package subscription
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 
 	"connectrpc.com/connect"
 	"go.uber.org/zap"
 
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/handlers"
 	"github.com/kevin07696/payment-service/internal/ports"
 	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
 )
@@ -82,7 +82,7 @@ func (h *ConnectHandler) CreateSubscription(
 	// Call service
 	sub, err := h.service.CreateSubscription(ctx, serviceReq)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	// Convert to proto response and wrap in Connect response
@@ -132,7 +132,7 @@ func (h *ConnectHandler) UpdateSubscription(
 
 	sub, err := h.service.UpdateSubscription(ctx, serviceReq)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(subscriptionToResponse(sub)), nil
@@ -166,7 +166,7 @@ func (h *ConnectHandler) CancelSubscription(
 
 	sub, err := h.service.CancelSubscription(ctx, serviceReq)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(subscriptionToResponse(sub)), nil
@@ -189,7 +189,7 @@ func (h *ConnectHandler) PauseSubscription(
 
 	sub, err := h.service.PauseSubscription(ctx, msg.SubscriptionId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(subscriptionToResponse(sub)), nil
@@ -212,7 +212,7 @@ func (h *ConnectHandler) ResumeSubscription(
 
 	sub, err := h.service.ResumeSubscription(ctx, msg.SubscriptionId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(subscriptionToResponse(sub)), nil
@@ -231,7 +231,7 @@ func (h *ConnectHandler) GetSubscription(
 
 	sub, err := h.service.GetSubscription(ctx, msg.SubscriptionId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(subscriptionToProto(sub)), nil
@@ -250,7 +250,7 @@ func (h *ConnectHandler) ListSubscriptions(
 
 	subs, err := h.service.ListSubscriptions(ctx, msg.MerchantId, msg.CustomerId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	// Filter by status if provided
@@ -305,48 +305,3 @@ func (h *ConnectHandler) ListSubscriptions(
 	return connect.NewResponse(response), nil
 }
 
-// handleServiceErrorConnect maps domain errors to Connect error codes
-func handleServiceErrorConnect(err error) error {
-	// Map domain errors to Connect status codes
-	switch {
-	case errors.Is(err, domain.ErrSubscriptionNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("subscription not found"))
-	case errors.Is(err, domain.ErrSubscriptionNotActive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("subscription is not active"))
-	case errors.Is(err, domain.ErrSubscriptionAlreadyCancelled):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("subscription is already cancelled"))
-	case errors.Is(err, domain.ErrPMNotFound), errors.Is(err, domain.ErrPaymentMethodNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("payment method not found"))
-	case errors.Is(err, domain.ErrPMExpired), errors.Is(err, domain.ErrPaymentMethodExpired):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is expired"))
-	case errors.Is(err, domain.ErrPMNotVerified), errors.Is(err, domain.ErrPaymentMethodNotVerified):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("ACH payment method is not verified"))
-	case errors.Is(err, domain.ErrPMInactive), errors.Is(err, domain.ErrPaymentMethodInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is inactive"))
-	case errors.Is(err, domain.ErrPMNotBelongToCustomer):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("payment method does not belong to customer"))
-	case errors.Is(err, domain.ErrValidationInvalidUUID):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid UUID format"))
-	case errors.Is(err, domain.ErrInvalidBillingInterval):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid billing interval"))
-	case errors.Is(err, domain.ErrInvalidAmount):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid amount"))
-	case errors.Is(err, domain.ErrInvalidCurrency):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid currency"))
-	case errors.Is(err, domain.ErrMerchantInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("merchant is inactive"))
-	case errors.Is(err, domain.ErrDuplicateIdempotencyKey):
-		return connect.NewError(connect.CodeAlreadyExists, errors.New("duplicate idempotency key"))
-	case errors.Is(err, domain.ErrDatabaseError):
-		return connect.NewError(connect.CodeInternal, errors.New("database error"))
-	case errors.Is(err, domain.ErrAuthAccessDenied):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("access denied"))
-	case errors.Is(err, sql.ErrNoRows):
-		return connect.NewError(connect.CodeNotFound, errors.New("resource not found"))
-	case err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
-		return connect.NewError(connect.CodeCanceled, errors.New("request canceled"))
-	default:
-		// Log internal errors but don't expose details to client
-		return connect.NewError(connect.CodeInternal, errors.New("internal server error"))
-	}
-}

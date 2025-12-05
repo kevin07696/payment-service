@@ -2,7 +2,6 @@ package merchant
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/handlers"
 	"github.com/kevin07696/payment-service/internal/ports"
 	merchantv1 "github.com/kevin07696/payment-service/proto/merchant/v1"
 )
@@ -65,7 +65,7 @@ func (h *ConnectHandler) RegisterMerchant(
 	// Call service
 	merchant, err := h.service.RegisterMerchant(ctx, serviceReq)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	// Convert to proto response and wrap in Connect response
@@ -85,7 +85,7 @@ func (h *ConnectHandler) GetMerchant(
 
 	merchant, err := h.service.GetMerchant(ctx, msg.MerchantId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(merchantToProto(merchant)), nil
@@ -118,7 +118,7 @@ func (h *ConnectHandler) ListMerchants(
 
 	merchants, totalCount, err := h.service.ListMerchants(ctx, environment, isActive, limit, offset)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	protoMerchants := make([]*merchantv1.MerchantSummary, len(merchants))
@@ -178,7 +178,7 @@ func (h *ConnectHandler) UpdateMerchant(
 
 	merchant, err := h.service.UpdateMerchant(ctx, serviceReq)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(merchantToResponse(merchant)), nil
@@ -203,12 +203,12 @@ func (h *ConnectHandler) DeactivateMerchant(
 	// Get merchant before deactivation to return in response
 	merchant, err := h.service.GetMerchant(ctx, msg.MerchantId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	err = h.service.DeactivateMerchant(ctx, msg.MerchantId, msg.Reason)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	// Mark as inactive in response
@@ -242,13 +242,13 @@ func (h *ConnectHandler) RotateMAC(
 
 	err := h.service.RotateMerchantMAC(ctx, serviceReq)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	// Get updated merchant to return mac_secret_path
 	merchant, err := h.service.GetMerchant(ctx, msg.MerchantId)
 	if err != nil {
-		return nil, handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	response := &merchantv1.RotateMACResponse{
@@ -260,45 +260,3 @@ func (h *ConnectHandler) RotateMAC(
 	return connect.NewResponse(response), nil
 }
 
-// handleServiceErrorConnect maps domain errors to Connect error codes
-func handleServiceErrorConnect(err error) error {
-	// Map domain errors to Connect status codes
-	switch {
-	// Merchant errors - new DomainError instances
-	case errors.Is(err, domain.ErrMerchantNotFoundTyped):
-		return connect.NewError(connect.CodeNotFound, errors.New("merchant not found"))
-	case errors.Is(err, domain.ErrMerchantInactiveTyped):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("merchant is inactive"))
-	case errors.Is(err, domain.ErrMerchantAlreadyExists):
-		return connect.NewError(connect.CodeAlreadyExists, errors.New("merchant already exists"))
-	case errors.Is(err, domain.ErrMerchantInvalidEnv):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid environment"))
-	// Merchant errors - legacy sentinel errors (for backward compatibility)
-	case errors.Is(err, domain.ErrMerchantNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("merchant not found"))
-	case errors.Is(err, domain.ErrMerchantInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("merchant is inactive"))
-	case errors.Is(err, domain.ErrInvalidEnvironment):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid environment"))
-	// Validation errors
-	case errors.Is(err, domain.ErrValidationInvalidUUID):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid UUID format"))
-	// Auth errors
-	case errors.Is(err, domain.ErrAuthAccessDenied):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("access denied"))
-	// Idempotency errors
-	case errors.Is(err, domain.ErrDuplicateIdempotencyKey):
-		return connect.NewError(connect.CodeAlreadyExists, errors.New("duplicate idempotency key"))
-	// Database errors
-	case errors.Is(err, domain.ErrDatabaseError):
-		return connect.NewError(connect.CodeInternal, errors.New("database error"))
-	case errors.Is(err, sql.ErrNoRows):
-		return connect.NewError(connect.CodeNotFound, errors.New("resource not found"))
-	// Context errors
-	case err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
-		return connect.NewError(connect.CodeCanceled, errors.New("request canceled"))
-	default:
-		// Log internal errors but don't expose details to client
-		return connect.NewError(connect.CodeInternal, errors.New("internal server error"))
-	}
-}

@@ -169,7 +169,7 @@ func TestCreateSubscription_Success(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetPaymentMethodByID", ctx, paymentMethodID).
+	mockQuerier.On("GetPaymentMethodByID", mock.Anything, paymentMethodID).
 		Return(dbPaymentMethod, nil)
 
 	// Mock subscription creation inside transaction
@@ -183,11 +183,11 @@ func TestCreateSubscription_Success(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("CreateSubscription", ctx, mock.AnythingOfType("sqlc.CreateSubscriptionParams")).
+	mockQuerier.On("CreateSubscription", mock.Anything, mock.AnythingOfType("sqlc.CreateSubscriptionParams")).
 		Return(expectedSub, nil)
 
 	// Mock transaction execution - returns nil to simulate successful transaction
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	// Execute
@@ -246,7 +246,7 @@ func TestCreateSubscription_PaymentMethodNotFound(t *testing.T) {
 		IntervalUnit:    domain.IntervalUnitMonth,
 	}
 
-	mockQuerier.On("GetPaymentMethodByID", ctx, paymentMethodID).
+	mockQuerier.On("GetPaymentMethodByID", mock.Anything, paymentMethodID).
 		Return(sqlc.CustomerPaymentMethod{}, fmt.Errorf("not found"))
 
 	result, err := service.CreateSubscription(ctx, req)
@@ -286,7 +286,7 @@ func TestCreateSubscription_PaymentMethodBelongsToWrongCustomer(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetPaymentMethodByID", ctx, paymentMethodID).
+	mockQuerier.On("GetPaymentMethodByID", mock.Anything, paymentMethodID).
 		Return(dbPaymentMethod, nil)
 
 	result, err := service.CreateSubscription(ctx, req)
@@ -314,7 +314,7 @@ func TestCreateSubscription_InvalidAmount(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetPaymentMethodByID", ctx, paymentMethodID).
+	mockQuerier.On("GetPaymentMethodByID", mock.Anything, paymentMethodID).
 		Return(dbPaymentMethod, nil)
 
 	testCases := []struct {
@@ -371,18 +371,18 @@ func TestUpdateSubscription_Success(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
 	// Mock update
 	updatedSub := existingSub
 	updatedSub.AmountCents = 14999
 
-	mockQuerier.On("UpdateSubscription", ctx, mock.AnythingOfType("sqlc.UpdateSubscriptionParams")).
+	mockQuerier.On("UpdateSubscription", mock.Anything, mock.AnythingOfType("sqlc.UpdateSubscriptionParams")).
 		Return(updatedSub, nil)
 
 	// Mock transaction
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	result, err := service.UpdateSubscription(ctx, req)
@@ -415,7 +415,7 @@ func TestUpdateSubscription_ChangePaymentMethod(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
 	// New payment method belongs to same customer
@@ -426,19 +426,19 @@ func TestUpdateSubscription_ChangePaymentMethod(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetPaymentMethodByID", ctx, newPaymentMethodID).
+	mockQuerier.On("GetPaymentMethodByID", mock.Anything, newPaymentMethodID).
 		Return(newPM, nil)
 
 	// Updated subscription with new payment method
 	updatedSub := existingSub
 	updatedSub.PaymentMethodID = newPaymentMethodID
 
-	mockQuerier.On("UpdateSubscription", ctx, mock.MatchedBy(func(params sqlc.UpdateSubscriptionParams) bool {
+	mockQuerier.On("UpdateSubscription", mock.Anything, mock.MatchedBy(func(params sqlc.UpdateSubscriptionParams) bool {
 		return params.ID == subscriptionID &&
 			params.PaymentMethodID == newPaymentMethodID
 	})).Return(updatedSub, nil)
 
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	// Execute
@@ -478,7 +478,7 @@ func TestUpdateSubscription_PaymentMethodBelongsToWrongCustomer(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
 	// Payment method belongs to different customer
@@ -489,10 +489,10 @@ func TestUpdateSubscription_PaymentMethodBelongsToWrongCustomer(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetPaymentMethodByID", ctx, newPaymentMethodID).
+	mockQuerier.On("GetPaymentMethodByID", mock.Anything, newPaymentMethodID).
 		Return(wrongPM, nil)
 
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	newPMStr := newPaymentMethodID.String()
@@ -529,7 +529,7 @@ func TestUpdateSubscription_PaymentMethodNotActive(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
 	// Payment method is inactive
@@ -540,10 +540,10 @@ func TestUpdateSubscription_PaymentMethodNotActive(t *testing.T) {
 		Inactive(). // Not active!
 		Build()
 
-	mockQuerier.On("GetPaymentMethodByID", ctx, newPaymentMethodID).
+	mockQuerier.On("GetPaymentMethodByID", mock.Anything, newPaymentMethodID).
 		Return(inactivePM, nil)
 
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	newPMStr := newPaymentMethodID.String()
@@ -576,14 +576,14 @@ func TestUpdateSubscription_PaymentMethodNotFound(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
 	// Payment method not found
-	mockQuerier.On("GetPaymentMethodByID", ctx, newPaymentMethodID).
+	mockQuerier.On("GetPaymentMethodByID", mock.Anything, newPaymentMethodID).
 		Return(sqlc.CustomerPaymentMethod{}, fmt.Errorf("not found"))
 
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	newPMStr := newPaymentMethodID.String()
@@ -614,10 +614,10 @@ func TestUpdateSubscription_InvalidPaymentMethodIDFormat(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	invalidPMID := "not-a-valid-uuid"
@@ -655,7 +655,7 @@ func TestUpdateSubscription_CannotUpdateCancelled(t *testing.T) {
 		Cancelled().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
 	result, err := service.UpdateSubscription(ctx, req)
@@ -684,7 +684,7 @@ func TestCancelSubscription_ImmediateCancel(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
 	cancelledSub := existingSub
@@ -692,14 +692,14 @@ func TestCancelSubscription_ImmediateCancel(t *testing.T) {
 	now := time.Now()
 	cancelledSub.CancelledAt = pgtype.Timestamptz{Time: now, Valid: true}
 
-	mockQuerier.On("CancelSubscription", ctx, mock.MatchedBy(func(params sqlc.CancelSubscriptionParams) bool {
+	mockQuerier.On("CancelSubscription", mock.Anything, mock.MatchedBy(func(params sqlc.CancelSubscriptionParams) bool {
 		return params.ID == subscriptionID &&
 			params.Status == string(domain.SubscriptionStatusCancelled) &&
 			params.CanceledAt.Valid
 	})).Return(cancelledSub, nil)
 
 	// Mock transaction
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	result, err := service.CancelSubscription(ctx, req)
@@ -730,18 +730,18 @@ func TestCancelSubscription_CancelAtPeriodEnd(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
 	// Should remain active when cancel_at_period_end is true
-	mockQuerier.On("CancelSubscription", ctx, mock.MatchedBy(func(params sqlc.CancelSubscriptionParams) bool {
+	mockQuerier.On("CancelSubscription", mock.Anything, mock.MatchedBy(func(params sqlc.CancelSubscriptionParams) bool {
 		return params.ID == subscriptionID &&
 			params.Status == string(domain.SubscriptionStatusActive) &&
 			!params.CanceledAt.Valid
 	})).Return(existingSub, nil)
 
 	// Mock transaction
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	result, err := service.CancelSubscription(ctx, req)
@@ -766,19 +766,19 @@ func TestPauseSubscription_Success(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(existingSub, nil)
 
 	pausedSub := existingSub
 	pausedSub.Status = string(domain.SubscriptionStatusPaused)
 
-	mockQuerier.On("UpdateSubscriptionStatus", ctx, mock.MatchedBy(func(params sqlc.UpdateSubscriptionStatusParams) bool {
+	mockQuerier.On("UpdateSubscriptionStatus", mock.Anything, mock.MatchedBy(func(params sqlc.UpdateSubscriptionStatusParams) bool {
 		return params.ID == subscriptionID &&
 			params.Status == string(domain.SubscriptionStatusPaused)
 	})).Return(pausedSub, nil)
 
 	// Mock transaction
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	result, err := service.PauseSubscription(ctx, subscriptionID.String())
@@ -803,11 +803,11 @@ func TestPauseSubscription_CannotPauseCancelled(t *testing.T) {
 		Cancelled().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(cancelledSub, nil)
 
 	// Mock transaction - the callback will return validation error
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	result, err := service.PauseSubscription(ctx, subscriptionID.String())
@@ -832,19 +832,19 @@ func TestResumeSubscription_Success(t *testing.T) {
 		Paused().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(pausedSub, nil)
 
 	activeSub := pausedSub
 	activeSub.Status = string(domain.SubscriptionStatusActive)
 
-	mockQuerier.On("UpdateSubscriptionStatus", ctx, mock.MatchedBy(func(params sqlc.UpdateSubscriptionStatusParams) bool {
+	mockQuerier.On("UpdateSubscriptionStatus", mock.Anything, mock.MatchedBy(func(params sqlc.UpdateSubscriptionStatusParams) bool {
 		return params.ID == subscriptionID &&
 			params.Status == string(domain.SubscriptionStatusActive)
 	})).Return(activeSub, nil)
 
 	// Mock transaction
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	result, err := service.ResumeSubscription(ctx, subscriptionID.String())
@@ -869,11 +869,11 @@ func TestResumeSubscription_CannotResumeActive(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(activeSub, nil)
 
 	// Mock transaction - the callback will return validation error
-	mockTxManager.On("WithTx", ctx, mock.AnythingOfType("func(sqlc.Querier) error")).
+	mockTxManager.On("WithTx", mock.Anything, mock.AnythingOfType("func(sqlc.Querier) error")).
 		Return(nil)
 
 	result, err := service.ResumeSubscription(ctx, subscriptionID.String())
@@ -898,7 +898,7 @@ func TestGetSubscription_Success(t *testing.T) {
 		Active().
 		Build()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(dbSub, nil)
 
 	result, err := service.GetSubscription(ctx, subscriptionID.String())
@@ -917,7 +917,7 @@ func TestGetSubscription_NotFound(t *testing.T) {
 
 	subscriptionID := uuid.New()
 
-	mockQuerier.On("GetSubscriptionByID", ctx, subscriptionID).
+	mockQuerier.On("GetSubscriptionByID", mock.Anything, subscriptionID).
 		Return(sqlc.Subscription{}, fmt.Errorf("not found"))
 
 	result, err := service.GetSubscription(ctx, subscriptionID.String())
@@ -942,7 +942,7 @@ func TestListSubscriptions_Success(t *testing.T) {
 		fixtures.NewSubscription().WithMerchantID(merchantID).WithCustomerID(customerID).Paused().Build(),
 	}
 
-	mockQuerier.On("ListSubscriptionsByCustomer", ctx, mock.MatchedBy(func(params sqlc.ListSubscriptionsByCustomerParams) bool {
+	mockQuerier.On("ListSubscriptionsByCustomer", mock.Anything, mock.MatchedBy(func(params sqlc.ListSubscriptionsByCustomerParams) bool {
 		return params.MerchantID == merchantID && params.CustomerID == customerID
 	})).Return(dbSubs, nil)
 

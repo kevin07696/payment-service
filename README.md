@@ -285,6 +285,45 @@ curl http://localhost:9090/ready
 curl http://localhost:9090/metrics
 ```
 
+## 📊 Observability
+
+Full distributed tracing and metrics for debugging and monitoring:
+
+### Quick Start (Jaeger + Prometheus)
+
+```bash
+# Start observability stack
+docker-compose -f docker-compose.observability.yaml up -d
+
+# Configure payment service
+export TRACING_ENABLED=true
+export OTLP_ENDPOINT=localhost:4318
+export TRACING_SAMPLE_RATE=1.0  # 100% for dev, 0.1 for prod
+export METRICS_ENABLED=true
+export METRICS_PORT=9090
+
+# Access UIs
+open http://localhost:16686  # Jaeger (traces)
+open http://localhost:9091   # Prometheus (metrics)
+```
+
+### What's Traced
+
+- **API Requests**: All ConnectRPC/REST calls with request_id, merchant_id, trace_id
+- **EPX Gateway**: Server POST, Browser POST, Key Exchange, Business Reporting
+- **Database**: Query operations with table names and row counts
+- **Errors**: Full error context with correlation IDs
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRACING_ENABLED` | `false` | Enable OpenTelemetry tracing |
+| `OTLP_ENDPOINT` | `localhost:4318` | OTLP HTTP endpoint |
+| `TRACING_SAMPLE_RATE` | `0.1` | Sample rate (0.0-1.0) |
+| `METRICS_ENABLED` | `true` | Enable Prometheus metrics |
+| `METRICS_PORT` | `9090` | Metrics server port |
+
 ## 📖 Common Tasks
 
 **I want to...**
@@ -317,6 +356,16 @@ curl http://localhost:9090/metrics
 - **[FAQ](../../wiki/FAQ)** - Common questions answered
 - **[Troubleshooting Guide](../../wiki/Troubleshooting)** - Known issues & solutions
 - **[GitHub Issues](https://github.com/kevin07696/payment-service/issues)** - Report bugs or ask questions
+
+## 💡 Example Projects
+
+Projects that use this payment service:
+
+| Project | Description | Stack |
+|---------|-------------|-------|
+| **[Apartment Pay](https://github.com/kevin07696/apartment_pay)** | Rent payment platform for property management | React, Go, ConnectRPC |
+
+*Have a project using this service? Open a PR to add it!*
 
 ## 🔗 Links
 

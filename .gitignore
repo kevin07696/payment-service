@@ -1,7 +1,14 @@
 # Binaries
 bin/
 /server
+/admin
+/seed
+/paycli
+/payment-service
 !cmd/server/*.go
+!cmd/admin/*.go
+!cmd/seed/*.go
+!cmd/paycli/*.go
 *.test
 
 # Environment
@@ -52,6 +59,10 @@ SETUP_CREDENTIALS.txt
 # Database credentials
 db-credentials.txt
 *-credentials.txt
+*_credentials.txt
+*_credentials.json
+service_*_credentials.json
+seed_credentials.txt
 
 # SSH keys
 id_rsa
@@ -83,3 +94,14 @@ keys/
 # Test credentials (NEVER COMMIT!)
 # These are generated dynamically during test execution
 tests/fixtures/auth/test_services.json
+
+# Test artifacts and temporary files
+test-*.json
+grant-*.json
+update-*.json
+merchant_*.json
+apartment-*.json
+*_info.json
+
+# Old reports
+COMPREHENSIVE_TEST_REPORT.md

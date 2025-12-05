@@ -13,6 +13,10 @@ import (
 	"time"
 
 	"github.com/kevin07696/payment-service/internal/ports"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -64,6 +68,7 @@ type businessReportingAdapter struct {
 	config     *BusinessReportingConfig
 	httpClient *http.Client
 	logger     *zap.Logger
+	tracer     trace.Tracer
 }
 
 // NewBusinessReportingAdapter creates a new EPX Business Reporting adapter
@@ -90,13 +95,28 @@ func NewBusinessReportingAdapter(config *BusinessReportingConfig, logger *zap.Lo
 		config:     config,
 		httpClient: httpClient,
 		logger:     logger,
+		tracer:     otel.Tracer(epxTracerName),
 	}
 }
 
 // GetTransaction retrieves detailed information about a single transaction by AUTH_GUID
 func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID string) (*ports.TransactionDetails, error) {
+	// Start tracing span for the API call
+	ctx, span := a.tracer.Start(ctx, "epx.business_reporting.get_transaction",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gateway.name", "North Business Reporting"),
+			attribute.String("gateway.endpoint", a.config.BaseURL),
+			attribute.String("epx.auth_guid", authGUID),
+		),
+	)
+	defer span.End()
+
 	if authGUID == "" {
-		return nil, fmt.Errorf("authGUID is required")
+		err := fmt.Errorf("authGUID is required")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid request")
+		return nil, err
 	}
 
 	a.logger.Info("Querying transaction details",
@@ -110,6 +130,8 @@ func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID 
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create request")
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -117,8 +139,14 @@ func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID 
 	a.addAuthHeaders(req)
 
 	// Execute request
+	startTime := time.Now()
 	resp, err := a.httpClient.Do(req)
+	duration := time.Since(startTime)
+	span.SetAttributes(attribute.Int64("gateway.duration_ms", duration.Milliseconds()))
+
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to query transaction")
 		a.logger.Error("Failed to query transaction",
 			zap.String("auth_guid", authGUID),
 			zap.Error(err),
@@ -126,6 +154,8 @@ func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID 
 		return nil, fmt.Errorf("failed to query transaction: %w", err)
 	}
 	defer resp.Body.Close()
+
+	span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
 
 	// Handle HTTP errors
 	if resp.StatusCode != http.StatusOK {
@@ -136,20 +166,35 @@ func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID 
 		)
 
 		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("transaction not found: %s", authGUID)
+			err := fmt.Errorf("transaction not found: %s", authGUID)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "transaction not found")
+			return nil, err
 		}
 
-		return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
+		err := fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "API error")
+		return nil, err
 	}
 
 	// Parse response
 	var apiResp apiTransactionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to parse response")
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// Convert API response to domain model
 	txn := a.convertAPIResponseToTransaction(&apiResp)
+
+	// Record success attributes
+	span.SetAttributes(
+		attribute.String("epx.transaction_status", string(txn.Status)),
+		attribute.Bool("epx.is_ach_return", txn.IsACHReturn),
+	)
+	span.SetStatus(codes.Ok, "transaction retrieved")
 
 	a.logger.Info("Transaction retrieved successfully",
 		zap.String("auth_guid", txn.AuthGUID),
@@ -162,6 +207,18 @@ func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID 
 
 // QueryTransactions searches for transactions matching the given criteria
 func (a *businessReportingAdapter) QueryTransactions(ctx context.Context, params *ports.TransactionQueryParams) (*ports.TransactionQueryResult, error) {
+	// Start tracing span for the API call
+	ctx, span := a.tracer.Start(ctx, "epx.business_reporting.query_transactions",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gateway.name", "North Business Reporting"),
+			attribute.String("gateway.endpoint", a.config.BaseURL),
+			attribute.Bool("epx.ach_returns_only", params.ACHReturnsOnly),
+			attribute.Int("epx.limit", params.Limit),
+		),
+	)
+	defer span.End()
+
 	a.logger.Info("Querying transactions",
 		zap.Bool("ach_returns_only", params.ACHReturnsOnly),
 		zap.Int("limit", params.Limit),
@@ -175,6 +232,8 @@ func (a *businessReportingAdapter) QueryTransactions(ctx context.Context, params
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create request")
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -182,26 +241,39 @@ func (a *businessReportingAdapter) QueryTransactions(ctx context.Context, params
 	a.addAuthHeaders(req)
 
 	// Execute request
+	startTime := time.Now()
 	resp, err := a.httpClient.Do(req)
+	duration := time.Since(startTime)
+	span.SetAttributes(attribute.Int64("gateway.duration_ms", duration.Milliseconds()))
+
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to query transactions")
 		a.logger.Error("Failed to query transactions", zap.Error(err))
 		return nil, fmt.Errorf("failed to query transactions: %w", err)
 	}
 	defer resp.Body.Close()
 
+	span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
+
 	// Handle HTTP errors
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		err := fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "API error")
 		a.logger.Error("Business Reporting API error",
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("response", string(body)),
 		)
-		return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
+		return nil, err
 	}
 
 	// Parse response
 	var apiResp apiQueryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to parse response")
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
@@ -215,6 +287,14 @@ func (a *businessReportingAdapter) QueryTransactions(ctx context.Context, params
 	for i, apiTxn := range apiResp.Transactions {
 		result.Transactions[i] = a.convertAPIResponseToTransaction(&apiTxn)
 	}
+
+	// Record success attributes
+	span.SetAttributes(
+		attribute.Int("epx.result_count", len(result.Transactions)),
+		attribute.Int("epx.total_count", result.TotalCount),
+		attribute.Bool("epx.has_more", result.HasMore),
+	)
+	span.SetStatus(codes.Ok, "transactions queried")
 
 	a.logger.Info("Transactions queried successfully",
 		zap.Int("count", len(result.Transactions)),

@@ -17,6 +17,10 @@ import (
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/pkg/pool"
 	"github.com/kevin07696/payment-service/pkg/resilience"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -80,6 +84,9 @@ func DefaultServerPostConfig(environment string) (*ServerPostConfig, error) {
 	}, nil
 }
 
+// epxTracerName is the tracer name for EPX adapter spans
+const epxTracerName = "github.com/kevin07696/payment-service/internal/adapters/epx"
+
 // serverPostAdapter implements the ServerPostAdapter port
 type serverPostAdapter struct {
 	config         *ServerPostConfig
@@ -87,6 +94,7 @@ type serverPostAdapter struct {
 	logger         *zap.Logger
 	circuitBreaker *CircuitBreaker
 	backoff        resilience.BackoffStrategy
+	tracer         trace.Tracer
 }
 
 // NewServerPostAdapter creates a new EPX Server Post adapter
@@ -123,18 +131,32 @@ func NewServerPostAdapter(config *ServerPostConfig, logger *zap.Logger) ports.Se
 		logger:         logger,
 		circuitBreaker: circuitBreaker,
 		backoff:        resilience.DefaultExponentialBackoff(),
+		tracer:         otel.Tracer(epxTracerName),
 	}
 }
 
 // ProcessTransaction sends a transaction request to EPX Server Post API via HTTPS POST
 // Based on EPX Server Post API - HTTPS POST Method (page 3-5)
 func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.ServerPostRequest) (*ports.ServerPostResponse, error) {
+	// Start tracing span for the gateway call
+	ctx, span := a.tracer.Start(ctx, "epx.server_post.process_transaction",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gateway.name", "EPX"),
+			attribute.String("gateway.endpoint", a.config.BaseURL),
+			attribute.String("gateway.method", "HTTPS_POST"),
+		),
+	)
+	defer span.End()
+
 	// If Operation is specified, determine the appropriate EPX transaction type FIRST
 	// This allows business logic to use semantic operations instead of EPX-specific codes
 	// Must happen before validation since validateRequest checks TransactionType
 	if req.Operation != "" {
 		transactionType, err := a.determineTransactionType(req.Operation, req.PaymentType)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to determine transaction type")
 			a.logger.Error("Failed to determine transaction type",
 				zap.String("operation", string(req.Operation)),
 				zap.String("payment_type", string(req.PaymentType)),
@@ -144,8 +166,19 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 		req.TransactionType = transactionType
 	}
 
+	// Add transaction attributes to span
+	span.SetAttributes(
+		attribute.String("epx.transaction_type", string(req.TransactionType)),
+		attribute.String("epx.operation", string(req.Operation)),
+		attribute.String("epx.payment_type", string(req.PaymentType)),
+		attribute.String("epx.tran_nbr", req.TranNbr),
+		attribute.String("epx.amount", req.Amount),
+	)
+
 	// Validate request (now TransactionType is set)
 	if err := a.validateRequest(req); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid request")
 		a.logger.Error("Invalid Server Post request", zap.Error(err))
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
@@ -258,13 +291,28 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 	})
 
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "gateway call failed")
 		// Check if circuit breaker rejected the request
 		if err == ErrCircuitOpen {
+			span.SetAttributes(attribute.Bool("epx.circuit_breaker_open", true))
 			a.logger.Warn("Circuit breaker is open, rejecting EPX request",
 				zap.String("circuit_state", a.circuitBreaker.State().String()),
 			)
 		}
 		return nil, err
+	}
+
+	// Record response attributes on span
+	span.SetAttributes(
+		attribute.String("epx.auth_guid", response.AuthGUID),
+		attribute.String("epx.auth_resp", response.AuthResp),
+		attribute.Bool("epx.is_approved", response.IsApproved),
+	)
+	if response.IsApproved {
+		span.SetStatus(codes.Ok, "transaction approved")
+	} else {
+		span.SetStatus(codes.Error, "transaction declined: "+response.AuthRespText)
 	}
 
 	return response, nil
@@ -273,8 +321,23 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 // ProcessTransactionViaSocket sends transaction via XML Socket connection
 // Based on EPX Server Post API - XML Socket Method (page 3-4)
 func (a *serverPostAdapter) ProcessTransactionViaSocket(ctx context.Context, req *ports.ServerPostRequest) (*ports.ServerPostResponse, error) {
+	// Start tracing span for the socket gateway call
+	ctx, span := a.tracer.Start(ctx, "epx.server_post.process_transaction_socket",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gateway.name", "EPX"),
+			attribute.String("gateway.endpoint", a.config.SocketEndpoint),
+			attribute.String("gateway.method", "XML_SOCKET"),
+			attribute.String("epx.transaction_type", string(req.TransactionType)),
+			attribute.String("epx.tran_nbr", req.TranNbr),
+		),
+	)
+	defer span.End()
+
 	// Validate request
 	if err := a.validateRequest(req); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid request")
 		a.logger.Error("Invalid Server Post request", zap.Error(err))
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
@@ -357,8 +420,11 @@ func (a *serverPostAdapter) ProcessTransactionViaSocket(ctx context.Context, req
 	})
 
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "socket call failed")
 		// Check if circuit breaker rejected the request
 		if err == ErrCircuitOpen {
+			span.SetAttributes(attribute.Bool("epx.circuit_breaker_open", true))
 			a.logger.Warn("Circuit breaker is open, rejecting EPX socket request",
 				zap.String("circuit_state", a.circuitBreaker.State().String()),
 			)
@@ -366,11 +432,33 @@ func (a *serverPostAdapter) ProcessTransactionViaSocket(ctx context.Context, req
 		return nil, err
 	}
 
+	// Record response attributes on span
+	span.SetAttributes(
+		attribute.String("epx.auth_guid", response.AuthGUID),
+		attribute.String("epx.auth_resp", response.AuthResp),
+		attribute.Bool("epx.is_approved", response.IsApproved),
+	)
+	if response.IsApproved {
+		span.SetStatus(codes.Ok, "transaction approved")
+	} else {
+		span.SetStatus(codes.Error, "transaction declined: "+response.AuthRespText)
+	}
+
 	return response, nil
 }
 
 // ValidateToken checks if a BRIC token (AUTH_GUID) is still valid
 func (a *serverPostAdapter) ValidateToken(ctx context.Context, authGUID string) error {
+	// Start tracing span for token validation
+	ctx, span := a.tracer.Start(ctx, "epx.server_post.validate_token",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gateway.name", "EPX"),
+			attribute.String("epx.auth_guid", authGUID),
+		),
+	)
+	defer span.End()
+
 	a.logger.Info("Validating BRIC token", zap.String("auth_guid", authGUID))
 
 	// Get request from pool for reduced allocations
@@ -387,13 +475,19 @@ func (a *serverPostAdapter) ValidateToken(ctx context.Context, authGUID string) 
 
 	response, err := a.ProcessTransaction(ctx, req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "token validation failed")
 		return fmt.Errorf("token validation failed: %w", err)
 	}
 
 	if !response.IsApproved {
-		return fmt.Errorf("token is invalid or expired: %s", response.AuthRespText)
+		err := fmt.Errorf("token is invalid or expired: %s", response.AuthRespText)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "token invalid or expired")
+		return err
 	}
 
+	span.SetStatus(codes.Ok, "token validated")
 	a.logger.Info("Token validation successful", zap.String("auth_guid", authGUID))
 	return nil
 }

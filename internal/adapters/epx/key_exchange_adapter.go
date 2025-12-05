@@ -14,6 +14,10 @@ import (
 	"time"
 
 	"github.com/kevin07696/payment-service/internal/ports"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -61,6 +65,7 @@ type keyExchangeAdapter struct {
 	config     *KeyExchangeConfig
 	httpClient *http.Client
 	logger     *zap.Logger
+	tracer     trace.Tracer
 }
 
 // NewKeyExchangeAdapter creates a new EPX Key Exchange adapter
@@ -92,14 +97,30 @@ func NewKeyExchangeAdapter(config *KeyExchangeConfig, logger *zap.Logger) ports.
 		config:     config,
 		httpClient: httpClient,
 		logger:     logger,
+		tracer:     otel.Tracer(epxTracerName),
 	}
 }
 
 // GetTAC requests a Terminal Authorization Code from EPX Key Exchange service
 // Based on EPX Browser Post API documentation - Key Exchange Request (page 6)
 func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeRequest) (*ports.KeyExchangeResponse, error) {
+	// Start tracing span for key exchange call
+	ctx, span := a.tracer.Start(ctx, "epx.key_exchange.get_tac",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gateway.name", "EPX"),
+			attribute.String("gateway.endpoint", a.config.BaseURL),
+			attribute.String("epx.tran_nbr", req.TranNbr),
+			attribute.String("epx.tran_group", req.TranGroup),
+			attribute.String("epx.amount", req.Amount),
+		),
+	)
+	defer span.End()
+
 	// Validate required fields
 	if err := a.validateRequest(req); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid request")
 		a.logger.Error("Invalid Key Exchange request", zap.Error(err))
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
@@ -116,6 +137,8 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", a.config.BaseURL, strings.NewReader(formDataEncoded))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create request")
 		a.logger.Error("Failed to create HTTP request", zap.Error(err))
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -125,46 +148,64 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 	// Send request to EPX
 	startTime := time.Now()
 	httpResp, err := a.httpClient.Do(httpReq)
+	duration := time.Since(startTime)
+	span.SetAttributes(attribute.Int64("gateway.duration_ms", duration.Milliseconds()))
+
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to send request")
 		a.logger.Error("Failed to send Key Exchange request",
 			zap.Error(err),
-			zap.Duration("elapsed", time.Since(startTime)),
+			zap.Duration("elapsed", duration),
 		)
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer httpResp.Body.Close()
 
+	span.SetAttributes(attribute.Int("http.status_code", httpResp.StatusCode))
+
 	// Read response body
 	body, err := io.ReadAll(httpResp.Body)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to read response")
 		a.logger.Error("Failed to read response body", zap.Error(err))
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	a.logger.Info("Received Key Exchange response",
 		zap.Int("status_code", httpResp.StatusCode),
-		zap.Duration("elapsed", time.Since(startTime)),
+		zap.Duration("elapsed", duration),
 		zap.String("response_body", string(body)),
 	)
 
 	// Check HTTP status code
 	if httpResp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("EPX returned status %d: %s", httpResp.StatusCode, string(body))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "EPX returned error status")
 		a.logger.Error("EPX Key Exchange returned error",
 			zap.Int("status_code", httpResp.StatusCode),
 			zap.String("body", string(body)),
 		)
-		return nil, fmt.Errorf("EPX returned status %d: %s", httpResp.StatusCode, string(body))
+		return nil, err
 	}
 
 	// Parse response
 	response, err := a.parseResponse(body, req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to parse response")
 		a.logger.Error("Failed to parse Key Exchange response",
 			zap.Error(err),
 			zap.String("body", string(body)),
 		)
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
+
+	// Record success attributes
+	span.SetAttributes(attribute.String("epx.tac", response.TAC))
+	span.SetStatus(codes.Ok, "TAC obtained successfully")
 
 	a.logger.Info("Successfully obtained TAC",
 		zap.String("merchant_id", req.MerchantID),

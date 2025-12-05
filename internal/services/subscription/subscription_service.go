@@ -19,6 +19,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
 	"github.com/kevin07696/payment-service/internal/util"
+	"github.com/kevin07696/payment-service/pkg/observability"
 	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
@@ -522,7 +523,12 @@ func (s *subscriptionService) GetSubscription(ctx context.Context, subscriptionI
 		return nil, domain.ErrValidationInvalidUUID
 	}
 
+	// Trace database query
+	ctx, span := observability.StartDBSpan(ctx, "GetSubscriptionByID", "subscriptions")
+	defer span.End()
+
 	dbSub, err := s.queries.GetSubscriptionByID(ctx, subID)
+	observability.EndDBSpan(span, err)
 	if err != nil {
 		s.logger.Debug("Subscription not found",
 			zap.String("subscription_id", subscriptionID),
@@ -553,10 +559,17 @@ func (s *subscriptionService) ListSubscriptions(ctx context.Context, merchantID,
 		CustomerID: customerID,
 	}
 
+	// Trace database query
+	ctx, span := observability.StartDBSpan(ctx, "ListSubscriptionsByCustomer", "subscriptions")
+	defer span.End()
+
 	dbSubs, err := s.queries.ListSubscriptionsByCustomer(ctx, params)
+	observability.EndDBSpan(span, err)
 	if err != nil {
 		return nil, domain.ErrDatabaseError
 	}
+
+	observability.AddDBResultAttributes(span, int64(len(dbSubs)))
 
 	subscriptions := make([]*domain.Subscription, len(dbSubs))
 	for i, dbSub := range dbSubs {

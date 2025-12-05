@@ -92,6 +92,11 @@ func main() {
 		logger.Info("Distributed tracing disabled (set TRACING_ENABLED=true to enable)")
 	}
 
+	// Metrics server will be started after database initialization
+	metricsPort := getEnv("METRICS_PORT", "9090")
+	metricsEnabled := getEnv("METRICS_ENABLED", "true") == "true"
+	var metricsServer *http.Server
+
 	// Initialize database connection pool
 	dbPool, err := initDatabase(cfg, logger)
 	if err != nil {
@@ -102,6 +107,19 @@ func main() {
 	logger.Info("Database connection established",
 		zap.String("database", cfg.DBName),
 	)
+
+	// Initialize Prometheus metrics server (after database so health checks work)
+	if metricsEnabled {
+		healthChecker := observability.NewHealthChecker(dbPool)
+		metricsServer = observability.StartMetricsServer(metricsPort, healthChecker)
+		logger.Info("Prometheus metrics server started",
+			zap.String("port", metricsPort),
+			zap.String("metrics_endpoint", "/metrics"),
+			zap.String("health_endpoint", "/health"),
+		)
+	} else {
+		logger.Info("Prometheus metrics server disabled (set METRICS_ENABLED=true to enable)")
+	}
 
 	// Create sql.DB for auth middleware and cron handlers (needed for standard database/sql interface)
 	sqlDB := stdlib.OpenDBFromPool(dbPool)
@@ -373,7 +391,14 @@ func main() {
 		})
 	}
 
-	// 3. HTTP server (shut down first - stop accepting new requests)
+	// 3. Metrics server (shut down early - stop accepting new scrapes)
+	if metricsServer != nil {
+		shutdownMgr.Register("metrics_server", func(ctx context.Context) error {
+			return observability.ShutdownMetricsServer(metricsServer)
+		})
+	}
+
+	// 4. HTTP server (shut down first - stop accepting new requests)
 	// Use draining shutdown: first drain in-flight requests, then shutdown server
 	// This enables zero-downtime deployments by completing all active requests
 	shutdownMgr.RegisterHTTPServerWithDraining("server", server, serverTracker)

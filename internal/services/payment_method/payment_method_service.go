@@ -13,6 +13,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
 	"github.com/kevin07696/payment-service/internal/util"
+	"github.com/kevin07696/payment-service/pkg/observability"
 	"go.uber.org/zap"
 )
 
@@ -96,10 +97,17 @@ func (s *paymentMethodService) ListPaymentMethods(ctx context.Context, merchantI
 		CustomerID: customerID,
 	}
 
+	// Trace database query
+	ctx, span := observability.StartDBSpan(ctx, "ListPaymentMethodsByCustomer", "payment_methods")
+	defer span.End()
+
 	dbPMs, err := s.queries.ListPaymentMethodsByCustomer(ctx, params)
+	observability.EndDBSpan(span, err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list payment methods: %w", err)
 	}
+
+	observability.AddDBResultAttributes(span, int64(len(dbPMs)))
 
 	paymentMethods := make([]*domain.PaymentMethod, len(dbPMs))
 	for i, dbPM := range dbPMs {

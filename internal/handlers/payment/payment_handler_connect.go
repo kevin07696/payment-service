@@ -2,13 +2,12 @@ package payment
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 
 	"connectrpc.com/connect"
 	"go.uber.org/zap"
 
-	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/handlers"
 	"github.com/kevin07696/payment-service/internal/ports"
 	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
 )
@@ -76,11 +75,13 @@ func (h *ConnectHandler) Authorize(
 	// Call service
 	tx, err := h.service.Authorize(ctx, serviceReq)
 	if err != nil {
-		return nil, h.handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
-	// Convert to proto response and wrap in Connect response
-	return connect.NewResponse(transactionToPaymentResponse(tx)), nil
+	// Convert to proto response with customer-friendly message
+	resp := transactionToPaymentResponse(tx)
+	resp.Message = "Payment authorized"
+	return connect.NewResponse(resp), nil
 }
 
 // Capture completes a previously authorized payment
@@ -117,11 +118,13 @@ func (h *ConnectHandler) Capture(
 			zap.Error(err),
 			zap.String("transaction_id", msg.TransactionId),
 		)
-		return nil, h.handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 	h.logger.Info("Capture service succeeded", zap.String("transaction_id", msg.TransactionId))
 
-	return connect.NewResponse(transactionToPaymentResponse(tx)), nil
+	resp := transactionToPaymentResponse(tx)
+	resp.Message = "Payment captured"
+	return connect.NewResponse(resp), nil
 }
 
 // Sale combines authorize and capture in one operation
@@ -174,10 +177,12 @@ func (h *ConnectHandler) Sale(
 	tx, err := h.service.Sale(ctx, serviceReq)
 	if err != nil {
 		h.logger.Error("Sale service error", zap.Error(err), zap.String("merchant_id", serviceReq.MerchantID))
-		return nil, h.handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
-	return connect.NewResponse(transactionToPaymentResponse(tx)), nil
+	resp := transactionToPaymentResponse(tx)
+	resp.Message = "Payment processed successfully"
+	return connect.NewResponse(resp), nil
 }
 
 // Void cancels an authorized or captured payment
@@ -205,10 +210,12 @@ func (h *ConnectHandler) Void(
 
 	tx, err := h.service.Void(ctx, serviceReq)
 	if err != nil {
-		return nil, h.handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
-	return connect.NewResponse(transactionToPaymentResponse(tx)), nil
+	resp := transactionToPaymentResponse(tx)
+	resp.Message = "Payment cancelled"
+	return connect.NewResponse(resp), nil
 }
 
 // Refund returns funds to the customer
@@ -241,10 +248,12 @@ func (h *ConnectHandler) Refund(
 
 	tx, err := h.service.Refund(ctx, serviceReq)
 	if err != nil {
-		return nil, h.handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
-	return connect.NewResponse(transactionToPaymentResponse(tx)), nil
+	resp := transactionToPaymentResponse(tx)
+	resp.Message = "Refund processed"
+	return connect.NewResponse(resp), nil
 }
 
 // GetTransaction retrieves transaction details
@@ -260,7 +269,7 @@ func (h *ConnectHandler) GetTransaction(
 
 	tx, err := h.service.GetTransaction(ctx, msg.TransactionId)
 	if err != nil {
-		return nil, h.handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	return connect.NewResponse(transactionToProto(tx)), nil
@@ -301,7 +310,7 @@ func (h *ConnectHandler) ListTransactions(
 
 	txs, totalCount, err := h.service.ListTransactions(ctx, filters)
 	if err != nil {
-		return nil, h.handleServiceErrorConnect(err)
+		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
 
 	protoTxs := make([]*paymentv1.Transaction, len(txs))
@@ -326,52 +335,3 @@ func (h *ConnectHandler) ListTransactions(
 // Operation + PaymentMethod to the correct EPX transaction type.
 // No separate ACH-specific endpoints are needed.
 
-// handleServiceErrorConnect maps domain errors to Connect error codes
-func (h *ConnectHandler) handleServiceErrorConnect(err error) error {
-	// Map domain errors to Connect status codes
-	switch {
-	case errors.Is(err, domain.ErrMerchantInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("agent is inactive"))
-	case errors.Is(err, domain.ErrMerchantRequired):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("merchant_id is required"))
-	case errors.Is(err, domain.ErrAuthMerchantMismatch):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("access denied: merchant mismatch"))
-	case errors.Is(err, domain.ErrAuthAccessDenied):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("access denied"))
-	case errors.Is(err, domain.ErrPaymentMethodNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("payment method not found"))
-	case errors.Is(err, domain.ErrPaymentMethodNotVerified):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("ACH payment method must be verified before use"))
-	case errors.Is(err, domain.ErrPaymentMethodExpired):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is expired"))
-	case errors.Is(err, domain.ErrPaymentMethodInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is not active"))
-	case errors.Is(err, domain.ErrTransactionCannotBeVoided):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("transaction cannot be voided"))
-	case errors.Is(err, domain.ErrTransactionCannotBeCaptured):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("transaction cannot be captured"))
-	case errors.Is(err, domain.ErrTransactionCannotBeRefunded):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("transaction cannot be refunded"))
-	case errors.Is(err, domain.ErrTransactionNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("transaction not found"))
-	case errors.Is(err, domain.ErrTransactionDeclined):
-		return connect.NewError(connect.CodeAborted, errors.New("transaction was declined"))
-	case errors.Is(err, domain.ErrInvalidAmount):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid amount"))
-	case errors.Is(err, domain.ErrInvalidCurrency):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid currency"))
-	case errors.Is(err, domain.ErrDuplicateIdempotencyKey):
-		return connect.NewError(connect.CodeAlreadyExists, errors.New("duplicate idempotency key"))
-	case errors.Is(err, sql.ErrNoRows):
-		return connect.NewError(connect.CodeNotFound, errors.New("resource not found"))
-	case err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
-		return connect.NewError(connect.CodeCanceled, errors.New("request canceled"))
-	default:
-		// Log internal errors but don't expose details to client
-		h.logger.Error("Internal server error in Connect handler",
-			zap.Error(err),
-			zap.String("error_type", "unhandled_error"),
-		)
-		return connect.NewError(connect.CodeInternal, errors.New("internal server error"))
-	}
-}
