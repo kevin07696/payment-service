@@ -182,7 +182,7 @@ func Test_PaymentMethodCache_Get_DBError(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, cached)
-	assert.ErrorContains(t, err, "failed to fetch payment method")
+	assert.True(t, errors.Is(err, domain.ErrPMNotFound), "expected ErrPMNotFound")
 }
 
 // Test_PaymentMethodCache_Get_ContextCancellation verifies context cancellation handling

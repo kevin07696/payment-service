@@ -759,11 +759,20 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		nil, // Use default config (DEFAULT_ACH_CLASS env var or "WEB")
 	)
 
+	// Initialize webhook delivery service with optimized HTTP client (P2-3)
+	// Must be created before subscription service which depends on it
+	webhookHTTPClient := pkghttp.NewHTTPClient(
+		pkghttp.WebhookClientConfig(), // Optimized for many different hosts
+		10*time.Second,                // Request timeout
+	)
+	webhookSvc := webhookService.NewWebhookDeliveryService(dbAdapter, webhookHTTPClient, logger)
+
 	subscriptionSvc := subscriptionService.NewSubscriptionService(
 		dbAdapter.Queries(),
 		dbAdapter,
 		serverPost,
 		secretManager,
+		webhookSvc, // Webhook service for subscription.cancelled notifications
 		logger,
 		&subscriptionService.BillingRetryConfig{
 			BaseDelaySecs: cfg.SubscriptionRetryBaseDelaySecs,
@@ -788,13 +797,6 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		secretManager,
 		logger,
 	)
-
-	// Initialize webhook delivery service with optimized HTTP client (P2-3)
-	webhookHTTPClient := pkghttp.NewHTTPClient(
-		pkghttp.WebhookClientConfig(), // Optimized for many different hosts
-		10*time.Second,                // Request timeout
-	)
-	webhookSvc := webhookService.NewWebhookDeliveryService(dbAdapter, webhookHTTPClient, logger)
 
 	// Initialize ConnectRPC handlers
 	paymentHdlr := paymentHandler.NewConnectHandler(paymentSvc, logger)

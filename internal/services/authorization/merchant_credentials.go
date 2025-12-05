@@ -2,7 +2,6 @@ package authorization
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/kevin07696/payment-service/internal/ports"
@@ -49,7 +48,7 @@ func (r *MerchantCredentialResolver) Resolve(ctx context.Context, merchantID uui
 	// Fetch from cache (combines DB + Vault into single call)
 	cached, err := r.cache.Get(ctx, merchantID)
 	if err != nil {
-		return nil, fmt.Errorf("merchant not found: %w", err)
+		return nil, domain.ErrMerchantNotFoundTyped
 	}
 
 	// Get merchant and MAC secret from cache
@@ -57,7 +56,7 @@ func (r *MerchantCredentialResolver) Resolve(ctx context.Context, merchantID uui
 
 	// Check merchant is active (cached data is fresh within TTL)
 	if !merchant.Status.Valid || merchant.Status.String != "active" {
-		return nil, domain.ErrMerchantInactive
+		return nil, domain.ErrMerchantInactiveTyped
 	}
 
 	return &MerchantCredentials{
@@ -71,18 +70,18 @@ func (r *MerchantCredentialResolver) ResolveWithinTx(ctx context.Context, q sqlc
 	// Fetch merchant record (using transaction's querier)
 	merchant, err := q.GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return nil, fmt.Errorf("merchant not found: %w", err)
+		return nil, domain.ErrMerchantNotFoundTyped
 	}
 
 	// Check merchant is active
 	if !merchant.Status.Valid || merchant.Status.String != "active" {
-		return nil, domain.ErrMerchantInactive
+		return nil, domain.ErrMerchantInactiveTyped
 	}
 
 	// Fetch MAC secret (secret manager doesn't need transaction)
 	secret, err := r.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
+		return nil, domain.ErrMerchantCredentialFailed
 	}
 
 	return &MerchantCredentials{

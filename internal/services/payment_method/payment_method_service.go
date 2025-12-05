@@ -2,7 +2,6 @@ package payment_method
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -62,7 +61,7 @@ func NewPaymentMethodService(
 func (s *paymentMethodService) GetPaymentMethod(ctx context.Context, paymentMethodID string) (*domain.PaymentMethod, error) {
 	pmID, err := uuid.Parse(paymentMethodID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "payment_method_id")
 	}
 
 	// Use cache instead of direct DB query
@@ -72,7 +71,7 @@ func (s *paymentMethodService) GetPaymentMethod(ctx context.Context, paymentMeth
 			zap.String("payment_method_id", paymentMethodID),
 			zap.Error(err),
 		)
-		return nil, fmt.Errorf("payment method not found: %w", err)
+		return nil, domain.ErrPMNotFound
 	}
 
 	return pm, nil
@@ -89,7 +88,7 @@ func (s *paymentMethodService) ListPaymentMethods(ctx context.Context, merchantI
 	// Parse merchant ID
 	mid, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	params := sqlc.ListPaymentMethodsByCustomerParams{
@@ -104,7 +103,7 @@ func (s *paymentMethodService) ListPaymentMethods(ctx context.Context, merchantI
 	dbPMs, err := s.queries.ListPaymentMethodsByCustomer(ctx, params)
 	observability.EndDBSpan(span, err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list payment methods: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "list_payment_methods")
 	}
 
 	observability.AddDBResultAttributes(span, int64(len(dbPMs)))
@@ -138,24 +137,24 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 
 	pmID, err := uuid.Parse(paymentMethodID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "payment_method_id")
 	}
 
 	// Parse merchant ID
 	mid, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	// Verify payment method exists and belongs to customer (use cache)
 	pm, err := s.cache.Get(ctx, pmID)
 	if err != nil {
-		return nil, fmt.Errorf("payment method not found: %w", err)
+		return nil, domain.ErrPMNotFound
 	}
 
 	pmMerchantID, _ := uuid.Parse(pm.MerchantID)
 	if pmMerchantID != mid || pm.CustomerID != customerID {
-		return nil, fmt.Errorf("payment method does not belong to customer")
+		return nil, domain.ErrPMNotBelongToCustomer
 	}
 
 	// Update status
@@ -172,7 +171,7 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to update payment method status: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "update_payment_method_status")
 	}
 
 	// Invalidate cache since we updated the payment method
@@ -181,7 +180,7 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 	// Fetch updated payment method from DB (cache is stale)
 	updated, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch updated payment method: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_payment_method")
 	}
 
 	s.logger.Info("Payment method status updated",
@@ -202,13 +201,13 @@ func (s *paymentMethodService) DeletePaymentMethod(ctx context.Context, paymentM
 
 	pmID, err := uuid.Parse(paymentMethodID)
 	if err != nil {
-		return fmt.Errorf("invalid payment_method_id format: %w", err)
+		return domain.ErrValidationInvalidUUID.WithDetail("field", "payment_method_id")
 	}
 
 	// Hard delete (FK RESTRICT will fail if transactions exist)
 	err = s.queries.HardDeletePaymentMethod(ctx, pmID)
 	if err != nil {
-		return fmt.Errorf("failed to delete payment method: %w", err)
+		return domain.ErrDatabaseError.WithDetail("operation", "delete_payment_method")
 	}
 
 	// Invalidate cache since we deleted the payment method
@@ -236,28 +235,28 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 
 	pmID, err := uuid.Parse(paymentMethodID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "payment_method_id")
 	}
 
 	// Parse merchant ID
 	mid, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	// Verify payment method exists and belongs to customer (use cache)
 	pm, err := s.cache.Get(ctx, pmID)
 	if err != nil {
-		return nil, fmt.Errorf("payment method not found: %w", err)
+		return nil, domain.ErrPMNotFound
 	}
 
 	pmMerchantID, _ := uuid.Parse(pm.MerchantID)
 	if pmMerchantID != mid || pm.CustomerID != customerID {
-		return nil, fmt.Errorf("payment method does not belong to customer")
+		return nil, domain.ErrPMNotBelongToCustomer
 	}
 
 	if !pm.IsActive() {
-		return nil, fmt.Errorf("cannot set inactive payment method as default")
+		return nil, domain.ErrPMInactive
 	}
 
 	var paymentMethod *domain.PaymentMethod
@@ -268,19 +267,19 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 			CustomerID: customerID,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to unset existing defaults: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "unset_defaults")
 		}
 
 		// Set this one as default
 		err = q.MarkPaymentMethodAsDefault(ctx, pmID)
 		if err != nil {
-			return fmt.Errorf("failed to set as default: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "set_default")
 		}
 
 		// Fetch updated payment method (within transaction)
 		updated, err := q.GetPaymentMethodByID(ctx, pmID)
 		if err != nil {
-			return fmt.Errorf("failed to fetch updated payment method: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "get_payment_method")
 		}
 
 		paymentMethod = sqlcPaymentMethodToDomain(&updated)
@@ -382,20 +381,20 @@ func (s *paymentMethodService) SaveCreditCardFromCallback(ctx context.Context, r
 	)
 
 	if req.CustomerID == "" {
-		return nil, fmt.Errorf("customer_id is required for storage")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "customer_id")
 	}
 	if req.BRIC == "" {
-		return nil, fmt.Errorf("BRIC is required")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "bric")
 	}
 
 	merchantID, err := uuid.Parse(req.MerchantID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	lastFour := domain.ExtractLastFour(req.MaskedAccountNbr)
 	if lastFour == "" {
-		return nil, fmt.Errorf("unable to extract last four digits from masked account number")
+		return nil, domain.ErrPMInvalid.WithDetail("reason", "unable to extract last four digits")
 	}
 
 	expDate := domain.ParseExpirationDateMMYY(req.ExpirationDate)
@@ -434,7 +433,7 @@ func (s *paymentMethodService) SaveCreditCardFromCallback(ctx context.Context, r
 		PrenoteStatus: pgtype.Text{String: "not_required", Valid: true}, // Credit cards don't need prenote
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create payment method: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "create_payment_method")
 	}
 
 	s.logger.Info("Credit card payment method saved",
@@ -456,15 +455,15 @@ func (s *paymentMethodService) SaveACHFromCallback(ctx context.Context, req *por
 	)
 
 	if req.CustomerID == "" {
-		return nil, fmt.Errorf("customer_id is required for ACH storage")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "customer_id")
 	}
 	if req.BRIC == "" {
-		return nil, fmt.Errorf("BRIC is required")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "bric")
 	}
 
 	merchantID, err := uuid.Parse(req.MerchantID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	accountType := "checking"
@@ -474,7 +473,7 @@ func (s *paymentMethodService) SaveACHFromCallback(ctx context.Context, req *por
 
 	lastFour := domain.ExtractLastFour(req.MaskedAccountNbr)
 	if lastFour == "" {
-		return nil, fmt.Errorf("unable to extract last four digits from masked account number")
+		return nil, domain.ErrPMInvalid.WithDetail("reason", "unable to extract last four digits")
 	}
 
 	pmID := uuid.New()
@@ -495,7 +494,7 @@ func (s *paymentMethodService) SaveACHFromCallback(ctx context.Context, req *por
 		PrenoteStatus: pgtype.Text{String: "pending", Valid: true}, // Prenote needs to be sent
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create payment method: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "create_payment_method")
 	}
 
 	s.logger.Info("ACH payment method created (unverified)",
@@ -516,46 +515,45 @@ func (s *paymentMethodService) SendPrenote(ctx context.Context, req *ports.SendP
 
 	// Input validation (P1-6)
 	if req.BRIC == "" {
-		return fmt.Errorf("BRIC is required for prenote")
+		return domain.ErrValidationMissingField.WithDetail("field", "bric")
 	}
 	if req.MerchantID == "" {
-		return fmt.Errorf("merchant_id is required for prenote")
+		return domain.ErrMerchantRequired
 	}
 	if req.PaymentMethodID == "" {
-		return fmt.Errorf("payment_method_id is required for prenote")
+		return domain.ErrValidationMissingField.WithDetail("field", "payment_method_id")
 	}
 	if req.CustomerID == "" {
-		return fmt.Errorf("customer_id is required for prenote")
+		return domain.ErrValidationMissingField.WithDetail("field", "customer_id")
 	}
 	if req.AccountType == "" {
-		return fmt.Errorf("account_type is required for prenote")
+		return domain.ErrValidationMissingField.WithDetail("field", "account_type")
 	}
 
 	// Validate account type using domain constant (P0-3 + P1-6)
 	accountType := domain.ACHAccountType(strings.ToLower(req.AccountType))
 	if !accountType.IsValid() {
-		return fmt.Errorf("invalid account_type '%s': must be '%s' or '%s'",
-			req.AccountType, domain.ACHAccountTypeChecking, domain.ACHAccountTypeSavings)
+		return domain.ErrPMInvalidType.WithDetail("account_type", req.AccountType)
 	}
 
 	merchantID, err := uuid.Parse(req.MerchantID)
 	if err != nil {
-		return fmt.Errorf("invalid merchant_id format: %w", err)
+		return domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	pmID, err := uuid.Parse(req.PaymentMethodID)
 	if err != nil {
-		return fmt.Errorf("invalid payment_method_id format: %w", err)
+		return domain.ErrValidationInvalidUUID.WithDetail("field", "payment_method_id")
 	}
 
 	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return fmt.Errorf("failed to fetch merchant: %w", err)
+		return domain.ErrMerchantNotFoundTyped
 	}
 
 	// Merchant active status validation (P1-5)
 	if !merchant.IsActive {
-		return fmt.Errorf("merchant is not active")
+		return domain.ErrMerchantInactiveTyped
 	}
 
 	// Case-insensitive account type check using domain constant (P0-3)
@@ -589,13 +587,12 @@ func (s *paymentMethodService) SendPrenote(ctx context.Context, req *ports.SendP
 
 	prenoteResp, err := s.serverPost.ProcessTransaction(ctx, prenoteReq)
 	if err != nil {
-		return fmt.Errorf("failed to send prenote: %w", err)
+		return domain.ErrGatewayError.WithDetail("operation", "send_prenote")
 	}
 
 	// Validate EPX response code (P0-2)
 	if prenoteResp.AuthResp != "00" {
-		return fmt.Errorf("prenote declined by EPX: %s - %s",
-			prenoteResp.AuthResp, prenoteResp.AuthRespText)
+		return domain.ErrGatewayDeclined.WithDetail("auth_resp", prenoteResp.AuthResp).WithDetail("auth_resp_text", prenoteResp.AuthRespText)
 	}
 
 	// Wrap DB operations in transaction for atomicity (P0-1)
@@ -621,14 +618,14 @@ func (s *paymentMethodService) SendPrenote(ctx context.Context, req *ports.SendP
 		})
 		if txErr != nil {
 			s.logger.Error("Failed to create prenote transaction record", zap.Error(txErr))
-			return fmt.Errorf("failed to create prenote transaction: %w", txErr)
+			return domain.ErrDatabaseError.WithDetail("operation", "create_prenote_transaction")
 		}
 
 		// Update prenote status to 'sent' on success
 		txErr = q.UpdatePrenoteStatusSuccess(ctx, pmID)
 		if txErr != nil {
 			s.logger.Error("Failed to update prenote status", zap.Error(txErr))
-			return fmt.Errorf("failed to update prenote status: %w", txErr)
+			return domain.ErrDatabaseError.WithDetail("operation", "update_prenote_status")
 		}
 
 		return nil

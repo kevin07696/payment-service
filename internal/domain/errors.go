@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -60,8 +59,16 @@ const (
 	ErrorCodeChargebackInvalidStatus   ErrorCode = "CHARGEBACK_INVALID_STATUS"
 
 	// Merchant Errors (additional)
-	ErrorCodeMerchantAlreadyExists ErrorCode = "MERCHANT_ALREADY_EXISTS"
-	ErrorCodeMerchantInvalidEnv    ErrorCode = "MERCHANT_INVALID_ENVIRONMENT"
+	ErrorCodeMerchantAlreadyExists    ErrorCode = "MERCHANT_ALREADY_EXISTS"
+	ErrorCodeMerchantInvalidEnv       ErrorCode = "MERCHANT_INVALID_ENVIRONMENT"
+	ErrorCodeMerchantCredentialFailed ErrorCode = "MERCHANT_CREDENTIAL_RETRIEVAL_FAILED"
+	ErrorCodeMerchantMissingCreds     ErrorCode = "MERCHANT_MISSING_CREDENTIALS"
+
+	// Transaction Type Errors (TXN_TYPE_*)
+	ErrorCodeTxnInvalidType ErrorCode = "TXN_INVALID_TYPE"
+
+	// Signature/MAC Errors (SIGNATURE_*)
+	ErrorCodeSignatureValidationFailed ErrorCode = "SIGNATURE_VALIDATION_FAILED"
 
 	// Validation Errors (VALIDATION_*)
 	ErrorCodeValidationFailed          ErrorCode = "VALIDATION_FAILED"
@@ -84,6 +91,9 @@ const (
 	// Internal Errors (INTERNAL_*)
 	ErrorCodeInternalError ErrorCode = "INTERNAL_ERROR"
 	ErrorCodeDatabaseError ErrorCode = "INTERNAL_DATABASE_ERROR"
+
+	// Webhook Errors (WEBHOOK_*)
+	ErrorCodeWebhookDeliveryFailed ErrorCode = "WEBHOOK_DELIVERY_FAILED"
 )
 
 // DomainError represents a structured domain error with error code and context
@@ -164,8 +174,14 @@ var (
 	ErrChargebackAlreadyResolved = NewDomainError(ErrorCodeChargebackAlreadyResolved, "chargeback is already resolved")
 	ErrChargebackInvalidStatus   = NewDomainError(ErrorCodeChargebackInvalidStatus, "invalid chargeback status")
 
-	ErrMerchantAlreadyExists = NewDomainError(ErrorCodeMerchantAlreadyExists, "merchant already exists")
-	ErrMerchantInvalidEnv    = NewDomainError(ErrorCodeMerchantInvalidEnv, "invalid environment")
+	ErrMerchantAlreadyExists    = NewDomainError(ErrorCodeMerchantAlreadyExists, "merchant already exists")
+	ErrMerchantInvalidEnv       = NewDomainError(ErrorCodeMerchantInvalidEnv, "invalid environment")
+	ErrMerchantCredentialFailed = NewDomainError(ErrorCodeMerchantCredentialFailed, "failed to retrieve merchant credentials")
+	ErrMerchantMissingCreds     = NewDomainError(ErrorCodeMerchantMissingCreds, "merchant credentials are required")
+
+	ErrTxnInvalidType = NewDomainError(ErrorCodeTxnInvalidType, "invalid transaction type")
+
+	ErrSignatureValidationFailed = NewDomainError(ErrorCodeSignatureValidationFailed, "signature validation failed")
 
 	ErrGatewayUnavailable = NewDomainError(ErrorCodeGatewayUnavailable, "gateway is unavailable")
 	ErrGatewayInvalidResp = NewDomainError(ErrorCodeGatewayInvalidResp, "invalid gateway response")
@@ -191,82 +207,7 @@ var (
 
 	ErrInternalError = NewDomainError(ErrorCodeInternalError, "internal server error")
 	ErrDatabaseError = NewDomainError(ErrorCodeDatabaseError, "database error")
+
+	ErrWebhookDeliveryFailed = NewDomainError(ErrorCodeWebhookDeliveryFailed, "webhook delivery failed")
 )
 
-// Legacy sentinel errors - DEPRECATED: Use DomainError instances above instead
-// These are kept for backward compatibility but should not be used in new code
-//
-// Migration guide:
-//
-//	ErrTransactionNotFound         -> ErrTxnNotFound
-//	ErrTransactionCannotBeVoided   -> ErrTxnCannotBeVoided
-//	ErrTransactionCannotBeCaptured -> ErrTxnCannotBeCaptured
-//	ErrTransactionCannotBeRefunded -> ErrTxnCannotBeRefunded
-//	ErrInvalidTransactionStatus    -> ErrTxnInvalidState
-//	ErrInvalidTransactionAmount    -> ErrTxnInvalidAmount
-//	ErrSubscriptionNotFound         -> (use DomainError above)
-//	ErrSubscriptionNotActive        -> (use DomainError above)
-//	ErrSubscriptionAlreadyCancelled -> (use DomainError above)
-//	ErrInvalidBillingInterval       -> ErrSubscriptionInvalidInterval
-//	ErrMaxRetriesExceeded           -> ErrSubscriptionMaxRetries
-//	ErrPaymentMethodNotFound        -> ErrPMNotFound
-//	ErrPaymentMethodExpired         -> ErrPMExpired
-//	ErrPaymentMethodNotVerified     -> ErrPMNotVerified
-//	ErrPaymentMethodInactive        -> ErrPMInactive
-//	ErrInvalidPaymentMethodType     -> ErrPMInvalidType
-//	ErrChargebackNotFound           -> (use DomainError above)
-//	ErrChargebackCannotRespond      -> (use DomainError above)
-//	ErrChargebackAlreadyResolved    -> (use DomainError above)
-//	ErrInvalidChargebackStatus      -> (use DomainError above)
-//	ErrMerchantNotFound             -> ErrMerchantNotFoundTyped
-//	ErrMerchantInactive             -> ErrMerchantInactiveTyped
-//	ErrMerchantAlreadyExists        -> (use DomainError above)
-//	ErrInvalidEnvironment           -> ErrMerchantInvalidEnv
-//	ErrGatewayTimeout               -> ErrGatewayTimedOut
-//	ErrGatewayUnavailable           -> (use DomainError above)
-//	ErrInvalidGatewayResponse       -> ErrGatewayInvalidResp
-//	ErrTransactionDeclined          -> ErrTxnDeclined
-//	ErrDuplicateIdempotencyKey      -> (use DomainError above)
-//	ErrInvalidAmount                -> (use DomainError above)
-//	ErrInvalidCurrency              -> (use DomainError above)
-//	ErrMissingRequiredField         -> ErrValidationMissingField
-//
-// TODO: Remove these after migrating all usages to DomainError
-var (
-	// Transaction errors - DEPRECATED
-	ErrTransactionNotFound         = errors.New("transaction not found")
-	ErrTransactionCannotBeVoided   = errors.New("transaction cannot be voided")
-	ErrTransactionCannotBeCaptured = errors.New("transaction cannot be captured")
-	ErrTransactionCannotBeRefunded = errors.New("transaction cannot be refunded")
-	ErrInvalidTransactionStatus    = errors.New("invalid transaction status")
-	ErrInvalidTransactionAmount    = errors.New("invalid transaction amount")
-
-	// Subscription errors - DEPRECATED
-	// Use ErrSubscriptionNotFound, ErrSubscriptionNotActive, etc. instead
-	ErrInvalidBillingInterval = errors.New("invalid billing interval")
-	ErrMaxRetriesExceeded     = errors.New("max billing retries exceeded")
-
-	// Payment method errors - DEPRECATED
-	ErrPaymentMethodNotFound    = errors.New("payment method not found")
-	ErrPaymentMethodExpired     = errors.New("payment method is expired")
-	ErrPaymentMethodNotVerified = errors.New("ACH payment method is not verified")
-	ErrPaymentMethodInactive    = errors.New("payment method is inactive")
-	ErrInvalidPaymentMethodType = errors.New("invalid payment method type")
-
-	// Chargeback errors - DEPRECATED
-	// Chargebacks now use DomainError instances (see lines 222-225)
-	ErrInvalidChargebackStatus = errors.New("invalid chargeback status")
-
-	// Merchant errors - DEPRECATED
-	ErrMerchantNotFound   = errors.New("merchant not found")
-	ErrMerchantInactive   = errors.New("merchant is inactive")
-	ErrInvalidEnvironment = errors.New("invalid environment")
-
-	// Gateway errors - DEPRECATED
-	ErrGatewayTimeout         = errors.New("gateway request timed out")
-	ErrInvalidGatewayResponse = errors.New("invalid gateway response")
-	ErrTransactionDeclined    = errors.New("transaction was declined by gateway")
-
-	// Validation errors - DEPRECATED
-	ErrMissingRequiredField = errors.New("missing required field")
-)

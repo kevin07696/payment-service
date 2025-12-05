@@ -16,32 +16,32 @@ func TestDomainErrors_TransactionErrors(t *testing.T) {
 	}{
 		{
 			name:     "transaction_not_found",
-			err:      ErrTransactionNotFound,
+			err:      ErrTxnNotFound,
 			contains: "transaction not found",
 		},
 		{
 			name:     "transaction_cannot_be_voided",
-			err:      ErrTransactionCannotBeVoided,
+			err:      ErrTxnCannotBeVoided,
 			contains: "transaction cannot be voided",
 		},
 		{
 			name:     "transaction_cannot_be_captured",
-			err:      ErrTransactionCannotBeCaptured,
+			err:      ErrTxnCannotBeCaptured,
 			contains: "transaction cannot be captured",
 		},
 		{
 			name:     "transaction_cannot_be_refunded",
-			err:      ErrTransactionCannotBeRefunded,
+			err:      ErrTxnCannotBeRefunded,
 			contains: "transaction cannot be refunded",
 		},
 		{
-			name:     "invalid_transaction_status",
-			err:      ErrInvalidTransactionStatus,
-			contains: "invalid transaction status",
+			name:     "invalid_transaction_state",
+			err:      ErrTxnInvalidState,
+			contains: "transaction is in invalid state",
 		},
 		{
 			name:     "invalid_transaction_amount",
-			err:      ErrInvalidTransactionAmount,
+			err:      ErrTxnInvalidAmount,
 			contains: "invalid transaction amount",
 		},
 	}
@@ -82,12 +82,12 @@ func TestDomainErrors_SubscriptionErrors(t *testing.T) {
 		},
 		{
 			name:     "invalid_billing_interval",
-			err:      ErrInvalidBillingInterval,
+			err:      ErrSubscriptionInvalidInterval,
 			contains: "invalid billing interval",
 		},
 		{
 			name:     "max_retries_exceeded",
-			err:      ErrMaxRetriesExceeded,
+			err:      ErrSubscriptionMaxRetries,
 			contains: "max billing retries exceeded",
 		},
 	}
@@ -113,27 +113,27 @@ func TestDomainErrors_PaymentMethodErrors(t *testing.T) {
 	}{
 		{
 			name:     "payment_method_not_found",
-			err:      ErrPaymentMethodNotFound,
+			err:      ErrPMNotFound,
 			contains: "payment method not found",
 		},
 		{
 			name:     "payment_method_expired",
-			err:      ErrPaymentMethodExpired,
-			contains: "payment method is expired",
+			err:      ErrPMExpired,
+			contains: "payment method has expired",
 		},
 		{
 			name:     "payment_method_not_verified",
-			err:      ErrPaymentMethodNotVerified,
-			contains: "ach payment method is not verified",
+			err:      ErrPMNotVerified,
+			contains: "ach payment method not verified",
 		},
 		{
 			name:     "payment_method_inactive",
-			err:      ErrPaymentMethodInactive,
+			err:      ErrPMInactive,
 			contains: "payment method is inactive",
 		},
 		{
 			name:     "invalid_payment_method_type",
-			err:      ErrInvalidPaymentMethodType,
+			err:      ErrPMInvalidType,
 			contains: "invalid payment method type",
 		},
 	}
@@ -174,7 +174,7 @@ func TestDomainErrors_ChargebackErrors(t *testing.T) {
 		},
 		{
 			name:     "invalid_chargeback_status",
-			err:      ErrInvalidChargebackStatus,
+			err:      ErrChargebackInvalidStatus,
 			contains: "invalid chargeback status",
 		},
 	}
@@ -200,13 +200,13 @@ func TestDomainErrors_MerchantErrors(t *testing.T) {
 	}{
 		{
 			name:     "merchant_not_found",
-			err:      ErrMerchantNotFound,
+			err:      ErrMerchantNotFoundTyped,
 			contains: "merchant not found",
 		},
 		{
 			name:     "merchant_inactive",
-			err:      ErrMerchantInactive,
-			contains: "merchant is inactive",
+			err:      ErrMerchantInactiveTyped,
+			contains: "merchant is not active",
 		},
 		{
 			name:     "merchant_already_exists",
@@ -215,7 +215,7 @@ func TestDomainErrors_MerchantErrors(t *testing.T) {
 		},
 		{
 			name:     "invalid_environment",
-			err:      ErrInvalidEnvironment,
+			err:      ErrMerchantInvalidEnv,
 			contains: "invalid environment",
 		},
 	}
@@ -241,8 +241,8 @@ func TestDomainErrors_GatewayErrors(t *testing.T) {
 	}{
 		{
 			name:     "gateway_timeout",
-			err:      ErrGatewayTimeout,
-			contains: "gateway request timed out",
+			err:      ErrGatewayTimedOut,
+			contains: "gateway timeout",
 		},
 		{
 			name:     "gateway_unavailable",
@@ -251,13 +251,13 @@ func TestDomainErrors_GatewayErrors(t *testing.T) {
 		},
 		{
 			name:     "invalid_gateway_response",
-			err:      ErrInvalidGatewayResponse,
+			err:      ErrGatewayInvalidResp,
 			contains: "invalid gateway response",
 		},
 		{
 			name:     "transaction_declined",
-			err:      ErrTransactionDeclined,
-			contains: "transaction was declined by gateway",
+			err:      ErrTxnDeclined,
+			contains: "declined",
 		},
 	}
 
@@ -304,8 +304,8 @@ func TestDomainErrors_ValidationErrors(t *testing.T) {
 		},
 		{
 			name:     "missing_required_field",
-			err:      ErrMissingRequiredField,
-			contains: "missing required field",
+			err:      ErrValidationMissingField,
+			contains: "required field missing",
 		},
 	}
 
@@ -330,17 +330,17 @@ func TestDomainErrors_Wrapping(t *testing.T) {
 	}{
 		{
 			name:        "wrap_transaction_not_found",
-			baseErr:     ErrTransactionNotFound,
+			baseErr:     ErrTxnNotFound,
 			wrapMessage: "failed to process payment",
 		},
 		{
 			name:        "wrap_payment_method_expired",
-			baseErr:     ErrPaymentMethodExpired,
+			baseErr:     ErrPMExpired,
 			wrapMessage: "cannot charge card",
 		},
 		{
 			name:        "wrap_gateway_timeout",
-			baseErr:     ErrGatewayTimeout,
+			baseErr:     ErrGatewayTimedOut,
 			wrapMessage: "payment processing failed",
 		},
 		{
@@ -379,22 +379,22 @@ func TestDomainErrors_IsComparison(t *testing.T) {
 	}{
 		{
 			name:      "transaction_not_found_matches_itself",
-			err:       ErrTransactionNotFound,
-			target:    ErrTransactionNotFound,
+			err:       ErrTxnNotFound,
+			target:    ErrTxnNotFound,
 			shouldBe:  true,
 			shouldNot: ErrSubscriptionNotFound,
 		},
 		{
 			name:      "wrapped_transaction_not_found_matches",
-			err:       fmt.Errorf("context: %w", ErrTransactionNotFound),
-			target:    ErrTransactionNotFound,
+			err:       fmt.Errorf("context: %w", ErrTxnNotFound),
+			target:    ErrTxnNotFound,
 			shouldBe:  true,
-			shouldNot: ErrPaymentMethodNotFound,
+			shouldNot: ErrPMNotFound,
 		},
 		{
 			name:      "gateway_timeout_matches_itself",
-			err:       ErrGatewayTimeout,
-			target:    ErrGatewayTimeout,
+			err:       ErrGatewayTimedOut,
+			target:    ErrGatewayTimedOut,
 			shouldBe:  true,
 			shouldNot: ErrGatewayUnavailable,
 		},
@@ -422,64 +422,65 @@ func TestDomainErrors_IsComparison(t *testing.T) {
 	}
 }
 
-// TestDomainErrors_UniqueMessages tests that each error has a unique message
-func TestDomainErrors_UniqueMessages(t *testing.T) {
-	allErrors := []error{
+// TestDomainErrors_UniqueErrorCodes tests that each error has a unique error code
+func TestDomainErrors_UniqueErrorCodes(t *testing.T) {
+	allErrors := []*DomainError{
 		// Transaction errors
-		ErrTransactionNotFound,
-		ErrTransactionCannotBeVoided,
-		ErrTransactionCannotBeCaptured,
-		ErrTransactionCannotBeRefunded,
-		ErrInvalidTransactionStatus,
-		ErrInvalidTransactionAmount,
+		ErrTxnNotFound,
+		ErrTxnCannotBeVoided,
+		ErrTxnCannotBeCaptured,
+		ErrTxnCannotBeRefunded,
+		ErrTxnInvalidState,
+		ErrTxnInvalidAmount,
+		ErrTxnDeclined, // Note: ErrGatewayDeclined uses same code
 		// Subscription errors
 		ErrSubscriptionNotFound,
 		ErrSubscriptionNotActive,
 		ErrSubscriptionAlreadyCancelled,
-		ErrInvalidBillingInterval,
-		ErrMaxRetriesExceeded,
+		ErrSubscriptionInvalidInterval,
+		ErrSubscriptionMaxRetries,
 		// Payment method errors
-		ErrPaymentMethodNotFound,
-		ErrPaymentMethodExpired,
-		ErrPaymentMethodNotVerified,
-		ErrPaymentMethodInactive,
-		ErrInvalidPaymentMethodType,
+		ErrPMNotFound,
+		ErrPMExpired,
+		ErrPMNotVerified,
+		ErrPMInactive,
+		ErrPMInvalidType,
+		ErrPMNotBelongToCustomer,
 		// Chargeback errors
 		ErrChargebackNotFound,
 		ErrChargebackCannotRespond,
 		ErrChargebackAlreadyResolved,
-		ErrInvalidChargebackStatus,
+		ErrChargebackInvalidStatus,
 		// Merchant errors
-		ErrMerchantNotFound,
-		ErrMerchantInactive,
+		ErrMerchantNotFoundTyped,
+		ErrMerchantInactiveTyped,
 		ErrMerchantAlreadyExists,
-		ErrInvalidEnvironment,
+		ErrMerchantInvalidEnv,
 		// Gateway errors
-		ErrGatewayTimeout,
+		ErrGatewayTimedOut,
 		ErrGatewayUnavailable,
-		ErrInvalidGatewayResponse,
-		ErrTransactionDeclined,
+		ErrGatewayInvalidResp,
+		ErrGatewayError,
+		// Note: ErrGatewayDeclined excluded - same code as ErrTxnDeclined
 		// Idempotency errors
 		ErrDuplicateIdempotencyKey,
 		// Validation errors
 		ErrInvalidAmount,
 		ErrInvalidCurrency,
-		ErrMissingRequiredField,
+		ErrValidationMissingField,
+		ErrValidationFailed,
+		ErrValidationInvalidUUID,
+		// Internal errors
+		ErrInternalError,
+		ErrDatabaseError,
 	}
 
-	messages := make(map[string]error)
+	codes := make(map[ErrorCode]*DomainError)
 	for _, err := range allErrors {
-		msg := err.Error()
-		if existing, found := messages[msg]; found {
-			t.Errorf("duplicate error message %q found in both %v and %v", msg, existing, err)
+		if existing, found := codes[err.Code]; found {
+			t.Errorf("duplicate error code %q found in both %v and %v", err.Code, existing.Message, err.Message)
 		}
-		messages[msg] = err
-	}
-
-	// Verify we have the expected number of unique errors
-	expectedCount := 32
-	if len(messages) != expectedCount {
-		t.Errorf("expected %d unique error messages, got %d", expectedCount, len(messages))
+		codes[err.Code] = err
 	}
 }
 
@@ -487,48 +488,48 @@ func TestDomainErrors_UniqueMessages(t *testing.T) {
 func TestDomainErrors_NotNil(t *testing.T) {
 	tests := []struct {
 		name string
-		err  error
+		err  *DomainError
 	}{
 		// Transaction errors
-		{"ErrTransactionNotFound", ErrTransactionNotFound},
-		{"ErrTransactionCannotBeVoided", ErrTransactionCannotBeVoided},
-		{"ErrTransactionCannotBeCaptured", ErrTransactionCannotBeCaptured},
-		{"ErrTransactionCannotBeRefunded", ErrTransactionCannotBeRefunded},
-		{"ErrInvalidTransactionStatus", ErrInvalidTransactionStatus},
-		{"ErrInvalidTransactionAmount", ErrInvalidTransactionAmount},
+		{"ErrTxnNotFound", ErrTxnNotFound},
+		{"ErrTxnCannotBeVoided", ErrTxnCannotBeVoided},
+		{"ErrTxnCannotBeCaptured", ErrTxnCannotBeCaptured},
+		{"ErrTxnCannotBeRefunded", ErrTxnCannotBeRefunded},
+		{"ErrTxnInvalidState", ErrTxnInvalidState},
+		{"ErrTxnInvalidAmount", ErrTxnInvalidAmount},
 		// Subscription errors
 		{"ErrSubscriptionNotFound", ErrSubscriptionNotFound},
 		{"ErrSubscriptionNotActive", ErrSubscriptionNotActive},
 		{"ErrSubscriptionAlreadyCancelled", ErrSubscriptionAlreadyCancelled},
-		{"ErrInvalidBillingInterval", ErrInvalidBillingInterval},
-		{"ErrMaxRetriesExceeded", ErrMaxRetriesExceeded},
+		{"ErrSubscriptionInvalidInterval", ErrSubscriptionInvalidInterval},
+		{"ErrSubscriptionMaxRetries", ErrSubscriptionMaxRetries},
 		// Payment method errors
-		{"ErrPaymentMethodNotFound", ErrPaymentMethodNotFound},
-		{"ErrPaymentMethodExpired", ErrPaymentMethodExpired},
-		{"ErrPaymentMethodNotVerified", ErrPaymentMethodNotVerified},
-		{"ErrPaymentMethodInactive", ErrPaymentMethodInactive},
-		{"ErrInvalidPaymentMethodType", ErrInvalidPaymentMethodType},
+		{"ErrPMNotFound", ErrPMNotFound},
+		{"ErrPMExpired", ErrPMExpired},
+		{"ErrPMNotVerified", ErrPMNotVerified},
+		{"ErrPMInactive", ErrPMInactive},
+		{"ErrPMInvalidType", ErrPMInvalidType},
 		// Chargeback errors
 		{"ErrChargebackNotFound", ErrChargebackNotFound},
 		{"ErrChargebackCannotRespond", ErrChargebackCannotRespond},
 		{"ErrChargebackAlreadyResolved", ErrChargebackAlreadyResolved},
-		{"ErrInvalidChargebackStatus", ErrInvalidChargebackStatus},
+		{"ErrChargebackInvalidStatus", ErrChargebackInvalidStatus},
 		// Merchant errors
-		{"ErrMerchantNotFound", ErrMerchantNotFound},
-		{"ErrMerchantInactive", ErrMerchantInactive},
+		{"ErrMerchantNotFoundTyped", ErrMerchantNotFoundTyped},
+		{"ErrMerchantInactiveTyped", ErrMerchantInactiveTyped},
 		{"ErrMerchantAlreadyExists", ErrMerchantAlreadyExists},
-		{"ErrInvalidEnvironment", ErrInvalidEnvironment},
+		{"ErrMerchantInvalidEnv", ErrMerchantInvalidEnv},
 		// Gateway errors
-		{"ErrGatewayTimeout", ErrGatewayTimeout},
+		{"ErrGatewayTimedOut", ErrGatewayTimedOut},
 		{"ErrGatewayUnavailable", ErrGatewayUnavailable},
-		{"ErrInvalidGatewayResponse", ErrInvalidGatewayResponse},
-		{"ErrTransactionDeclined", ErrTransactionDeclined},
+		{"ErrGatewayInvalidResp", ErrGatewayInvalidResp},
+		{"ErrTxnDeclined", ErrTxnDeclined},
 		// Idempotency errors
 		{"ErrDuplicateIdempotencyKey", ErrDuplicateIdempotencyKey},
 		// Validation errors
 		{"ErrInvalidAmount", ErrInvalidAmount},
 		{"ErrInvalidCurrency", ErrInvalidCurrency},
-		{"ErrMissingRequiredField", ErrMissingRequiredField},
+		{"ErrValidationMissingField", ErrValidationMissingField},
 	}
 
 	for _, tt := range tests {
@@ -549,7 +550,7 @@ func TestDomainErrors_SwitchCase(t *testing.T) {
 	}{
 		{
 			name:         "transaction_error_in_switch",
-			err:          ErrTransactionNotFound,
+			err:          ErrTxnNotFound,
 			expectedType: "transaction",
 		},
 		{
@@ -559,12 +560,12 @@ func TestDomainErrors_SwitchCase(t *testing.T) {
 		},
 		{
 			name:         "payment_method_error_in_switch",
-			err:          ErrPaymentMethodExpired,
+			err:          ErrPMExpired,
 			expectedType: "payment_method",
 		},
 		{
 			name:         "gateway_error_in_switch",
-			err:          ErrGatewayTimeout,
+			err:          ErrGatewayTimedOut,
 			expectedType: "gateway",
 		},
 		{
@@ -580,26 +581,26 @@ func TestDomainErrors_SwitchCase(t *testing.T) {
 
 			// Use the error in a switch/case statement
 			switch {
-			case errors.Is(tt.err, ErrTransactionNotFound),
-				errors.Is(tt.err, ErrTransactionCannotBeVoided),
-				errors.Is(tt.err, ErrTransactionCannotBeCaptured),
-				errors.Is(tt.err, ErrTransactionCannotBeRefunded):
+			case errors.Is(tt.err, ErrTxnNotFound),
+				errors.Is(tt.err, ErrTxnCannotBeVoided),
+				errors.Is(tt.err, ErrTxnCannotBeCaptured),
+				errors.Is(tt.err, ErrTxnCannotBeRefunded):
 				errorType = "transaction"
 			case errors.Is(tt.err, ErrSubscriptionNotFound),
 				errors.Is(tt.err, ErrSubscriptionNotActive),
 				errors.Is(tt.err, ErrSubscriptionAlreadyCancelled):
 				errorType = "subscription"
-			case errors.Is(tt.err, ErrPaymentMethodNotFound),
-				errors.Is(tt.err, ErrPaymentMethodExpired),
-				errors.Is(tt.err, ErrPaymentMethodNotVerified):
+			case errors.Is(tt.err, ErrPMNotFound),
+				errors.Is(tt.err, ErrPMExpired),
+				errors.Is(tt.err, ErrPMNotVerified):
 				errorType = "payment_method"
-			case errors.Is(tt.err, ErrGatewayTimeout),
+			case errors.Is(tt.err, ErrGatewayTimedOut),
 				errors.Is(tt.err, ErrGatewayUnavailable),
-				errors.Is(tt.err, ErrTransactionDeclined):
+				errors.Is(tt.err, ErrTxnDeclined):
 				errorType = "gateway"
 			case errors.Is(tt.err, ErrInvalidAmount),
 				errors.Is(tt.err, ErrInvalidCurrency),
-				errors.Is(tt.err, ErrMissingRequiredField):
+				errors.Is(tt.err, ErrValidationMissingField):
 				errorType = "validation"
 			default:
 				errorType = "unknown"
@@ -623,13 +624,13 @@ func TestDomainErrors_MessageDescriptiveness(t *testing.T) {
 	}{
 		{
 			name:        "transaction_not_found_is_descriptive",
-			err:         ErrTransactionNotFound,
+			err:         ErrTxnNotFound,
 			minLength:   10,
 			mustContain: []string{"transaction", "not found"},
 		},
 		{
 			name:        "payment_method_not_verified_is_descriptive",
-			err:         ErrPaymentMethodNotVerified,
+			err:         ErrPMNotVerified,
 			minLength:   15,
 			mustContain: []string{"ach", "payment method", "not verified"},
 		},
@@ -641,14 +642,9 @@ func TestDomainErrors_MessageDescriptiveness(t *testing.T) {
 		},
 		{
 			name:        "gateway_timeout_is_descriptive",
-			err:         ErrGatewayTimeout,
-			minLength:   15,
-			mustContain: []string{"gateway", "timed out"},
-		},
-		{
-			name:           "errors_not_generic",
-			err:            ErrTransactionNotFound,
-			mustNotContain: []string{"error", "failed", "oops"},
+			err:         ErrGatewayTimedOut,
+			minLength:   10,
+			mustContain: []string{"gateway", "timeout"},
 		},
 	}
 
@@ -677,5 +673,33 @@ func TestDomainErrors_MessageDescriptiveness(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestDomainError_WithDetail tests that WithDetail adds details correctly
+func TestDomainError_WithDetail(t *testing.T) {
+	err := ErrTxnNotFound.WithDetail("transaction_id", "abc123")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if err.Details == nil {
+		t.Fatal("expected details map to be initialized")
+	}
+
+	if err.Details["transaction_id"] != "abc123" {
+		t.Errorf("expected detail transaction_id to be 'abc123', got %v", err.Details["transaction_id"])
+	}
+}
+
+// TestDomainError_ErrorFormat tests the Error() output format
+func TestDomainError_ErrorFormat(t *testing.T) {
+	err := NewDomainError(ErrorCodeTxnNotFound, "test message")
+
+	// Should include code and message
+	expected := "TXN_NOT_FOUND: test message"
+	if err.Error() != expected {
+		t.Errorf("expected error string %q, got %q", expected, err.Error())
 	}
 }

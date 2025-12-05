@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/testutil/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -234,7 +235,7 @@ func Test_MerchantCredentialCache_Get_DBError(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, cached)
-	assert.ErrorContains(t, err, "failed to fetch merchant")
+	assert.True(t, errors.Is(err, domain.ErrMerchantNotFoundTyped), "expected ErrMerchantNotFoundTyped")
 
 	// Vault should not be called if DB fails
 	mockSecretMgr.AssertNotCalled(t, "GetSecret")
@@ -276,7 +277,7 @@ func Test_MerchantCredentialCache_Get_VaultError(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, cached)
-	assert.ErrorContains(t, err, "failed to fetch MAC secret")
+	assert.True(t, errors.Is(err, domain.ErrMerchantCredentialFailed), "expected ErrMerchantCredentialFailed")
 }
 
 // Test_MerchantCredentialCache_Get_ContextCancellation verifies context cancellation between DB and Vault

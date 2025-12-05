@@ -52,17 +52,17 @@ func NewBrowserPostService(
 func (s *BrowserPostService) GenerateFormConfig(ctx context.Context, req *ports.GenerateFormConfigRequest) (*ports.GenerateFormConfigResponse, error) {
 	transactionID, err := uuid.Parse(req.TransactionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid transaction_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "transaction_id")
 	}
 
 	merchantID, err := uuid.Parse(req.MerchantID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid merchant_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	txType := domain.ParseRequestTransactionType(req.TransactionType)
 	if !txType.IsValid() {
-		return nil, fmt.Errorf("invalid transaction_type: %s", req.TransactionType)
+		return nil, domain.ErrTxnInvalidType.WithDetail("transaction_type", req.TransactionType)
 	}
 
 	// Fetch and validate merchant
@@ -72,14 +72,14 @@ func (s *BrowserPostService) GenerateFormConfig(ctx context.Context, req *ports.
 			zap.Error(err),
 			zap.String("merchant_id", merchantID.String()),
 		)
-		return nil, fmt.Errorf("merchant not found")
+		return nil, domain.ErrMerchantNotFoundTyped
 	}
 
 	if !merchant.IsActive {
 		s.logger.Warn("Merchant is not active",
 			zap.String("merchant_id", merchantID.String()),
 		)
-		return nil, fmt.Errorf("merchant is not active")
+		return nil, domain.ErrMerchantInactiveTyped
 	}
 
 	// Fetch merchant-specific MAC from secret manager
@@ -89,7 +89,7 @@ func (s *BrowserPostService) GenerateFormConfig(ctx context.Context, req *ports.
 			zap.Error(err),
 			zap.String("merchant_id", merchantID.String()),
 		)
-		return nil, fmt.Errorf("failed to retrieve merchant credentials")
+		return nil, domain.ErrMerchantCredentialFailed
 	}
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID
@@ -120,7 +120,7 @@ func (s *BrowserPostService) GenerateFormConfig(ctx context.Context, req *ports.
 			zap.Error(err),
 			zap.String("transaction_id", transactionID.String()),
 		)
-		return nil, fmt.Errorf("failed to get TAC from payment gateway")
+		return nil, domain.ErrGatewayError.WithDetail("operation", "get_tac")
 	}
 
 	s.logger.Info("Successfully obtained TAC for Browser Post",
@@ -165,7 +165,7 @@ func (s *BrowserPostService) GenerateFormConfig(ctx context.Context, req *ports.
 	// Create pending transaction
 	amountCents, err := parseAmountToCents(req.Amount)
 	if err != nil {
-		return nil, fmt.Errorf("invalid amount format: %w", err)
+		return nil, domain.ErrValidationAmountInvalid.WithDetail("amount", req.Amount)
 	}
 
 	internalTxType := string(txType.ToTransactionType())
@@ -194,7 +194,7 @@ func (s *BrowserPostService) GenerateFormConfig(ctx context.Context, req *ports.
 			zap.Error(err),
 			zap.String("transaction_id", transactionID.String()),
 		)
-		return nil, fmt.Errorf("failed to create transaction")
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "create_transaction")
 	}
 
 	s.logger.Info("Created pending transaction for Browser Post",
@@ -237,7 +237,7 @@ func (s *BrowserPostService) ProcessCallback(ctx context.Context, req *ports.Pro
 			zap.String("transaction_id", req.TransactionID),
 			zap.String("merchant_id", req.MerchantID),
 		)
-		return nil, fmt.Errorf("signature validation failed: %w", err)
+		return nil, domain.ErrSignatureValidationFailed
 	}
 
 	metadata := map[string]interface{}{
@@ -277,13 +277,13 @@ func (s *BrowserPostService) ProcessCallback(ctx context.Context, req *ports.Pro
 				zap.String("transaction_id", req.TransactionID),
 				zap.String("tran_nbr", req.TranNbr),
 			)
-			return nil, fmt.Errorf("transaction has already been processed")
+			return nil, domain.ErrTxnAlreadyProcessed
 		}
 		s.logger.Error("Failed to update transaction from EPX response",
 			zap.Error(err),
 			zap.String("transaction_id", req.TransactionID),
 		)
-		return nil, fmt.Errorf("failed to process transaction")
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "update_transaction")
 	}
 
 	s.logger.Info("Successfully processed transaction",
@@ -329,12 +329,12 @@ func (s *BrowserPostService) buildRedirectURL(transactionID, merchantID, txType,
 // This ensures the callback is genuinely from EPX and data hasn't been tampered with.
 func (s *BrowserPostService) validateMACSignature(ctx context.Context, req *ports.ProcessCallbackRequest) error {
 	if req.MerchantID == "" {
-		return fmt.Errorf("merchant_id is required for MAC validation")
+		return domain.ErrMerchantRequired
 	}
 
 	merchantID, err := uuid.Parse(req.MerchantID)
 	if err != nil {
-		return fmt.Errorf("invalid merchant_id format: %w", err)
+		return domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	// Fetch merchant to get MAC secret path
@@ -344,7 +344,7 @@ func (s *BrowserPostService) validateMACSignature(ctx context.Context, req *port
 			zap.Error(err),
 			zap.String("merchant_id", req.MerchantID),
 		)
-		return fmt.Errorf("merchant not found")
+		return domain.ErrMerchantNotFoundTyped
 	}
 
 	// Fetch MAC secret from secret manager
@@ -354,7 +354,7 @@ func (s *BrowserPostService) validateMACSignature(ctx context.Context, req *port
 			zap.Error(err),
 			zap.String("merchant_id", req.MerchantID),
 		)
-		return fmt.Errorf("failed to retrieve merchant credentials")
+		return domain.ErrMerchantCredentialFailed
 	}
 
 	// Convert RawParams map[string]string to map[string][]string for adapter

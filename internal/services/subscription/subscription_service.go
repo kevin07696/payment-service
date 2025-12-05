@@ -71,6 +71,7 @@ type subscriptionService struct {
 	serverPost          ports.ServerPostAdapter
 	secretManager       ports.SecretManagerAdapter
 	merchantAuthService *authorization.MerchantAuthorizationService
+	webhookService      ports.WebhookService
 	logger              *zap.Logger
 	retryConfig         BillingRetryConfig
 }
@@ -81,6 +82,7 @@ func NewSubscriptionService(
 	txManager database.TransactionManager,
 	serverPost ports.ServerPostAdapter,
 	secretManager ports.SecretManagerAdapter,
+	webhookService ports.WebhookService,
 	logger *zap.Logger,
 	retryConfig *BillingRetryConfig,
 ) ports.SubscriptionService {
@@ -119,6 +121,7 @@ func NewSubscriptionService(
 		serverPost:          serverPost,
 		secretManager:       secretManager,
 		merchantAuthService: merchantAuthService,
+		webhookService:      webhookService,
 		logger:              logger,
 		retryConfig:         cfg,
 	}
@@ -212,7 +215,7 @@ func (s *subscriptionService) CreateSubscription(ctx context.Context, req *ports
 
 		dbSub, err := q.CreateSubscription(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to create subscription: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "create_subscription")
 		}
 
 		subscription = sqlcSubscriptionToDomain(&dbSub)
@@ -650,32 +653,32 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 	// Get merchant credentials
 	merchantID, err := uuid.Parse(sub.MerchantID.String())
 	if err != nil {
-		return fmt.Errorf("invalid merchant_id: %w", err)
+		return domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return fmt.Errorf("failed to get merchant: %w", err)
+		return domain.ErrMerchantNotFoundTyped
 	}
 
 	if !merchant.IsActive {
-		return fmt.Errorf("merchant is not active")
+		return domain.ErrMerchantInactiveTyped
 	}
 
 	// Get payment method
 	pm, err := s.queries.GetPaymentMethodByID(ctx, sub.PaymentMethodID)
 	if err != nil {
-		return fmt.Errorf("failed to get payment method: %w", err)
+		return domain.ErrPMNotFound
 	}
 
 	if pm.Status != string(domain.PaymentMethodStatusActive) {
-		return fmt.Errorf("payment method is not active")
+		return domain.ErrPMInactive
 	}
 
 	// Get MAC secret for EPX request signing
 	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 	if err != nil {
-		return fmt.Errorf("failed to get MAC secret: %w", err)
+		return domain.ErrMerchantCredentialFailed
 	}
 
 	// Prepare EPX request - convert cents back to decimal string
@@ -762,7 +765,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 
 	if !epxResp.IsApproved {
 		// Handle declined transaction
-		return s.handleBillingFailure(ctx, sub, fmt.Errorf("transaction declined: %s", epxResp.AuthRespText))
+		return s.handleBillingFailure(ctx, sub, domain.ErrGatewayDeclined.WithDetail("auth_resp_text", epxResp.AuthRespText))
 	}
 
 	// Save transaction and update subscription
@@ -781,7 +784,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 		}
 		metadataJSON, err := json.Marshal(metadata)
 		if err != nil {
-			return fmt.Errorf("failed to marshal metadata: %w", err)
+			return domain.ErrInternalError.WithDetail("operation", "marshal_metadata")
 		}
 
 		txParams := sqlc.CreateTransactionParams{
@@ -806,7 +809,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 
 		_, err = q.CreateTransaction(ctx, txParams)
 		if err != nil {
-			return fmt.Errorf("failed to create transaction: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "create_transaction")
 		}
 
 		// Calculate next billing date
@@ -826,7 +829,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 
 		_, err = q.UpdateSubscriptionBilling(ctx, updateParams)
 		if err != nil {
-			return fmt.Errorf("failed to update subscription: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "update_subscription_billing")
 		}
 
 		// Clear any retry backoff on successful billing
@@ -863,7 +866,7 @@ func (s *subscriptionService) updateNextBillingDate(ctx context.Context, sub *sq
 
 		_, err := q.UpdateSubscriptionBilling(ctx, updateParams)
 		if err != nil {
-			return fmt.Errorf("failed to update subscription: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "update_subscription_billing")
 		}
 
 		return nil
@@ -895,7 +898,7 @@ func (s *subscriptionService) handleBillingFailure(ctx context.Context, sub *sql
 			}
 			_, err := q.IncrementSubscriptionFailureCount(ctx, params)
 			if err != nil {
-				return fmt.Errorf("failed to update failure count: %w", err)
+				return domain.ErrDatabaseError.WithDetail("operation", "update_failure_count")
 			}
 			return billingErr
 		}
@@ -918,7 +921,7 @@ func (s *subscriptionService) handleBillingFailure(ctx context.Context, sub *sql
 				LastBillingError:   pgtype.Text{String: errorMsg, Valid: true},
 			})
 			if err != nil {
-				return fmt.Errorf("failed to set billing retry backoff: %w", err)
+				return domain.ErrDatabaseError.WithDetail("operation", "set_billing_retry_backoff")
 			}
 		} else {
 			// Permanent error - just record failure, no backoff (will retry on next cron run)
@@ -934,7 +937,7 @@ func (s *subscriptionService) handleBillingFailure(ctx context.Context, sub *sql
 				LastBillingError: pgtype.Text{String: errorMsg, Valid: true},
 			})
 			if err != nil {
-				return fmt.Errorf("failed to record billing failure: %w", err)
+				return domain.ErrDatabaseError.WithDetail("operation", "record_billing_failure")
 			}
 		}
 
@@ -1006,7 +1009,7 @@ func truncateErrorMessage(msg string, maxLen int) string {
 func (s *subscriptionService) getSubscriptionByIdempotencyKey(ctx context.Context, key string) (*domain.Subscription, error) {
 	// Note: This would require a separate SQL query if we want to support idempotency for subscriptions
 	// For now, returning not found error
-	return nil, fmt.Errorf("subscription not found")
+	return nil, domain.ErrSubscriptionNotFound
 }
 
 // Advisory lock ID for preventing concurrent expired past_due processing
@@ -1028,7 +1031,7 @@ func (s *subscriptionService) ProcessExpiredPastDue(ctx context.Context, batchSi
 	acquired, err := s.queries.TryAdvisoryLock(ctx, expiredPastDueLockID)
 	if err != nil {
 		s.logger.Error("Failed to acquire advisory lock", zap.Error(err))
-		result.Errors = append(result.Errors, fmt.Errorf("failed to acquire lock: %w", err))
+		result.Errors = append(result.Errors, domain.ErrDatabaseError.WithDetail("operation", "acquire_advisory_lock"))
 		return result
 	}
 	if !acquired {
@@ -1045,7 +1048,7 @@ func (s *subscriptionService) ProcessExpiredPastDue(ctx context.Context, batchSi
 	expiredSubs, err := s.queries.ListExpiredPastDueSubscriptions(ctx, int32(batchSize))
 	if err != nil {
 		s.logger.Error("Failed to list expired past_due subscriptions", zap.Error(err))
-		result.Errors = append(result.Errors, fmt.Errorf("failed to list expired subscriptions: %w", err))
+		result.Errors = append(result.Errors, domain.ErrDatabaseError.WithDetail("operation", "list_expired_subscriptions"))
 		return result
 	}
 
@@ -1100,7 +1103,7 @@ func (s *subscriptionService) cancelExpiredSubscription(ctx context.Context, sub
 		// Lock the row and re-fetch to ensure subscription state hasn't changed
 		current, err := q.GetSubscriptionByIDForUpdate(ctx, sub.ID)
 		if err != nil {
-			return fmt.Errorf("failed to lock subscription: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "lock_subscription")
 		}
 
 		// Validate subscription is still in past_due status
@@ -1139,11 +1142,20 @@ func (s *subscriptionService) cancelExpiredSubscription(ctx context.Context, sub
 
 		_, err = q.CancelSubscriptionWithReason(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to cancel subscription: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "cancel_subscription")
 		}
 
-		// TODO: Send webhook notification for subscription.cancelled event
-		// s.webhookService.SendSubscriptionCancelled(ctx, sub.ID, domain.CancellationReasonGracePeriodExpired)
+		// Send webhook notification for subscription.cancelled event
+		if s.webhookService != nil {
+			if webhookErr := s.webhookService.SendSubscriptionCancelled(ctx, sub.ID, sub.MerchantID.String(), string(domain.CancellationReasonGracePeriodExpired)); webhookErr != nil {
+				// Log but don't fail - webhook delivery failure shouldn't block subscription cancellation
+				s.logger.Warn("Failed to send subscription cancelled webhook",
+					zap.Error(webhookErr),
+					zap.String("subscription_id", sub.ID.String()),
+					zap.String("merchant_id", sub.MerchantID.String()),
+				)
+			}
+		}
 
 		return nil
 	})

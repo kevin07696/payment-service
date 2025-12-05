@@ -2,7 +2,6 @@ package payment_method
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -143,7 +142,7 @@ func (c *PaymentMethodCache) fetchAndCache(ctx context.Context, pmID uuid.UUID) 
 	dbPM, err := c.queries.GetPaymentMethodByID(ctx, pmID)
 	if err != nil {
 		paymentMethodCacheMisses.WithLabelValues("error").Inc()
-		return nil, fmt.Errorf("failed to fetch payment method: %w", err)
+		return nil, domain.ErrPMNotFound
 	}
 
 	// Check if context was cancelled after DB operation

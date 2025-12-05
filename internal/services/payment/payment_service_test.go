@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -470,7 +471,7 @@ func TestListTransactions_InvalidMerchantIDFormat(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, result)
 	assert.Equal(t, 0, count)
-	assert.Contains(t, err.Error(), "invalid merchant_id format")
+	assert.True(t, errors.Is(err, domain.ErrValidationInvalidUUID), "expected ErrValidationInvalidUUID")
 
 	// No database calls should have been made
 	mockQuerier.AssertNotCalled(t, "ListTransactions")

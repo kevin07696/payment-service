@@ -3,7 +3,6 @@ package payment
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/google/uuid"
@@ -109,12 +108,12 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 
 	// Parse transaction ID from idempotency key (required)
 	if req.IdempotencyKey == nil {
-		return nil, fmt.Errorf("idempotency_key (transaction_id) is required")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "idempotency_key")
 	}
 
 	txID, err := uuid.Parse(*req.IdempotencyKey)
 	if err != nil {
-		return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
 	}
 
 	// Get merchant credentials using sqlc
@@ -125,26 +124,26 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		// Valid UUID - lookup by ID
 		merchant, err = s.queries.GetMerchantByID(ctx, merchantID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get merchant by ID: %w", err)
+			return nil, domain.ErrMerchantNotFoundTyped
 		}
 	} else {
 		// Not a UUID - lookup by slug
 		merchant, err = s.queries.GetMerchantBySlug(ctx, resolvedMerchantID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get merchant by slug: %w", err)
+			return nil, domain.ErrMerchantNotFoundTyped
 		}
 		merchantID = merchant.ID // Use the merchant's UUID for subsequent operations
 	}
 
 	// Check if merchant is active (Valid must be true and Bool must be true)
 	if !merchant.IsActive {
-		return nil, domain.ErrMerchantInactive
+		return nil, domain.ErrMerchantInactiveTyped
 	}
 
 	// Get MAC secret from secret manager (will be used for EPX request signing)
 	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
+		return nil, domain.ErrMerchantCredentialFailed
 	}
 
 	// Resolve payment token (validates payment method if needed)
@@ -210,7 +209,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX transaction failed", zap.Error(err))
-		return nil, fmt.Errorf("gateway error: %w", err)
+		return nil, domain.ErrGatewayError.WithDetail("operation", "process_sale")
 	}
 
 	// Save transaction to database using WithTx for transaction safety
@@ -267,7 +266,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 
 		dbTx, err := q.CreateTransaction(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to create transaction: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "create_transaction")
 		}
 
 		// Mark payment method as used if provided
@@ -310,12 +309,12 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 
 	// Parse transaction ID from idempotency key (required)
 	if req.IdempotencyKey == nil {
-		return nil, fmt.Errorf("idempotency_key (transaction_id) is required")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "idempotency_key")
 	}
 
 	txID, err := uuid.Parse(*req.IdempotencyKey)
 	if err != nil {
-		return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
 	}
 
 	// Check idempotency
@@ -335,25 +334,25 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		// Valid UUID - lookup by ID
 		merchant, err = s.queries.GetMerchantByID(ctx, merchantID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get merchant by ID: %w", err)
+			return nil, domain.ErrMerchantNotFoundTyped
 		}
 	} else {
 		// Not a UUID - lookup by slug
 		merchant, err = s.queries.GetMerchantBySlug(ctx, resolvedMerchantID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get merchant by slug: %w", err)
+			return nil, domain.ErrMerchantNotFoundTyped
 		}
 		merchantID = merchant.ID // Use the merchant's UUID for subsequent operations
 	}
 
 	if !merchant.IsActive {
-		return nil, domain.ErrMerchantInactive
+		return nil, domain.ErrMerchantInactiveTyped
 	}
 
 	// Get MAC secret
 	_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get MAC secret: %w", err)
+		return nil, domain.ErrMerchantCredentialFailed
 	}
 
 	// Resolve payment token (no validation needed for authorize)
@@ -405,7 +404,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX authorization failed", zap.Error(err))
-		return nil, fmt.Errorf("gateway error: %w", err)
+		return nil, domain.ErrGatewayError.WithDetail("operation", "process_transaction")
 	}
 
 	s.logger.Debug("EPX ServerPost Response",
@@ -468,7 +467,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 
 		dbTx, err := q.CreateTransaction(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to create transaction: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "create_transaction")
 		}
 
 		if paymentMethodUUID != nil {
@@ -499,22 +498,22 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest) (*domain.Transaction, error) {
 	// Validate inputs first (fail-fast)
 	if s.serverPost == nil {
-		return nil, fmt.Errorf("server post adapter not initialized")
+		return nil, domain.ErrInternalError.WithDetail("reason", "server_post_adapter_not_initialized")
 	}
 
 	if req.TransactionID == "" {
-		return nil, fmt.Errorf("transaction_id (original AUTH) is required")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "transaction_id")
 	}
 
 	originalTxID, err := uuid.Parse(req.TransactionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid transaction_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "transaction_id")
 	}
 
 	// Get original AUTH transaction first to validate access
 	originalTx, err := s.queries.GetTransactionByID(ctx, originalTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get original transaction: %w", err)
+		return nil, domain.ErrTxnNotFound
 	}
 
 	// Validate transaction access
@@ -526,7 +525,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	// Validate amount if provided
 	if req.AmountCents != nil {
 		if *req.AmountCents <= 0 {
-			return nil, fmt.Errorf("amount must be greater than zero")
+			return nil, domain.ErrValidationAmountInvalid.WithDetail("reason", "amount_must_be_positive")
 		}
 	}
 
@@ -535,7 +534,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
 		txID, err = uuid.Parse(*req.IdempotencyKey)
 		if err != nil {
-			return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+			return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
 		}
 	} else {
 		txID = uuid.New()
@@ -577,11 +576,11 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		var err error
 		groupTxs, err = q.GetTransactionTree(ctx, originalTxID)
 		if err != nil {
-			return fmt.Errorf("failed to get transaction tree: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "get_transaction_tree")
 		}
 
 		if len(groupTxs) == 0 {
-			return fmt.Errorf("no transactions found for parent %s", originalTxID.String())
+			return domain.ErrTxnNotFound.WithDetail("parent_id", originalTxID.String())
 		}
 
 		// Convert to domain transactions
@@ -607,7 +606,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 				zap.String("capture_transaction_id", txID.String()),
 				zap.String("reason", reason),
 			)
-			return domain.ErrTransactionCannotBeCaptured
+			return domain.ErrTxnCannotBeCaptured
 		}
 
 		s.logger.Info("Capture validation passed",
@@ -620,17 +619,17 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		merchantID := uuid.MustParse(domainTxs[0].MerchantID)
 		merchant, err := q.GetMerchantByID(ctx, merchantID)
 		if err != nil {
-			return fmt.Errorf("failed to get merchant: %w", err)
+			return domain.ErrMerchantNotFoundTyped
 		}
 
 		if !merchant.IsActive {
-			return domain.ErrMerchantInactive
+			return domain.ErrMerchantInactiveTyped
 		}
 
 		// Get MAC secret
 		_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 		if err != nil {
-			return fmt.Errorf("failed to get MAC secret: %w", err)
+			return domain.ErrMerchantCredentialFailed
 		}
 
 		return nil // Continue outside transaction for EPX call
@@ -643,7 +642,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	// Re-fetch state outside transaction for EPX call
 	groupTxsRefetch, err := s.queries.GetTransactionTree(ctx, originalTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction_tree")
 	}
 
 	domainTxsRefetch := make([]*domain.Transaction, len(groupTxsRefetch))
@@ -657,7 +656,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	merchantID := uuid.MustParse(domainTxsRefetch[0].MerchantID)
 	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get merchant: %w", err)
+		return nil, domain.ErrMerchantNotFoundTyped
 	}
 
 	// Determine capture amount (use full auth amount if not specified)
@@ -686,7 +685,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 			Metadata:            captureMetadata,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create pending transaction: %w", err)
+			return nil, domain.ErrDatabaseError.WithDetail("operation", "create_pending_transaction")
 		}
 
 		s.logger.Info("Created pending CAPTURE transaction",
@@ -725,7 +724,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX capture failed", zap.Error(err))
-		return nil, fmt.Errorf("gateway error: %w", err)
+		return nil, domain.ErrGatewayError.WithDetail("operation", "process_transaction")
 	}
 
 	// Update pending transaction with EPX response
@@ -745,13 +744,13 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		metadata,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update transaction with EPX response: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "update_transaction")
 	}
 
 	// Fetch the updated transaction
 	updatedTx, err := s.queries.GetTransactionByID(ctx, txID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get updated transaction: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction")
 	}
 	transaction = sqlcTransactionToDomain(&updatedTx)
 
@@ -769,28 +768,28 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*domain.Transaction, error) {
 	// Validate inputs first (fail-fast)
 	if s.serverPost == nil {
-		return nil, fmt.Errorf("server post adapter not initialized")
+		return nil, domain.ErrInternalError.WithDetail("reason", "server_post_adapter_not_initialized")
 	}
 
 	if req.ParentTransactionID == "" {
-		return nil, fmt.Errorf("parent_transaction_id is required")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "parent_transaction_id")
 	}
 
 	parentTxID, err := uuid.Parse(req.ParentTransactionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid parent_transaction_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "parent_transaction_id")
 	}
 
 	// Get parent transaction to validate access
 	parentTx, err := s.queries.GetTransactionByID(ctx, parentTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get parent transaction: %w", err)
+		return nil, domain.ErrTxnNotFound
 	}
 
 	// Get transaction tree (includes parent + all descendants)
 	groupTxs, err := s.queries.GetTransactionTree(ctx, parentTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction_tree")
 	}
 
 	// Validate access using the parent transaction
@@ -804,7 +803,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
 		txID, err = uuid.Parse(*req.IdempotencyKey)
 		if err != nil {
-			return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+			return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
 		}
 	} else {
 		txID = uuid.New()
@@ -857,12 +856,12 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		// Validate void is allowed
 		canVoid, reason := state.CanVoid()
 		if !canVoid {
-			return fmt.Errorf("void not allowed: %s", reason)
+			return domain.ErrTxnCannotBeVoided.WithDetail("reason", reason)
 		}
 
 		// Get the active AUTH transaction
 		if state.ActiveAuthID == nil {
-			return fmt.Errorf("no active authorization to void")
+			return domain.ErrTxnCannotBeVoided.WithDetail("reason", "no_active_authorization")
 		}
 
 		// Find original AUTH transaction for amount
@@ -874,7 +873,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 			}
 		}
 		if originalAuth == nil {
-			return fmt.Errorf("active authorization transaction not found")
+			return domain.ErrTxnNotFound.WithDetail("reason", "active_authorization_not_found")
 		}
 
 		voidAmountCents = originalAuth.AmountCents
@@ -889,17 +888,17 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		merchantID := uuid.MustParse(domainTxs[0].MerchantID)
 		merchant, err := q.GetMerchantByID(ctx, merchantID)
 		if err != nil {
-			return fmt.Errorf("failed to get merchant: %w", err)
+			return domain.ErrMerchantNotFoundTyped
 		}
 
 		if !merchant.IsActive {
-			return domain.ErrMerchantInactive
+			return domain.ErrMerchantInactiveTyped
 		}
 
 		// Get MAC secret
 		_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 		if err != nil {
-			return fmt.Errorf("failed to get MAC secret: %w", err)
+			return domain.ErrMerchantCredentialFailed
 		}
 
 		return nil // Continue outside transaction for EPX call
@@ -912,7 +911,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	// Re-fetch state outside transaction for EPX call
 	groupTxsRefetch, err := s.queries.GetTransactionTree(ctx, parentTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction_tree")
 	}
 
 	domainTxsRefetch := make([]*domain.Transaction, len(groupTxsRefetch))
@@ -925,7 +924,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	merchantID := uuid.MustParse(domainTxsRefetch[0].MerchantID)
 	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get merchant: %w", err)
+		return nil, domain.ErrMerchantNotFoundTyped
 	}
 
 	// Get BRIC for VOID operation (uses AUTH's BRIC)
@@ -950,7 +949,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 			Metadata:            voidMetadata,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create pending transaction: %w", err)
+			return nil, domain.ErrDatabaseError.WithDetail("operation", "create_pending_transaction")
 		}
 
 		s.logger.Info("Created pending VOID transaction",
@@ -989,7 +988,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX void failed", zap.Error(err))
-		return nil, fmt.Errorf("gateway error: %w", err)
+		return nil, domain.ErrGatewayError.WithDetail("operation", "process_transaction")
 	}
 
 	// Update pending transaction with EPX response
@@ -1010,13 +1009,13 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		metadata,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update transaction with EPX response: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "update_transaction")
 	}
 
 	// Fetch the updated transaction
 	updatedTx, err := s.queries.GetTransactionByID(ctx, txID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get updated transaction: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction")
 	}
 	transaction = sqlcTransactionToDomain(&updatedTx)
 
@@ -1034,28 +1033,28 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (*domain.Transaction, error) {
 	// Validate inputs first (fail-fast)
 	if s.serverPost == nil {
-		return nil, fmt.Errorf("server post adapter not initialized")
+		return nil, domain.ErrInternalError.WithDetail("reason", "server_post_adapter_not_initialized")
 	}
 
 	if req.ParentTransactionID == "" {
-		return nil, fmt.Errorf("parent_transaction_id is required")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "parent_transaction_id")
 	}
 
 	parentTxID, err := uuid.Parse(req.ParentTransactionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid parent_transaction_id format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "parent_transaction_id")
 	}
 
 	// Get parent transaction to validate access
 	parentTx, err := s.queries.GetTransactionByID(ctx, parentTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get parent transaction: %w", err)
+		return nil, domain.ErrTxnNotFound
 	}
 
 	// Get transaction tree (includes parent + all descendants)
 	groupTxs, err := s.queries.GetTransactionTree(ctx, parentTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction_tree")
 	}
 
 	// Validate access using the parent transaction
@@ -1069,7 +1068,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	if req.AmountCents != nil {
 		refundAmountCents = *req.AmountCents
 		if refundAmountCents <= 0 {
-			return nil, fmt.Errorf("amount must be greater than zero")
+			return nil, domain.ErrValidationAmountInvalid.WithDetail("reason", "amount_must_be_positive")
 		}
 	}
 
@@ -1078,7 +1077,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
 		txID, err = uuid.Parse(*req.IdempotencyKey)
 		if err != nil {
-			return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+			return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
 		}
 	} else {
 		txID = uuid.New()
@@ -1142,7 +1141,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 				zap.String("parent_transaction_id", req.ParentTransactionID),
 				zap.String("reason", reason),
 			)
-			return domain.ErrTransactionCannotBeRefunded
+			return domain.ErrTxnCannotBeRefunded
 		}
 
 		s.logger.Info("Refund validation passed",
@@ -1155,17 +1154,17 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		merchantID := uuid.MustParse(domainTxs[0].MerchantID)
 		merchant, err := q.GetMerchantByID(ctx, merchantID)
 		if err != nil {
-			return fmt.Errorf("failed to get merchant: %w", err)
+			return domain.ErrMerchantNotFoundTyped
 		}
 
 		if !merchant.IsActive {
-			return domain.ErrMerchantInactive
+			return domain.ErrMerchantInactiveTyped
 		}
 
 		// Get MAC secret
 		_, err = s.secretManager.GetSecret(ctx, merchant.MacSecretPath)
 		if err != nil {
-			return fmt.Errorf("failed to get MAC secret: %w", err)
+			return domain.ErrMerchantCredentialFailed
 		}
 
 		return nil // Continue outside transaction for EPX call
@@ -1178,7 +1177,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	// Re-fetch state outside transaction for EPX call
 	groupTxsRefetch, err := s.queries.GetTransactionTree(ctx, parentTxID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction_tree")
 	}
 
 	domainTxsRefetch := make([]*domain.Transaction, len(groupTxsRefetch))
@@ -1191,7 +1190,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	merchantID := uuid.MustParse(domainTxsRefetch[0].MerchantID)
 	merchant, err := s.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get merchant: %w", err)
+		return nil, domain.ErrMerchantNotFoundTyped
 	}
 
 	// Get BRIC for REFUND operation (uses CAPTURE's BRIC if available, otherwise AUTH's BRIC)
@@ -1217,7 +1216,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 			Metadata:            refundMetadata,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create pending transaction: %w", err)
+			return nil, domain.ErrDatabaseError.WithDetail("operation", "create_pending_transaction")
 		}
 
 		s.logger.Info("Created pending REFUND transaction",
@@ -1257,7 +1256,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX refund failed", zap.Error(err))
-		return nil, fmt.Errorf("gateway error: %w", err)
+		return nil, domain.ErrGatewayError.WithDetail("operation", "process_transaction")
 	}
 
 	// Update pending transaction with EPX response
@@ -1278,13 +1277,13 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		metadata,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update transaction with EPX response: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "update_transaction")
 	}
 
 	// Fetch the updated transaction
 	updatedTx, err := s.queries.GetTransactionByID(ctx, txID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get updated transaction: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction")
 	}
 	transaction = sqlcTransactionToDomain(&updatedTx)
 
@@ -1302,7 +1301,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 func (s *paymentService) GetTransaction(ctx context.Context, transactionID string) (*domain.Transaction, error) {
 	txID, err := uuid.Parse(transactionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid transaction ID: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "transaction_id")
 	}
 
 	dbTx, err := s.queries.GetTransactionByID(ctx, txID)
@@ -1311,7 +1310,7 @@ func (s *paymentService) GetTransaction(ctx context.Context, transactionID strin
 			zap.String("transaction_id", transactionID),
 			zap.Error(err),
 		)
-		return nil, domain.ErrTransactionNotFound
+		return nil, domain.ErrTxnNotFound
 	}
 
 	return sqlcTransactionToDomain(&dbTx), nil
@@ -1323,7 +1322,7 @@ func (s *paymentService) GetTransactionByIdempotencyKey(ctx context.Context, key
 	// Idempotency key is the transaction ID (UUID)
 	txID, err := uuid.Parse(key)
 	if err != nil {
-		return nil, fmt.Errorf("invalid idempotency_key format: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
 	}
 
 	dbTx, err := s.queries.GetTransactionByID(ctx, txID)
@@ -1332,7 +1331,7 @@ func (s *paymentService) GetTransactionByIdempotencyKey(ctx context.Context, key
 			zap.String("idempotency_key", key),
 			zap.Error(err),
 		)
-		return nil, domain.ErrTransactionNotFound
+		return nil, domain.ErrTxnNotFound
 	}
 
 	return sqlcTransactionToDomain(&dbTx), nil
@@ -1342,7 +1341,7 @@ func (s *paymentService) GetTransactionByIdempotencyKey(ctx context.Context, key
 func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.ListTransactionsFilters) ([]*domain.Transaction, int, error) {
 	// MerchantID is required
 	if filters.MerchantID == nil {
-		return nil, 0, fmt.Errorf("merchant_id is required")
+		return nil, 0, domain.ErrMerchantRequired
 	}
 
 	// Validate service has access to the merchant
@@ -1358,7 +1357,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 
 	merchantID, err := uuid.Parse(resolvedMerchantID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("invalid merchant_id format: %w", err)
+		return nil, 0, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
 	}
 
 	// Set defaults
@@ -1386,7 +1385,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 
 	dbTxs, err := s.queries.ListTransactions(ctx, params)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list transactions: %w", err)
+		return nil, 0, domain.ErrDatabaseError.WithDetail("operation", "list_transactions")
 	}
 
 	countParams := sqlc.CountTransactionsParams{
@@ -1402,7 +1401,7 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 
 	count, err := s.queries.CountTransactions(ctx, countParams)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to count transactions: %w", err)
+		return nil, 0, domain.ErrDatabaseError.WithDetail("operation", "count_transactions")
 	}
 
 	transactions := make([]*domain.Transaction, len(dbTxs))
@@ -1417,13 +1416,13 @@ func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.Li
 func (s *paymentService) GetTransactionsByGroup(ctx context.Context, parentTransactionID string) ([]*domain.Transaction, error) {
 	parentID, err := uuid.Parse(parentTransactionID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid parent transaction ID: %w", err)
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "parent_transaction_id")
 	}
 
 	// Get transaction tree (includes parent + all descendants)
 	groupTxs, err := s.queries.GetTransactionTree(ctx, parentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction tree: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction_tree")
 	}
 
 	transactions := make([]*domain.Transaction, len(groupTxs))
@@ -1548,12 +1547,12 @@ func (s *paymentService) resolvePaymentToken(ctx context.Context, paymentMethodI
 		// Using saved payment method
 		pmID, err := uuid.Parse(*paymentMethodID)
 		if err != nil {
-			return nil, fmt.Errorf("invalid payment_method_id format: %w", err)
+			return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "payment_method_id")
 		}
 
 		dbPM, err := s.queries.GetPaymentMethodByID(ctx, pmID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get payment method: %w", err)
+			return nil, domain.ErrPMNotFound
 		}
 
 		info := &PaymentTokenInfo{
@@ -1571,13 +1570,13 @@ func (s *paymentService) resolvePaymentToken(ctx context.Context, paymentMethodI
 				// Map reason strings to domain errors
 				switch reason {
 				case "payment method is not active":
-					return nil, domain.ErrPaymentMethodInactive
+					return nil, domain.ErrPMInactive
 				case "credit card is expired":
-					return nil, domain.ErrPaymentMethodExpired
+					return nil, domain.ErrPMExpired
 				case "ACH account must be verified before use":
-					return nil, domain.ErrPaymentMethodNotVerified
+					return nil, domain.ErrPMNotVerified
 				default:
-					return nil, fmt.Errorf("payment method cannot be used: %s", reason)
+					return nil, domain.ErrPMInactive.WithDetail("reason", reason)
 				}
 			}
 		}
@@ -1595,7 +1594,7 @@ func (s *paymentService) resolvePaymentToken(ctx context.Context, paymentMethodI
 		}, nil
 	}
 
-	return nil, fmt.Errorf("payment method required: provide payment_method_id or payment_token")
+	return nil, domain.ErrValidationMissingField.WithDetail("field", "payment_method_id or payment_token")
 }
 
 func stringOrEmpty(s *string) string {

@@ -2,14 +2,14 @@ package merchant
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
@@ -154,7 +154,7 @@ func (c *MerchantCredentialCache) fetchAndCache(ctx context.Context, merchantID 
 	merchant, err := c.queries.GetMerchantByID(ctx, merchantID)
 	if err != nil {
 		merchantCacheMisses.WithLabelValues("error").Inc()
-		return nil, fmt.Errorf("failed to fetch merchant: %w", err)
+		return nil, domain.ErrMerchantNotFoundTyped
 	}
 
 	// Check if context was cancelled after DB operation
@@ -169,7 +169,7 @@ func (c *MerchantCredentialCache) fetchAndCache(ctx context.Context, merchantID 
 	secret, err := c.secretMgr.GetSecret(ctx, merchant.MacSecretPath)
 	if err != nil {
 		merchantCacheMisses.WithLabelValues("error").Inc()
-		return nil, fmt.Errorf("failed to fetch MAC secret: %w", err)
+		return nil, domain.ErrMerchantCredentialFailed
 	}
 
 	// Create cached credential

@@ -182,7 +182,7 @@ func TestRegisterMerchant_AlreadyExists(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "merchant_id already exists")
+	assert.True(t, errors.Is(err, domain.ErrMerchantAlreadyExists))
 
 	mockQuerier.AssertExpectations(t)
 }
@@ -195,7 +195,7 @@ func TestRegisterMerchant_MissingCredentials(t *testing.T) {
 	testCases := []struct {
 		name          string
 		req           *ports.RegisterMerchantRequest
-		expectedError string
+		expectedError error
 	}{
 		{
 			name: "Missing CustNbr",
@@ -209,7 +209,7 @@ func TestRegisterMerchant_MissingCredentials(t *testing.T) {
 				MACSecret:    "secret",
 				Environment:  domain.EnvironmentSandbox,
 			},
-			expectedError: "all EPX credentials",
+			expectedError: domain.ErrMerchantMissingCreds,
 		},
 		{
 			name: "Missing MACSecret",
@@ -223,7 +223,7 @@ func TestRegisterMerchant_MissingCredentials(t *testing.T) {
 				MACSecret:    "", // Missing
 				Environment:  domain.EnvironmentSandbox,
 			},
-			expectedError: "mac_secret is required",
+			expectedError: domain.ErrValidationMissingField,
 		},
 	}
 
@@ -237,7 +237,7 @@ func TestRegisterMerchant_MissingCredentials(t *testing.T) {
 
 			assert.Error(t, err)
 			assert.Nil(t, result)
-			assert.Contains(t, err.Error(), tc.expectedError)
+			assert.True(t, errors.Is(err, tc.expectedError))
 		})
 	}
 }
@@ -287,7 +287,7 @@ func TestGetMerchant_NotFound(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "merchant not found")
+	assert.True(t, errors.Is(err, domain.ErrMerchantNotFoundTyped))
 
 	mockQuerier.AssertExpectations(t)
 }
@@ -461,7 +461,7 @@ func TestRotateMerchantMAC_InactiveMerchant(t *testing.T) {
 	err := service.RotateMerchantMAC(ctx, req)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot rotate MAC for inactive merchant")
+	assert.True(t, errors.Is(err, domain.ErrMerchantInactiveTyped))
 
 	mockQuerier.AssertExpectations(t)
 }
@@ -501,7 +501,7 @@ func TestRegisterMerchant_SecretManagerFailure(t *testing.T) {
 	// Should fail with secret manager error
 	assert.Error(t, err)
 	assert.Nil(t, merchant)
-	assert.Contains(t, err.Error(), "failed to store MAC secret")
+	assert.True(t, errors.Is(err, domain.ErrMerchantCredentialFailed))
 
 	// Verify database was NOT called because secret storage failed first
 	mockQuerier.AssertNotCalled(t, "CreateMerchant")
@@ -550,7 +550,7 @@ func TestRegisterMerchant_DatabaseFailureAfterSecretStored(t *testing.T) {
 	// Should fail
 	assert.Error(t, err)
 	assert.Nil(t, merchant)
-	assert.Contains(t, err.Error(), "failed to create merchant")
+	assert.True(t, errors.Is(err, domain.ErrDatabaseError))
 
 	// This is a PAIN POINT: Secret exists in vault but no merchant in DB
 	// Vault operations are NOT rolled back when DB transaction fails
@@ -592,7 +592,7 @@ func TestUpdateMerchant_SecretRotationFailure(t *testing.T) {
 
 	// Should fail rotation
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to rotate MAC secret")
+	assert.True(t, errors.Is(err, domain.ErrMerchantCredentialFailed))
 
 	mockQuerier.AssertExpectations(t)
 	mockSecretManager.AssertExpectations(t)
@@ -662,7 +662,7 @@ func TestDeactivateMerchant_DatabaseError(t *testing.T) {
 
 	// Should fail deactivation
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to deactivate merchant")
+	assert.True(t, errors.Is(err, domain.ErrDatabaseError))
 
 	// This is a PAIN POINT: Merchant remains active, potentially processing payments
 	// when they shouldn't be
@@ -688,7 +688,7 @@ func TestListMerchants_CountError(t *testing.T) {
 
 	// Should fail
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to count merchants")
+	assert.True(t, errors.Is(err, domain.ErrDatabaseError))
 	assert.Nil(t, merchants)
 	assert.Equal(t, 0, total)
 

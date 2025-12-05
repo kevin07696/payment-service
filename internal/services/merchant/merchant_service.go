@@ -57,20 +57,20 @@ func (s *merchantService) RegisterMerchant(ctx context.Context, req *ports.Regis
 	// Validate merchant_id is unique
 	exists, err := s.queries.MerchantExistsBySlug(ctx, req.AgentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check merchant existence: %w", err)
+		return nil, domain.ErrDatabaseError.WithDetail("operation", "check_merchant_existence")
 	}
 	if exists {
-		return nil, fmt.Errorf("merchant_id already exists")
+		return nil, domain.ErrMerchantAlreadyExists
 	}
 
 	// Validate EPX credentials are provided
 	if req.CustNbr == "" || req.MerchNbr == "" || req.DBAnbr == "" || req.TerminalNbr == "" {
-		return nil, fmt.Errorf("all EPX credentials (cust_nbr, merch_nbr, dba_nbr, terminal_nbr) are required")
+		return nil, domain.ErrMerchantMissingCreds
 	}
 
 	// Validate MAC secret is provided
 	if req.MACSecret == "" {
-		return nil, fmt.Errorf("mac_secret is required")
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "mac_secret")
 	}
 
 	// Generate MAC secret path
@@ -81,7 +81,7 @@ func (s *merchantService) RegisterMerchant(ctx context.Context, req *ports.Regis
 		// Store MAC secret in secret manager
 		_, err := s.secretManager.PutSecret(ctx, macSecretPath, req.MACSecret, nil)
 		if err != nil {
-			return fmt.Errorf("failed to store MAC secret: %w", err)
+			return domain.ErrMerchantCredentialFailed.WithDetail("operation", "store_mac_secret")
 		}
 
 		// Create merchant in database
@@ -100,7 +100,7 @@ func (s *merchantService) RegisterMerchant(ctx context.Context, req *ports.Regis
 
 		dbMerchant, err := q.CreateMerchant(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to create merchant: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "create_merchant")
 		}
 
 		merchant = sqlcMerchantToDomain(&dbMerchant)
@@ -127,7 +127,7 @@ func (s *merchantService) GetMerchant(ctx context.Context, agentID string) (*dom
 			zap.String("merchant_id", agentID),
 			zap.Error(err),
 		)
-		return nil, fmt.Errorf("merchant not found: %w", err)
+		return nil, domain.ErrMerchantNotFoundTyped
 	}
 
 	return sqlcMerchantToDomain(&dbMerchant), nil
@@ -154,7 +154,7 @@ func (s *merchantService) ListMerchants(ctx context.Context, environment *domain
 
 	dbMerchants, err := s.queries.ListMerchants(ctx, params)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list merchants: %w", err)
+		return nil, 0, domain.ErrDatabaseError.WithDetail("operation", "list_merchants")
 	}
 
 	countParams := sqlc.CountMerchantsParams{
@@ -164,7 +164,7 @@ func (s *merchantService) ListMerchants(ctx context.Context, environment *domain
 
 	count, err := s.queries.CountMerchants(ctx, countParams)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to count merchants: %w", err)
+		return nil, 0, domain.ErrDatabaseError.WithDetail("operation", "count_merchants")
 	}
 
 	merchants := make([]*domain.Merchant, len(dbMerchants))
@@ -192,7 +192,7 @@ func (s *merchantService) UpdateMerchant(ctx context.Context, req *ports.UpdateM
 	// Get existing merchant
 	existing, err := s.queries.GetMerchantBySlug(ctx, req.AgentID)
 	if err != nil {
-		return nil, fmt.Errorf("merchant not found: %w", err)
+		return nil, domain.ErrMerchantNotFoundTyped
 	}
 
 	var merchant *domain.Merchant
@@ -201,7 +201,7 @@ func (s *merchantService) UpdateMerchant(ctx context.Context, req *ports.UpdateM
 		if req.MACSecret != nil {
 			_, err := s.secretManager.PutSecret(ctx, existing.MacSecretPath, *req.MACSecret, nil)
 			if err != nil {
-				return fmt.Errorf("failed to update MAC secret: %w", err)
+				return domain.ErrMerchantCredentialFailed.WithDetail("operation", "update_mac_secret")
 			}
 		}
 
@@ -218,7 +218,7 @@ func (s *merchantService) UpdateMerchant(ctx context.Context, req *ports.UpdateM
 
 		dbMerchant, err := q.UpdateMerchant(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to update merchant: %w", err)
+			return domain.ErrDatabaseError.WithDetail("operation", "update_merchant")
 		}
 
 		merchant = sqlcMerchantToDomain(&dbMerchant)
@@ -246,12 +246,12 @@ func (s *merchantService) DeactivateMerchant(ctx context.Context, agentID, reaso
 	// Get merchant to retrieve UUID
 	merchant, err := s.queries.GetMerchantBySlug(ctx, agentID)
 	if err != nil {
-		return fmt.Errorf("merchant not found: %w", err)
+		return domain.ErrMerchantNotFoundTyped
 	}
 
 	err = s.queries.DeactivateMerchant(ctx, merchant.ID)
 	if err != nil {
-		return fmt.Errorf("failed to deactivate merchant: %w", err)
+		return domain.ErrDatabaseError.WithDetail("operation", "deactivate_merchant")
 	}
 
 	s.logger.Info("Merchant deactivated successfully",
@@ -270,17 +270,17 @@ func (s *merchantService) RotateMerchantMAC(ctx context.Context, req *ports.Rota
 	// Get merchant to retrieve MAC secret path
 	merchant, err := s.queries.GetMerchantBySlug(ctx, req.AgentID)
 	if err != nil {
-		return fmt.Errorf("merchant not found: %w", err)
+		return domain.ErrMerchantNotFoundTyped
 	}
 
 	if !merchant.IsActive {
-		return fmt.Errorf("cannot rotate MAC for inactive merchant")
+		return domain.ErrMerchantInactiveTyped
 	}
 
 	// Update MAC secret in secret manager
 	_, err = s.secretManager.PutSecret(ctx, merchant.MacSecretPath, req.NewMACSecret, nil)
 	if err != nil {
-		return fmt.Errorf("failed to rotate MAC secret: %w", err)
+		return domain.ErrMerchantCredentialFailed.WithDetail("operation", "rotate_mac_secret")
 	}
 
 	s.logger.Info("MAC secret rotated successfully",
@@ -294,7 +294,7 @@ func (s *merchantService) RotateMerchantMAC(ctx context.Context, req *ports.Rota
 func (s *merchantService) getMerchantByIdempotencyKey(ctx context.Context, key string) (*domain.Merchant, error) {
 	// Note: This would require adding idempotency_key to merchants table
 	// For now, returning not found error
-	return nil, fmt.Errorf("merchant not found")
+	return nil, domain.ErrMerchantNotFoundTyped
 }
 
 // Helper functions

@@ -17,6 +17,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/ports"
 )
 
 // DatabaseAdapter defines the interface for database operations
@@ -54,8 +56,8 @@ func NewWebhookDeliveryService(db DatabaseAdapter, httpClient *http.Client, logg
 	}
 }
 
-// DeliverEvent delivers a webhook event to all subscribed endpoints
-func (s *WebhookDeliveryService) DeliverEvent(ctx context.Context, event *WebhookEvent) error {
+// deliverInternalEvent delivers a webhook event to all subscribed endpoints (internal type)
+func (s *WebhookDeliveryService) deliverInternalEvent(ctx context.Context, event *WebhookEvent) error {
 	s.logger.Info("Delivering webhook event",
 		zap.String("event_type", event.EventType),
 		zap.String("merchant_id", event.MerchantID),
@@ -73,7 +75,7 @@ func (s *WebhookDeliveryService) DeliverEvent(ctx context.Context, event *Webhoo
 			zap.String("merchant_id", event.MerchantID),
 			zap.String("event_type", event.EventType),
 		)
-		return fmt.Errorf("fetch webhook subscriptions: %w", err)
+		return domain.ErrDatabaseError.WithDetail("operation", "fetch_webhook_subscriptions")
 	}
 
 	if len(subscriptions) == 0 {
@@ -109,7 +111,7 @@ func (s *WebhookDeliveryService) deliverToSubscription(
 	// Serialize event payload
 	payload, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("marshal event payload: %w", err)
+		return domain.ErrInternalError.WithDetail("operation", "marshal_event_payload")
 	}
 
 	// Generate signature
@@ -230,9 +232,85 @@ func (s *WebhookDeliveryService) recordDeliveryFailure(
 		zap.Time("next_retry", nextRetry),
 	)
 
-	return fmt.Errorf("webhook delivery failed: %s", errorMessage)
+	return domain.ErrWebhookDeliveryFailed.WithDetail("error", errorMessage)
 }
 
 // Note: RetryFailedDeliveries was removed - webhook retry is handled by
 // the initial delivery function with exponential backoff. A separate
 // cron-based retry wasn't implemented.
+
+// Ensure WebhookDeliveryService implements ports.WebhookService
+var _ ports.WebhookService = (*WebhookDeliveryService)(nil)
+
+// DeliverInternalEvent delivers a webhook event using the internal WebhookEvent type
+// This is used by internal callers (like dispute_sync_handler) that work with the internal type
+func (s *WebhookDeliveryService) DeliverInternalEvent(ctx context.Context, event *WebhookEvent) error {
+	return s.deliverInternalEvent(ctx, event)
+}
+
+// DeliverEvent delivers a webhook event to all subscribed endpoints (satisfies ports.WebhookService)
+func (s *WebhookDeliveryService) DeliverEvent(ctx context.Context, event *ports.WebhookEvent) error {
+	// Convert ports.WebhookEvent to internal WebhookEvent
+	internalEvent := &WebhookEvent{
+		EventType:  string(event.EventType),
+		MerchantID: event.MerchantID,
+		Data:       event.Data,
+		Timestamp:  event.Timestamp,
+	}
+	return s.deliverInternalEvent(ctx, internalEvent)
+}
+
+// SendSubscriptionCancelled sends a subscription.cancelled webhook event
+func (s *WebhookDeliveryService) SendSubscriptionCancelled(ctx context.Context, subscriptionID uuid.UUID, merchantID string, reason string) error {
+	event := &ports.WebhookEvent{
+		EventType:  ports.WebhookEventSubscriptionCancelled,
+		MerchantID: merchantID,
+		Data: map[string]interface{}{
+			"subscription_id": subscriptionID.String(),
+			"reason":          reason,
+		},
+		Timestamp: time.Now(),
+	}
+	return s.DeliverEvent(ctx, event)
+}
+
+// SendSubscriptionPastDue sends a subscription.past_due webhook event
+func (s *WebhookDeliveryService) SendSubscriptionPastDue(ctx context.Context, subscriptionID uuid.UUID, merchantID string) error {
+	event := &ports.WebhookEvent{
+		EventType:  ports.WebhookEventSubscriptionPastDue,
+		MerchantID: merchantID,
+		Data: map[string]interface{}{
+			"subscription_id": subscriptionID.String(),
+		},
+		Timestamp: time.Now(),
+	}
+	return s.DeliverEvent(ctx, event)
+}
+
+// SendPaymentSucceeded sends a payment.succeeded webhook event
+func (s *WebhookDeliveryService) SendPaymentSucceeded(ctx context.Context, transactionID uuid.UUID, merchantID string, amountCents int64) error {
+	event := &ports.WebhookEvent{
+		EventType:  ports.WebhookEventPaymentSucceeded,
+		MerchantID: merchantID,
+		Data: map[string]interface{}{
+			"transaction_id": transactionID.String(),
+			"amount_cents":   amountCents,
+		},
+		Timestamp: time.Now(),
+	}
+	return s.DeliverEvent(ctx, event)
+}
+
+// SendPaymentFailed sends a payment.failed webhook event
+func (s *WebhookDeliveryService) SendPaymentFailed(ctx context.Context, transactionID uuid.UUID, merchantID string, reason string) error {
+	event := &ports.WebhookEvent{
+		EventType:  ports.WebhookEventPaymentFailed,
+		MerchantID: merchantID,
+		Data: map[string]interface{}{
+			"transaction_id": transactionID.String(),
+			"reason":         reason,
+		},
+		Timestamp: time.Now(),
+	}
+	return s.DeliverEvent(ctx, event)
+}

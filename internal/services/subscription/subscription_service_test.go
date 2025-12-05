@@ -253,7 +253,7 @@ func TestCreateSubscription_PaymentMethodNotFound(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "payment method not found")
+	assert.True(t, errors.Is(err, domain.ErrPMNotFound), "expected ErrPMNotFound")
 
 	mockQuerier.AssertExpectations(t)
 }
@@ -596,7 +596,7 @@ func TestUpdateSubscription_PaymentMethodNotFound(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "payment method not found")
+	assert.True(t, errors.Is(err, domain.ErrPMNotFound), "expected ErrPMNotFound")
 
 	mockQuerier.AssertExpectations(t)
 	mockTxManager.AssertExpectations(t)
@@ -924,7 +924,7 @@ func TestGetSubscription_NotFound(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "subscription not found")
+	assert.True(t, errors.Is(err, domain.ErrSubscriptionNotFound), "expected ErrSubscriptionNotFound")
 
 	mockQuerier.AssertExpectations(t)
 }

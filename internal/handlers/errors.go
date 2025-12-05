@@ -43,30 +43,22 @@ func HandleServiceErrorConnect(err error, logger *zap.Logger) error {
 	case errors.Is(err, domain.ErrMerchantRequired):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("merchant_id is required"))
 
-	// Merchant Errors - Legacy sentinel errors (backward compatibility)
-	case errors.Is(err, domain.ErrMerchantNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("merchant not found"))
-	case errors.Is(err, domain.ErrMerchantInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("merchant is inactive"))
-	case errors.Is(err, domain.ErrInvalidEnvironment):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid environment"))
-
 	// ============================================================
 	// Transaction Errors
 	// ============================================================
-	case errors.Is(err, domain.ErrTxnNotFound), errors.Is(err, domain.ErrTransactionNotFound):
+	case errors.Is(err, domain.ErrTxnNotFound):
 		return connect.NewError(connect.CodeNotFound, errors.New("transaction not found"))
-	case errors.Is(err, domain.ErrTxnCannotBeVoided), errors.Is(err, domain.ErrTransactionCannotBeVoided):
+	case errors.Is(err, domain.ErrTxnCannotBeVoided):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("transaction cannot be voided"))
-	case errors.Is(err, domain.ErrTxnCannotBeCaptured), errors.Is(err, domain.ErrTransactionCannotBeCaptured):
+	case errors.Is(err, domain.ErrTxnCannotBeCaptured):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("transaction cannot be captured"))
-	case errors.Is(err, domain.ErrTxnCannotBeRefunded), errors.Is(err, domain.ErrTransactionCannotBeRefunded):
+	case errors.Is(err, domain.ErrTxnCannotBeRefunded):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("transaction cannot be refunded"))
-	case errors.Is(err, domain.ErrTxnDeclined), errors.Is(err, domain.ErrTransactionDeclined):
+	case errors.Is(err, domain.ErrTxnDeclined):
 		return connect.NewError(connect.CodeAborted, errors.New("transaction was declined"))
 
 	// ============================================================
-	// Payment Method Errors - New DomainError instances
+	// Payment Method Errors
 	// ============================================================
 	case errors.Is(err, domain.ErrPMNotFound):
 		return connect.NewError(connect.CodeNotFound, errors.New("payment method not found"))
@@ -81,18 +73,6 @@ func HandleServiceErrorConnect(err error, logger *zap.Logger) error {
 	case errors.Is(err, domain.ErrPMNotBelongToCustomer):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("payment method does not belong to customer"))
 
-	// Payment Method Errors - Legacy sentinel errors (backward compatibility)
-	case errors.Is(err, domain.ErrPaymentMethodNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("payment method not found"))
-	case errors.Is(err, domain.ErrPaymentMethodExpired):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is expired"))
-	case errors.Is(err, domain.ErrPaymentMethodNotVerified):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("ACH payment method must be verified before use"))
-	case errors.Is(err, domain.ErrPaymentMethodInactive):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("payment method is not active"))
-	case errors.Is(err, domain.ErrInvalidPaymentMethodType):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid payment method type"))
-
 	// ============================================================
 	// Subscription Errors
 	// ============================================================
@@ -102,7 +82,7 @@ func HandleServiceErrorConnect(err error, logger *zap.Logger) error {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("subscription is not active"))
 	case errors.Is(err, domain.ErrSubscriptionAlreadyCancelled):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("subscription is already cancelled"))
-	case errors.Is(err, domain.ErrInvalidBillingInterval):
+	case errors.Is(err, domain.ErrSubscriptionInvalidInterval):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid billing interval"))
 
 	// ============================================================

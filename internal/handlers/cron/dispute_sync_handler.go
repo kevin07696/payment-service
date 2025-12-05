@@ -76,8 +76,8 @@ func (h *DisputeSyncHandler) startWebhookWorkers() {
 					h.logger.Info("Webhook delivery worker stopped", zap.Int("worker_id", workerID))
 					return
 				case job := <-h.webhookJobs:
-					// Deliver webhook
-					if err := h.webhookService.DeliverEvent(job.ctx, job.event); err != nil {
+					// Deliver webhook using internal event type
+					if err := h.webhookService.DeliverInternalEvent(job.ctx, job.event); err != nil {
 						h.logger.Error("Failed to deliver chargeback webhook",
 							zap.Int("worker_id", workerID),
 							zap.String("event_type", job.eventType),
