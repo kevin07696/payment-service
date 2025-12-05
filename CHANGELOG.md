@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-12-05)
+
+**Distributed Tracing and Request Correlation**
+
+Full observability implementation for debugging and tracing production issues:
+
+- **OpenTelemetry Integration** (`cmd/server/main.go`):
+  - Initialized distributed tracing with OTLP HTTP exporter
+  - Configurable via `TRACING_ENABLED`, `OTLP_ENDPOINT`, `TRACING_SAMPLE_RATE`
+  - Default 10% sampling rate, set to 1.0 for full sampling in development
+  - Proper shutdown handling for trace export
+
+- **Request Correlation** (`pkg/middleware/connect_interceptors.go`):
+  - Enhanced `LoggingInterceptor` to include correlation fields in all logs:
+    - `request_id` - Unique ID per request for log correlation
+    - `merchant_id` - Merchant context for filtering
+    - `service_id` - Service account identification
+    - `trace_id` - OpenTelemetry trace ID for distributed tracing
+    - `span_id` - OpenTelemetry span ID for request spans
+  - Added request duration logging for performance monitoring
+  - Added `error_code` for Connect error classification
+  - Enhanced `RecoveryInterceptor` with same correlation fields
+
+- **Tracing Interceptor** (`pkg/observability/tracing_interceptor.go`):
+  - Added to middleware chain for automatic span creation
+  - Extracts trace context from incoming request headers
+  - Injects trace context into response headers
+  - Records errors with Connect status codes
+
+- **ContextLogger Helper** (`pkg/middleware/connect_interceptors.go`):
+  - `ContextLogger(ctx, logger)` - Returns logger with pre-populated correlation fields
+  - Use in handlers/services for automatic correlation
+
+**Environment Variables:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRACING_ENABLED` | `false` | Enable/disable OpenTelemetry tracing |
+| `OTLP_ENDPOINT` | `localhost:4318` | OTLP HTTP endpoint (Jaeger, Tempo, etc.) |
+| `TRACING_SAMPLE_RATE` | `0.1` | Sampling rate (0.0-1.0, 1.0 = 100%) |
+
+**Example Log Output:**
+```json
+{
+  "level": "info",
+  "msg": "RPC request",
+  "request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "merchant_id": "ea164cb1-3995-4f62-b331-f846ecf42f2d",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "span_id": "00f067aa0ba902b7",
+  "procedure": "/payment.v1.PaymentService/Authorize",
+  "protocol": "connect",
+  "duration": "45.123ms"
+}
+```
+
 ### Changed (2025-12-04)
 
 **API_SPECS.md Documentation - Real Response Examples**

@@ -39,6 +39,7 @@ import (
 	webhookService "github.com/kevin07696/payment-service/internal/services/webhook"
 	pkghttp "github.com/kevin07696/payment-service/pkg/http"
 	"github.com/kevin07696/payment-service/pkg/middleware"
+	"github.com/kevin07696/payment-service/pkg/observability"
 	"github.com/kevin07696/payment-service/pkg/resilience"
 	"github.com/kevin07696/payment-service/pkg/resourcemgmt"
 	"github.com/kevin07696/payment-service/pkg/security"
@@ -61,6 +62,35 @@ func main() {
 
 	// Load configuration from environment
 	cfg := loadConfig(logger)
+
+	// Initialize OpenTelemetry distributed tracing
+	tracingConfig := observability.TracingConfig{
+		ServiceName:    "payment-service",
+		ServiceVersion: "0.1.0",
+		Environment:    getEnv("ENVIRONMENT", "development"),
+		Endpoint:       getEnv("OTLP_ENDPOINT", "localhost:4318"),
+		Enabled:        getEnv("TRACING_ENABLED", "false") == "true",
+		SampleRate:     getTracingSampleRate(),
+	}
+
+	_, shutdownTracing, err := observability.InitTracing(context.Background(), tracingConfig)
+	if err != nil {
+		logger.Fatal("Failed to initialize tracing", zap.Error(err))
+	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			logger.Error("Error shutting down tracing", zap.Error(err))
+		}
+	}()
+
+	if tracingConfig.Enabled {
+		logger.Info("Distributed tracing enabled",
+			zap.String("endpoint", tracingConfig.Endpoint),
+			zap.Float64("sample_rate", tracingConfig.SampleRate),
+		)
+	} else {
+		logger.Info("Distributed tracing disabled (set TRACING_ENABLED=true to enable)")
+	}
 
 	// Initialize database connection pool
 	dbPool, err := initDatabase(cfg, logger)
@@ -100,6 +130,12 @@ func main() {
 	}
 
 	// Create Connect interceptors
+	// Order matters: outermost (first) to innermost (last)
+	// 1. Timeout - outermost, enforces request deadlines
+	// 2. Tracing - extracts/injects trace context, creates spans
+	// 3. Recovery - catches panics before they crash the server
+	// 4. Logging - logs request/response with correlation IDs
+	// 5. Auth - validates JWT/API key (innermost before handler)
 	var interceptorList []connect.Interceptor
 
 	// Add timeout interceptor first (outermost layer)
@@ -107,7 +143,10 @@ func main() {
 	timeoutInterceptor := middleware.NewTimeoutInterceptor(timeoutConfig, logger)
 	interceptorList = append(interceptorList, timeoutInterceptor)
 
-	// Recovery and logging interceptors
+	// Add tracing interceptor (extracts trace context, creates spans)
+	interceptorList = append(interceptorList, observability.TracingInterceptor())
+
+	// Recovery and logging interceptors (logging now includes trace_id, request_id)
 	interceptorList = append(interceptorList, middleware.RecoveryInterceptor(logger))
 	interceptorList = append(interceptorList, middleware.LoggingInterceptor(logger))
 
@@ -819,6 +858,20 @@ func getEnvInt(key string, defaultValue int) int {
 func getEnvDuration(key string, defaultMinutes int) time.Duration {
 	minutes := getEnvInt(key, defaultMinutes)
 	return time.Duration(minutes) * time.Minute
+}
+
+// getTracingSampleRate returns the tracing sample rate from environment
+// Default is 0.1 (10%) for production, can be set to 1.0 for full sampling in dev
+func getTracingSampleRate() float64 {
+	value := os.Getenv("TRACING_SAMPLE_RATE")
+	if value == "" {
+		return 0.1 // Default 10% sampling
+	}
+	rate, err := strconv.ParseFloat(value, 64)
+	if err != nil || rate < 0 || rate > 1 {
+		return 0.1 // Invalid value, use default
+	}
+	return rate
 }
 
 // requireEnv returns the environment variable value or fails if not set
