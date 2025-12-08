@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/kevin07696/payment-service/internal/adapters/gcp"
 	"github.com/kevin07696/payment-service/internal/adapters/mock"
-	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/adapters/secrets"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"go.uber.org/zap"
 )
 
@@ -31,7 +32,7 @@ import (
 //   - VAULT_SECRET_ID: Vault AppRole secret ID (for approle auth)
 //   - LOCAL_SECRETS_BASE_PATH: Base path for local file secrets (required when SECRET_MANAGER=local)
 //   - SECRET_CACHE_TTL_MINUTES: Cache TTL in minutes (default: 5)
-func initSecretManager(ctx context.Context, cfg *Config, logger *zap.Logger) ports.SecretManagerAdapter {
+func initSecretManager(ctx context.Context, logger *zap.Logger) ports.SecretManagerAdapter {
 	secretManagerType := getEnv("SECRET_MANAGER", "mock")
 
 	switch secretManagerType {
@@ -64,7 +65,7 @@ func initGCPSecretManager(ctx context.Context, logger *zap.Logger) ports.SecretM
 
 	// Allow customizing cache TTL via environment variable
 	if cacheTTLMinutes := getEnvInt("SECRET_CACHE_TTL_MINUTES", 0); cacheTTLMinutes > 0 {
-		config.CacheTTL = getEnvDuration("SECRET_CACHE_TTL_MINUTES", 5) * 60 // Convert minutes to seconds
+		config.CacheTTL = time.Duration(cacheTTLMinutes) * time.Minute
 	}
 
 	sm, err := gcp.NewGCPSecretManager(ctx, config, logger)
@@ -106,7 +107,7 @@ func initAWSSecretsManager(ctx context.Context, logger *zap.Logger) ports.Secret
 
 	// Allow customizing cache TTL via environment variable
 	if cacheTTLMinutes := getEnvInt("SECRET_CACHE_TTL_MINUTES", 0); cacheTTLMinutes > 0 {
-		config.CacheTTL = getEnvDuration("SECRET_CACHE_TTL_MINUTES", 5) * 60
+		config.CacheTTL = time.Duration(cacheTTLMinutes) * time.Minute
 	}
 
 	sm, err := secrets.NewAWSSecretsManagerAdapter(ctx, config, logger)
@@ -175,7 +176,7 @@ func initVaultAdapter(ctx context.Context, logger *zap.Logger) ports.SecretManag
 
 	// Cache TTL
 	if cacheTTLMinutes := getEnvInt("SECRET_CACHE_TTL_MINUTES", 0); cacheTTLMinutes > 0 {
-		config.CacheTTL = getEnvDuration("SECRET_CACHE_TTL_MINUTES", 5) * 60
+		config.CacheTTL = time.Duration(cacheTTLMinutes) * time.Minute
 	}
 
 	sm, err := secrets.NewVaultAdapter(ctx, config, logger)

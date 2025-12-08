@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -595,7 +596,7 @@ func (cli *PayCLI) createMerchant(jsonFile string) {
 	}
 
 	// Note about authentication
-	output["authentication_note"] = "To authenticate API requests for this merchant, create a Service (./admin -action=create-service) and grant it access (./admin -action=grant-access)"
+	output["authentication_note"] = "To authenticate API requests for this merchant, create a Service (paycli -action=create-service) and grant it access (paycli -action=grant-access)"
 
 	data, _ := json.MarshalIndent(output, "", "  ")
 	if err := os.WriteFile(outputFile, data, 0600); err != nil {
@@ -612,8 +613,8 @@ func (cli *PayCLI) createMerchant(jsonFile string) {
 	fmt.Printf("Tier: %s\n", merchantData.Tier)
 	fmt.Printf("Rate Limit: %d req/s\n", merchantData.RequestsPerSecond)
 	fmt.Printf("\n📝 Next Steps:\n")
-	fmt.Printf("  1. Create a Service: ./admin -action=create-service\n")
-	fmt.Printf("  2. Grant access: ./admin -action=grant-access\n")
+	fmt.Printf("  1. Create a Service: paycli -action=create-service\n")
+	fmt.Printf("  2. Grant access: paycli -action=grant-access\n")
 	fmt.Printf("  3. Service uses RSA private key to sign JWT tokens\n")
 	fmt.Printf("\n📁 Info saved to: %s\n", outputFile)
 	fmt.Println("========================================")
@@ -774,7 +775,7 @@ func getDefaultDBURL() string {
 		}
 
 		if password != "" {
-			return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", user, password, host, port, name, sslMode)
+			return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", user, url.QueryEscape(password), host, port, name, sslMode)
 		}
 		return fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=%s", user, host, port, name, sslMode)
 	}
@@ -808,7 +809,7 @@ func generateToken(credsFile, expires, scopeStr, outputFmt string, decode bool) 
 	// Validate required flags
 	if credsFile == "" {
 		fmt.Fprintln(os.Stderr, "Error: credentials file is required (-c or --credentials)")
-		fmt.Fprintln(os.Stderr, "Usage: admin -action=generate-token -c <credentials.json>")
+		fmt.Fprintln(os.Stderr, "Usage: paycli -action=generate-token -c <credentials.json>")
 		os.Exit(1)
 	}
 

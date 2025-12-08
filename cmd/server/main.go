@@ -697,7 +697,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 
 	// Initialize secret manager based on environment
 	// Supports: GCP Secret Manager (production) or Mock (development)
-	secretManager := initSecretManager(context.Background(), cfg, logger)
+	secretManager := initSecretManager(context.Background(), logger)
 
 	// Auto-seed sandbox merchant in development/staging (not production)
 	seeder := seed.NewSeeder(queries, secretManager, logger)

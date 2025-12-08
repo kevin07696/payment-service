@@ -1,4 +1,4 @@
-.PHONY: help build test run docker-build docker-up docker-down docker-logs proto clean docs docs-validate docs-api docs-schema
+.PHONY: help build test test-unit test-integration test-cover test-integration-cover run docker-build docker-down docker-logs docker-rebuild docker-up test-db-up test-db-down test-db-logs proto clean sqlc migrate-up migrate-down migrate-status migrate-create paycli lint deps tidy docs docs-validate docs-api docs-schema docs-sync-wiki
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'

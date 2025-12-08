@@ -15,7 +15,7 @@ The payment-service uses PostgreSQL (`pgx/v5` driver), but the staging environme
 
 ### Architecture
 
-```
+```text
 ┌────────────────────────────────────────────────────────────────┐
 │                  Oracle Cloud Free Tier                        │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -25,7 +25,7 @@ The payment-service uses PostgreSQL (`pgx/v5` driver), but the staging environme
 │  │  │  ┌─────────────────┐    ┌────────────────────────┐  │  │  │
 │  │  │  │  PostgreSQL     │    │  Payment Service       │  │  │  │
 │  │  │  │  (postgres:15)  │◄───│  (payment-server)      │  │  │  │
-│  │  │  │  Port: 5432     │    │  Ports: 8080, 8081     │  │  │  │
+│  │  │  │  Port: 5432     │    │  Port: 8081            │  │  │  │
 │  │  │  └─────────────────┘    └────────────────────────┘  │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └──────────────────────────────────────────────────────────┘  │

@@ -68,41 +68,41 @@ jobs:
 
       - name: Create wiki sidebar
         run: |
-          cat > wiki/_Sidebar.md <<EOF
-          # Payment Service Wiki
+          cat > wiki/_Sidebar.md << 'EOF'
+# Payment Service Wiki
 
-          ## 🚀 Getting Started
-          - [Home](Home)
-          - [Quick Start](Home#quick-start)
+## 🚀 Getting Started
+- [Home](Home)
+- [Quick Start](Home#quick-start)
 
-          ## 📖 Integration Guides
-          - [Payment CLI](PAYMENT_CLI)
-          - [React Integration](REACT_INTEGRATION)
-          - [API Specifications](API_SPECS)
-          - [Browser Post Form Setup](BROWSER_POST_FORM_SETUP)
-          - [Token Generation](TOKEN_GENERATION)
+## 📖 Integration Guides
+- [Payment CLI](PAYMENT_CLI)
+- [React Integration](REACT_INTEGRATION)
+- [API Specifications](API_SPECS)
+- [Browser Post Form Setup](BROWSER_POST_FORM_SETUP)
+- [Token Generation](TOKEN_GENERATION)
 
-          ## 🛠️ Development
-          - [Authentication](Dev-AUTH)
-          - [Setup](Dev-SETUP)
-          - [Development Guide](Dev-DEVELOP)
-          - [Database](Dev-DATABASE)
+## 🛠️ Development
+- [Authentication](Dev-AUTH)
+- [Setup](Dev-SETUP)
+- [Development Guide](Dev-DEVELOP)
+- [Database](Dev-DATABASE)
 
-          ## 📚 Reference
-          - [Style Guide](DOCUMENTATION_STYLE_GUIDE)
-          - [Changelog](https://github.com/kevin07696/payment-service/blob/main/CHANGELOG.md)
-          EOF
+## 📚 Reference
+- [Style Guide](DOCUMENTATION_STYLE_GUIDE)
+- [Changelog](https://github.com/kevin07696/payment-service/blob/main/CHANGELOG.md)
+EOF
 
       - name: Create wiki footer
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
           COMMIT_DATE=$(date '+%Y-%m-%d %H:%M:%S')
-          cat > wiki/_Footer.md <<EOF
-          ---
-          **Last synced:** $COMMIT_DATE | **Commit:** [\`$COMMIT_SHA\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)
+          cat > wiki/_Footer.md << EOF
+---
+**Last synced:** $COMMIT_DATE | **Commit:** [\`$COMMIT_SHA\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)
 
-          [📖 View on GitHub](https://github.com/${{ github.repository }}) | [🐛 Report Issue](https://github.com/${{ github.repository }}/issues)
-          EOF
+[📖 View on GitHub](https://github.com/${{ github.repository }}) | [🐛 Report Issue](https://github.com/${{ github.repository }}/issues)
+EOF
 
       - name: Commit and push to wiki
         run: |
