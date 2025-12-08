@@ -701,8 +701,7 @@ Before committing error handling code:
 
 ## Related Documentation
 
-- **[STYLE_GUIDE.md](./STYLE_GUIDE.md)** - Code style conventions
-- **[TESTING_GUIDE.md](./TESTING_GUIDE.md)** - Testing error scenarios
+- **[style_guide](https://github.com/kevin07696/style_guide)** - Code style and testing conventions
 - **[API_SPECS.md](../integration/API_SPECS.md)** - API error formats
 
 ---

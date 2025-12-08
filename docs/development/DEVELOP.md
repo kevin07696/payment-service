@@ -4,6 +4,8 @@
 **Topic:** Architecture, branching strategy, testing, and development workflow.
 **Goal:** Enable developers to build, test, and deploy features following established patterns.
 
+> **Note:** For general Go style guidelines, testing patterns, and documentation standards, see the [style_guide](https://github.com/kevin07696/style_guide) repository.
+
 ## Overview
 
 This guide covers the development lifecycle from architecture decisions to deployment. The service follows **hexagonal architecture** (ports & adapters) with strict separation of concerns.
@@ -15,7 +17,6 @@ This guide covers the development lifecycle from architecture decisions to deplo
 3. [Branching Strategy](#branching-strategy)
 4. [Testing](#testing)
 5. [Development Workflow](#development-workflow)
-6. [Code Standards](#code-standards)
 
 ---
 
@@ -393,24 +394,6 @@ go tool cover -func=coverage.out       # Summary
 go tool cover -html=coverage.out       # Browser view
 ```
 
-### Writing Tests
-
-**Table-driven tests:**
-```go
-tests := []struct {
-    name    string
-    input   Request
-    wantErr bool
-}{
-    {"valid request", validReq, false},
-    {"missing amount", invalidReq, true},
-}
-```
-
-**Naming convention:**
-- Good: `TestAuthorize_WithValidCard_ShouldSucceed`
-- Bad: `TestTransaction`
-
 ---
 
 ## Development Workflow
@@ -494,101 +477,6 @@ go build ./...
 - [ ] Proto generated: `make proto`
 - [ ] SQLC generated: `make sqlc`
 - [ ] Commit follows convention: `feat:`, `fix:`, `docs:`
-
----
-
-## Code Standards
-
-### Commit Convention
-
-Use conventional commits:
-
-```bash
-feat: Add refund API endpoint
-fix: Correct amount validation logic
-docs: Update API documentation
-refactor: Simplify payment service
-test: Add unit tests for authorize
-chore: Update dependencies
-```
-
-### Go Code Style
-
-**Follow Go idioms:**
-- Use `gofmt` for formatting
-- Follow effective Go guidelines
-- Use meaningful variable names
-- Add godoc comments for exported functions
-
-**Error handling:**
-```go
-// Good
-if err != nil {
-    return nil, fmt.Errorf("failed to authorize payment: %w", err)
-}
-
-// Bad
-if err != nil {
-    return nil, err  // No context
-}
-```
-
-**Logging:**
-```go
-logger.Info("processing payment",
-    zap.String("transaction_id", txID),
-    zap.String("merchant_id", merchantID),
-    zap.String("amount", amount),
-)
-```
-
-### Code Organization
-
-**Service layer pattern:**
-```go
-type PaymentService struct {
-    // Dependencies as interfaces
-    db            ports.PaymentRepository
-    gateway       ports.PaymentGateway
-    logger        *zap.Logger
-}
-
-func (s *PaymentService) Authorize(ctx context.Context, req *AuthorizeRequest) (*PaymentResponse, error) {
-    // 1. Validate input
-    if err := s.validateAuthorizeRequest(req); err != nil {
-        return nil, err
-    }
-
-    // 2. Business logic
-    // 3. Call adapters
-    // 4. Return result
-}
-```
-
-### Environment Configuration
-
-**Use .env files:**
-```bash
-# .env.development
-DATABASE_URL=postgresql://localhost:5432/payment_service
-EPX_BASE_URL=https://secure.epxuap.com
-LOG_LEVEL=debug
-
-# .env.staging
-DATABASE_URL=postgresql://staging-db:5432/payment_service
-EPX_BASE_URL=https://secure.epxuap.com
-LOG_LEVEL=info
-
-# .env.production
-DATABASE_URL=postgresql://prod-db:5432/payment_service
-EPX_BASE_URL=https://secure.epxnow.com
-LOG_LEVEL=warn
-```
-
-**Load with:**
-```go
-cfg := config.LoadConfig()
-```
 
 ---
 

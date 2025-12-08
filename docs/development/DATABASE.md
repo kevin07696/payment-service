@@ -1833,7 +1833,7 @@ make migrate-reset
 
 - **[SETUP.md](./SETUP.md)** - Database setup for development
 - **[API_SPECS.md](../integration/API_SPECS.md)** - API documentation
-- **[STYLE_GUIDE.md](./STYLE_GUIDE.md)** - Code style including database queries
+- **[style_guide](https://github.com/kevin07696/style_guide)** - Code style including database queries
 
 ---
 

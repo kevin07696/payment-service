@@ -1,6 +1,6 @@
 # Webhook Architecture Guide
 
-**Last Updated**: 2025-12-02
+**Last Updated**: 2025-12-05
 **Status**: Current Implementation + Future Enhancements
 
 ---
@@ -194,19 +194,20 @@ func (s *WebhookDeliveryService) DeliverEvent(ctx context.Context, event *Webhoo
 |------------|-------------|----------------|----------------|
 | `chargeback.created` | New chargeback filed | Chargeback sync from North API | `chargeback_id`, `transaction_id`, `amount`, `reason_code` |
 | `chargeback.updated` | Chargeback status changed | Admin updates chargeback | `chargeback_id`, `old_status`, `new_status` |
+| `subscription.cancelled` | Subscription cancelled | Grace period expired or API cancellation | `subscription_id`, `reason` |
+| `subscription.past_due` | Max retries reached | Subscription marked past_due | `subscription_id` |
+| `payment.succeeded` | Payment successful | Payment processed successfully | `transaction_id`, `amount_cents` |
+| `payment.failed` | Payment failed | Payment declined or error | `transaction_id`, `reason` |
 
 ### Planned (Future Enhancement)
 
 | Event Type | Description | When Triggered | Priority |
 |------------|-------------|----------------|----------|
-| `subscription.payment_failed` | Billing attempt failed | Recurring billing fails | HIGH |
-| `subscription.payment_succeeded` | Billing succeeded | Recurring billing succeeds | MEDIUM |
-| `subscription.past_due` | Max retries reached | Subscription marked past_due | HIGH |
-| `subscription.cancelled` | Subscription cancelled | Admin or API cancellation | MEDIUM |
+| `subscription.created` | Subscription created | New subscription | MEDIUM |
+| `subscription.updated` | Subscription updated | Subscription modified | MEDIUM |
+| `payment.refunded` | Payment refunded | Refund processed | MEDIUM |
 | `payment_method.verification_failed` | ACH verification failed | Pre-note returned | HIGH |
 | `payment_method.verification_succeeded` | ACH verified | Pre-note cleared | MEDIUM |
-| `payment.refunded` | Payment refunded | Refund processed | MEDIUM |
-| `payment.voided` | Payment voided | Void processed | LOW |
 
 ---
 
@@ -702,19 +703,26 @@ LIMIT 50;
 
 ## Future Enhancements
 
+### Completed Features
+
+1. ✅ Add `subscription.cancelled` webhook (2025-12-05)
+2. ✅ Add `subscription.past_due` webhook (2025-12-05)
+3. ✅ Add `payment.succeeded` webhook (2025-12-05)
+4. ✅ Add `payment.failed` webhook (2025-12-05)
+
 ### Planned Features
 
-**Priority 1 - Critical (Next Sprint)**:
-1. ✅ Add `subscription.payment_failed` webhook
-2. ✅ Add `subscription.past_due` webhook
-3. ✅ Add `payment_method.verification_failed` webhook
+**Priority 1 - High (Next Sprint)**:
+1. Add `payment_method.verification_failed` webhook
+2. Add `payment_method.verification_succeeded` webhook
+3. Add `payment.refunded` webhook
 
-**Priority 2 - High (Next Month)**:
+**Priority 2 - Medium (Next Month)**:
 4. Add webhook retry dashboard (admin UI)
 5. Add webhook testing UI (send test events)
 6. Add webhook delivery analytics (success rate, latency)
 
-**Priority 3 - Medium (Next Quarter)**:
+**Priority 3 - Low (Next Quarter)**:
 7. Add webhook event filtering (choose specific events)
 8. Add webhook batching (group multiple events)
 9. Add webhook rate limiting (prevent abuse)
@@ -833,6 +841,6 @@ LIMIT 50;
 
 ---
 
-**Last Updated**: 2025-12-02
-**Version**: 1.1
-**Status**: Production Ready (Chargeback webhooks), In Development (Subscription webhooks)
+**Last Updated**: 2025-12-05
+**Version**: 1.2
+**Status**: Production Ready (Chargeback + Subscription + Payment webhooks)
