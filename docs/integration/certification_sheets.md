@@ -107,7 +107,7 @@ curl -X POST "https://services.epxuap.com/browserpost/" \
   -d "TERMINAL_NBR=77" \
   -d "AMOUNT=100.00" \
   -d "INDUSTRY_TYPE=E" \
-  -d "ACCOUNT_NBR=4000000000000002" \
+  -d "ACCOUNT_NBR=************0002" \
   -d "EXP_DATE=2712" \
   -d "CVV2=123" \
   -d "FIRST_NAME=John" \
@@ -258,7 +258,7 @@ curl -X POST "https://services.epxuap.com/browserpost/" \
   -d "TERMINAL_NBR=77" \
   -d "AMOUNT=0.00" \
   -d "INDUSTRY_TYPE=E" \
-  -d "ACCOUNT_NBR=4000000000000002" \
+  -d "ACCOUNT_NBR=************0002" \
   -d "EXP_DATE=2712" \
   -d "CVV2=123" \
   -d "FIRST_NAME=John" \
@@ -411,7 +411,7 @@ curl -X POST "https://services.epxuap.com/browserpost/" \
   -d "TERMINAL_NBR=77" \
   -d "AMOUNT=50.00" \
   -d "INDUSTRY_TYPE=E" \
-  -d "ACCOUNT_NBR=4000000000000002" \
+  -d "ACCOUNT_NBR=************0002" \
   -d "EXP_DATE=2712" \
   -d "CVV2=123" \
   -d "FIRST_NAME=John" \
@@ -561,7 +561,7 @@ curl -X POST "https://services.epxuap.com/browserpost/" \
   -d "AMOUNT=0.00" \
   -d "INDUSTRY_TYPE=E" \
   -d "STD_ENTRY_CLASS=WEB" \
-  -d "ACCOUNT_NBR=123456789" \
+  -d "ACCOUNT_NBR=*****6789" \
   -d "ROUTING_NBR=011000015" \
   -d "FIRST_NAME=John" \
   -d "LAST_NAME=Doe"
@@ -676,7 +676,7 @@ curl -X POST "https://services.epxuap.com/browserpost/" \
   -d "AMOUNT=0.00" \
   -d "INDUSTRY_TYPE=E" \
   -d "STD_ENTRY_CLASS=WEB" \
-  -d "ACCOUNT_NBR=987654321" \
+  -d "ACCOUNT_NBR=*****4321" \
   -d "ROUTING_NBR=011000015" \
   -d "FIRST_NAME=John" \
   -d "LAST_NAME=Doe"
