@@ -7,6 +7,292 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2025-12-10)
+
+**Browser POST Form Documentation Updates**
+
+Updated form examples to clarify AVS applicability and improve developer experience:
+
+- `docs/integration/BROWSER_POST_FORM_SETUP.md`:
+  - Credit Card Storage form: Removed CSS styling (developers add their own), kept all fields and validation (Luhn, expiry, CVV)
+  - ACH Storage form: Removed CSS styling, added radio button for Checking/Savings selection, removed address fields (AVS not applicable to ACH)
+  - Added note clarifying that AVS only works for credit cards, not ACH transactions
+
+- `docs/integration/certification_sheets.md`:
+  - ACH form: Removed address fields and added AVS clarification note
+  - Updated field reference table to remove ADDRESS, CITY, STATE, ZIP_CODE for ACH forms
+
+- `tests/e2e/tests/browser-post-ach-storage.spec.ts`:
+  - Removed address fields from ACH storage test forms (both checking and savings)
+  - Added comments explaining why address fields are omitted for ACH
+
+**Why:** AVS (Address Verification System) is a credit card feature that validates billing addresses with card issuers. It does NOT work for ACH transactions. ACH verification uses prenote ($0 test transactions), micro-deposits, or third-party services like Plaid. Including address fields in ACH forms adds unnecessary complexity without providing verification benefits.
+
+### Added (2025-12-09)
+
+**Podman Test Infrastructure**
+
+Added Podman-based targets in `Makefile` for running all test suites:
+
+Container Management:
+- `make podman-build` - Build container image with Podman
+- `make podman-up` - Start services with podman-compose
+- `make podman-down` - Stop services with podman-compose
+- `make podman-logs` - View podman-compose logs
+- `make podman-rebuild` - Rebuild and restart services with Podman
+
+Test Database:
+- `make test-db-podman-up` - Start test database (PostgreSQL on port 5434) with health check
+- `make test-db-podman-down` - Stop test database
+- `make test-db-podman-logs` - View test database logs
+
+Test Execution:
+- `make test-unit-podman` - Run unit tests (no containers needed)
+- `make test-integration-podman` - Run integration tests with Podman DB (auto-starts DB, runs migrations)
+- `make test-e2e-podman` - Run E2E tests with Podman services (auto-starts full stack)
+- `make test-all-podman` - Run all tests (unit + integration + e2e)
+
+Usage:
+```bash
+# Run unit tests
+make test-unit-podman
+
+# Run integration tests (starts test DB automatically)
+make test-integration-podman
+
+# Run E2E tests (starts full stack automatically)
+make test-e2e-podman
+
+# Run all tests
+make test-all-podman
+```
+
+### Fixed (2025-12-09)
+
+**Style Guide Compliance - Dependency Inversion Principle**
+
+Created `ports.MerchantAuthorizationService` interface per style guide `principles.md` requirements:
+- Added `internal/ports/authorization_service.go` - New interface for merchant authorization
+- Updated `internal/services/subscription/subscription_service.go` - Use interface instead of concrete type
+- Updated `internal/services/payment/payment_service.go` - Use interface instead of concrete type
+- Updated `internal/services/payment_method/payment_method_service.go` - Use interface instead of concrete type
+- Added interface compliance check in `internal/services/authorization/merchant_authorization.go`
+
+Services now depend on `ports.MerchantAuthorizationService` interface instead of concrete `*authorization.MerchantAuthorizationService`.
+
+**Style Guide Compliance - Error Handling Context**
+
+Added error context wrapping per style guide `error-handling.md` requirements:
+- `internal/services/payment/transaction_helper.go` - Added context to CreatePendingTransaction and UpdateTransactionWithEPXResponse errors
+- `internal/services/payment_method/payment_method_service.go` - Added context to ACH prenote error
+- `internal/middleware/connect_auth.go` - Added context to loadPublicKeys error
+- `internal/handlers/payment/templates.go` - Added context to template parsing errors
+- `internal/services/webhook/webhook_delivery_service.go` - Added context to recording webhook delivery success/failure errors
+
+All errors now include descriptive context using `fmt.Errorf("operation: %w", err)` pattern instead of bare `return err`.
+
+### Fixed (2025-12-09)
+
+**On-Demand JWT Key Loading for Test Isolation**
+
+Fixed JWT authentication to support dynamically created test services:
+- Added `getPublicKey()` method in `internal/middleware/connect_auth.go` with database fallback
+- When a JWT issuer isn't in the cache, the middleware now queries the database directly
+- Thread-safe key caching with `sync.RWMutex` to prevent race conditions
+- Newly loaded keys are cached for subsequent requests
+
+This fix enables the factory pattern for integration tests - tests can now create their own
+isolated services with unique keypairs and use them immediately without waiting for cache refresh.
+
+Previously, the server only loaded service public keys at startup with a 5-minute refresh interval,
+causing "unknown issuer" errors for factory-created test services.
+
+**Tracing Interceptor Nil Response Panic**
+
+Fixed panic in `pkg/observability/tracing_interceptor.go` when handling authentication errors:
+- The tracing interceptor attempted to inject headers into response even when response was nil
+- Added check `if err == nil && resp != nil` before accessing response headers
+- This prevents server crashes when JWT validation fails with invalid signatures
+
+### Removed (2025-12-09)
+
+**Browser Automation Tests (E2E Tests Misplaced in Integration Suite)**
+
+Removed browser-based tests that were incorrectly placed in the integration test suite.
+These tests used headless Chrome (chromedp) to interact with EPX's browser post flow,
+which is E2E testing, not integration testing.
+
+Deleted files:
+- `tests/integration/payment/browser_post_workflow_test.go`
+- `tests/integration/payment/browser_post_idempotency_test.go`
+- `tests/integration/payment/server_post_idempotency_test.go`
+- `tests/integration/payment/server_post_workflow_test.go`
+- `tests/integration/payment/tac_replay_protection_test.go`
+- `tests/integration/payment/payment_service_critical_test.go`
+- `tests/integration/payment/epx_response_capture_test.go`
+- `tests/integration/payment_method/payment_method_test.go`
+- `tests/integration/subscription/recurring_billing_test.go`
+- `tests/integration/subscription/apartment_pay_e2e_test.go`
+- `tests/integration/testutil/browser_post_automated.go`
+- `tests/integration/testutil/browser_post_helper.go`
+- `tests/integration/wordpress/` (entire directory)
+
+Removed dependency:
+- `github.com/chromedp/chromedp` - headless Chrome automation
+
+Rationale:
+- Integration tests should test backend services with real database, no browser
+- Browser-based flows belong in E2E test suite using proper tools (Playwright/Cypress)
+- Reduces test flakiness and improves test suite maintainability
+
+### Added (2025-12-09)
+
+**Playwright E2E Test Suite for Browser Post Flows**
+
+Added a proper E2E test suite using Playwright for testing browser-based payment flows:
+
+New files:
+- `tests/e2e/` - Complete Playwright E2E test directory
+- `tests/e2e/playwright.config.ts` - Playwright configuration
+- `tests/e2e/lib/test-fixtures.ts` - Test fixtures for isolated test data
+- `tests/e2e/lib/test-cards.ts` - EPX sandbox test card definitions
+- `tests/e2e/tests/browser-post-sale.spec.ts` - SALE flow E2E test
+- `tests/e2e/tests/browser-post-auth-capture.spec.ts` - AUTH/CAPTURE/VOID tests
+
+Backend support:
+- `internal/handlers/e2e/setup_handler.go` - E2E test setup/cleanup endpoints
+- Registered `/internal/e2e/setup` and `/internal/e2e/cleanup` routes (non-production only)
+
+Key features:
+- Each test creates isolated merchant/service with unique RSA keypair
+- Tests generate their own JWT tokens for authentication
+- Automatic cleanup of test data after each test
+- Environment check prevents E2E endpoints from running in production
+- Full browser automation for EPX browser post flow testing
+
+### Changed (2025-12-08)
+
+**Refactored Test Factory to Use SQLC Instead of Raw SQL**
+
+Refactored `tests/integration/testutil/factories.go` to use SQLC generated queries instead of embedding raw SQL:
+- Created `GetPgxPool()` function in `database_pool.go` for pgxpool singleton (required by SQLC)
+- Factory now uses `sqlc.Queries` for type-safe database operations
+- Merchants created via `sqlc.CreateMerchant()` instead of raw INSERT
+- Services created via `sqlc.CreateService()` instead of raw INSERT
+- Service access granted via `sqlc.GrantServiceAccess()` instead of raw INSERT
+- Test cleanup uses `sqlc.HardDeleteMerchant()`, `sqlc.HardDeleteService()`, `sqlc.RevokeServiceAccess()`
+
+New SQLC queries added to support test cleanup:
+- `internal/db/queries/merchants.sql`: Added `HardDeleteMerchant` query
+- `internal/db/queries/services.sql`: Added `HardDeleteService` query
+- Updated `internal/testutil/mocks/database.go` with new mock methods
+
+Benefits:
+- Type-safe database operations in tests
+- Consistent with production code patterns
+- Single source of truth for SQL queries (no duplicate SQL in tests)
+- Compile-time checking of query parameters
+
+**Complete Integration Tests Migration to Factory Pattern**
+
+Migrated remaining 8 integration test files from hardcoded merchant UUIDs and LoadTestServices() to factory pattern:
+- `tests/integration/payment_method/payment_method_test.go`
+- `tests/integration/payment_method/auth_helpers_test.go`
+- `tests/integration/chargeback/chargeback_test.go`
+- `tests/integration/subscription/recurring_billing_test.go`
+- `tests/integration/subscription/apartment_pay_e2e_test.go`
+- `tests/integration/connect/connect_protocol_test.go`
+- `tests/integration/database/concurrency_test.go`
+- `tests/integration/database/constraints_test.go`
+
+Changes made:
+- Replaced `testutil.LoadTestServices()` with `factory := testutil.NewFactory(t); ctx := factory.CreateTestContext(t)`
+- Replaced hardcoded merchant UUIDs with `ctx.Merchant.ID.String()`
+- Replaced `testutil.TestMerchantUUID` with `ctx.Merchant.ID.String()`
+- Replaced `testutil.TestMerchantSlug` with `ctx.Merchant.Slug`
+- Replaced `testServices[0].PrivateKeyPEM` with `ctx.Service.PrivateKeyPEM`
+- Replaced `testServices[0].ServiceID` with `ctx.Service.ServiceID`
+- Updated helper functions (e.g., `generateJWTToken`, `setupPaymentMethod`, `addAuthToRequest`) to accept factory context
+- Each test function now creates its own isolated merchant + service + access grant
+- Removed duplicate card constant definitions between constants.go and tokenization.go
+
+Benefits:
+- Complete test isolation - each test has its own merchant/service data
+- No cross-test contamination or race conditions
+- Automatic cleanup via t.Cleanup() in factory methods
+- Follows Object Mother pattern for better test maintainability
+- All integration tests now use consistent factory pattern
+
+**Payment Integration Tests Migration to Factory Pattern**
+
+Migrated 8 payment integration test files from hardcoded merchant UUIDs and LoadTestServices() to factory pattern:
+- `tests/integration/payment/browser_post_workflow_test.go`
+- `tests/integration/payment/server_post_idempotency_test.go`
+- `tests/integration/payment/browser_post_idempotency_test.go`
+- `tests/integration/payment/epx_response_capture_test.go`
+- `tests/integration/payment/payment_service_critical_test.go`
+- `tests/integration/payment/tac_replay_protection_test.go`
+- `tests/integration/payment/server_post_workflow_test.go`
+- `tests/integration/payment/auth_helpers_test.go`
+
+Changes made:
+- Replaced `testutil.LoadTestServices()` with `factory := testutil.NewFactory(t); ctx := factory.CreateTestContext(t)`
+- Replaced hardcoded `"00000000-0000-0000-0000-000000000001"` with `ctx.Merchant.ID.String()`
+- Replaced `testutil.TestMerchantUUID` with `ctx.Merchant.ID.String()`
+- Replaced `testServices[0].PrivateKeyPEM` with `ctx.Service.PrivateKeyPEM`
+- Replaced `testServices[0].ServiceID` with `ctx.Service.ServiceID`
+- Each test function now creates its own isolated merchant + service + access grant
+
+Benefits:
+- True test isolation - each test has its own merchant/service data
+- No cross-test contamination or race conditions
+- Automatic cleanup via t.Cleanup() in factory methods
+- Follows Object Mother pattern for better test maintainability
+
+**Integration Test Isolation Refactor Plan**
+
+Created comprehensive refactoring plan for integration test data isolation:
+- Added: `tests/integration/REFACTOR_PLAN.md` - Detailed migration plan from seed data to factory pattern
+- Issue: Tests currently rely on globally seeded merchant with hardcoded ID
+- Solution: Object Mother / Factory pattern where each test creates its own data
+- References: Martin Fowler's Object Mother pattern, Jimmy Bogard's test isolation principles
+
+Key changes planned:
+- Create `testutil/factories.go` with `CreateTestMerchant()`, `CreateTestService()`, etc.
+- Remove global seeding from `Setup()` function
+- Migrate ~15 test files to use factory-created data
+- Deprecate hardcoded constants like `TestMerchantUUID`
+
+**Seeder Service Refactoring (Hexagonal Architecture)**
+
+Moved seeder from `internal/db/` to services layer following hexagonal architecture:
+- **`internal/db/seed/`** → **`internal/services/seeder/`** - Go code for programmatic auto-seeding
+- **`internal/db/seeds/`** - SQL seed files for staging/test data (unchanged)
+
+Why this is the correct location:
+- Seeder is a service that orchestrates adapters (database, secret manager)
+- Follows same pattern as other services (`payment/`, `subscription/`, etc.)
+- Keeps `internal/db/` clean for database-specific code (migrations, sqlc, raw SQL)
+
+Files changed:
+- Moved: `internal/db/seed/seed.go` → `internal/services/seeder/seeder.go`
+- Updated package name: `package seed` → `package seeder`
+- Updated import in `cmd/server/main.go`
+
+**Secret Manager Factory Refactoring**
+
+Moved secret manager initialization from `cmd/server/` to proper adapters layer:
+- Created: `internal/adapters/secrets/factory.go` - Factory for creating secret manager adapters
+- Created: `internal/adapters/secrets/factory_test.go` - Comprehensive unit tests (20+ test cases)
+- Deleted: `cmd/server/secret_manager.go` - Logic moved to adapters layer
+- Updated: `cmd/server/main.go` - Now uses `secrets.NewSecretManager()` factory
+
+Key improvements:
+- Mock and Local adapters now log "NOT for production use!" warning
+- Factory validates required configuration per adapter type (GCP needs project ID, AWS needs region, etc.)
+- Unknown adapter types fall back to mock with warning
+- All adapter creation errors include descriptive messages
+
 ### Added (2025-12-05)
 
 **Distributed Tracing and Request Correlation**

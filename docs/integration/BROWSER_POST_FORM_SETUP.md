@@ -131,26 +131,19 @@ This example shows a complete, working Browser Post form:
     <h2>Payment Details</h2>
 
     <!-- This form submits directly to EPX -->
-    <form id="payment-form" action="https://services.epxuap.com/browserpost/" method="POST">
+    <form id="payment-form" action="${formConfig.postURL}" method="POST">
 
-      <!-- EPX Authentication (hidden - TAC from Key Exchange) -->
-      <input type="hidden" name="TAC" value="abc123xyz456">
+      <!-- EPX Authentication (from form config) -->
+      <input type="hidden" name="TAC" value="${formConfig.tac}">
 
-      <!-- Merchant Credentials (from form config response) -->
-      <input type="hidden" name="CUST_NBR" value="9001">
-      <input type="hidden" name="MERCH_NBR" value="900300">
-      <input type="hidden" name="DBA_NBR" value="2">
-      <input type="hidden" name="TERMINAL_NBR" value="77">
-
-      <!-- Transaction Details (hidden) -->
-      <input type="hidden" name="TRAN_NBR" value="1234567890">
-      <input type="hidden" name="TRAN_CODE" value="SALE"> <!-- SALE, AUTH, or STORAGE -->
-      <input type="hidden" name="AMOUNT" value="99.99">
-      <input type="hidden" name="INDUSTRY_TYPE" value="E"> <!-- E=E-commerce -->
-
-      <!-- Custom Data (optional, echoed back in callback) -->
-      <input type="hidden" name="USER_DATA_1" value="customer_id=456">
-      <input type="hidden" name="USER_DATA_2" value="order_id=ORDER-12345">
+      <!-- Transaction Type and Merchant Credentials (from form config) -->
+      <input type="hidden" name="TRAN_CODE" value="${formConfig.tranCode}">
+      <input type="hidden" name="CUST_NBR" value="${formConfig.custNbr}">
+      <input type="hidden" name="MERCH_NBR" value="${formConfig.merchNbr}">
+      <input type="hidden" name="DBA_NBR" value="${formConfig.dbaName}">
+      <input type="hidden" name="TERMINAL_NBR" value="${formConfig.terminalNbr}">
+      <input type="hidden" name="AMOUNT" value="50.00">
+      <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}">
 
       <!-- Card Details (user enters these) -->
       <div class="form-group">
@@ -161,49 +154,49 @@ This example shows a complete, working Browser Post form:
       <div class="row">
         <div class="form-group">
           <label for="exp_date">Expiration (MMYY)</label>
-          <input type="text" id="exp_date" name="EXP_DATE" placeholder="1225" required maxlength="4">
+          <input type="text" id="exp_date" name="EXP_DATE" placeholder="1227" required maxlength="4">
         </div>
         <div class="form-group">
           <label for="cvv">CVV</label>
-          <input type="text" id="cvv" name="CVV2" placeholder="123" required maxlength="4">
+          <input type="text" id="cvv" name="CVV2" placeholder="999" required maxlength="4">
         </div>
       </div>
 
-      <!-- Cardholder Name (separate fields per EPX spec) -->
+      <!-- Cardholder Name (optional, for AVS) -->
       <div class="row">
         <div class="form-group">
           <label for="first_name">First Name</label>
-          <input type="text" id="first_name" name="FIRST_NAME" placeholder="John" required>
+          <input type="text" id="first_name" name="FIRST_NAME" placeholder="John">
         </div>
         <div class="form-group">
           <label for="last_name">Last Name</label>
-          <input type="text" id="last_name" name="LAST_NAME" placeholder="Doe" required>
+          <input type="text" id="last_name" name="LAST_NAME" placeholder="Doe">
         </div>
       </div>
 
-      <!-- Billing Address (EPX field names) -->
+      <!-- Billing Address (optional, for AVS) -->
       <div class="form-group">
         <label for="address">Billing Address</label>
-        <input type="text" id="address" name="ADDRESS" placeholder="123 Main St" required>
+        <input type="text" id="address" name="ADDRESS" placeholder="123 Main St">
       </div>
 
       <div class="row">
         <div class="form-group">
           <label for="city">City</label>
-          <input type="text" id="city" name="CITY" placeholder="New York" required>
+          <input type="text" id="city" name="CITY" placeholder="New York">
         </div>
         <div class="form-group">
           <label for="state">State</label>
-          <input type="text" id="state" name="STATE" placeholder="NY" required maxlength="2">
+          <input type="text" id="state" name="STATE" placeholder="NY" maxlength="2">
         </div>
       </div>
 
       <div class="form-group">
         <label for="zip">ZIP Code</label>
-        <input type="text" id="zip" name="ZIP_CODE" placeholder="10001" required maxlength="10">
+        <input type="text" id="zip" name="ZIP_CODE" placeholder="10001" maxlength="10">
       </div>
 
-      <button type="submit">Pay $99.99</button>
+      <button type="submit">Pay $50.00</button>
     </form>
   </div>
 </body>
@@ -212,10 +205,10 @@ This example shows a complete, working Browser Post form:
 
 **What Happens:**
 1. User fills out card details
-2. User clicks "Pay $99.99"
-3. Browser submits form directly to EPX (`https://services.epxuap.com/browserpost/`)
+2. User clicks "Pay $50.00"
+3. Browser submits form directly to EPX
 4. EPX processes payment
-5. EPX redirects browser to your `REDIRECT_URL` with results
+5. EPX redirects browser to your callback URL with results
 
 ---
 
@@ -229,146 +222,100 @@ This example shows a complete form for storing a credit card as a BRIC token for
 <head>
   <meta charset="UTF-8">
   <title>Save Payment Method</title>
-  <style>
-    .card-form { max-width: 450px; margin: 50px auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; font-weight: 600; color: #333; }
-    input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; box-sizing: border-box; }
-    input[type="text"]:focus { border-color: #4CAF50; outline: none; box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2); }
-    button { width: 100%; padding: 14px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: 600; }
-    button:hover { background: #45a049; }
-    button:disabled { background: #ccc; cursor: not-allowed; }
-    .row { display: flex; gap: 12px; }
-    .row .form-group { flex: 1; }
-    fieldset { border: 1px solid #ddd; border-radius: 4px; padding: 15px; margin-bottom: 20px; }
-    legend { font-weight: 600; padding: 0 10px; color: #333; }
-    .info-box { background: #e8f5e9; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-size: 14px; border-left: 4px solid #4CAF50; }
-    .secure-badge { display: flex; align-items: center; gap: 8px; color: #666; font-size: 12px; margin-top: 15px; justify-content: center; }
-    .card-icons { display: flex; gap: 8px; margin-top: 10px; }
-    .card-icons img { height: 24px; opacity: 0.6; }
-  </style>
+  <!-- Add your own CSS styling here -->
 </head>
 <body>
-  <div class="card-form">
-    <h2>Save Payment Method</h2>
+  <h2>Save Payment Method</h2>
 
-    <div class="info-box">
-      <strong>Your card will be securely stored for future payments.</strong>
-      <p style="margin: 8px 0 0 0;">No charge will be made today. You can remove this payment method at any time.</p>
-    </div>
+  <!-- This form submits directly to EPX -->
+  <form id="card-storage-form" action="${formConfig.postURL}" method="POST">
 
-    <!-- This form submits directly to EPX -->
-    <form id="card-storage-form" action="https://services.epxuap.com/browserpost/" method="POST">
+    <!-- EPX Authentication (from form config) -->
+    <input type="hidden" name="TAC" id="tac" value="${formConfig.tac}">
 
-      <!-- EPX Authentication (hidden - TAC from Key Exchange) -->
-      <input type="hidden" name="TAC" id="tac" value="">
+    <!-- Transaction Type and Merchant Credentials (from form config) -->
+    <input type="hidden" name="TRAN_CODE" value="${formConfig.tranCode}">
+    <input type="hidden" name="CUST_NBR" id="cust_nbr" value="${formConfig.custNbr}">
+    <input type="hidden" name="MERCH_NBR" id="merch_nbr" value="${formConfig.merchNbr}">
+    <input type="hidden" name="DBA_NBR" id="dba_nbr" value="${formConfig.dbaName}">
+    <input type="hidden" name="TERMINAL_NBR" id="terminal_nbr" value="${formConfig.terminalNbr}">
+    <input type="hidden" name="AMOUNT" value="0.00">
+    <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}">
 
-      <!-- Merchant Credentials (from form config response) -->
-      <input type="hidden" name="CUST_NBR" id="cust_nbr" value="">
-      <input type="hidden" name="MERCH_NBR" id="merch_nbr" value="">
-      <input type="hidden" name="DBA_NBR" id="dba_nbr" value="">
-      <input type="hidden" name="TERMINAL_NBR" id="terminal_nbr" value="">
+    <!-- Card Details -->
+    <fieldset>
+      <legend>Card Information</legend>
 
-      <!-- Transaction Details (hidden) -->
-      <input type="hidden" name="TRAN_NBR" id="tran_nbr" value="">
-      <input type="hidden" name="TRAN_CODE" value="STORAGE"> <!-- STORAGE for card tokenization -->
-      <input type="hidden" name="AMOUNT" value="0.00"> <!-- $0 for storage-only -->
-      <input type="hidden" name="INDUSTRY_TYPE" value="E">
-
-      <!-- Custom Data (echoed back in callback) -->
-      <input type="hidden" name="USER_DATA_1" id="user_data_1" value=""> <!-- transaction_id -->
-      <input type="hidden" name="USER_DATA_2" id="user_data_2" value=""> <!-- customer_id -->
-      <input type="hidden" name="USER_DATA_3" id="user_data_3" value=""> <!-- merchant_id -->
-
-      <!-- Card Details -->
-      <fieldset>
-        <legend>Card Information</legend>
-
-        <div class="form-group">
-          <label for="card_nbr">Card Number</label>
-          <input type="text" id="card_nbr" name="ACCOUNT_NBR"
-                 placeholder="4111 1111 1111 1111" required maxlength="19"
-                 autocomplete="cc-number" inputmode="numeric"
-                 oninput="formatCardNumber(this)">
-          <div class="card-icons">
-            <span id="card-visa">Visa</span>
-            <span id="card-mc">MC</span>
-            <span id="card-amex">Amex</span>
-            <span id="card-disc">Disc</span>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="form-group">
-            <label for="exp_date">Expiration (MM/YY)</label>
-            <input type="text" id="exp_date_display" placeholder="12/25" required maxlength="5"
-                   autocomplete="cc-exp" inputmode="numeric"
-                   oninput="formatExpDate(this)">
-            <input type="hidden" name="EXP_DATE" id="exp_date" value="">
-          </div>
-          <div class="form-group">
-            <label for="cvv">CVV</label>
-            <input type="text" id="cvv" name="CVV2" placeholder="123" required maxlength="4"
-                   autocomplete="cc-csc" inputmode="numeric">
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- Cardholder Information -->
-      <fieldset>
-        <legend>Cardholder Information</legend>
-
-        <div class="row">
-          <div class="form-group">
-            <label for="first_name">First Name</label>
-            <input type="text" id="first_name" name="FIRST_NAME" placeholder="John" required
-                   autocomplete="cc-given-name">
-          </div>
-          <div class="form-group">
-            <label for="last_name">Last Name</label>
-            <input type="text" id="last_name" name="LAST_NAME" placeholder="Doe" required
-                   autocomplete="cc-family-name">
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- Billing Address -->
-      <fieldset>
-        <legend>Billing Address</legend>
-
-        <div class="form-group">
-          <label for="address">Street Address</label>
-          <input type="text" id="address" name="ADDRESS" placeholder="123 Main St" required
-                 autocomplete="street-address">
-        </div>
-
-        <div class="row">
-          <div class="form-group">
-            <label for="city">City</label>
-            <input type="text" id="city" name="CITY" placeholder="New York" required
-                   autocomplete="address-level2">
-          </div>
-          <div class="form-group" style="flex: 0.5;">
-            <label for="state">State</label>
-            <input type="text" id="state" name="STATE" placeholder="NY" required maxlength="2"
-                   autocomplete="address-level1">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="zip_code">ZIP Code</label>
-          <input type="text" id="zip_code" name="ZIP_CODE" placeholder="10001" required maxlength="10"
-                 autocomplete="postal-code">
-        </div>
-      </fieldset>
-
-      <button type="submit" id="submit_btn">Save Card</button>
-
-      <div class="secure-badge">
-        🔒 Your card details are encrypted and sent directly to our payment processor
+      <div>
+        <label for="card_nbr">Card Number</label>
+        <input type="text" id="card_nbr" name="ACCOUNT_NBR"
+               placeholder="4111 1111 1111 1111" required maxlength="19"
+               autocomplete="cc-number" inputmode="numeric"
+               oninput="formatCardNumber(this)">
       </div>
-    </form>
-  </div>
+
+      <div>
+        <label for="exp_date">Expiration (MM/YY)</label>
+        <input type="text" id="exp_date_display" placeholder="12/27" required maxlength="5"
+               autocomplete="cc-exp" inputmode="numeric"
+               oninput="formatExpDate(this)">
+        <input type="hidden" name="EXP_DATE" id="exp_date" value="">
+      </div>
+
+      <div>
+        <label for="cvv">CVV</label>
+        <input type="text" id="cvv" name="CVV2" placeholder="999" required maxlength="4"
+               autocomplete="cc-csc" inputmode="numeric">
+      </div>
+    </fieldset>
+
+    <!-- Cardholder Information (optional, for AVS) -->
+    <fieldset>
+      <legend>Cardholder Information (Optional - for AVS)</legend>
+
+      <div>
+        <label for="first_name">First Name</label>
+        <input type="text" id="first_name" name="FIRST_NAME" placeholder="Jane"
+               autocomplete="cc-given-name">
+      </div>
+      <div>
+        <label for="last_name">Last Name</label>
+        <input type="text" id="last_name" name="LAST_NAME" placeholder="Smith"
+               autocomplete="cc-family-name">
+      </div>
+    </fieldset>
+
+    <!-- Billing Address (optional, for AVS) -->
+    <fieldset>
+      <legend>Billing Address (Optional - for AVS)</legend>
+
+      <div>
+        <label for="address">Street Address</label>
+        <input type="text" id="address" name="ADDRESS" placeholder="456 Oak Ave"
+               autocomplete="street-address">
+      </div>
+
+      <div>
+        <label for="city">City</label>
+        <input type="text" id="city" name="CITY" placeholder="Los Angeles"
+               autocomplete="address-level2">
+      </div>
+
+      <div>
+        <label for="state">State</label>
+        <input type="text" id="state" name="STATE" placeholder="CA" maxlength="2"
+               autocomplete="address-level1">
+      </div>
+
+      <div>
+        <label for="zip_code">ZIP Code</label>
+        <input type="text" id="zip_code" name="ZIP_CODE" placeholder="90001" maxlength="10"
+               autocomplete="postal-code">
+      </div>
+    </fieldset>
+
+    <button type="submit" id="submit_btn">Save Card</button>
+  </form>
 
   <script>
     // Format card number with spaces (display only)
@@ -479,16 +426,12 @@ This example shows a complete form for storing a credit card as a BRIC token for
 
         const config = await response.json();
 
-        // Populate hidden fields - including merchant credentials
+        // Populate hidden fields with merchant credentials from form config
         document.getElementById('tac').value = config.tac;
         document.getElementById('cust_nbr').value = config.custNbr;
         document.getElementById('merch_nbr').value = config.merchNbr;
         document.getElementById('dba_nbr').value = config.dbaName;
         document.getElementById('terminal_nbr').value = config.terminalNbr;
-        document.getElementById('tran_nbr').value = config.epxTranNbr;
-        document.getElementById('user_data_1').value = transactionId;
-        document.getElementById('user_data_2').value = customerId;
-        document.getElementById('user_data_3').value = merchantId;
 
         // Update form action
         document.getElementById('card-storage-form').action = config.postURL;
@@ -556,7 +499,9 @@ const result = await paymentService.Sale({
 
 ### Bank Account Storage Form (ACH)
 
-This example shows a complete form for storing a bank account for future ACH debits:
+This example shows a complete form for storing a bank account for future ACH debits.
+
+**Note:** AVS (Address Verification System) does NOT work for ACH transactions - it only applies to credit cards. ACH verification uses prenote ($0 transaction), micro-deposits, or third-party services like Plaid.
 
 ```html
 <!DOCTYPE html>
@@ -564,158 +509,96 @@ This example shows a complete form for storing a bank account for future ACH deb
 <head>
   <meta charset="UTF-8">
   <title>Add Bank Account</title>
-  <style>
-    .bank-form { max-width: 450px; margin: 50px auto; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; font-weight: bold; }
-    input[type="text"] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
-    button { width: 100%; padding: 12px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
-    button:hover { background: #1976D2; }
-    .row { display: flex; gap: 10px; }
-    .row .form-group { flex: 1; }
-    .account-type { display: flex; gap: 20px; margin: 10px 0; }
-    .account-type label { display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; }
-    .account-type input[type="radio"] { width: auto; }
-    fieldset { border: 1px solid #ddd; border-radius: 4px; padding: 15px; margin-bottom: 15px; }
-    legend { font-weight: bold; padding: 0 10px; }
-    .info-box { background: #e3f2fd; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-size: 14px; }
-    .info-box ul { margin: 10px 0 0 20px; padding: 0; }
-  </style>
+  <!-- Add your own CSS styling here -->
 </head>
 <body>
-  <div class="bank-form">
-    <h2>Add Bank Account</h2>
+  <h2>Add Bank Account</h2>
 
-    <div class="info-box">
-      <strong>How it works:</strong>
-      <ul>
-        <li>Your bank account will be securely stored for future payments</li>
-        <li>A $0.00 verification transaction (prenote) will be sent</li>
-        <li>Once verified, your account can be used for recurring payments</li>
-      </ul>
-    </div>
+  <!-- This form submits directly to EPX -->
+  <form id="bank-form" action="${formConfig.postURL}" method="POST">
 
-    <!-- This form submits directly to EPX -->
-    <form id="bank-form" action="https://services.epxuap.com/browserpost/" method="POST">
+    <!-- EPX Authentication (from form config) -->
+    <input type="hidden" name="TAC" id="tac" value="${formConfig.tac}">
 
-      <!-- EPX Authentication (hidden - TAC from Key Exchange) -->
-      <input type="hidden" name="TAC" id="tac" value="">
+    <!-- Transaction Type and Merchant Credentials (from form config) -->
+    <input type="hidden" name="TRAN_CODE" id="tran_code" value="">
+    <input type="hidden" name="CUST_NBR" id="cust_nbr" value="${formConfig.custNbr}">
+    <input type="hidden" name="MERCH_NBR" id="merch_nbr" value="${formConfig.merchNbr}">
+    <input type="hidden" name="DBA_NBR" id="dba_nbr" value="${formConfig.dbaName}">
+    <input type="hidden" name="TERMINAL_NBR" id="terminal_nbr" value="${formConfig.terminalNbr}">
+    <input type="hidden" name="AMOUNT" value="0.00">
+    <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}">
+    <input type="hidden" name="STD_ENTRY_CLASS" value="WEB">
 
-      <!-- Merchant Credentials (from form config response) -->
-      <input type="hidden" name="CUST_NBR" id="cust_nbr" value="">
-      <input type="hidden" name="MERCH_NBR" id="merch_nbr" value="">
-      <input type="hidden" name="DBA_NBR" id="dba_nbr" value="">
-      <input type="hidden" name="TERMINAL_NBR" id="terminal_nbr" value="">
+    <!-- Account Type Selection -->
+    <fieldset>
+      <legend>Account Type</legend>
+      <div>
+        <label>
+          <input type="radio" name="account_type" value="checking" checked
+                 onchange="updateTranCode(this.value)"> Checking
+        </label>
+        <label>
+          <input type="radio" name="account_type" value="savings"
+                 onchange="updateTranCode(this.value)"> Savings
+        </label>
+      </div>
+    </fieldset>
 
-      <!-- Transaction Details (hidden) -->
-      <input type="hidden" name="TRAN_NBR" id="tran_nbr" value="">
-      <input type="hidden" name="TRAN_CODE" id="tran_code" value="ACH_STORAGE_C">
-      <input type="hidden" name="AMOUNT" value="0.00"> <!-- $0 for storage-only -->
-      <input type="hidden" name="INDUSTRY_TYPE" value="E">
+    <!-- Bank Account Details -->
+    <fieldset>
+      <legend>Bank Account Information</legend>
 
-      <!-- Custom Data (echoed back in callback) -->
-      <input type="hidden" name="USER_DATA_1" id="user_data_1" value=""> <!-- transaction_id -->
-      <input type="hidden" name="USER_DATA_2" id="user_data_2" value=""> <!-- customer_id -->
-      <input type="hidden" name="USER_DATA_3" id="user_data_3" value=""> <!-- merchant_id -->
+      <div>
+        <label for="routing_nbr">Routing Number (9 digits)</label>
+        <input type="text" id="routing_nbr" name="ROUTING_NBR"
+               placeholder="011000015" required maxlength="9" pattern="[0-9]{9}"
+               title="Please enter a 9-digit routing number">
+      </div>
 
-      <!-- Account Type Selection -->
-      <fieldset>
-        <legend>Account Type</legend>
-        <div class="account-type">
-          <label>
-            <input type="radio" name="account_type_select" value="checking" checked
-                   onchange="setAccountType('checking')">
-            Checking
-          </label>
-          <label>
-            <input type="radio" name="account_type_select" value="savings"
-                   onchange="setAccountType('savings')">
-            Savings
-          </label>
-        </div>
-      </fieldset>
-      <input type="hidden" name="ACCOUNT_TYPE" id="account_type" value="C">
+      <div>
+        <label for="account_nbr">Account Number</label>
+        <input type="text" id="account_nbr" name="ACCOUNT_NBR"
+               placeholder="123456789" required maxlength="17"
+               title="Please enter your bank account number">
+      </div>
 
-      <!-- Bank Account Details -->
-      <fieldset>
-        <legend>Bank Account Information</legend>
+      <div>
+        <label for="account_nbr_confirm">Confirm Account Number</label>
+        <input type="text" id="account_nbr_confirm"
+               placeholder="123456789" required maxlength="17"
+               title="Please re-enter your bank account number">
+      </div>
+    </fieldset>
 
-        <div class="form-group">
-          <label for="routing_nbr">Routing Number (9 digits)</label>
-          <input type="text" id="routing_nbr" name="ROUTING_NBR"
-                 placeholder="021000021" required maxlength="9" pattern="[0-9]{9}"
-                 title="Please enter a 9-digit routing number">
-        </div>
+    <!-- Account Holder Information (required for ACH) -->
+    <fieldset>
+      <legend>Account Holder (Required)</legend>
 
-        <div class="form-group">
-          <label for="account_nbr">Account Number</label>
-          <input type="text" id="account_nbr" name="ACCOUNT_NBR"
-                 placeholder="123456789" required maxlength="17"
-                 title="Please enter your bank account number">
-        </div>
+      <div>
+        <label for="first_name">First Name</label>
+        <input type="text" id="first_name" name="FIRST_NAME" placeholder="John" required>
+      </div>
+      <div>
+        <label for="last_name">Last Name</label>
+        <input type="text" id="last_name" name="LAST_NAME" placeholder="Doe" required>
+      </div>
+    </fieldset>
 
-        <div class="form-group">
-          <label for="account_nbr_confirm">Confirm Account Number</label>
-          <input type="text" id="account_nbr_confirm"
-                 placeholder="123456789" required maxlength="17"
-                 title="Please re-enter your bank account number">
-        </div>
-      </fieldset>
-
-      <!-- Account Holder Information -->
-      <fieldset>
-        <legend>Account Holder</legend>
-
-        <div class="row">
-          <div class="form-group">
-            <label for="first_name">First Name</label>
-            <input type="text" id="first_name" name="FIRST_NAME" placeholder="John" required>
-          </div>
-          <div class="form-group">
-            <label for="last_name">Last Name</label>
-            <input type="text" id="last_name" name="LAST_NAME" placeholder="Doe" required>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="address">Street Address</label>
-          <input type="text" id="address" name="ADDRESS" placeholder="123 Main St" required>
-        </div>
-
-        <div class="row">
-          <div class="form-group">
-            <label for="city">City</label>
-            <input type="text" id="city" name="CITY" placeholder="New York" required>
-          </div>
-          <div class="form-group" style="flex: 0.5;">
-            <label for="state">State</label>
-            <input type="text" id="state" name="STATE" placeholder="NY" required maxlength="2">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="zip_code">ZIP Code</label>
-          <input type="text" id="zip_code" name="ZIP_CODE" placeholder="10001" required maxlength="10">
-        </div>
-      </fieldset>
-
-      <button type="submit" id="submit_btn">Save Bank Account</button>
-    </form>
-  </div>
+    <button type="submit" id="submit_btn">Save Bank Account</button>
+  </form>
 
   <script>
-    // Set account type based on radio selection
-    function setAccountType(type) {
-      if (type === 'checking') {
-        document.getElementById('tran_code').value = 'ACH_STORAGE_C';
-        document.getElementById('account_type').value = 'C';
-      } else {
-        document.getElementById('tran_code').value = 'ACH_STORAGE_S';
-        document.getElementById('account_type').value = 'S';
-      }
+    // Update TRAN_CODE based on account type selection
+    function updateTranCode(accountType) {
+      const tranCode = accountType === 'checking' ? 'ACHSTORAGE_C' : 'ACHSTORAGE_S';
+      document.getElementById('tran_code').value = tranCode;
     }
 
-    // Validate account numbers match before submit
+    // Initialize TRAN_CODE on page load
+    updateTranCode('checking');
+
+    // Validate form before submit
     document.getElementById('bank-form').addEventListener('submit', function(e) {
       const accountNbr = document.getElementById('account_nbr').value;
       const confirmNbr = document.getElementById('account_nbr_confirm').value;
@@ -727,7 +610,7 @@ This example shows a complete form for storing a bank account for future ACH deb
         return false;
       }
 
-      // Validate routing number (basic check)
+      // Validate routing number (9 digits)
       const routingNbr = document.getElementById('routing_nbr').value;
       if (!/^[0-9]{9}$/.test(routingNbr)) {
         e.preventDefault();
@@ -735,15 +618,17 @@ This example shows a complete form for storing a bank account for future ACH deb
         document.getElementById('routing_nbr').focus();
         return false;
       }
+
+      document.getElementById('submit_btn').disabled = true;
     });
 
     // Initialize form with configuration from payment service
     async function initializeForm(merchantId, customerId, returnUrl) {
       const transactionId = generateUUID();
-      const accountType = document.querySelector('input[name="account_type_select"]:checked').value;
+      // Get initial account type from radio button
+      const accountType = document.querySelector('input[name="account_type"]:checked').value;
       const transactionType = accountType === 'checking' ? 'ACH_STORAGE_C' : 'ACH_STORAGE_S';
 
-      // Get form configuration from payment service
       const formConfigUrl = `/api/v1/payments/browser-post/form?` +
         `transaction_id=${transactionId}&` +
         `merchant_id=${merchantId}&` +
@@ -756,18 +641,12 @@ This example shows a complete form for storing a bank account for future ACH deb
         const response = await fetch(formConfigUrl);
         const config = await response.json();
 
-        // Populate hidden fields - including merchant credentials
         document.getElementById('tac').value = config.tac;
+        document.getElementById('tran_code').value = config.tranCode;
         document.getElementById('cust_nbr').value = config.custNbr;
         document.getElementById('merch_nbr').value = config.merchNbr;
         document.getElementById('dba_nbr').value = config.dbaName;
         document.getElementById('terminal_nbr').value = config.terminalNbr;
-        document.getElementById('tran_nbr').value = config.epxTranNbr;
-        document.getElementById('user_data_1').value = transactionId;
-        document.getElementById('user_data_2').value = customerId;
-        document.getElementById('user_data_3').value = merchantId;
-
-        // Update form action
         document.getElementById('bank-form').action = config.postURL;
 
       } catch (error) {
@@ -839,23 +718,17 @@ async function createPaymentForm(merchantId, amount, transactionType) {
   form.method = 'POST';
   form.action = config.postURL; // EPX endpoint
 
-  // Step 3: Add hidden fields
-  // TRAN_CODE: SALE, AUTH, STORAGE, ACH_STORAGE_C, ACH_STORAGE_S
-  const tranCode = transactionType; // Use the transaction type directly as TRAN_CODE
-
+  // Step 3: Add hidden fields from form config
+  // Required per North Developer documentation
   const hiddenFields = {
     'TAC': config.tac,
-    'CUST_NBR': config.custNbr,           // Merchant credentials from form config
+    'TRAN_CODE': config.tranCode,
+    'CUST_NBR': config.custNbr,
     'MERCH_NBR': config.merchNbr,
     'DBA_NBR': config.dbaName,
     'TERMINAL_NBR': config.terminalNbr,
-    'TRAN_NBR': config.epxTranNbr,
-    'TRAN_CODE': tranCode,
-    'AMOUNT': amount,                      // Amount in dollars.cents format
-    'INDUSTRY_TYPE': 'E',
-    // Note: REDIRECT_URL is embedded in TAC, not sent separately
-    'USER_DATA_1': transactionId,          // For tracking in callback
-    'USER_DATA_2': merchantId,
+    'AMOUNT': amount,
+    'INDUSTRY_TYPE': config.industryType,
   };
 
   Object.entries(hiddenFields).forEach(([name, value]) => {
@@ -866,18 +739,18 @@ async function createPaymentForm(merchantId, amount, transactionType) {
     form.appendChild(input);
   });
 
-  // Step 4: Add card input fields (or get from existing form)
-  // EPX field names: ACCOUNT_NBR, EXP_DATE, CVV2, FIRST_NAME, LAST_NAME, ADDRESS, CITY, STATE, ZIP_CODE
+  // Step 4: Add card input fields (required for credit card transactions)
+  // Optional fields (FIRST_NAME, LAST_NAME, ADDRESS, etc.) can be added for AVS
   form.innerHTML += `
     <label>Card Number: <input type="text" name="ACCOUNT_NBR" required maxlength="16"></label>
     <label>Expiration (MMYY): <input type="text" name="EXP_DATE" required maxlength="4"></label>
     <label>CVV: <input type="text" name="CVV2" required maxlength="4"></label>
-    <label>First Name: <input type="text" name="FIRST_NAME" required></label>
-    <label>Last Name: <input type="text" name="LAST_NAME" required></label>
-    <label>Address: <input type="text" name="ADDRESS" required></label>
-    <label>City: <input type="text" name="CITY" required></label>
-    <label>State: <input type="text" name="STATE" required maxlength="2"></label>
-    <label>ZIP Code: <input type="text" name="ZIP_CODE" required maxlength="10"></label>
+    <label>First Name: <input type="text" name="FIRST_NAME"></label>
+    <label>Last Name: <input type="text" name="LAST_NAME"></label>
+    <label>Address: <input type="text" name="ADDRESS"></label>
+    <label>City: <input type="text" name="CITY"></label>
+    <label>State: <input type="text" name="STATE" maxlength="2"></label>
+    <label>ZIP Code: <input type="text" name="ZIP_CODE" maxlength="10"></label>
     <button type="submit">Pay $${amount}</button>
   `;
 
@@ -887,7 +760,7 @@ async function createPaymentForm(merchantId, amount, transactionType) {
 }
 
 // Usage
-const form = await createPaymentForm('merchant-id-uuid', '99.99', 'SALE');
+const form = await createPaymentForm('merchant-id-uuid', '50.00', 'SALE');
 
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -902,49 +775,59 @@ function generateUUID() {
 
 ## Field Reference
 
-### Required Hidden Fields
+### Required Hidden Fields (All Transactions)
 
-These fields must be included in every Browser Post form:
+These fields must be included in every Browser Post form per the [North Developer Guide](https://developer.north.com/products/online/browser-post/integration-guide):
 
 | Field | Type | Description | Example |
 |-------|------|-------------|---------|
 | `TAC` | string | Transaction Authentication Code from Key Exchange | `"abc123xyz456"` |
+| `TRAN_CODE` | string | Transaction type: `SALE`, `AUTH`, `STORAGE`, `ACHSTORAGE_C`, `ACHSTORAGE_S` | `"SALE"` |
 | `CUST_NBR` | string | EPX customer number | `"9001"` |
 | `MERCH_NBR` | string | EPX merchant number | `"900300"` |
 | `DBA_NBR` | string | EPX DBA number | `"2"` |
 | `TERMINAL_NBR` | string | EPX terminal number | `"77"` |
-| `TRAN_NBR` | string | Transaction number (numeric, max 10 digits) | `"1234567890"` |
-| `TRAN_CODE` | string | Transaction type: `SALE`, `AUTH`, `STORAGE`, `ACH_STORAGE_C`, `ACH_STORAGE_S` | `"SALE"` |
 | `AMOUNT` | string | Transaction amount in dollars.cents format | `"99.99"` |
-| `INDUSTRY_TYPE` | string | Industry type (E=E-commerce) | `"E"` |
+| `INDUSTRY_TYPE` | string | Industry type (E=E-commerce, M=MOTO) | `"E"` |
 
-**Note:** The `REDIRECT_URL` is embedded in the TAC token during Key Exchange and should NOT be sent separately in the Browser Post form. All merchant credentials (CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR) and AMOUNT MUST be included in the form.
+**Note:** The `REDIRECT_URL` is embedded in the TAC token during Key Exchange and should NOT be sent separately in the Browser Post form.
 
-### Required Card Fields (User Input)
-
-These fields are filled by the user:
+### Required Card Fields (Credit Card Transactions)
 
 | Field | Type | Description | Example | Validation |
 |-------|------|-------------|---------|------------|
 | `ACCOUNT_NBR` | string | Credit card number (no spaces) | `"4111111111111111"` | 13-16 digits |
-| `EXP_DATE` | string | Expiration date (MMYY format, single field) | `"1225"` | 4 digits |
+| `EXP_DATE` | string | Expiration date (MMYY format) | `"1225"` | 4 digits |
 | `CVV2` | string | Card verification value | `"123"` | 3-4 digits |
-| `FIRST_NAME` | string | Cardholder first name | `"John"` | Required |
-| `LAST_NAME` | string | Cardholder last name | `"Doe"` | Required |
-| `ADDRESS` | string | Billing street address | `"123 Main St"` | Required |
-| `CITY` | string | Billing city | `"New York"` | Required |
-| `STATE` | string | Billing state (2-letter code) | `"NY"` | 2 chars |
-| `ZIP_CODE` | string | Billing ZIP/postal code | `"10001"` | 5-10 chars |
 
-### Optional Fields
+### Required ACH Fields (Bank Account Transactions)
+
+| Field | Type | Description | Example | Validation |
+|-------|------|-------------|---------|------------|
+| `ACCOUNT_NBR` | string | Bank account number | `"123456789"` | 4-17 digits |
+| `ROUTING_NBR` | string | Bank routing number (ABA) | `"021000021"` | 9 digits |
+| `FIRST_NAME` | string | Account holder first name | `"John"` | Required for ACH |
+| `LAST_NAME` | string | Account holder last name | `"Doe"` | Required for ACH |
+
+### Optional Fields (All Transactions)
+
+These fields are optional but recommended for AVS (Address Verification System):
 
 | Field | Type | Description | Example |
 |-------|------|-------------|---------|
+| `FIRST_NAME` | string | Cardholder/Account holder first name | `"John"` |
+| `LAST_NAME` | string | Cardholder/Account holder last name | `"Doe"` |
+| `ADDRESS` | string | Billing street address | `"123 Main St"` |
+| `CITY` | string | Billing city | `"New York"` |
+| `STATE` | string | Billing state (2-letter code) | `"NY"` |
+| `ZIP_CODE` | string | Billing ZIP/postal code (recommended for AVS) | `"10001"` |
 | `USER_DATA_1` | string | Custom data (echoed back in callback) | `"transaction-uuid"` |
 | `USER_DATA_2` | string | Custom data (echoed back in callback) | `"customer-uuid"` |
 | `USER_DATA_3` | string | Custom data (echoed back in callback) | `"merchant-uuid"` |
 | `EMAIL` | string | Customer email address | `"john@example.com"` |
 | `PHONE` | string | Customer phone number | `"555-123-4567"` |
+
+**Note:** For ACH transactions, `FIRST_NAME` and `LAST_NAME` are required per North documentation.
 
 ### BRIC Storage Fields (Save Card for Future Use)
 
@@ -958,68 +841,38 @@ To store a card as a BRIC token for future payments, use `TRAN_CODE=STORAGE`:
 
 ### ACH Form Fields (Bank Account Input)
 
-For ACH storage transactions (ACH_STORAGE_C or ACH_STORAGE_S), use these bank account fields instead of card fields:
-
-| Field | Type | Description | Example | Validation |
-|-------|------|-------------|---------|------------|
-| `ROUTING_NBR` | string | Bank routing number (ABA) | `"021000021"` | 9 digits |
-| `ACCOUNT_NBR` | string | Bank account number | `"123456789"` | 4-17 digits |
-| `ACCOUNT_TYPE` | string | Account type: `C` (Checking), `S` (Savings) | `"C"` | C or S |
-| `FIRST_NAME` | string | Account holder first name | `"John"` | Required |
-| `LAST_NAME` | string | Account holder last name | `"Doe"` | Required |
-| `ADDRESS` | string | Billing street address | `"123 Main St"` | Required |
-| `CITY` | string | Billing city | `"New York"` | Required |
-| `STATE` | string | Billing state (2-letter code) | `"NY"` | 2 chars |
-| `ZIP_CODE` | string | Billing ZIP/postal code | `"10001"` | 5-10 chars |
+For ACH storage transactions (ACHSTORAGE_C or ACHSTORAGE_S), use these bank account fields instead of card fields. Per the [North Developer Guide](https://developer.north.com/products/online/browser-post/integration-guide), FIRST_NAME and LAST_NAME are required for ACH transactions.
 
 **ACH Browser Post Form Example:**
 
 ```html
-<form id="ach-form" action="https://services.epxuap.com/browserpost/" method="POST">
-  <!-- EPX Authentication -->
-  <input type="hidden" name="TAC" value="abc123xyz456">
+<form id="ach-form" action="${formConfig.postURL}" method="POST">
+  <!-- EPX Authentication (from form config) -->
+  <input type="hidden" name="TAC" value="${formConfig.tac}">
 
-  <!-- Merchant Credentials (from form config response) -->
-  <input type="hidden" name="CUST_NBR" value="9001">
-  <input type="hidden" name="MERCH_NBR" value="900300">
-  <input type="hidden" name="DBA_NBR" value="2">
-  <input type="hidden" name="TERMINAL_NBR" value="77">
-
-  <!-- Transaction Details -->
-  <input type="hidden" name="TRAN_NBR" value="1234567890">
-  <input type="hidden" name="TRAN_CODE" id="tran_code" value="ACH_STORAGE_C">
+  <!-- Transaction Type and Merchant Credentials (from form config) -->
+  <input type="hidden" name="TRAN_CODE" value="${formConfig.tranCode}">
+  <input type="hidden" name="CUST_NBR" value="${formConfig.custNbr}">
+  <input type="hidden" name="MERCH_NBR" value="${formConfig.merchNbr}">
+  <input type="hidden" name="DBA_NBR" value="${formConfig.dbaName}">
+  <input type="hidden" name="TERMINAL_NBR" value="${formConfig.terminalNbr}">
   <input type="hidden" name="AMOUNT" value="0.00">
-  <input type="hidden" name="INDUSTRY_TYPE" value="E">
-
-  <!-- Account Type Selection (user selects) -->
-  <fieldset>
-    <legend>Account Type</legend>
-    <label>
-      <input type="radio" name="account_type_selection" value="checking" checked
-             onchange="document.getElementById('tran_code').value='ACH_STORAGE_C'; document.getElementById('account_type').value='C';">
-      Checking
-    </label>
-    <label>
-      <input type="radio" name="account_type_selection" value="savings"
-             onchange="document.getElementById('tran_code').value='ACH_STORAGE_S'; document.getElementById('account_type').value='S';">
-      Savings
-    </label>
-  </fieldset>
-  <input type="hidden" name="ACCOUNT_TYPE" id="account_type" value="C">
+  <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}">
+  <input type="hidden" name="STD_ENTRY_CLASS" value="WEB">
 
   <!-- Bank Account Details (user enters these) -->
-  <label>Routing Number: <input type="text" name="ROUTING_NBR" required maxlength="9"></label>
   <label>Account Number: <input type="text" name="ACCOUNT_NBR" required></label>
+  <label>Routing Number: <input type="text" name="ROUTING_NBR" required maxlength="9"></label>
 
-  <!-- Account Holder Info -->
+  <!-- Account Holder Info (required for ACH) -->
   <label>First Name: <input type="text" name="FIRST_NAME" required></label>
   <label>Last Name: <input type="text" name="LAST_NAME" required></label>
 
-  <!-- Billing Address -->
-  <label>Address: <input type="text" name="ADDRESS" required></label>
-  <label>City: <input type="text" name="CITY" required></label>
-  <label>State: <input type="text" name="STATE" required maxlength="2"></label>
-  <label>ZIP Code: <input type="text" name="ZIP_CODE" required></label>
+  <!-- Billing Address (optional) -->
+  <label>Address: <input type="text" name="ADDRESS"></label>
+  <label>City: <input type="text" name="CITY"></label>
+  <label>State: <input type="text" name="STATE" maxlength="2"></label>
+  <label>ZIP Code: <input type="text" name="ZIP_CODE"></label>
 
   <button type="submit">Save Bank Account</button>
 </form>

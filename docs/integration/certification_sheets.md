@@ -51,8 +51,19 @@ CUST_NBR=9001  MERCH_NBR=900300  DBA_NBR=2  TERMINAL_NBR=77
    - 4.2 [ACH Refund (CKC3)](#42-ach-refund-ckc3)
    - 4.3 [ACH Pre-note (CKC0)](#43-ach-pre-note-ckc0)
    - 4.4 [ACH Subscription (PPD)](#44-ach-subscription-ckc2--ppd)
-5. [Card on File (COF) Compliance](#5-card-on-file-cof-compliance)
-6. [Configuration Reference](#6-configuration-reference)
+5. [Payment Service REST API](#5-payment-service-rest-api)
+   - 5.1 [Get Form Config](#51-get-form-config)
+   - 5.2 [Browser POST HTML Forms](#52-browser-post-html-forms)
+     - 5.2.1 [Credit Card Payment Form (SALE/AUTH)](#521-credit-card-payment-form-saleauth)
+     - 5.2.2 [Credit Card Storage Form (STORAGE)](#522-credit-card-storage-form-storage)
+     - 5.2.3 [ACH Bank Account Storage Form](#523-ach-bank-account-storage-form-ach_storage_cach_storage_s)
+   - 5.3 [Callback HTML Responses](#53-callback-html-responses)
+     - 5.3.1 [Payment Receipt (SALE/AUTH)](#531-payment-receipt-saleauth)
+     - 5.3.2 [Credit Card Stored (STORAGE)](#532-credit-card-stored-storage)
+     - 5.3.3 [Bank Account Stored (ACH_STORAGE)](#533-bank-account-stored-ach_storage)
+     - 5.3.4 [Error](#534-error)
+6. [Card on File (COF) Compliance](#6-card-on-file-cof-compliance)
+7. [Configuration Reference](#7-configuration-reference)
 
 ---
 
@@ -1655,7 +1666,760 @@ curl -X POST "https://secure.epxuap.com" \
 
 ---
 
-## 5. Card on File (COF) Compliance
+## 5. Payment Service REST API
+
+These endpoints are provided by the Payment Service to facilitate Browser POST integration.
+
+---
+
+### 5.1 Get Form Config
+
+**Endpoint**: `GET /api/v1/payments/browser-post/form`
+
+**Purpose**: Returns configuration needed to build the Browser POST form
+
+#### JSON Response
+
+```json
+{
+  "transactionId": "txn_abc123",
+  "epxTranNbr": "2000000050",
+  "tac": "svM11dEbyhguvn5w8CuTPQ==|xPX24MwXfbMy262rkTF4lPe0qbzO84WB...",
+  "expiresAt": 1733356800,
+  "postURL": "https://services.epxuap.com/browserpost/",
+  "custNbr": "9001",
+  "merchNbr": "900300",
+  "dbaName": "2",
+  "terminalNbr": "77",
+  "industryType": "E",
+  "tranCode": "SALE",
+  "redirectURL": "http://localhost:8081/api/v1/payments/browser-post/callback",
+  "returnUrl": "https://merchant.example.com/checkout/complete",
+  "merchantId": "f37b03e6-aef3-428d-984e-862af7e6b4e9",
+  "merchantName": "Acme Corp"
+}
+```
+
+<details>
+<summary>Field Reference (click to expand)</summary>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| transactionId | string | Payment Service transaction ID |
+| epxTranNbr | string | EPX transaction number (TRAN_NBR) |
+| tac | string | Transaction Authentication Code from Key Exchange |
+| expiresAt | integer | Unix timestamp when TAC expires |
+| postURL | string | EPX Browser POST endpoint URL |
+| custNbr | string | EPX customer number |
+| merchNbr | string | EPX merchant number |
+| dbaName | string | EPX DBA number |
+| terminalNbr | string | EPX terminal number |
+| industryType | string | Industry type (E=E-commerce) |
+| tranCode | string | Transaction code: SALE, AUTH, STORAGE, ACHSTORAGE_C, ACHSTORAGE_S |
+| redirectURL | string | Callback URL where EPX sends response |
+| returnUrl | string | Merchant URL to redirect user after completion |
+| merchantId | string | Payment Service merchant UUID |
+| merchantName | string | Merchant display name |
+
+</details>
+
+---
+
+### 5.2 Browser POST HTML Forms
+
+These HTML forms submit directly to EPX. Card/bank data never touches your servers (PCI compliant).
+
+#### 5.2.1 Credit Card Payment Form (SALE/AUTH)
+
+```html
+<form action="https://services.epxuap.com/browserpost/" method="POST">
+  <!-- EPX Authentication (from form config) -->
+  <input type="hidden" name="TAC" value="${formConfig.tac}">
+
+  <!-- Merchant Credentials (from form config) -->
+  <input type="hidden" name="TRAN_CODE" value="${formConfig.tranCode}">
+  <input type="hidden" name="CUST_NBR" value="${formConfig.custNbr}">
+  <input type="hidden" name="MERCH_NBR" value="${formConfig.merchNbr}">
+  <input type="hidden" name="DBA_NBR" value="${formConfig.dbaName}">
+  <input type="hidden" name="TERMINAL_NBR" value="${formConfig.terminalNbr}">
+  <input type="hidden" name="AMOUNT" value="50.00">
+  <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}">
+
+  <!-- Card Details (user input) -->
+  <input type="hidden" name="ACCOUNT_NBR" value="4761739001010010">
+  <input type="hidden" name="EXP_DATE" value="1227">
+  <input type="hidden" name="CVV2" value="999">
+
+  <!-- Cardholder Info (optional but recommended for AVS) -->
+  <input type="hidden" name="FIRST_NAME" value="John">
+  <input type="hidden" name="LAST_NAME" value="Doe">
+  <input type="hidden" name="ADDRESS" value="123 Main St">
+  <input type="hidden" name="CITY" value="New York">
+  <input type="hidden" name="STATE" value="NY">
+  <input type="hidden" name="ZIP_CODE" value="10001">
+
+  <button type="submit">Pay $50.00</button>
+</form>
+```
+
+<details>
+<summary>Field Reference (click to expand)</summary>
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| TAC | hidden | Yes | Transaction Authentication Code from Key Exchange |
+| TRAN_CODE | hidden | Yes | `SALE` (auth+capture) or `AUTH` (auth only) |
+| CUST_NBR | hidden | Yes | EPX customer number |
+| MERCH_NBR | hidden | Yes | EPX merchant number |
+| DBA_NBR | hidden | Yes | EPX DBA number |
+| TERMINAL_NBR | hidden | Yes | EPX terminal number |
+| AMOUNT | hidden | Yes | Amount in dollars.cents format |
+| INDUSTRY_TYPE | hidden | Yes | `E` for E-commerce |
+| ACCOUNT_NBR | text | Yes | Credit card number (no spaces, 13-16 digits) |
+| EXP_DATE | text | Yes | Expiration date in MMYY format |
+| CVV2 | text | Yes | Card verification value (3-4 digits) |
+| FIRST_NAME | text | No | Cardholder first name (optional, for AVS) |
+| LAST_NAME | text | No | Cardholder last name (optional, for AVS) |
+| ADDRESS | text | No | Billing street address (optional, for AVS) |
+| CITY | text | No | Billing city (optional, for AVS) |
+| STATE | text | No | Billing state (optional, for AVS) |
+| ZIP_CODE | text | No | Billing ZIP code (recommended for AVS) |
+
+</details>
+
+---
+
+#### 5.2.2 Credit Card Storage Form (STORAGE)
+
+```html
+<form action="https://services.epxuap.com/browserpost/" method="POST">
+  <!-- EPX Authentication (from form config) -->
+  <input type="hidden" name="TAC" value="${formConfig.tac}">
+
+  <!-- Merchant Credentials (from form config) -->
+  <input type="hidden" name="TRAN_CODE" value="${formConfig.tranCode}">
+  <input type="hidden" name="CUST_NBR" value="${formConfig.custNbr}">
+  <input type="hidden" name="MERCH_NBR" value="${formConfig.merchNbr}">
+  <input type="hidden" name="DBA_NBR" value="${formConfig.dbaName}">
+  <input type="hidden" name="TERMINAL_NBR" value="${formConfig.terminalNbr}">
+  <input type="hidden" name="AMOUNT" value="0.00">
+  <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}">
+
+  <!-- Card Details (user input) -->
+  <input type="hidden" name="ACCOUNT_NBR" value="4761739001010010">
+  <input type="hidden" name="EXP_DATE" value="1227">
+  <input type="hidden" name="CVV2" value="999">
+
+  <!-- Cardholder Info (optional but recommended for AVS) -->
+  <input type="hidden" name="FIRST_NAME" value="Jane">
+  <input type="hidden" name="LAST_NAME" value="Smith">
+  <input type="hidden" name="ADDRESS" value="456 Oak Ave">
+  <input type="hidden" name="CITY" value="Los Angeles">
+  <input type="hidden" name="STATE" value="CA">
+  <input type="hidden" name="ZIP_CODE" value="90001">
+
+  <button type="submit">Save Card</button>
+</form>
+```
+
+<details>
+<summary>Field Reference (click to expand)</summary>
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| TAC | hidden | Yes | Transaction Authentication Code from Key Exchange |
+| TRAN_CODE | hidden | Yes | `STORAGE` for card tokenization |
+| CUST_NBR | hidden | Yes | EPX customer number |
+| MERCH_NBR | hidden | Yes | EPX merchant number |
+| DBA_NBR | hidden | Yes | EPX DBA number |
+| TERMINAL_NBR | hidden | Yes | EPX terminal number |
+| AMOUNT | hidden | Yes | `0.00` (no charge for storage) |
+| INDUSTRY_TYPE | hidden | Yes | `E` for E-commerce |
+| ACCOUNT_NBR | text | Yes | Credit card number (no spaces) |
+| EXP_DATE | text | Yes | Expiration date in MMYY format |
+| CVV2 | text | Yes | Card verification value |
+| FIRST_NAME | text | No | Cardholder first name (optional, for AVS) |
+| LAST_NAME | text | No | Cardholder last name (optional, for AVS) |
+| ADDRESS | text | No | Billing street address (optional, for AVS) |
+| CITY | text | No | Billing city (optional, for AVS) |
+| STATE | text | No | Billing state (optional, for AVS) |
+| ZIP_CODE | text | No | Billing ZIP code (recommended for AVS) |
+
+</details>
+
+---
+
+#### 5.2.3 ACH Bank Account Storage Form (ACH_STORAGE_C/ACH_STORAGE_S)
+
+**Note:** AVS (Address Verification System) does NOT work for ACH transactions - it only applies to credit cards. ACH verification uses prenote ($0 transaction), micro-deposits, or third-party services like Plaid. Address fields are not recommended for ACH forms.
+
+```html
+<form action="https://services.epxuap.com/browserpost/" method="POST">
+  <!-- EPX Authentication (from form config) -->
+  <input type="hidden" name="TAC" value="${formConfig.tac}">
+
+  <!-- Merchant Credentials (from form config) -->
+  <input type="hidden" name="TRAN_CODE" value="${formConfig.tranCode}">
+  <input type="hidden" name="CUST_NBR" value="${formConfig.custNbr}">
+  <input type="hidden" name="MERCH_NBR" value="${formConfig.merchNbr}">
+  <input type="hidden" name="DBA_NBR" value="${formConfig.dbaName}">
+  <input type="hidden" name="TERMINAL_NBR" value="${formConfig.terminalNbr}">
+  <input type="hidden" name="AMOUNT" value="0.00">
+  <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}">
+  <input type="hidden" name="STD_ENTRY_CLASS" value="WEB">
+
+  <!-- Bank Account Details (user input) -->
+  <input type="hidden" name="ACCOUNT_NBR" value="*****6789">
+  <input type="hidden" name="ROUTING_NBR" value="011000015">
+
+  <!-- Account Holder Name (required for ACH) -->
+  <input type="hidden" name="FIRST_NAME" value="John">
+  <input type="hidden" name="LAST_NAME" value="Doe">
+
+  <button type="submit">Save Bank Account</button>
+</form>
+```
+
+<details>
+<summary>Field Reference (click to expand)</summary>
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| TAC | hidden | Yes | Transaction Authentication Code from Key Exchange |
+| TRAN_CODE | hidden | Yes | `ACHSTORAGE_C` (checking) or `ACHSTORAGE_S` (savings) |
+| CUST_NBR | hidden | Yes | EPX customer number |
+| MERCH_NBR | hidden | Yes | EPX merchant number |
+| DBA_NBR | hidden | Yes | EPX DBA number |
+| TERMINAL_NBR | hidden | Yes | EPX terminal number |
+| AMOUNT | hidden | Yes | `0.00` (no charge for storage) |
+| INDUSTRY_TYPE | hidden | Yes | `E` for E-commerce |
+| STD_ENTRY_CLASS | hidden | Yes | `WEB` for internet-initiated |
+| ACCOUNT_NBR | text | Yes | Bank account number |
+| ROUTING_NBR | text | Yes | Bank routing number (9 digits) |
+| FIRST_NAME | text | Yes | Account holder first name |
+| LAST_NAME | text | Yes | Account holder last name |
+
+</details>
+
+---
+
+### 5.3 Callback HTML Responses
+
+The callback endpoint returns HTML pages to the user's browser after EPX processes the transaction.
+
+#### 5.3.1 Payment Receipt (SALE/AUTH)
+
+**Endpoint**: `GET/POST /api/v1/payments/browser-post/callback`
+
+**Purpose**: Processes EPX callback for SALE/AUTH transactions and displays receipt
+
+#### HTML Response
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Successful</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header { text-align: center; margin-bottom: 30px; }
+        .icon { font-size: 64px; margin-bottom: 20px; }
+        .icon.success { color: #10b981; }
+        .status { font-size: 24px; font-weight: bold; margin: 20px 0; }
+        .status.success { color: #10b981; }
+        .amount {
+            font-size: 32px;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+            color: #111827;
+        }
+        .details {
+            margin: 30px 0;
+            border-top: 2px solid #e5e7eb;
+            padding-top: 20px;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 15px 0;
+            padding: 10px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .detail-label { font-weight: 600; color: #6b7280; }
+        .detail-value { color: #111827; font-weight: 500; }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #3b82f6;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            margin-top: 20px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <div class="icon success">✓</div>
+            <div class="status success">Payment Successful</div>
+        </div>
+        <div class="amount">$100.00 USD</div>
+        <div class="details">
+            <div class="detail-row">
+                <span class="detail-label">Card Type</span>
+                <span class="detail-value">Visa</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Card Number</span>
+                <span class="detail-value">**** **** **** 0002</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Authorization Code</span>
+                <span class="detail-value">045023</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Transaction ID</span>
+                <span class="detail-value">txn_abc123</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Reference Number</span>
+                <span class="detail-value">2000000011</span>
+            </div>
+        </div>
+        <div class="footer">
+            <p>Thank you for your payment!</p>
+            <a href="https://merchant.example.com/checkout/complete" class="button">Return to Application</a>
+        </div>
+    </div>
+</body>
+</html>
+```
+
+<details>
+<summary>Field Reference (click to expand)</summary>
+
+| Field | Description |
+|-------|-------------|
+| Amount | Transaction amount with currency |
+| Card Type | Card brand (Visa, Mastercard, Amex, Discover) |
+| Card Number | Masked PAN showing last 4 digits |
+| Authorization Code | 6-digit auth code from issuer |
+| Transaction ID | Payment Service transaction ID |
+| Reference Number | EPX TRAN_NBR |
+
+</details>
+
+---
+
+#### 5.3.2 Credit Card Stored (STORAGE)
+
+**Endpoint**: `GET/POST /api/v1/payments/browser-post/callback`
+
+**Purpose**: Processes EPX callback for STORAGE transactions and displays confirmation
+
+#### HTML Response
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Method Saved</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header { text-align: center; margin-bottom: 30px; }
+        .icon { font-size: 64px; margin-bottom: 20px; }
+        .icon.success { color: #10b981; }
+        .status { font-size: 24px; font-weight: bold; margin: 20px 0; }
+        .status.success { color: #10b981; }
+        .details {
+            margin: 30px 0;
+            border-top: 2px solid #e5e7eb;
+            padding-top: 20px;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 15px 0;
+            padding: 10px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .detail-label { font-weight: 600; color: #6b7280; }
+        .detail-value { color: #111827; font-weight: 500; }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .badge.verified { background-color: #d1fae5; color: #065f46; }
+        .info-box {
+            background-color: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #1e40af;
+            font-size: 14px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #3b82f6;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            margin-top: 20px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <div class="icon success">✓</div>
+            <div class="status success">Payment Method Saved</div>
+        </div>
+        <div class="details">
+            <div class="detail-row">
+                <span class="detail-label">Card Type</span>
+                <span class="detail-value">Visa</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Card Number</span>
+                <span class="detail-value">**** **** **** 0002</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Expiration</span>
+                <span class="detail-value">12/27</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Status</span>
+                <span class="detail-value"><span class="badge verified">Verified</span></span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Payment Method ID</span>
+                <span class="detail-value">pm_xyz789</span>
+            </div>
+        </div>
+        <div class="info-box">
+            Your card has been securely saved and is ready for use.
+        </div>
+        <div class="footer">
+            <p>Your payment method has been saved successfully.</p>
+            <a href="https://merchant.example.com/account/payment-methods" class="button">Return to Application</a>
+        </div>
+    </div>
+</body>
+</html>
+```
+
+<details>
+<summary>Field Reference (click to expand)</summary>
+
+| Field | Description |
+|-------|-------------|
+| Card Type | Card brand (Visa, Mastercard, Amex, Discover) |
+| Card Number | Masked PAN showing last 4 digits |
+| Expiration | Card expiration date (MM/YY) |
+| Status | Verification status (Verified for credit cards) |
+| Payment Method ID | Payment Service payment method UUID |
+
+</details>
+
+---
+
+#### 5.3.3 Bank Account Stored (ACH_STORAGE)
+
+**Endpoint**: `GET/POST /api/v1/payments/browser-post/callback`
+
+**Purpose**: Processes EPX callback for ACH STORAGE transactions and displays confirmation
+
+#### HTML Response
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bank Account Saved</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header { text-align: center; margin-bottom: 30px; }
+        .icon { font-size: 64px; margin-bottom: 20px; }
+        .icon.warning { color: #f59e0b; }
+        .status { font-size: 24px; font-weight: bold; margin: 20px 0; }
+        .status.warning { color: #f59e0b; }
+        .details {
+            margin: 30px 0;
+            border-top: 2px solid #e5e7eb;
+            padding-top: 20px;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 15px 0;
+            padding: 10px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .detail-label { font-weight: 600; color: #6b7280; }
+        .detail-value { color: #111827; font-weight: 500; }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .badge.pending { background-color: #fef3c7; color: #92400e; }
+        .warning-box {
+            background-color: #fefce8;
+            border: 1px solid #fde047;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #854d0e;
+            font-size: 14px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #3b82f6;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            margin-top: 20px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <div class="icon warning">⚠</div>
+            <div class="status warning">Verification Pending</div>
+        </div>
+        <div class="details">
+            <div class="detail-row">
+                <span class="detail-label">Account Type</span>
+                <span class="detail-value">Checking</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Account Number</span>
+                <span class="detail-value">***** 6789</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Status</span>
+                <span class="detail-value"><span class="badge pending">Pending Verification</span></span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Payment Method ID</span>
+                <span class="detail-value">pm_ach456</span>
+            </div>
+        </div>
+        <div class="warning-box">
+            <strong>Verification in Progress</strong><br>
+            A prenote has been sent to verify your bank account. This typically takes 2-3 business days.
+            You will be able to use this payment method once verification is complete.
+        </div>
+        <div class="footer">
+            <p>Your bank account has been saved and is pending verification.</p>
+            <a href="https://merchant.example.com/account/payment-methods" class="button">Return to Application</a>
+        </div>
+    </div>
+</body>
+</html>
+```
+
+<details>
+<summary>Field Reference (click to expand)</summary>
+
+| Field | Description |
+|-------|-------------|
+| Account Type | Checking or Savings |
+| Account Number | Masked account showing last 4 digits |
+| Status | Pending Verification (ACH requires prenote verification) |
+| Payment Method ID | Payment Service payment method UUID |
+
+</details>
+
+---
+
+#### 5.3.4 Error
+
+**Endpoint**: `GET/POST /api/v1/payments/browser-post/callback`
+
+**Purpose**: Displays error when payment processing fails
+
+#### HTML Response
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Error</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header { text-align: center; margin-bottom: 30px; }
+        .icon { font-size: 64px; margin-bottom: 20px; }
+        .icon.error { color: #ef4444; }
+        .status { font-size: 24px; font-weight: bold; margin: 20px 0; }
+        .status.error { color: #ef4444; }
+        .message {
+            text-align: center;
+            color: #6b7280;
+            margin: 20px 0;
+        }
+        .error-box {
+            background-color: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #991b1b;
+            font-size: 14px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #3b82f6;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            margin-top: 20px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <div class="icon error">⚠</div>
+            <div class="status error">Payment Error</div>
+        </div>
+        <p class="message">Your payment could not be processed.</p>
+        <div class="error-box">
+            Card declined: Insufficient funds (51)
+        </div>
+        <div class="footer">
+            <a href="https://merchant.example.com/checkout" class="button">Return to Application</a>
+        </div>
+    </div>
+</body>
+</html>
+```
+
+<details>
+<summary>Field Reference (click to expand)</summary>
+
+| Field | Description |
+|-------|-------------|
+| Message | General error description |
+| Details | Specific error reason (e.g., decline code) |
+
+</details>
+
+---
+
+## 6. Card on File (COF) Compliance
 
 ### Transaction Classification
 
@@ -1699,7 +2463,7 @@ Uses: ORIG_AUTH_GUID=<BRIC>         Falls back to RB if window expired
 
 ---
 
-## 6. Configuration Reference
+## 7. Configuration Reference
 
 ### Environment Variables
 
@@ -1723,4 +2487,4 @@ Uses: ORIG_AUTH_GUID=<BRIC>         Falls back to RB if window expired
 
 ---
 
-**Document Version**: 1.0 | **Last Updated**: 2025-12-03 | **Status**: UNCERTIFIED (Real Sandbox Data)
+**Document Version**: 1.1 | **Last Updated**: 2025-12-10 | **Status**: UNCERTIFIED (Real Sandbox Data)
