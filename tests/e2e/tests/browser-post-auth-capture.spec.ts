@@ -98,44 +98,49 @@ test.describe('Browser Post AUTH + CAPTURE Flow', () => {
       }
     );
 
-    if (txnResponse.ok()) {
-      const transaction = await txnResponse.json();
-      console.log('AUTH transaction response:', JSON.stringify(transaction, null, 2));
+    expect(txnResponse.ok(), `GetTransaction failed: ${await txnResponse.text()}`).toBeTruthy();
 
-      expect(transaction.id).toBe(transactionId);
-      expect(transaction.merchantId).toBe(testContext.merchant.id);
-      // AUTH transactions are recorded as AUTH type
-      expect(transaction.type).toBe('TRANSACTION_TYPE_AUTH');
-      expect(transaction.amountCents).toBe('7500'); // $75.00 = 7500 cents
+    const transaction = await txnResponse.json();
+    console.log('AUTH transaction response:', JSON.stringify(transaction, null, 2));
 
-      console.log('AUTH transaction created successfully!');
+    // Verify AUTH transaction
+    expect(transaction.id).toBe(transactionId);
+    expect(transaction.merchantId).toBe(testContext.merchant.id);
+    expect(transaction.type).toBe('TRANSACTION_TYPE_AUTH');
+    expect(transaction.amountCents).toBe('7500'); // $75.00 = 7500 cents
 
-      // Step 4: CAPTURE the authorized transaction via API
-      console.log('Capturing authorized transaction...');
-      const captureResponse = await request.post(
-        `${baseUrl}/payment.v1.PaymentService/Capture`,
-        {
-          headers: {
-            Authorization: `Bearer ${testContext.token}`,
-            'Content-Type': 'application/json',
-          },
-          data: {
-            transaction_id: transactionId,
-            idempotency_key: crypto.randomUUID(),
-          },
-        }
-      );
+    // Verify AUTH was APPROVED by EPX
+    expect(transaction.status).toBe('TRANSACTION_STATUS_APPROVED');
+    expect(transaction.authorizationCode).toBeTruthy();
 
-      if (captureResponse.ok()) {
-        const captureResult = await captureResponse.json();
-        console.log('CAPTURE result:', JSON.stringify(captureResult, null, 2));
-        console.log('AUTH + CAPTURE flow completed successfully!');
-      } else {
-        console.log(`CAPTURE failed: ${captureResponse.status()} - ${await captureResponse.text()}`);
+    console.log(`AUTH approved with auth code: ${transaction.authorizationCode}`);
+
+    // Step 4: CAPTURE the authorized transaction via API
+    console.log('Capturing authorized transaction...');
+    const captureResponse = await request.post(
+      `${baseUrl}/payment.v1.PaymentService/Capture`,
+      {
+        headers: {
+          Authorization: `Bearer ${testContext.token}`,
+          'Content-Type': 'application/json',
+        },
+        data: {
+          transaction_id: transactionId,
+          idempotency_key: crypto.randomUUID(),
+        },
       }
-    } else {
-      console.log(`Transaction verification failed: ${txnResponse.status()} - ${await txnResponse.text()}`);
-    }
+    );
+
+    expect(captureResponse.ok(), `Capture failed: ${await captureResponse.text()}`).toBeTruthy();
+
+    const captureResult = await captureResponse.json();
+    console.log('CAPTURE result:', JSON.stringify(captureResult, null, 2));
+
+    // Verify CAPTURE was APPROVED
+    expect(captureResult.status).toBe('TRANSACTION_STATUS_APPROVED');
+    expect(captureResult.isApproved).toBe(true);
+
+    console.log('AUTH + CAPTURE flow completed successfully!');
   });
 
   test('AUTH then partial CAPTURE', async ({ page, request, testContext }) => {
@@ -216,34 +221,45 @@ test.describe('Browser Post AUTH + CAPTURE Flow', () => {
       }
     );
 
-    if (txnResponse.ok()) {
-      const transaction = await txnResponse.json();
-      console.log('AUTH transaction created:', transaction.id);
+    expect(txnResponse.ok(), `GetTransaction failed: ${await txnResponse.text()}`).toBeTruthy();
 
-      // Partial capture for $50
-      console.log('Capturing partial amount ($50)...');
-      const captureResponse = await request.post(
-        `${baseUrl}/payment.v1.PaymentService/Capture`,
-        {
-          headers: {
-            Authorization: `Bearer ${testContext.token}`,
-            'Content-Type': 'application/json',
-          },
-          data: {
-            transaction_id: transactionId,
-            amount_cents: captureAmountCents,
-            idempotency_key: crypto.randomUUID(),
-          },
-        }
-      );
+    const transaction = await txnResponse.json();
+    console.log('AUTH transaction created:', transaction.id);
 
-      if (captureResponse.ok()) {
-        console.log('Partial CAPTURE completed successfully!');
-      } else {
-        console.log(`Partial CAPTURE failed: ${await captureResponse.text()}`);
+    // Verify AUTH was APPROVED
+    expect(transaction.status).toBe('TRANSACTION_STATUS_APPROVED');
+    expect(transaction.authorizationCode).toBeTruthy();
+    expect(transaction.amountCents).toBe('10000'); // $100.00
+
+    console.log(`AUTH approved with auth code: ${transaction.authorizationCode}`);
+
+    // Partial capture for $50
+    console.log('Capturing partial amount ($50)...');
+    const captureResponse = await request.post(
+      `${baseUrl}/payment.v1.PaymentService/Capture`,
+      {
+        headers: {
+          Authorization: `Bearer ${testContext.token}`,
+          'Content-Type': 'application/json',
+        },
+        data: {
+          transaction_id: transactionId,
+          amount_cents: captureAmountCents,
+          idempotency_key: crypto.randomUUID(),
+        },
       }
-    } else {
-      console.log(`Transaction verification failed: ${await txnResponse.text()}`);
-    }
+    );
+
+    expect(captureResponse.ok(), `Partial Capture failed: ${await captureResponse.text()}`).toBeTruthy();
+
+    const captureResult = await captureResponse.json();
+    console.log('Partial CAPTURE result:', JSON.stringify(captureResult, null, 2));
+
+    // Verify partial CAPTURE was APPROVED
+    expect(captureResult.status).toBe('TRANSACTION_STATUS_APPROVED');
+    expect(captureResult.isApproved).toBe(true);
+    expect(captureResult.amountCents).toBe('5000'); // $50.00 partial capture
+
+    console.log('Partial CAPTURE completed successfully!');
   });
 });

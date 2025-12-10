@@ -1,58 +1,39 @@
 import { test, expect } from '../lib/test-fixtures';
+import { VISA_APPROVAL, formatExpDate } from '../lib/test-cards';
 
 /**
- * Test bank account data for EPX sandbox
- */
-const TEST_CHECKING_ACCOUNT = {
-  routingNumber: '011000015',
-  accountNumber: '123456789',
-  accountType: 'checking',
-};
-
-const TEST_SAVINGS_ACCOUNT = {
-  routingNumber: '011000015',
-  accountNumber: '987654321',
-  accountType: 'savings',
-};
-
-/**
- * Browser Post ACH STORAGE Flow E2E Tests
+ * Browser Post STORAGE Flow E2E Test
  *
- * Tests the complete browser post ACH storage flows:
- * - ACH Checking Storage (ACHSTORAGE_C / CKC8)
- * - ACH Savings Storage (ACHSTORAGE_S / CKS8)
- *
- * Flow:
- * 1. Get form configuration from backend (ACH_STORAGE_C or ACH_STORAGE_S type)
- * 2. Submit bank data to EPX via browser
+ * Tests the complete browser post card storage flow:
+ * 1. Get form configuration from backend (STORAGE type)
+ * 2. Submit card data to EPX via browser
  * 3. EPX redirects back to callback with BRIC token
  * 4. Verify payment method is saved to database
- * 5. Automatic prenote is sent for ACH verification
  *
  * Business Logic:
- * - Tokenize bank account without charging (save for future ACH debits)
- * - No money moves - just stores bank account securely
- * - Returns BRIC token for future ACH transactions
- * - Prenote verifies bank account is valid before first real transaction
+ * - Tokenize card without charging (save for future use)
+ * - No money moves - just stores card securely
+ * - Returns BRIC token for future transactions
  */
-test.describe('Browser Post ACH STORAGE Flow', () => {
-  test('store checking account via ACH_STORAGE_C', async ({ page, request, testContext }) => {
+test.describe('Browser Post STORAGE Flow', () => {
+  test('store credit card and verify payment method created', async ({ page, request, testContext }) => {
     const baseUrl = process.env.SERVICE_URL || 'http://localhost:8081';
 
+    // Step 1: Get browser post form configuration for STORAGE
     const transactionId = crypto.randomUUID();
-    const customerId = `ach-customer-${Date.now()}`;
+    const customerId = `customer-${Date.now()}`;
     const callbackUrl = `${baseUrl}/api/v1/payments/browser-post/callback`;
 
     const params = new URLSearchParams({
       transaction_id: transactionId,
       merchant_id: testContext.merchant.id,
-      amount: '0.00',
-      transaction_type: 'ACH_STORAGE_C', // Checking account storage
+      amount: '0.00', // STORAGE doesn't charge
+      transaction_type: 'STORAGE',
       customer_id: customerId,
       return_url: callbackUrl,
     });
 
-    console.log(`Getting browser post form for ACH Checking Storage, merchant: ${testContext.merchant.id}`);
+    console.log(`Getting browser post form for STORAGE, merchant: ${testContext.merchant.id}`);
 
     const formResponse = await request.get(
       `${baseUrl}/api/v1/payments/browser-post/form?${params}`,
@@ -70,20 +51,19 @@ test.describe('Browser Post ACH STORAGE Flow', () => {
     expect(formConfig.tac).toBeTruthy();
     expect(formConfig.postURL).toBeTruthy();
     expect(formConfig.epxTranNbr).toBeTruthy();
-    // TRAN_CODE should be ACHSTORAGE_C for checking account storage (per EPX certification)
-    expect(formConfig.tranCode).toBe('ACHSTORAGE_C');
+    expect(formConfig.tranCode).toBe('STORAGE');
 
-    console.log(`Got TAC for ACH Checking Storage, posting to EPX: ${formConfig.postURL}`);
+    console.log(`Got TAC for STORAGE, posting to EPX: ${formConfig.postURL}`);
 
-    // Build and submit form to EPX with ACH fields per certification sheet
-    const account = TEST_CHECKING_ACCOUNT;
+    // Step 2: Build and submit form to EPX
+    const card = VISA_APPROVAL;
+    const expDate = formatExpDate(card);
 
-    // Note: Address fields (ADDRESS, CITY, STATE, ZIP_CODE) are not included
-    // because AVS does not work for ACH - only for credit cards
+    // Create an HTML page with auto-submitting form
     const formHtml = `
       <!DOCTYPE html>
       <html>
-      <head><title>EPX ACH Checking Storage</title></head>
+      <head><title>EPX Card Storage</title></head>
       <body>
         <form id="epxForm" method="POST" action="${formConfig.postURL}">
           <input type="hidden" name="TAC" value="${formConfig.tac}" />
@@ -94,151 +74,39 @@ test.describe('Browser Post ACH STORAGE Flow', () => {
           <input type="hidden" name="TERMINAL_NBR" value="${formConfig.terminalNbr}" />
           <input type="hidden" name="AMOUNT" value="0.00" />
           <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}" />
-          <input type="hidden" name="STD_ENTRY_CLASS" value="WEB" />
-          <input type="hidden" name="ACCOUNT_NBR" value="${account.accountNumber}" />
-          <input type="hidden" name="ROUTING_NBR" value="${account.routingNumber}" />
-          <input type="hidden" name="FIRST_NAME" value="John" />
-          <input type="hidden" name="LAST_NAME" value="Doe" />
-        </form>
-        <script>document.getElementById('epxForm').submit();</script>
-      </body>
-      </html>
-    `;
-
-    await page.setContent(formHtml);
-
-    console.log('Waiting for EPX redirect...');
-    await page.waitForURL(/callback|return/, { timeout: 30000 });
-
-    const finalUrl = page.url();
-    console.log(`Final URL: ${finalUrl}`);
-
-    expect(finalUrl).toContain('callback');
-
-    await page.waitForTimeout(1000);
-
-    // Verify payment method was created
-    console.log(`Verifying ACH payment method for customer: ${customerId}`);
-
-    const pmResponse = await request.post(
-      `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
-      {
-        headers: {
-          Authorization: `Bearer ${testContext.token}`,
-          'Content-Type': 'application/json',
-          'Accept-Encoding': 'identity',
-        },
-        data: {
-          merchant_id: testContext.merchant.id,
-          customer_id: customerId,
-        },
-      }
-    );
-
-    expect(pmResponse.ok(), `ListPaymentMethods failed: ${await pmResponse.text()}`).toBeTruthy();
-
-    const pmData = await pmResponse.json();
-    console.log('Payment methods response:', JSON.stringify(pmData, null, 2));
-
-    // Verify payment method was created
-    const paymentMethods = pmData.paymentMethods || [];
-    expect(paymentMethods.length).toBeGreaterThan(0);
-
-    const pm = paymentMethods[0];
-    console.log(`ACH Payment method created: ${pm.id}`);
-
-    // Verify it's an ACH checking account with correct details
-    expect(pm.paymentType).toBe('PAYMENT_METHOD_TYPE_ACH');
-    expect(pm.customerId).toBe(customerId);
-    expect(pm.merchantId).toBe(testContext.merchant.id);
-    expect(pm.accountType).toBe('checking');
-    expect(pm.lastFour).toBe('6789');
-
-    console.log(`ACH Checking Storage approved: Checking ending in ${pm.lastFour}`);
-  });
-
-  test('store savings account via ACH_STORAGE_S', async ({ page, request, testContext }) => {
-    const baseUrl = process.env.SERVICE_URL || 'http://localhost:8081';
-
-    const transactionId = crypto.randomUUID();
-    const customerId = `ach-savings-${Date.now()}`;
-    const callbackUrl = `${baseUrl}/api/v1/payments/browser-post/callback`;
-
-    const params = new URLSearchParams({
-      transaction_id: transactionId,
-      merchant_id: testContext.merchant.id,
-      amount: '0.00',
-      transaction_type: 'ACH_STORAGE_S', // Savings account storage
-      customer_id: customerId,
-      return_url: callbackUrl,
-    });
-
-    console.log(`Getting browser post form for ACH Savings Storage, merchant: ${testContext.merchant.id}`);
-
-    const formResponse = await request.get(
-      `${baseUrl}/api/v1/payments/browser-post/form?${params}`,
-      {
-        headers: {
-          Authorization: `Bearer ${testContext.token}`,
-        },
-      }
-    );
-
-    expect(formResponse.ok(), `Form request failed: ${await formResponse.text()}`).toBeTruthy();
-
-    const formConfig = await formResponse.json();
-
-    expect(formConfig.tac).toBeTruthy();
-    expect(formConfig.postURL).toBeTruthy();
-    expect(formConfig.epxTranNbr).toBeTruthy();
-    // TRAN_CODE should be ACHSTORAGE_S for savings account storage (per EPX certification)
-    expect(formConfig.tranCode).toBe('ACHSTORAGE_S');
-
-    console.log(`Got TAC for ACH Savings Storage, posting to EPX: ${formConfig.postURL}`);
-
-    const account = TEST_SAVINGS_ACCOUNT;
-
-    // Note: Address fields (ADDRESS, CITY, STATE, ZIP_CODE) are not included
-    // because AVS does not work for ACH - only for credit cards
-    const formHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head><title>EPX ACH Savings Storage</title></head>
-      <body>
-        <form id="epxForm" method="POST" action="${formConfig.postURL}">
-          <input type="hidden" name="TAC" value="${formConfig.tac}" />
-          <input type="hidden" name="TRAN_CODE" value="${formConfig.tranCode}" />
-          <input type="hidden" name="CUST_NBR" value="${formConfig.custNbr}" />
-          <input type="hidden" name="MERCH_NBR" value="${formConfig.merchNbr}" />
-          <input type="hidden" name="DBA_NBR" value="${formConfig.dbaName}" />
-          <input type="hidden" name="TERMINAL_NBR" value="${formConfig.terminalNbr}" />
-          <input type="hidden" name="AMOUNT" value="0.00" />
-          <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}" />
-          <input type="hidden" name="STD_ENTRY_CLASS" value="WEB" />
-          <input type="hidden" name="ACCOUNT_NBR" value="${account.accountNumber}" />
-          <input type="hidden" name="ROUTING_NBR" value="${account.routingNumber}" />
+          <input type="hidden" name="ACCOUNT_NBR" value="${card.number}" />
+          <input type="hidden" name="EXP_DATE" value="${expDate}" />
+          <input type="hidden" name="CVV2" value="${card.cvv}" />
           <input type="hidden" name="FIRST_NAME" value="Jane" />
           <input type="hidden" name="LAST_NAME" value="Smith" />
+          <input type="hidden" name="ADDRESS" value="456 Oak Ave" />
+          <input type="hidden" name="CITY" value="Los Angeles" />
+          <input type="hidden" name="STATE" value="CA" />
+          <input type="hidden" name="ZIP_CODE" value="${card.zip}" />
         </form>
         <script>document.getElementById('epxForm').submit();</script>
       </body>
       </html>
     `;
 
+    // Navigate to a data URL with the form
     await page.setContent(formHtml);
 
+    // Wait for navigation to EPX and back to callback
     console.log('Waiting for EPX redirect...');
     await page.waitForURL(/callback|return/, { timeout: 30000 });
 
     const finalUrl = page.url();
     console.log(`Final URL: ${finalUrl}`);
 
+    // Step 3: Verify callback received
     expect(finalUrl).toContain('callback');
 
+    // Wait for callback processing
     await page.waitForTimeout(1000);
 
-    // Verify payment method was created
-    console.log(`Verifying ACH savings payment method for customer: ${customerId}`);
+    // Step 4: Verify payment method was created via API
+    console.log(`Verifying payment method for customer: ${customerId}`);
 
     const pmResponse = await request.post(
       `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
@@ -265,15 +133,151 @@ test.describe('Browser Post ACH STORAGE Flow', () => {
     expect(paymentMethods.length).toBeGreaterThan(0);
 
     const pm = paymentMethods[0];
-    console.log(`ACH Payment method created: ${pm.id}`);
+    console.log(`Payment method created: ${pm.id}`);
 
-    // Verify it's an ACH savings account with correct details
-    expect(pm.paymentType).toBe('PAYMENT_METHOD_TYPE_ACH');
+    // Verify it's a credit card with correct details
+    expect(pm.paymentType).toBe('PAYMENT_METHOD_TYPE_CREDIT_CARD');
     expect(pm.customerId).toBe(customerId);
     expect(pm.merchantId).toBe(testContext.merchant.id);
-    expect(pm.accountType).toBe('savings');
-    expect(pm.lastFour).toBe('4321');
+    expect(pm.lastFour).toBe('0002');
+    expect(pm.cardBrand).toBeTruthy();
 
-    console.log(`ACH Savings Storage approved: Savings ending in ${pm.lastFour}`);
+    // Verify card is active and verified (STORAGE was approved by EPX)
+    expect(pm.isActive).toBe(true);
+    expect(pm.isVerified).toBe(true);
+
+    console.log(`STORAGE approved: ${pm.cardBrand} ending in ${pm.lastFour}`);
+  });
+
+  test('store card and use for subsequent payment', async ({ page, request, testContext }) => {
+    const baseUrl = process.env.SERVICE_URL || 'http://localhost:8081';
+
+    // Step 1: Store a card first
+    const storageTransactionId = crypto.randomUUID();
+    const customerId = `customer-${Date.now()}`;
+    const callbackUrl = `${baseUrl}/api/v1/payments/browser-post/callback`;
+
+    const storageParams = new URLSearchParams({
+      transaction_id: storageTransactionId,
+      merchant_id: testContext.merchant.id,
+      amount: '0.00',
+      transaction_type: 'STORAGE',
+      customer_id: customerId,
+      return_url: callbackUrl,
+    });
+
+    console.log('Step 1: Storing card via Browser POST STORAGE');
+
+    const formResponse = await request.get(
+      `${baseUrl}/api/v1/payments/browser-post/form?${storageParams}`,
+      {
+        headers: {
+          Authorization: `Bearer ${testContext.token}`,
+        },
+      }
+    );
+
+    expect(formResponse.ok(), `Form request failed: ${await formResponse.text()}`).toBeTruthy();
+
+    const formConfig = await formResponse.json();
+    const card = VISA_APPROVAL;
+    const expDate = formatExpDate(card);
+
+    const formHtml = `
+      <!DOCTYPE html>
+      <html>
+      <body>
+        <form id="epxForm" method="POST" action="${formConfig.postURL}">
+          <input type="hidden" name="TAC" value="${formConfig.tac}" />
+          <input type="hidden" name="TRAN_CODE" value="${formConfig.tranCode}" />
+          <input type="hidden" name="CUST_NBR" value="${formConfig.custNbr}" />
+          <input type="hidden" name="MERCH_NBR" value="${formConfig.merchNbr}" />
+          <input type="hidden" name="DBA_NBR" value="${formConfig.dbaName}" />
+          <input type="hidden" name="TERMINAL_NBR" value="${formConfig.terminalNbr}" />
+          <input type="hidden" name="AMOUNT" value="0.00" />
+          <input type="hidden" name="INDUSTRY_TYPE" value="${formConfig.industryType}" />
+          <input type="hidden" name="ACCOUNT_NBR" value="${card.number}" />
+          <input type="hidden" name="EXP_DATE" value="${expDate}" />
+          <input type="hidden" name="CVV2" value="${card.cvv}" />
+          <input type="hidden" name="FIRST_NAME" value="Bob" />
+          <input type="hidden" name="LAST_NAME" value="Johnson" />
+          <input type="hidden" name="ADDRESS" value="789 Pine St" />
+          <input type="hidden" name="CITY" value="Chicago" />
+          <input type="hidden" name="STATE" value="IL" />
+          <input type="hidden" name="ZIP_CODE" value="${card.zip}" />
+        </form>
+        <script>document.getElementById('epxForm').submit();</script>
+      </body>
+      </html>
+    `;
+
+    await page.setContent(formHtml);
+    await page.waitForURL(/callback|return/, { timeout: 30000 });
+    await page.waitForTimeout(1000);
+
+    // Step 2: Get the stored payment method
+    console.log('Step 2: Retrieving stored payment method');
+
+    const pmResponse = await request.post(
+      `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
+      {
+        headers: {
+          Authorization: `Bearer ${testContext.token}`,
+          'Content-Type': 'application/json',
+          'Accept-Encoding': 'identity',
+        },
+        data: {
+          merchant_id: testContext.merchant.id,
+          customer_id: customerId,
+        },
+      }
+    );
+
+    expect(pmResponse.ok(), `ListPaymentMethods failed: ${await pmResponse.text()}`).toBeTruthy();
+
+    const pmData = await pmResponse.json();
+    const paymentMethods = pmData.paymentMethods || [];
+    expect(paymentMethods.length).toBeGreaterThan(0);
+
+    const storedPaymentMethod = paymentMethods[0];
+    console.log(`Found stored payment method: ${storedPaymentMethod.id}`);
+
+    // Verify STORAGE was approved (card is active)
+    expect(storedPaymentMethod.isActive).toBe(true);
+
+    // Step 3: Use stored payment method for a SALE via Server POST
+    console.log('Step 3: Using stored payment method for a payment');
+
+    const saleTransactionId = crypto.randomUUID();
+    const saleResponse = await request.post(
+      `${baseUrl}/payment.v1.PaymentService/Sale`,
+      {
+        headers: {
+          Authorization: `Bearer ${testContext.token}`,
+          'Content-Type': 'application/json',
+        },
+        data: {
+          idempotency_key: saleTransactionId,
+          merchant_id: testContext.merchant.id,
+          customer_id: customerId,
+          payment_method_id: storedPaymentMethod.id,
+          amount_cents: 2500, // $25.00
+          currency: 'USD',
+        },
+      }
+    );
+
+    expect(saleResponse.ok(), `Sale failed: ${await saleResponse.text()}`).toBeTruthy();
+
+    const saleData = await saleResponse.json();
+    console.log('Sale response:', JSON.stringify(saleData, null, 2));
+
+    // Verify SALE was APPROVED
+    expect(saleData.status).toBe('TRANSACTION_STATUS_APPROVED');
+    expect(saleData.isApproved).toBe(true);
+    expect(saleData.authorizationCode).toBeTruthy();
+    expect(saleData.amountCents).toBe('2500'); // $25.00
+
+    console.log(`SALE approved with auth code: ${saleData.authorizationCode}`);
   });
 });
