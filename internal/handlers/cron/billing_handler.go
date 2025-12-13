@@ -145,7 +145,8 @@ func (h *BillingHandler) ProcessBilling(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Process billing with timeout to prevent runaway jobs
-	ctx, cancel := context.WithTimeout(context.Background(), h.jobTimeout)
+	// Using r.Context() allows graceful shutdown during deployment
+	ctx, cancel := context.WithTimeout(r.Context(), h.jobTimeout)
 	defer cancel()
 
 	processed, success, failed, errs := h.subscriptionService.ProcessDueBilling(ctx, asOfDate, batchSize)
@@ -243,7 +244,8 @@ func (h *BillingHandler) ProcessExpiredPastDue(w http.ResponseWriter, r *http.Re
 	}
 
 	// Process expired past_due subscriptions with timeout to prevent runaway jobs
-	ctx, cancel := context.WithTimeout(context.Background(), h.jobTimeout)
+	// Using r.Context() allows graceful shutdown during deployment
+	ctx, cancel := context.WithTimeout(r.Context(), h.jobTimeout)
 	defer cancel()
 
 	result := h.subscriptionService.ProcessExpiredPastDue(ctx, batchSize)
@@ -297,19 +299,9 @@ func (h *BillingHandler) authenticateRequest(r *http.Request) bool {
 		return true
 	}
 
-	// Check for Google Cloud Scheduler OIDC token (for production)
-	// In production, you would verify the OIDC token here
-	// For now, we'll accept requests from Cloud Scheduler's IP ranges
-	// or rely on the X-Cron-Secret header
-
-	// Check query parameter (less secure, for development only)
-	querySecret := r.URL.Query().Get("secret")
-	if querySecret != "" && querySecret == h.cronSecret {
-		h.logger.Warn("Using query parameter authentication (insecure)",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		return true
-	}
+	// Note: Google Cloud Scheduler OIDC token validation can be added here
+	// for production environments that require additional security.
+	// The X-Cron-Secret header is the primary authentication method.
 
 	return false
 }
@@ -339,7 +331,9 @@ func (h *BillingHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 		"time":   timeutil.Now().Format(time.RFC3339),
 	}
 
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("Failed to encode health response", zap.Error(err))
+	}
 }
 
 // Stats handles GET /cron/stats for monitoring billing statistics
@@ -350,7 +344,8 @@ func (h *BillingHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Using r.Context() allows graceful shutdown during deployment
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	// Query subscription counts by status
@@ -431,5 +426,7 @@ func (h *BillingHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		"timestamp": timeutil.Now().Format(time.RFC3339),
 	}
 
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("Failed to encode stats response", zap.Error(err))
+	}
 }

@@ -396,3 +396,214 @@ func TestGetTransactionTree(t *testing.T) {
 		t.Skip("Full integration test requires test data fixtures - see docs/UNIT_TEST_REFACTORING_ANALYSIS.md")
 	})
 }
+
+// =============================================================================
+// Query Timeout Helper Tests
+// =============================================================================
+// These tests document and verify the query timeout helpers.
+// No database connection required - tests context.WithTimeout behavior only.
+
+// TestWithSimpleQueryTimeout documents and verifies simple query timeout behavior.
+// Use for: ID lookups, single row SELECTs, simple UPDATEs/INSERTs
+// Default timeout: 2 seconds
+func TestWithSimpleQueryTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+	}{
+		{"default_2s", 2 * time.Second},
+		{"custom_500ms", 500 * time.Millisecond},
+		{"zero_timeout", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adapter := &PostgreSQLAdapter{
+				config: &PostgreSQLConfig{SimpleQueryTimeout: tt.timeout},
+			}
+
+			ctx, cancel := adapter.WithSimpleQueryTimeout(context.Background())
+			defer cancel()
+
+			assertContextTimeout(t, ctx, tt.timeout, 50)
+		})
+	}
+}
+
+// TestWithComplexQueryTimeout documents and verifies complex query timeout behavior.
+// Use for: JOINs, WHERE clauses with multiple conditions, aggregations, pagination
+// Default timeout: 5 seconds
+func TestWithComplexQueryTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+	}{
+		{"default_5s", 5 * time.Second},
+		{"custom_3s", 3 * time.Second},
+		{"zero_timeout", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adapter := &PostgreSQLAdapter{
+				config: &PostgreSQLConfig{ComplexQueryTimeout: tt.timeout},
+			}
+
+			ctx, cancel := adapter.WithComplexQueryTimeout(context.Background())
+			defer cancel()
+
+			assertContextTimeout(t, ctx, tt.timeout, 50)
+		})
+	}
+}
+
+// TestWithReportQueryTimeout documents and verifies report query timeout behavior.
+// Use for: Large result sets, complex aggregations, historical data queries, analytics
+// Default timeout: 30 seconds
+func TestWithReportQueryTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+	}{
+		{"default_30s", 30 * time.Second},
+		{"custom_60s", 60 * time.Second},
+		{"zero_timeout", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adapter := &PostgreSQLAdapter{
+				config: &PostgreSQLConfig{ReportQueryTimeout: tt.timeout},
+			}
+
+			ctx, cancel := adapter.WithReportQueryTimeout(context.Background())
+			defer cancel()
+
+			assertContextTimeout(t, ctx, tt.timeout, 50)
+		})
+	}
+}
+
+// TestQueryTimeoutCancellation verifies that cancel() properly cancels the context.
+// This demonstrates the required pattern: defer cancel() immediately after creating timeout.
+func TestQueryTimeoutCancellation(t *testing.T) {
+	adapter := &PostgreSQLAdapter{
+		config: &PostgreSQLConfig{
+			SimpleQueryTimeout: 5 * time.Second,
+		},
+	}
+
+	t.Run("cancel_immediately_closes_done_channel", func(t *testing.T) {
+		// Arrange
+		ctx := context.Background()
+		timeoutCtx, cancel := adapter.WithSimpleQueryTimeout(ctx)
+
+		// Act
+		cancel()
+
+		// Assert - Done channel should be closed
+		select {
+		case <-timeoutCtx.Done():
+			assert.Equal(t, context.Canceled, timeoutCtx.Err(),
+				"Context error should be Canceled after cancel()")
+		default:
+			t.Fatal("Done channel should be closed after cancel()")
+		}
+	})
+
+	t.Run("multiple_cancel_calls_are_safe", func(t *testing.T) {
+		// Arrange
+		ctx := context.Background()
+		_, cancel := adapter.WithSimpleQueryTimeout(ctx)
+
+		// Act & Assert - Should not panic
+		assert.NotPanics(t, func() {
+			cancel()
+			cancel()
+			cancel()
+		}, "Multiple cancel() calls should be safe")
+	})
+}
+
+// TestQueryTimeoutInheritance verifies parent context deadline takes precedence
+// when it's shorter than the timeout helper's deadline.
+func TestQueryTimeoutInheritance(t *testing.T) {
+	adapter := &PostgreSQLAdapter{
+		config: &PostgreSQLConfig{
+			SimpleQueryTimeout: 10 * time.Second, // Long timeout
+		},
+	}
+
+	t.Run("parent_shorter_deadline_takes_precedence", func(t *testing.T) {
+		// Arrange - Parent has 100ms deadline
+		parentCtx, parentCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer parentCancel()
+
+		// Act - Request 10s timeout but parent only allows 100ms
+		timeoutCtx, cancel := adapter.WithSimpleQueryTimeout(parentCtx)
+		defer cancel()
+
+		// Assert - Effective deadline should be parent's (shorter)
+		deadline, ok := timeoutCtx.Deadline()
+		require.True(t, ok, "Context should have a deadline")
+
+		actualTimeout := time.Until(deadline)
+		// Should be closer to 100ms than 10s
+		assert.Less(t, actualTimeout, 1*time.Second,
+			"Effective timeout should be limited by parent's 100ms deadline")
+	})
+
+	t.Run("parent_cancelled_propagates_to_child", func(t *testing.T) {
+		// Arrange
+		parentCtx, parentCancel := context.WithCancel(context.Background())
+		timeoutCtx, cancel := adapter.WithSimpleQueryTimeout(parentCtx)
+		defer cancel()
+
+		// Act
+		parentCancel()
+
+		// Assert - Child should also be cancelled
+		select {
+		case <-timeoutCtx.Done():
+			// Parent cancellation propagates to child
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("Child context should be cancelled when parent is cancelled")
+		}
+	})
+}
+
+// TestDefaultPostgreSQLConfig_TimeoutDefaults verifies the default timeout values.
+// This serves as documentation for the expected defaults.
+func TestDefaultPostgreSQLConfig_TimeoutDefaults(t *testing.T) {
+	cfg := DefaultPostgreSQLConfig("postgres://localhost/test")
+
+	assert.Equal(t, 2*time.Second, cfg.SimpleQueryTimeout,
+		"Simple query timeout should default to 2s (ID lookups, single rows)")
+
+	assert.Equal(t, 5*time.Second, cfg.ComplexQueryTimeout,
+		"Complex query timeout should default to 5s (JOINs, aggregations)")
+
+	assert.Equal(t, 30*time.Second, cfg.ReportQueryTimeout,
+		"Report query timeout should default to 30s (analytics, large results)")
+}
+
+// abs returns the absolute value of an int64
+func abs(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// assertContextTimeout verifies the context has the expected deadline within tolerance.
+// toleranceMs allows for small timing variance in test execution.
+func assertContextTimeout(t *testing.T, ctx context.Context, expected time.Duration, toleranceMs int64) {
+	t.Helper()
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok, "Context should have a deadline")
+
+	actual := time.Until(deadline)
+	diff := abs(actual.Milliseconds() - expected.Milliseconds())
+	assert.LessOrEqual(t, diff, toleranceMs,
+		"Timeout should be ~%v, got %v", expected, actual)
+}

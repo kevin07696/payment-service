@@ -117,13 +117,34 @@ func (e *DomainError) Unwrap() error {
 	return e.Err
 }
 
-// WithDetail adds a detail field to the error
-func (e *DomainError) WithDetail(key string, value interface{}) *DomainError {
-	if e.Details == nil {
-		e.Details = make(map[string]interface{})
+// Is implements the errors.Is interface for comparing DomainErrors by Code.
+// This allows errors.Is() to match errors even after WithDetail() returns a copy.
+func (e *DomainError) Is(target error) bool {
+	t, ok := target.(*DomainError)
+	if !ok {
+		return false
 	}
-	e.Details[key] = value
-	return e
+	return e.Code == t.Code
+}
+
+// WithDetail adds a detail field to the error and returns a NEW copy.
+// This ensures thread-safety when using shared error instances.
+// The copy will still match the original with errors.Is() via the Is() method.
+func (e *DomainError) WithDetail(key string, value interface{}) *DomainError {
+	// Create a copy to avoid mutating shared singleton
+	errCopy := &DomainError{
+		Err:     e.Err,
+		Code:    e.Code,
+		Message: e.Message,
+		Details: make(map[string]interface{}),
+	}
+	// Copy existing details
+	for k, v := range e.Details {
+		errCopy.Details[k] = v
+	}
+	// Add new detail
+	errCopy.Details[key] = value
+	return errCopy
 }
 
 // NewDomainError creates a new domain error

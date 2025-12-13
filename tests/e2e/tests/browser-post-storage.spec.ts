@@ -1,5 +1,6 @@
 import { test, expect } from '../lib/test-fixtures';
 import { VISA_APPROVAL, formatExpDate } from '../lib/test-cards';
+import { retryUntilCondition, quickRetryConfig } from '../lib/retry';
 
 /**
  * Browser Post STORAGE Flow E2E Test
@@ -102,30 +103,31 @@ test.describe('Browser Post STORAGE Flow', () => {
     // Step 3: Verify callback received
     expect(finalUrl).toContain('callback');
 
-    // Wait for callback processing
-    await page.waitForTimeout(1000);
-
-    // Step 4: Verify payment method was created via API
+    // Step 4: Verify payment method was created via API (poll until exists)
     console.log(`Verifying payment method for customer: ${customerId}`);
 
-    const pmResponse = await request.post(
-      `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
-      {
-        headers: {
-          Authorization: `Bearer ${testContext.token}`,
-          'Content-Type': 'application/json',
-          'Accept-Encoding': 'identity',
-        },
-        data: {
-          merchant_id: testContext.merchant.id,
-          customer_id: customerId,
-        },
-      }
+    const pmData = await retryUntilCondition(
+      async () => {
+        const resp = await request.post(
+          `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
+          {
+            headers: {
+              Authorization: `Bearer ${testContext.token}`,
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'identity',
+            },
+            data: {
+              merchant_id: testContext.merchant.id,
+              customer_id: customerId,
+            },
+          }
+        );
+        if (!resp.ok()) return null;
+        return await resp.json();
+      },
+      (data) => (data?.paymentMethods?.length ?? 0) > 0,
+      quickRetryConfig()
     );
-
-    expect(pmResponse.ok(), `ListPaymentMethods failed: ${await pmResponse.text()}`).toBeTruthy();
-
-    const pmData = await pmResponse.json();
     console.log('Payment methods response:', JSON.stringify(pmData, null, 2));
 
     // Verify payment method was created
@@ -213,29 +215,32 @@ test.describe('Browser Post STORAGE Flow', () => {
 
     await page.setContent(formHtml);
     await page.waitForURL(/callback|return/, { timeout: 30000 });
-    await page.waitForTimeout(1000);
 
-    // Step 2: Get the stored payment method
+    // Step 2: Get the stored payment method (poll until exists)
     console.log('Step 2: Retrieving stored payment method');
 
-    const pmResponse = await request.post(
-      `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
-      {
-        headers: {
-          Authorization: `Bearer ${testContext.token}`,
-          'Content-Type': 'application/json',
-          'Accept-Encoding': 'identity',
-        },
-        data: {
-          merchant_id: testContext.merchant.id,
-          customer_id: customerId,
-        },
-      }
+    const pmData = await retryUntilCondition(
+      async () => {
+        const resp = await request.post(
+          `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
+          {
+            headers: {
+              Authorization: `Bearer ${testContext.token}`,
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'identity',
+            },
+            data: {
+              merchant_id: testContext.merchant.id,
+              customer_id: customerId,
+            },
+          }
+        );
+        if (!resp.ok()) return null;
+        return await resp.json();
+      },
+      (data) => (data?.paymentMethods?.length ?? 0) > 0,
+      quickRetryConfig()
     );
-
-    expect(pmResponse.ok(), `ListPaymentMethods failed: ${await pmResponse.text()}`).toBeTruthy();
-
-    const pmData = await pmResponse.json();
     const paymentMethods = pmData.paymentMethods || [];
     expect(paymentMethods.length).toBeGreaterThan(0);
 

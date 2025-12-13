@@ -159,7 +159,11 @@ func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID 
 
 	// Handle HTTP errors
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			a.logger.Warn("Failed to read error response body", zap.Error(readErr))
+			body = []byte("(failed to read response)")
+		}
 		a.logger.Error("Business Reporting API error",
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("response", string(body)),
@@ -258,7 +262,11 @@ func (a *businessReportingAdapter) QueryTransactions(ctx context.Context, params
 
 	// Handle HTTP errors
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			a.logger.Warn("Failed to read error response body", zap.Error(readErr))
+			body = []byte("(failed to read response)")
+		}
 		err := fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "API error")

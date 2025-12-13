@@ -1,4 +1,4 @@
-.PHONY: help build test test-unit test-integration test-cover test-integration-cover run docker-build docker-down docker-logs docker-rebuild docker-up test-db-up test-db-down test-db-logs proto clean sqlc migrate-up migrate-down migrate-status migrate-create paycli lint deps tidy docs docs-validate docs-api docs-schema docs-sync-wiki
+.PHONY: help build test test-unit test-integration test-cover test-integration-cover run docker-build docker-down docker-logs docker-rebuild docker-up test-db-up test-db-down test-db-logs proto clean sqlc migrate-up migrate-down migrate-status migrate-create paycli lint deps tidy docs docs-validate docs-api docs-schema docs-sync-wiki podman-build podman-up podman-down podman-logs podman-rebuild test-db-podman-up test-db-podman-down test-db-podman-logs test-unit-podman test-integration-podman test-e2e-podman test-all-podman
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -73,6 +73,92 @@ test-db-down: ## Stop test database
 
 test-db-logs: ## View test database logs
 	@docker-compose -f docker-compose.test.yml logs -f
+
+# ============================================================================
+# Podman targets - Use podman-compose for container management
+# ============================================================================
+
+podman-build: ## Build container image with Podman
+	@echo "Building container image with Podman..."
+	@podman build -t payment-service:latest .
+	@echo "✓ Container image built: payment-service:latest"
+
+podman-up: ## Start services with podman-compose
+	@echo "Starting services with Podman..."
+	@podman-compose up -d
+	@echo "✓ Services started"
+	@echo "  Payment Server: localhost:8081 (ConnectRPC + REST)"
+	@echo "  PostgreSQL: localhost:5432"
+
+podman-down: ## Stop services with podman-compose
+	@echo "Stopping services..."
+	@podman-compose down
+	@echo "✓ Services stopped"
+
+podman-logs: ## View podman-compose logs
+	@podman-compose logs -f
+
+podman-rebuild: podman-down podman-build podman-up ## Rebuild and restart services with Podman
+
+test-db-podman-up: ## Start test database with Podman
+	@echo "Starting test database with Podman..."
+	@podman-compose -f docker-compose.test.yml up -d
+	@echo "Waiting for PostgreSQL to be ready..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if podman exec payment-postgres-test pg_isready -U postgres > /dev/null 2>&1; then \
+			echo "✓ Test database ready on port 5434"; \
+			exit 0; \
+		fi; \
+		echo "  Waiting... ($$i/10)"; \
+		sleep 2; \
+	done; \
+	echo "✗ Timed out waiting for database"; \
+	exit 1
+
+test-db-podman-down: ## Stop test database with Podman
+	@echo "Stopping test database..."
+	@podman-compose -f docker-compose.test.yml down
+	@echo "✓ Test database stopped"
+
+test-db-podman-logs: ## View test database logs with Podman
+	@podman-compose -f docker-compose.test.yml logs -f
+
+# ============================================================================
+# Test targets with Podman
+# ============================================================================
+
+test-unit-podman: ## Run unit tests (no containers needed)
+	@echo "Running unit tests..."
+	@go test -short ./... -v
+	@echo "✓ Unit tests complete"
+
+test-integration-podman: test-db-podman-up ## Run integration tests with Podman DB
+	@echo "Running migrations on test database..."
+	@goose -dir internal/db/migrations postgres "host=localhost port=5434 user=postgres password=postgres dbname=payment_service_test sslmode=disable" up
+	@echo "Running integration tests..."
+	@TEST_DATABASE_URL="postgres://postgres:postgres@localhost:5434/payment_service_test?sslmode=disable" \
+		go test -v ./tests/integration/... -tags=integration
+	@echo "✓ Integration tests complete"
+
+test-e2e-podman: podman-up ## Run E2E tests with Podman services
+	@echo "Waiting for payment server to be ready..."
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+		if curl -sf http://localhost:8081/cron/health > /dev/null 2>&1; then \
+			echo "✓ Server ready"; \
+			break; \
+		fi; \
+		echo "  Waiting for server... ($$i/15)"; \
+		sleep 2; \
+	done
+	@echo "Running E2E tests..."
+	@cd tests/e2e && npm test
+	@echo "✓ E2E tests complete"
+
+test-all-podman: test-unit-podman test-integration-podman test-e2e-podman ## Run all tests with Podman
+	@echo ""
+	@echo "============================================"
+	@echo "✓ All tests complete (unit + integration + e2e)"
+	@echo "============================================"
 
 proto: ## Generate protobuf code
 	@echo "Generating protobuf code..."

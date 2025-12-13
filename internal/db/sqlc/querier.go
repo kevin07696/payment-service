@@ -168,6 +168,8 @@ type Querier interface {
 	GetWebhookDeliveryHistory(ctx context.Context, arg GetWebhookDeliveryHistoryParams) ([]WebhookDelivery, error)
 	GetWebhookSubscription(ctx context.Context, id uuid.UUID) (WebhookSubscription, error)
 	GrantServiceAccess(ctx context.Context, arg GrantServiceAccessParams) (ServiceMerchant, error)
+	// WARNING: For test cleanup only. Permanently deletes merchant record.
+	HardDeleteMerchant(ctx context.Context, id uuid.UUID) error
 	// =============================================================================
 	// DELETION (Hard delete with FK protection)
 	// =============================================================================
@@ -175,6 +177,8 @@ type Querier interface {
 	// Will fail with FK violation if transactions exist (ON DELETE RESTRICT)
 	// Subscriptions will have payment_method_id set to NULL (ON DELETE SET NULL)
 	HardDeletePaymentMethod(ctx context.Context, id uuid.UUID) error
+	// WARNING: For test cleanup only. Permanently deletes service record.
+	HardDeleteService(ctx context.Context, id uuid.UUID) error
 	// Increment ACH return count and update status to failed if threshold reached
 	IncrementReturnCount(ctx context.Context, arg IncrementReturnCountParams) error
 	// Updates failure count and manages past_due_since timestamp:
@@ -280,6 +284,7 @@ type Querier interface {
 	// Updates transaction with EPX response data (for Browser Post callback)
 	// Only updates EPX response fields, leaves core transaction data unchanged
 	// SECURITY: Prevents TAC replay attacks by only updating PENDING transactions
+	// Status is GENERATED column based on auth_resp (00=approved, else=declined)
 	UpdateTransactionFromEPXResponse(ctx context.Context, arg UpdateTransactionFromEPXResponseParams) (Transaction, error)
 	UpdateWebhookDeliveryStatus(ctx context.Context, arg UpdateWebhookDeliveryStatusParams) (WebhookDelivery, error)
 	UpdateWebhookSubscription(ctx context.Context, arg UpdateWebhookSubscriptionParams) (WebhookSubscription, error)

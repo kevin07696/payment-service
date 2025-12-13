@@ -14,15 +14,21 @@ import (
 
 // ConnectHandler implements the Connect RPC PaymentServiceHandler interface
 type ConnectHandler struct {
-	service ports.PaymentService
-	logger  *zap.Logger
+	commandService ports.PaymentService
+	queryService   ports.TransactionQueryService
+	logger         *zap.Logger
 }
 
 // NewConnectHandler creates a new Connect RPC payment handler
-func NewConnectHandler(service ports.PaymentService, logger *zap.Logger) *ConnectHandler {
+func NewConnectHandler(
+	commandService ports.PaymentService,
+	queryService ports.TransactionQueryService,
+	logger *zap.Logger,
+) *ConnectHandler {
 	return &ConnectHandler{
-		service: service,
-		logger:  logger,
+		commandService: commandService,
+		queryService:   queryService,
+		logger:         logger,
 	}
 }
 
@@ -73,7 +79,7 @@ func (h *ConnectHandler) Authorize(
 	}
 
 	// Call service
-	tx, err := h.service.Authorize(ctx, serviceReq)
+	tx, err := h.commandService.Authorize(ctx, serviceReq)
 	if err != nil {
 		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
@@ -112,7 +118,7 @@ func (h *ConnectHandler) Capture(
 	}
 
 	h.logger.Info("Calling capture service", zap.String("transaction_id", msg.TransactionId))
-	tx, err := h.service.Capture(ctx, serviceReq)
+	tx, err := h.commandService.Capture(ctx, serviceReq)
 	if err != nil {
 		h.logger.Error("Capture service error",
 			zap.Error(err),
@@ -174,7 +180,7 @@ func (h *ConnectHandler) Sale(
 
 	// StdEntryClass defaults to WEB internally for ACH transactions
 
-	tx, err := h.service.Sale(ctx, serviceReq)
+	tx, err := h.commandService.Sale(ctx, serviceReq)
 	if err != nil {
 		h.logger.Error("Sale service error", zap.Error(err), zap.String("merchant_id", serviceReq.MerchantID))
 		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
@@ -208,7 +214,7 @@ func (h *ConnectHandler) Void(
 		serviceReq.IdempotencyKey = &msg.IdempotencyKey
 	}
 
-	tx, err := h.service.Void(ctx, serviceReq)
+	tx, err := h.commandService.Void(ctx, serviceReq)
 	if err != nil {
 		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
@@ -246,7 +252,7 @@ func (h *ConnectHandler) Refund(
 		serviceReq.IdempotencyKey = &msg.IdempotencyKey
 	}
 
-	tx, err := h.service.Refund(ctx, serviceReq)
+	tx, err := h.commandService.Refund(ctx, serviceReq)
 	if err != nil {
 		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
@@ -267,7 +273,7 @@ func (h *ConnectHandler) GetTransaction(
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction_id is required"))
 	}
 
-	tx, err := h.service.GetTransaction(ctx, msg.TransactionId)
+	tx, err := h.queryService.GetTransaction(ctx, msg.TransactionId)
 	if err != nil {
 		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}
@@ -308,7 +314,7 @@ func (h *ConnectHandler) ListTransactions(
 		filters.Status = &statusStr
 	}
 
-	txs, totalCount, err := h.service.ListTransactions(ctx, filters)
+	txs, totalCount, err := h.queryService.ListTransactions(ctx, filters)
 	if err != nil {
 		return nil, handlers.HandleServiceErrorConnect(err, h.logger)
 	}

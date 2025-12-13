@@ -18,10 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	connectAddress = "http://localhost:8081"
-)
-
 // setupChargebackTest initializes test environment and returns Connect client
 func setupChargebackTest(t *testing.T) (*testutil.Config, chargebackv1connect.ChargebackServiceClient) {
 	t.Helper()
@@ -29,38 +25,27 @@ func setupChargebackTest(t *testing.T) (*testutil.Config, chargebackv1connect.Ch
 	// Use standard setup which seeds merchants and chargebacks
 	cfg, _ := testutil.Setup(t)
 
-	// Register cleanup functions to remove test data after tests complete
-	testutil.CleanupChargebacks(t)
-
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
 	}
 
 	client := chargebackv1connect.NewChargebackServiceClient(
 		httpClient,
-		connectAddress,
+		cfg.ServiceURL,
 	)
 
 	return cfg, client
 }
 
 // addAuthToRequest adds JWT authentication to a Connect request
-func addAuthToRequest[T any](t *testing.T, req *connect.Request[T], merchantID string) {
+func addAuthToRequest[T any](t *testing.T, req *connect.Request[T], ctx *testutil.TestContext) {
 	t.Helper()
-
-	// Load test services
-	services, err := testutil.LoadTestServices()
-	require.NoError(t, err, "Failed to load test services")
-	require.NotEmpty(t, services, "No test services available")
-
-	// Use first test service
-	service := services[0]
 
 	// Generate JWT token
 	token, err := testutil.GenerateJWT(
-		service.PrivateKeyPEM,
-		service.ServiceID,
-		merchantID,
+		ctx.Service.PrivateKeyPEM,
+		ctx.Service.ServiceID,
+		ctx.Merchant.ID.String(),
 		1*time.Hour,
 	)
 	require.NoError(t, err, "Failed to generate JWT")
@@ -72,9 +57,8 @@ func addAuthToRequest[T any](t *testing.T, req *connect.Request[T], merchantID s
 // TestChargeback_ListChargebacks tests listing chargebacks with various filters
 func TestChargeback_ListChargebacks(t *testing.T) {
 	_, client := setupChargebackTest(t)
-	// Use constants for merchant IDs to ensure consistency
-	merchantID := testutil.TestMerchantUUID
-	testMerchantID := testutil.TestMerchantSlug
+	factory := testutil.NewFactory(t)
+	ctx := factory.CreateTestContext(t)
 
 	tests := []struct {
 		name        string
@@ -84,7 +68,7 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 		{
 			name: "List all chargebacks",
 			request: &chargebackv1.ListChargebacksRequest{
-				MerchantId: testMerchantID,
+				MerchantId: ctx.Merchant.Slug,
 				Limit:      10,
 				Offset:     0,
 			},
@@ -93,7 +77,7 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 		{
 			name: "Filter by NEW status",
 			request: &chargebackv1.ListChargebacksRequest{
-				MerchantId: testMerchantID,
+				MerchantId: ctx.Merchant.Slug,
 				Status: func() *chargebackv1.ChargebackStatus {
 					s := chargebackv1.ChargebackStatus_CHARGEBACK_STATUS_NEW
 					return &s
@@ -106,7 +90,7 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 		{
 			name: "Pagination with offset",
 			request: &chargebackv1.ListChargebacksRequest{
-				MerchantId: testMerchantID,
+				MerchantId: ctx.Merchant.Slug,
 				Limit:      5,
 				Offset:     5,
 			},
@@ -116,13 +100,13 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
 			req := connect.NewRequest(tt.request)
-			addAuthToRequest(t, req, merchantID)
+			addAuthToRequest(t, req, ctx)
 
-			resp, err := client.ListChargebacks(ctx, req)
+			resp, err := client.ListChargebacks(reqCtx, req)
 			require.NoError(t, err, "ListChargebacks should succeed")
 			assert.NotNil(t, resp)
 			assert.GreaterOrEqual(t, resp.Msg.TotalCount, int32(0), "Total count should be non-negative")
@@ -134,7 +118,7 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 				}
 			}
 
-			t.Logf("✅ %s: Listed %d chargebacks (total: %d)", tt.description, len(resp.Msg.Chargebacks), resp.Msg.TotalCount)
+			t.Logf("%s: Listed %d chargebacks (total: %d)", tt.description, len(resp.Msg.Chargebacks), resp.Msg.TotalCount)
 		})
 	}
 }
@@ -142,23 +126,21 @@ func TestChargeback_ListChargebacks(t *testing.T) {
 // TestChargeback_GetChargeback tests retrieving a specific chargeback
 func TestChargeback_GetChargeback(t *testing.T) {
 	_, client := setupChargebackTest(t)
+	factory := testutil.NewFactory(t)
+	ctx := factory.CreateTestContext(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	// Use constants for merchant IDs to ensure consistency
-	merchantID := testutil.TestMerchantUUID
-	testMerchantID := testutil.TestMerchantSlug
 
 	// First, list chargebacks to get a valid ID
 	listReq := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		MerchantId: testMerchantID,
+		MerchantId: ctx.Merchant.Slug,
 		Limit:      1,
 		Offset:     0,
 	})
-	addAuthToRequest(t, listReq, merchantID)
+	addAuthToRequest(t, listReq, ctx)
 
-	listResp, err := client.ListChargebacks(ctx, listReq)
+	listResp, err := client.ListChargebacks(reqCtx, listReq)
 	require.NoError(t, err)
 
 	if len(listResp.Msg.Chargebacks) == 0 {
@@ -170,37 +152,36 @@ func TestChargeback_GetChargeback(t *testing.T) {
 
 	getReq := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 		ChargebackId: chargebackID,
-		MerchantId:   testMerchantID,
+		MerchantId:   ctx.Merchant.Slug,
 	})
-	addAuthToRequest(t, getReq, merchantID)
+	addAuthToRequest(t, getReq, ctx)
 
-	resp, err := client.GetChargeback(ctx, getReq)
+	resp, err := client.GetChargeback(reqCtx, getReq)
 	require.NoError(t, err, "GetChargeback should succeed")
 	assert.Equal(t, chargebackID, resp.Msg.Id)
 
-	t.Logf("✅ Retrieved chargeback %s (case: %s, amount: %s)",
+	t.Logf("Retrieved chargeback %s (case: %s, amount: %s)",
 		resp.Msg.Id, resp.Msg.CaseNumber, resp.Msg.ChargebackAmount)
 }
 
 // TestChargeback_GetChargebackNotFound tests getting a non-existent chargeback
 func TestChargeback_GetChargebackNotFound(t *testing.T) {
 	_, client := setupChargebackTest(t)
+	factory := testutil.NewFactory(t)
+	ctx := factory.CreateTestContext(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Use constants for merchant IDs to ensure consistency
-	merchantID := testutil.TestMerchantUUID
-	testMerchantID := testutil.TestMerchantSlug
 	nonExistentID := uuid.New().String()
 
 	req := connect.NewRequest(&chargebackv1.GetChargebackRequest{
 		ChargebackId: nonExistentID,
-		MerchantId:   testMerchantID,
+		MerchantId:   ctx.Merchant.Slug,
 	})
-	addAuthToRequest(t, req, merchantID)
+	addAuthToRequest(t, req, ctx)
 
-	_, err := client.GetChargeback(ctx, req)
+	_, err := client.GetChargeback(reqCtx, req)
 	require.Error(t, err, "Should return error for non-existent chargeback")
 
 	// Verify it's a Connect error with NotFound code
@@ -208,32 +189,30 @@ func TestChargeback_GetChargebackNotFound(t *testing.T) {
 	require.ErrorAs(t, err, &connectErr)
 	assert.Equal(t, connect.CodeNotFound, connectErr.Code(), "Should return NotFound error")
 
-	t.Logf("✅ Correctly returned NotFound for non-existent chargeback")
+	t.Logf("Correctly returned NotFound for non-existent chargeback")
 }
 
 // TestChargeback_UnauthorizedAccess tests that users can't access other merchants' chargebacks
 func TestChargeback_UnauthorizedAccess(t *testing.T) {
 	_, client := setupChargebackTest(t)
+	factory := testutil.NewFactory(t)
+	ctx := factory.CreateTestContext(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	// Use constants for correct merchant credentials
-	correctMerchantID := testutil.TestMerchantUUID
-	testMerchantID := testutil.TestMerchantSlug
 
 	// Wrong merchant ID to test access control
 	wrongMerchantID := "wrong-merchant"
 
 	// First, get a real chargeback ID from correct merchant
 	listReq := connect.NewRequest(&chargebackv1.ListChargebacksRequest{
-		MerchantId: testMerchantID,
+		MerchantId: ctx.Merchant.Slug,
 		Limit:      1,
 		Offset:     0,
 	})
-	addAuthToRequest(t, listReq, correctMerchantID)
+	addAuthToRequest(t, listReq, ctx)
 
-	listResp, err := client.ListChargebacks(ctx, listReq)
+	listResp, err := client.ListChargebacks(reqCtx, listReq)
 	require.NoError(t, err)
 
 	if len(listResp.Msg.Chargebacks) == 0 {
@@ -247,9 +226,9 @@ func TestChargeback_UnauthorizedAccess(t *testing.T) {
 		ChargebackId: chargebackID,
 		MerchantId:   wrongMerchantID,
 	})
-	addAuthToRequest(t, getReq, correctMerchantID)
+	addAuthToRequest(t, getReq, ctx)
 
-	_, err = client.GetChargeback(ctx, getReq)
+	_, err = client.GetChargeback(reqCtx, getReq)
 	require.Error(t, err, "Should deny access to other merchant's chargebacks")
 
 	// Verify it's a PermissionDenied error
@@ -257,7 +236,7 @@ func TestChargeback_UnauthorizedAccess(t *testing.T) {
 	require.ErrorAs(t, err, &connectErr)
 	assert.Equal(t, connect.CodePermissionDenied, connectErr.Code(), "Should return PermissionDenied")
 
-	t.Logf("✅ Correctly denied unauthorized access")
+	t.Logf("Correctly denied unauthorized access")
 }
 
 // NOTE: Validation tests have been moved to unit tests at:

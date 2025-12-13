@@ -1,4 +1,5 @@
 import { test, expect } from '../lib/test-fixtures';
+import { retryUntilCondition, quickRetryConfig } from '../lib/retry';
 
 /**
  * Test bank account data for EPX sandbox
@@ -115,29 +116,31 @@ test.describe('Browser Post ACH STORAGE Flow', () => {
 
     expect(finalUrl).toContain('callback');
 
-    await page.waitForTimeout(1000);
-
-    // Verify payment method was created
+    // Verify payment method was created (poll until exists)
     console.log(`Verifying ACH payment method for customer: ${customerId}`);
 
-    const pmResponse = await request.post(
-      `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
-      {
-        headers: {
-          Authorization: `Bearer ${testContext.token}`,
-          'Content-Type': 'application/json',
-          'Accept-Encoding': 'identity',
-        },
-        data: {
-          merchant_id: testContext.merchant.id,
-          customer_id: customerId,
-        },
-      }
+    const pmData = await retryUntilCondition(
+      async () => {
+        const resp = await request.post(
+          `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
+          {
+            headers: {
+              Authorization: `Bearer ${testContext.token}`,
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'identity',
+            },
+            data: {
+              merchant_id: testContext.merchant.id,
+              customer_id: customerId,
+            },
+          }
+        );
+        if (!resp.ok()) return null;
+        return await resp.json();
+      },
+      (data) => (data?.paymentMethods?.length ?? 0) > 0,
+      quickRetryConfig()
     );
-
-    expect(pmResponse.ok(), `ListPaymentMethods failed: ${await pmResponse.text()}`).toBeTruthy();
-
-    const pmData = await pmResponse.json();
     console.log('Payment methods response:', JSON.stringify(pmData, null, 2));
 
     // Verify payment method was created
@@ -235,45 +238,47 @@ test.describe('Browser Post ACH STORAGE Flow', () => {
 
     expect(finalUrl).toContain('callback');
 
-    await page.waitForTimeout(1000);
-
-    // Verify payment method was created
+    // Verify payment method was created (poll until exists)
     console.log(`Verifying ACH savings payment method for customer: ${customerId}`);
 
-    const pmResponse = await request.post(
-      `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
-      {
-        headers: {
-          Authorization: `Bearer ${testContext.token}`,
-          'Content-Type': 'application/json',
-          'Accept-Encoding': 'identity',
-        },
-        data: {
-          merchant_id: testContext.merchant.id,
-          customer_id: customerId,
-        },
-      }
+    const pmData2 = await retryUntilCondition(
+      async () => {
+        const resp = await request.post(
+          `${baseUrl}/payment_method.v1.PaymentMethodService/ListPaymentMethods`,
+          {
+            headers: {
+              Authorization: `Bearer ${testContext.token}`,
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'identity',
+            },
+            data: {
+              merchant_id: testContext.merchant.id,
+              customer_id: customerId,
+            },
+          }
+        );
+        if (!resp.ok()) return null;
+        return await resp.json();
+      },
+      (data) => (data?.paymentMethods?.length ?? 0) > 0,
+      quickRetryConfig()
     );
-
-    expect(pmResponse.ok(), `ListPaymentMethods failed: ${await pmResponse.text()}`).toBeTruthy();
-
-    const pmData = await pmResponse.json();
-    console.log('Payment methods response:', JSON.stringify(pmData, null, 2));
+    console.log('Payment methods response:', JSON.stringify(pmData2, null, 2));
 
     // Verify payment method was created
-    const paymentMethods = pmData.paymentMethods || [];
-    expect(paymentMethods.length).toBeGreaterThan(0);
+    const paymentMethods2 = pmData2.paymentMethods || [];
+    expect(paymentMethods2.length).toBeGreaterThan(0);
 
-    const pm = paymentMethods[0];
-    console.log(`ACH Payment method created: ${pm.id}`);
+    const pm2 = paymentMethods2[0];
+    console.log(`ACH Payment method created: ${pm2.id}`);
 
     // Verify it's an ACH savings account with correct details
-    expect(pm.paymentType).toBe('PAYMENT_METHOD_TYPE_ACH');
-    expect(pm.customerId).toBe(customerId);
-    expect(pm.merchantId).toBe(testContext.merchant.id);
-    expect(pm.accountType).toBe('savings');
-    expect(pm.lastFour).toBe('4321');
+    expect(pm2.paymentType).toBe('PAYMENT_METHOD_TYPE_ACH');
+    expect(pm2.customerId).toBe(customerId);
+    expect(pm2.merchantId).toBe(testContext.merchant.id);
+    expect(pm2.accountType).toBe('savings');
+    expect(pm2.lastFour).toBe('4321');
 
-    console.log(`ACH Savings Storage approved: Savings ending in ${pm.lastFour}`);
+    console.log(`ACH Savings Storage approved: Savings ending in ${pm2.lastFour}`);
   });
 });

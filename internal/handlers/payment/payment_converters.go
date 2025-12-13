@@ -134,6 +134,7 @@ func transactionToProto(tx *domain.Transaction) *paymentv1.Transaction {
 		IdempotencyKey:      stringPtrToString(tx.IdempotencyKey),
 		CreatedAt:           timestamppb.New(tx.CreatedAt),
 		UpdatedAt:           timestamppb.New(tx.UpdatedAt),
+		ProcessorReference:  tx.AuthGUID, // BRIC/AUTH_GUID for refunds/voids
 	}
 
 	if tx.PaymentMethodID != nil {

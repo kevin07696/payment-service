@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/handlers"
 	"github.com/kevin07696/payment-service/internal/ports"
 	"go.uber.org/zap"
 )
@@ -16,6 +17,7 @@ import (
 type BrowserPostCallbackHandler struct {
 	browserPostSvc   ports.BrowserPostService
 	paymentMethodSvc ports.PaymentMethodService
+	merchantAuthSvc  ports.MerchantAuthorizationService
 	renderer         *TemplateRenderer
 	logger           *zap.Logger
 }
@@ -24,12 +26,14 @@ type BrowserPostCallbackHandler struct {
 func NewBrowserPostCallbackHandler(
 	browserPostSvc ports.BrowserPostService,
 	paymentMethodSvc ports.PaymentMethodService,
+	merchantAuthSvc ports.MerchantAuthorizationService,
 	renderer *TemplateRenderer,
 	logger *zap.Logger,
 ) *BrowserPostCallbackHandler {
 	return &BrowserPostCallbackHandler{
 		browserPostSvc:   browserPostSvc,
 		paymentMethodSvc: paymentMethodSvc,
+		merchantAuthSvc:  merchantAuthSvc,
 		renderer:         renderer,
 		logger:           logger,
 	}
@@ -54,6 +58,17 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		http.Error(w, "merchant_id parameter is required", http.StatusBadRequest)
 		return
 	}
+
+	// Validate service has access to merchant (uses JWT auth from context)
+	resolvedMerchantID, err := h.merchantAuthSvc.ResolveMerchantID(r.Context(), merchantID)
+	if err != nil {
+		h.logger.Warn("Service-merchant access denied",
+			zap.String("merchant_id", merchantID),
+			zap.Error(err))
+		http.Error(w, "access denied to merchant", http.StatusForbidden)
+		return
+	}
+	merchantID = resolvedMerchantID
 
 	amount := r.URL.Query().Get("amount")
 	if amount == "" {
@@ -89,12 +104,14 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		ReturnURL:       returnURL,
 	})
 	if err != nil {
-		h.logger.Error("Failed to generate form config", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		http.Error(w, errResp.Message, errResp.StatusCode)
 		return
 	}
 
 	// Build JSON response per North Developer Browser Post API Integration Guide
+	// Note: returnUrl and merchantId are not included - caller already has these values
+	// redirectURL is internal (embedded in TAC) and not needed by the form
 	formConfig := map[string]interface{}{
 		"transactionId": resp.TransactionID,
 		"epxTranNbr":    resp.EPXTranNbr,
@@ -106,10 +123,7 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		"dbaName":       resp.DBAName,
 		"terminalNbr":   resp.TerminalNbr,
 		"industryType":  resp.IndustryType,
-		"tranCode":      resp.TranCode, // EPX TRAN_CODE for Browser POST form (SALE, AUTH, STORAGE, ACH_STORAGE_C, ACH_STORAGE_S)
-		"redirectURL":   resp.RedirectURL,
-		"returnUrl":     resp.ReturnURL,
-		"merchantId":    resp.MerchantID,
+		"tranCode":      resp.TranCode, // EPX TRAN_CODE for Browser POST form (SALE, AUTH, STORAGE, ACHSTORAGE_C, ACHSTORAGE_S)
 		"merchantName":  resp.MerchantName,
 	}
 
@@ -141,8 +155,8 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 
 	epxResponse, err := h.browserPostSvc.ParseRedirectResponse(params)
 	if err != nil {
-		h.logger.Error("Failed to parse Browser Post response", zap.Error(err))
-		h.renderError(w, "Failed to process payment response", err.Error(), "")
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		h.renderError(w, errResp.Message, "", "")
 		return
 	}
 
@@ -177,8 +191,8 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 
 	callbackResp, err := h.browserPostSvc.ProcessCallback(r.Context(), callbackReq)
 	if err != nil {
-		h.logger.Error("Failed to process callback", zap.Error(err))
-		h.renderError(w, err.Error(), "", returnURL)
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		h.renderError(w, errResp.Message, "", returnURL)
 		return
 	}
 
@@ -209,8 +223,8 @@ func (h *BrowserPostCallbackHandler) handleCreditCardStorage(w http.ResponseWrit
 		CardTypeCode:     epxResponse.AuthCardType,
 	})
 	if err != nil {
-		h.logger.Error("Failed to save credit card", zap.Error(err))
-		h.renderError(w, "Failed to save payment method", err.Error(), returnURL)
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		h.renderError(w, errResp.Message, "", returnURL)
 		return
 	}
 
@@ -244,8 +258,8 @@ func (h *BrowserPostCallbackHandler) handleBankAccountStorage(w http.ResponseWri
 		TransactionType:  txType,
 	})
 	if err != nil {
-		h.logger.Error("Failed to save bank account", zap.Error(err))
-		h.renderError(w, "Failed to save payment method", err.Error(), returnURL)
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		h.renderError(w, errResp.Message, "", returnURL)
 		return
 	}
 

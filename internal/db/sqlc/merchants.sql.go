@@ -167,6 +167,16 @@ func (q *Queries) GetMerchantBySlug(ctx context.Context, slug string) (Merchant,
 	return i, err
 }
 
+const hardDeleteMerchant = `-- name: HardDeleteMerchant :exec
+DELETE FROM merchants WHERE id = $1
+`
+
+// WARNING: For test cleanup only. Permanently deletes merchant record.
+func (q *Queries) HardDeleteMerchant(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, hardDeleteMerchant, id)
+	return err
+}
+
 const listActiveMerchants = `-- name: ListActiveMerchants :many
 SELECT id, slug, cust_nbr, merch_nbr, dba_nbr, terminal_nbr, mac_secret_path, environment, is_active, name, created_at, updated_at, deleted_at, status, tier FROM merchants
 WHERE is_active = true AND deleted_at IS NULL

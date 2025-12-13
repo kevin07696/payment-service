@@ -105,3 +105,15 @@ apartment-*.json
 
 # Old reports
 COMPREHENSIVE_TEST_REPORT.md
+DEEP_DIVE_AUDIT_REPORT.md
+
+# Node modules (for e2e tests)
+node_modules/
+package-lock.json
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+
+# Cookies and temp files
+cookies.txt

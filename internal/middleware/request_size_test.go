@@ -12,10 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Size constants for request limit tests
+const (
+	oneKB  = 1 << 10
+	oneMB  = 1 << 20
+	twoMB  = 2 << 20
+	fiveMB = 5 << 20
+
+	// Production request size limit
+	maxRequestSize = oneMB
+
+	// Margin for near-limit tests
+	testNearLimitMargin = oneKB
+)
+
 // TestRequestSizeLimits verifies that http.MaxBytesHandler properly limits request sizes
 // Security Risk: HIGH - Prevents DOS attacks via large request payloads
 func TestRequestSizeLimits(t *testing.T) {
-	const maxRequestSize = 1 << 20 // 1 MB limit (same as production)
 
 	// Create a simple handler that reads the request body
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +46,7 @@ func TestRequestSizeLimits(t *testing.T) {
 
 	t.Run("Accept_SmallRequest", func(t *testing.T) {
 		// Send request under limit (1 KB)
-		smallBody := bytes.Repeat([]byte("a"), 1024) // 1 KB
+		smallBody := bytes.Repeat([]byte("a"), oneKB)
 
 		req := httptest.NewRequest("POST", "/test", bytes.NewReader(smallBody))
 		rec := httptest.NewRecorder()
@@ -41,14 +54,14 @@ func TestRequestSizeLimits(t *testing.T) {
 		limitedHandler.ServeHTTP(rec, req)
 
 		assert.Equal(t, http.StatusOK, rec.Code, "Should accept request under limit")
-		assert.Contains(t, rec.Body.String(), "1024 bytes", "Should process full request")
+		assert.Contains(t, rec.Body.String(), fmt.Sprintf("%d bytes", oneKB), "Should process full request")
 
 		t.Log("[PASS] Small request accepted")
 	})
 
 	t.Run("Accept_NearLimitRequest", func(t *testing.T) {
 		// Send request just under limit (1 MB - 1 KB)
-		nearLimitSize := maxRequestSize - 1024
+		nearLimitSize := maxRequestSize - testNearLimitMargin
 		nearLimitBody := bytes.Repeat([]byte("b"), nearLimitSize)
 
 		req := httptest.NewRequest("POST", "/test", bytes.NewReader(nearLimitBody))
@@ -63,7 +76,7 @@ func TestRequestSizeLimits(t *testing.T) {
 
 	t.Run("Reject_OversizedRequest", func(t *testing.T) {
 		// Send request over limit (2 MB)
-		oversizedBody := bytes.Repeat([]byte("c"), 2<<20) // 2 MB
+		oversizedBody := bytes.Repeat([]byte("c"), twoMB)
 
 		req := httptest.NewRequest("POST", "/test", bytes.NewReader(oversizedBody))
 		rec := httptest.NewRecorder()
@@ -122,8 +135,7 @@ func TestRequestSizeLimits(t *testing.T) {
 
 	t.Run("Reject_VeryLargeRequest", func(t *testing.T) {
 		// Send very large request (5 MB - significantly over 1 MB limit)
-		veryLargeSize := 5 << 20 // 5 MB
-		veryLargeBody := bytes.Repeat([]byte("e"), veryLargeSize)
+		veryLargeBody := bytes.Repeat([]byte("e"), fiveMB)
 
 		req := httptest.NewRequest("POST", "/test", bytes.NewReader(veryLargeBody))
 		rec := httptest.NewRecorder()

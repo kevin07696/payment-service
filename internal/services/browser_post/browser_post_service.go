@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/epxutil"
 	"github.com/kevin07696/payment-service/internal/ports"
-	"github.com/kevin07696/payment-service/internal/util"
 	"go.uber.org/zap"
 )
 
@@ -93,7 +96,7 @@ func (s *BrowserPostService) GenerateFormConfig(ctx context.Context, req *ports.
 	}
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID
-	epxTranNbr := util.UUIDToEPXTranNbr(transactionID)
+	epxTranNbr := epxutil.UUIDToEPXTranNbr(transactionID)
 
 	// Build redirect URL with properly encoded query parameters
 	redirectURL := s.buildRedirectURL(transactionID.String(), merchantID.String(), string(txType), req.CustomerID)
@@ -114,7 +117,10 @@ func (s *BrowserPostService) GenerateFormConfig(ctx context.Context, req *ports.
 		IndustryType: "E",
 	}
 
-	keyExchangeResp, err := s.keyExchangeAdapter.GetTAC(ctx, keyExchangeReq)
+	// Wrap key exchange call with explicit timeout for external service reliability
+	keyExCtx, keyExCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer keyExCancel()
+	keyExchangeResp, err := s.keyExchangeAdapter.GetTAC(keyExCtx, keyExchangeReq)
 	if err != nil {
 		s.logger.Error("Failed to get TAC from Key Exchange",
 			zap.Error(err),
@@ -257,6 +263,9 @@ func (s *BrowserPostService) ProcessCallback(ctx context.Context, req *ports.Pro
 		zap.String("tran_nbr", req.TranNbr),
 	)
 
+	// Status is GENERATED column based on auth_resp (00=approved, else=declined)
+	// No need to pass status - it's computed automatically by the database
+
 	tx, err := s.queries.UpdateTransactionFromEPXResponse(ctx, sqlc.UpdateTransactionFromEPXResponseParams{
 		CustomerID: func() pgtype.Text {
 			if req.CustomerID != "" {
@@ -305,11 +314,21 @@ func (s *BrowserPostService) ProcessCallback(ctx context.Context, req *ports.Pro
 }
 
 func parseAmountToCents(amount string) (int64, error) {
-	var amountFloat float64
-	if _, err := fmt.Sscanf(amount, "%f", &amountFloat); err != nil {
+	parts := strings.Split(amount, ".")
+	dollars, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
 		return 0, err
 	}
-	return int64(amountFloat * 100), nil
+	cents := int64(0)
+	if len(parts) == 2 {
+		// Pad or truncate to 2 digits (handles "50.0" or "50.999")
+		centStr := (parts[1] + "00")[:2]
+		cents, err = strconv.ParseInt(centStr, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return dollars*100 + cents, nil
 }
 
 // buildRedirectURL constructs the callback URL with properly encoded query parameters.

@@ -170,6 +170,7 @@ message Transaction {
   string idempotency_key = 14;
   google.protobuf.Timestamp created_at = 15;
   google.protobuf.Timestamp updated_at = 16;
+  string processor_reference = 18; // AUTH_GUID/BRIC from processor (used for refunds/voids)
 }
 
 // TransactionStatus represents the outcome of a transaction (success/failure)

@@ -94,7 +94,7 @@ func TestCircuitBreaker_TransitionToOpen(t *testing.T) {
 		return nil
 	})
 
-	if err != ErrCircuitOpen {
+	if !errors.Is(err, ErrCircuitOpen) {
 		t.Errorf("Expected ErrCircuitOpen, got %v", err)
 	}
 
@@ -106,7 +106,7 @@ func TestCircuitBreaker_TransitionToOpen(t *testing.T) {
 func TestCircuitBreaker_TransitionToHalfOpen(t *testing.T) {
 	config := CircuitBreakerConfig{
 		MaxFailures:         3,
-		Timeout:             100 * time.Millisecond,
+		Timeout:             1 * time.Millisecond, // Very short for tests
 		MaxRequestsHalfOpen: 1,
 	}
 	cb := NewCircuitBreaker(config)
@@ -121,8 +121,8 @@ func TestCircuitBreaker_TransitionToHalfOpen(t *testing.T) {
 		t.Fatalf("Circuit should be open, got %v", cb.State())
 	}
 
-	// Wait for timeout
-	time.Sleep(150 * time.Millisecond)
+	// Wait just past timeout (minimal sleep)
+	time.Sleep(2 * time.Millisecond)
 
 	// Next call should transition to half-open
 	err := cb.Call(func() error {
@@ -142,7 +142,7 @@ func TestCircuitBreaker_TransitionToHalfOpen(t *testing.T) {
 func TestCircuitBreaker_HalfOpenToOpen(t *testing.T) {
 	config := CircuitBreakerConfig{
 		MaxFailures:         3,
-		Timeout:             100 * time.Millisecond,
+		Timeout:             1 * time.Millisecond, // Very short for tests
 		MaxRequestsHalfOpen: 1,
 	}
 	cb := NewCircuitBreaker(config)
@@ -153,15 +153,15 @@ func TestCircuitBreaker_HalfOpenToOpen(t *testing.T) {
 		_ = cb.Call(func() error { return testErr })
 	}
 
-	// Wait for timeout to reach half-open
-	time.Sleep(150 * time.Millisecond)
+	// Wait just past timeout (minimal sleep)
+	time.Sleep(2 * time.Millisecond)
 
 	// Fail in half-open state (should go back to open)
 	err := cb.Call(func() error {
 		return testErr
 	})
 
-	if err != testErr {
+	if !errors.Is(err, testErr) {
 		t.Errorf("Expected test error, got %v", err)
 	}
 
@@ -174,7 +174,7 @@ func TestCircuitBreaker_HalfOpenToOpen(t *testing.T) {
 func TestCircuitBreaker_MaxRequestsHalfOpen(t *testing.T) {
 	config := CircuitBreakerConfig{
 		MaxFailures:         2,
-		Timeout:             100 * time.Millisecond,
+		Timeout:             1 * time.Millisecond, // Very short for tests
 		MaxRequestsHalfOpen: 2,
 	}
 	cb := NewCircuitBreaker(config)
@@ -185,8 +185,8 @@ func TestCircuitBreaker_MaxRequestsHalfOpen(t *testing.T) {
 		_ = cb.Call(func() error { return testErr })
 	}
 
-	// Wait for timeout
-	time.Sleep(150 * time.Millisecond)
+	// Wait just past timeout (minimal sleep)
+	time.Sleep(2 * time.Millisecond)
 
 	// First two calls should be allowed in half-open
 	for i := 0; i < 2; i++ {
@@ -198,7 +198,7 @@ func TestCircuitBreaker_MaxRequestsHalfOpen(t *testing.T) {
 
 	// Third call should be rejected
 	err := cb.beforeCall()
-	if err != ErrTooManyRequests {
+	if !errors.Is(err, ErrTooManyRequests) {
 		t.Errorf("Expected ErrTooManyRequests for 3rd call in half-open, got %v", err)
 	}
 }
@@ -269,7 +269,7 @@ func TestCircuitBreaker_ConcurrentCalls(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		go func() {
 			err := cb.Call(func() error {
-				time.Sleep(1 * time.Millisecond)
+				// No sleep - instant success for concurrent test
 				return nil
 			})
 			if err != nil {

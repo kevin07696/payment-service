@@ -180,7 +180,11 @@ func (h *DisputeSyncHandler) SyncDisputes(w http.ResponseWriter, r *http.Request
 		toDate = &parsed
 	}
 
-	ctx := context.Background()
+	// Process dispute sync with request context and timeout
+	// Using r.Context() allows graceful shutdown during deployment
+	// 10 minute timeout for external API calls per merchant
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
 
 	// Get agents to sync
 	var agents []sqlc.Merchant
@@ -372,7 +376,7 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, merchantID st
 
 	chargeback, err := h.db.Queries().CreateChargeback(ctx, params)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating chargeback for case %s: %w", dispute.CaseNumber, err)
 	}
 
 	// Trigger webhook notification for new chargeback
@@ -385,9 +389,22 @@ func (h *DisputeSyncHandler) createChargeback(ctx context.Context, merchantID st
 
 // updateChargeback updates an existing chargeback record and triggers webhook
 func (h *DisputeSyncHandler) updateChargeback(ctx context.Context, existing *sqlc.Chargeback, dispute *ports.Dispute) error {
-	// Parse dates
-	disputeDate, _ := time.Parse("2006-01-02", dispute.DisputeDate)
-	chargebackDate, _ := time.Parse("2006-01-02", dispute.ChargebackDate)
+	// Parse dates with fallback to existing values on error
+	disputeDate, err := time.Parse("2006-01-02", dispute.DisputeDate)
+	if err != nil {
+		h.logger.Warn("Failed to parse dispute date in update, using existing",
+			zap.String("date", dispute.DisputeDate),
+			zap.Error(err))
+		disputeDate = existing.DisputeDate
+	}
+
+	chargebackDate, err := time.Parse("2006-01-02", dispute.ChargebackDate)
+	if err != nil {
+		h.logger.Warn("Failed to parse chargeback date in update, using existing",
+			zap.String("date", dispute.ChargebackDate),
+			zap.Error(err))
+		chargebackDate = existing.ChargebackDate
+	}
 
 	params := sqlc.UpdateChargebackStatusParams{
 		ID:                existing.ID,
@@ -401,7 +418,7 @@ func (h *DisputeSyncHandler) updateChargeback(ctx context.Context, existing *sql
 
 	chargeback, err := h.db.Queries().UpdateChargebackStatus(ctx, params)
 	if err != nil {
-		return err
+		return fmt.Errorf("updating chargeback %s: %w", existing.ID.String(), err)
 	}
 
 	// Trigger webhook notification for updated chargeback
@@ -444,14 +461,9 @@ func (h *DisputeSyncHandler) authenticateRequest(r *http.Request) bool {
 		return true
 	}
 
-	// Check query parameter (less secure, for development only)
-	querySecret := r.URL.Query().Get("secret")
-	if querySecret != "" && querySecret == h.cronSecret {
-		h.logger.Warn("Using query parameter authentication (insecure)",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		return true
-	}
+	// Note: Google Cloud Scheduler OIDC token validation can be added here
+	// for production environments that require additional security.
+	// The X-Cron-Secret header is the primary authentication method.
 
 	return false
 }

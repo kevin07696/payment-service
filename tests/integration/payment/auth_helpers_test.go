@@ -12,19 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// addJWTAuth adds JWT authentication to a Connect request
+// addJWTAuth adds JWT authentication to a Connect request using factory-created service
 func addJWTAuth[T any](t *testing.T, req *connect.Request[T], cfg *testutil.Config, merchantID string) {
 	t.Helper()
 
-	services, err := testutil.LoadTestServices()
-	require.NoError(t, err, "Failed to load test services")
-	require.NotEmpty(t, services, "No test services available")
-
-	service := services[0]
+	factory := testutil.NewFactory(t)
+	ctx := factory.CreateTestContext(t)
 
 	token, err := testutil.GenerateJWT(
-		service.PrivateKeyPEM,
-		service.ServiceID,
+		ctx.Service.PrivateKeyPEM,
+		ctx.Service.ServiceID,
 		merchantID,
 		1*time.Hour,
 	)
@@ -33,17 +30,16 @@ func addJWTAuth[T any](t *testing.T, req *connect.Request[T], cfg *testutil.Conf
 	req.Header().Set("Authorization", "Bearer "+token)
 }
 
-// generateJWTToken generates a JWT token for API requests
+// generateJWTToken generates a JWT token for API requests using factory-created service
 func generateJWTToken(t *testing.T, merchantID string) string {
 	t.Helper()
 
-	services, err := testutil.LoadTestServices()
-	require.NoError(t, err, "Failed to load test services")
-	require.NotEmpty(t, services, "No test services available")
+	factory := testutil.NewFactory(t)
+	ctx := factory.CreateTestContext(t)
 
 	token, err := testutil.GenerateJWT(
-		services[0].PrivateKeyPEM,
-		services[0].ServiceID,
+		ctx.Service.PrivateKeyPEM,
+		ctx.Service.ServiceID,
 		merchantID,
 		1*time.Hour,
 	)

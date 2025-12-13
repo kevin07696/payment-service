@@ -996,12 +996,13 @@ type Transaction struct {
 	AuthorizationCode string `protobuf:"bytes,11,opt,name=authorization_code,json=authorizationCode,proto3" json:"authorization_code,omitempty"` // Bank authorization code
 	Message           string `protobuf:"bytes,12,opt,name=message,proto3" json:"message,omitempty"`                                              // Response message
 	// Card info (for display)
-	Card           *CardInfo              `protobuf:"bytes,13,opt,name=card,proto3" json:"card,omitempty"`
-	IdempotencyKey string                 `protobuf:"bytes,14,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt      *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	Card               *CardInfo              `protobuf:"bytes,13,opt,name=card,proto3" json:"card,omitempty"`
+	IdempotencyKey     string                 `protobuf:"bytes,14,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	CreatedAt          *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt          *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	ProcessorReference string                 `protobuf:"bytes,18,opt,name=processor_reference,json=processorReference,proto3" json:"processor_reference,omitempty"` // AUTH_GUID/BRIC from processor (used for refunds/voids)
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Transaction) Reset() {
@@ -1153,6 +1154,13 @@ func (x *Transaction) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Transaction) GetProcessorReference() string {
+	if x != nil {
+		return x.ProcessorReference
+	}
+	return ""
+}
+
 var File_proto_payment_v1_payment_proto protoreflect.FileDescriptor
 
 const file_proto_payment_v1_payment_proto_rawDesc = "" +
@@ -1237,7 +1245,7 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\x04card\x18\n" +
 	" \x01(\v2\x14.payment.v1.CardInfoR\x04card\x129\n" +
 	"\n" +
-	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xe9\x05\n" +
+	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x9a\x06\n" +
 	"\vTransaction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x122\n" +
 	"\x15parent_transaction_id\x18\x02 \x01(\tR\x13parentTransactionId\x12\x1f\n" +
@@ -1260,7 +1268,8 @@ const file_proto_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt*y\n" +
+	"updated_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12/\n" +
+	"\x13processor_reference\x18\x12 \x01(\tR\x12processorReference*y\n" +
 	"\x11TransactionStatus\x12\"\n" +
 	"\x1eTRANSACTION_STATUS_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bTRANSACTION_STATUS_APPROVED\x10\x01\x12\x1f\n" +

@@ -247,19 +247,12 @@ func (a *keyExchangeAdapter) validateRequest(req *ports.KeyExchangeRequest) erro
 }
 
 // buildFormData constructs URL-encoded form data for EPX Key Exchange request
-// Based on EPX Browser Post API - Key Exchange Required Fields (page 3)
-// NOTE: Per EPX documentation example, Key Exchange request should ONLY include:
-// - TRAN_NBR, AMOUNT, MAC, TRAN_GROUP, REDIRECT_URL
-// Merchant credentials (CUST_NBR, MERCH_NBR, etc.) are NOT sent in Key Exchange,
-// they are embedded in the MAC (Merchant Authorization Code)
+// Based on EPX Browser Post API certification sheet
+// Key Exchange requires merchant credentials AND transaction parameters
 func (a *keyExchangeAdapter) buildFormData(req *ports.KeyExchangeRequest) url.Values {
 	data := url.Values{}
 
-	// TRAN_GROUP values per WORKING integration test code:
-	// EPX Key Exchange expects full transaction type strings, not single-letter codes
 	// TRAN_GROUP values: "SALE", "AUTH", or "STORAGE"
-	// Note: Browser Post form uses TRAN_CODE with full strings (SALE/AUTH/STORAGE)
-	// Key Exchange uses TRAN_GROUP with the same full strings
 	tranGroup := req.TranGroup
 
 	// Normalize legacy single-letter codes to full strings for EPX compatibility
@@ -271,11 +264,17 @@ func (a *keyExchangeAdapter) buildFormData(req *ports.KeyExchangeRequest) url.Va
 		tranGroup = "STORAGE"
 	}
 
-	// Required fields per EPX Browser Post documentation (page 3)
+	// Merchant credentials - required per EPX certification sheet
+	data.Set("CUST_NBR", req.CustNbr)
+	data.Set("MERCH_NBR", req.MerchNbr)
+	data.Set("DBA_NBR", req.DBAnbr)
+	data.Set("TERMINAL_NBR", req.TerminalNbr)
+
+	// Transaction parameters
 	data.Set("TRAN_NBR", req.TranNbr)
 	data.Set("AMOUNT", req.Amount)
 	data.Set("MAC", req.MAC)
-	data.Set("TRAN_GROUP", tranGroup) // Must be full string: SALE, AUTH, or STORAGE
+	data.Set("TRAN_GROUP", tranGroup)
 	data.Set("REDIRECT_URL", req.RedirectURL)
 
 	// Industry type (required for EPX certification)

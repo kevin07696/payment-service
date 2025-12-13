@@ -44,8 +44,9 @@ CUST_NBR=9001  MERCH_NBR=900300  DBA_NBR=2  TERMINAL_NBR=77
    - 3.3 [VOID (CCEX)](#33-credit-card-void-ccex)
    - 3.4 [SALE (CCE1)](#34-credit-card-sale-cce1)
    - 3.5 [REFUND (CCE9)](#35-credit-card-refund-cce9)
-   - 3.6 [Recurring Billing (RB)](#36-recurring-billing-cce1--aci_extrb)
-   - 3.7 [Recurring Retry (RS)](#37-recurring-retry-cce1--aci_extrs)
+   - 3.6 [REVERSAL (CCE7)](#36-credit-card-reversal-cce7)
+   - 3.7 [Recurring Billing (RB)](#37-recurring-billing-cce1--aci_extrb)
+   - 3.8 [Recurring Retry (RS)](#38-recurring-retry-cce1--aci_extrs)
 4. [Server POST ACH](#4-server-post-ach)
    - 4.1 [ACH Sale (CKC2)](#41-ach-sale-ckc2)
    - 4.2 [ACH Refund (CKC3)](#42-ach-refund-ckc3)
@@ -775,7 +776,8 @@ Server POST is used for backend-to-backend transactions using stored BRIC tokens
 |----------|------|---------|
 | CCE2 | Auth | Authorize only (hold funds) |
 | CCE4 | Capture | Capture prior auth |
-| CCEX | Void | Cancel transaction |
+| CCEX | Void | Cancel transaction (funds held 3-10 days) |
+| CCE7 | Reversal | Cancel + release auth hold (immediate fund release) |
 | CCE1 | Sale | Authorize + capture |
 | CCE9 | Refund | Return funds |
 | CCE8 | Storage | Create BRIC token |
@@ -1197,7 +1199,107 @@ curl -X POST "https://secure.epxuap.com" \
 
 ---
 
-### 3.6 Recurring Billing (CCE1 + ACI_EXT=RB)
+### 3.6 Credit Card REVERSAL (CCE7)
+
+**Purpose**: Cancel transaction AND release authorization hold immediately
+
+> **REVERSAL (CCE7) vs VOID (CCEX) - Key Difference**
+>
+> | Method | What it does | Fund Release |
+> |--------|--------------|--------------|
+> | **VOID (CCEX)** | Cancels transaction only | 3-10 business days |
+> | **REVERSAL (CCE7)** | Cancels transaction AND releases auth hold | **Immediate** |
+>
+> - **Use CCE7** when customer needs immediate fund release (e.g., canceled order)
+> - **Use CCEX** when timing doesn't matter (e.g., duplicate transaction cleanup)
+> - **Credit cards only** - ACH transactions use CKCX (Void) instead
+
+#### Request
+
+```bash
+# Reversal requires the AUTH_GUID from a previous AUTH (CCE2) or SALE (CCE1) transaction
+# In this example, 0A1MT3PF0WL4PHUMJU9 was obtained from a $100.00 AUTH (CCE2) via Browser POST
+curl -X POST "https://secure.epxuap.com" \
+  -d "CUST_NBR=9001" \
+  -d "MERCH_NBR=900300" \
+  -d "DBA_NBR=2" \
+  -d "TERMINAL_NBR=77" \
+  -d "TRAN_TYPE=CCE7" \
+  -d "TRAN_NBR=1733958209" \
+  -d "TRAN_GROUP=CCE7_1733958209" \
+  -d "ORIG_AUTH_GUID=0A1MT3PF0WL4PHUMJU9" \
+  -d "CARD_ENT_METH=Z" \
+  -d "INDUSTRY_TYPE=E"
+```
+
+> **Note**: Unlike VOID (CCEX), REVERSAL does not require an AMOUNT field - it always reverses the full authorization.
+
+#### Response
+
+```xml
+<RESPONSE>
+  <FIELDS>
+    <FIELD KEY="MSG_VERSION">003</FIELD>
+    <FIELD KEY="CUST_NBR">9001</FIELD>
+    <FIELD KEY="MERCH_NBR">900300</FIELD>
+    <FIELD KEY="DBA_NBR">2</FIELD>
+    <FIELD KEY="TERMINAL_NBR">77</FIELD>
+    <FIELD KEY="TRAN_TYPE">CCE7</FIELD>
+    <FIELD KEY="TRAN_NBR">1733958209</FIELD>
+    <FIELD KEY="LOCAL_DATE">121125</FIELD>
+    <FIELD KEY="LOCAL_TIME">160927</FIELD>
+    <FIELD KEY="AUTH_GUID">09LMT3PG8FJ1XERAG52</FIELD>
+    <FIELD KEY="AUTH_RESP">00</FIELD>
+    <FIELD KEY="AUTH_CODE">039477</FIELD>
+    <FIELD KEY="AUTH_RESP_TEXT">APPROVAL 039477</FIELD>
+    <FIELD KEY="AUTH_CARD_TYPE">V</FIELD>
+    <FIELD KEY="AUTH_TRAN_DATE_GMT">12/11/2025 09:09:27 PM</FIELD>
+    <FIELD KEY="AUTH_AMOUNT_REQUESTED">0.00</FIELD>
+    <FIELD KEY="AUTH_AMOUNT">0.00</FIELD>
+    <FIELD KEY="AUTH_CURRENCY_CODE">840</FIELD>
+    <FIELD KEY="NETWORK_RESPONSE">00</FIELD>
+    <FIELD KEY="AUTH_CARD_COUNTRY_CODE">840</FIELD>
+    <FIELD KEY="AUTH_CARD_CURRENCY_CODE">840</FIELD>
+    <FIELD KEY="AUTH_CARD_B">D</FIELD>
+    <FIELD KEY="AUTH_CARD_C">F</FIELD>
+    <FIELD KEY="AUTH_CARD_E">N</FIELD>
+    <FIELD KEY="AUTH_CARD_F">Y</FIELD>
+    <FIELD KEY="AUTH_CARD_G">N</FIELD>
+    <FIELD KEY="AUTH_CARD_I">Y</FIELD>
+    <FIELD KEY="AUTH_MASKED_ACCOUNT_NBR">************0002</FIELD>
+    <FIELD KEY="AUTH_CARD_L">P</FIELD>
+    <FIELD KEY="ORIG_TRAN_TYPE">CCE7</FIELD>
+    <FIELD KEY="AUTH_TRAN_IDENT">355345761267562</FIELD>
+    <FIELD KEY="AUTH_PAR">V40000000028FAB8191EEC1C39808</FIELD>
+  </FIELDS>
+</RESPONSE>
+```
+
+> **Verified**: Actual EPX sandbox response from CCE7 reversal test (December 11, 2025)
+
+<details>
+<summary>Field Reference (click to expand)</summary>
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| TRAN_TYPE | CCE7 | Transaction type: CCE7=Reversal |
+| TRAN_NBR | 1733958209 | Your transaction reference number |
+| ORIG_AUTH_GUID | 0A1MT3PF0WL4PHUMJU9 | BRIC from original AUTH ($100.00) that was reversed |
+| AUTH_GUID | 09LMT3PG8FJ1XERAG52 | New BRIC for the reversal transaction |
+| AUTH_RESP | 00 | Response code: 00=Approved |
+| AUTH_CODE | 039477 | Authorization code from card network |
+| AUTH_RESP_TEXT | APPROVAL 039477 | Transaction reversed successfully |
+| AUTH_AMOUNT | 0.00 | Reversal releases full authorization (no partial reversal) |
+| AUTH_TRAN_IDENT | 355345761267562 | Network transaction identifier |
+| AUTH_CARD_TYPE | V | Visa |
+| AUTH_MASKED_ACCOUNT_NBR | ************0002 | Masked card number from original |
+| AUTH_PAR | V40000000028FAB8191EEC1C39808 | Payment Account Reference (for network token tracking) |
+
+</details>
+
+---
+
+### 3.7 Recurring Billing (CCE1 + ACI_EXT=RB)
 
 **Purpose**: First billing attempt in each subscription cycle (Merchant-Initiated Transaction)
 
@@ -1276,7 +1378,7 @@ curl -X POST "https://secure.epxuap.com" \
 
 ---
 
-### 3.7 Recurring Retry (CCE1 + ACI_EXT=RS)
+### 3.8 Recurring Retry (CCE1 + ACI_EXT=RS)
 
 **Purpose**: Retry a declined recurring transaction (within 30-day RS window per Visa/MC rules)
 

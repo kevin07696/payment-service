@@ -65,7 +65,8 @@ func (h *RateLimitCleanupHandler) CleanupRateLimitBuckets(w http.ResponseWriter,
 
 	// Execute cleanup with timeout
 	// Short timeout - UNLOGGED table deletes are fast
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Using r.Context() allows graceful shutdown during deployment
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	h.logger.Info("Starting rate limit bucket cleanup (deletes entries > 1 hour old)")
@@ -97,11 +98,13 @@ func (h *RateLimitCleanupHandler) CleanupRateLimitBuckets(w http.ResponseWriter,
 func (h *RateLimitCleanupHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "healthy",
 		"service": "rate-limit-cleanup-cron",
 		"time":    timeutil.Now().Format(time.RFC3339),
-	})
+	}); err != nil {
+		h.logger.Error("Failed to encode health response", zap.Error(err))
+	}
 }
 
 // Stats returns statistics about rate limit buckets
@@ -117,7 +120,7 @@ func (h *RateLimitCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"table_type":           "UNLOGGED (2-3x faster writes, no WAL)",
 		"cleanup_interval":     "5 minutes",
 		"retention_period":     "1 hour",
@@ -125,7 +128,9 @@ func (h *RateLimitCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) 
 		"recommended_schedule": "every 5 minutes",
 		"distributed":          true,
 		"cache_level":          "L2 (PostgreSQL UNLOGGED)",
-	})
+	}); err != nil {
+		h.logger.Error("Failed to encode stats response", zap.Error(err))
+	}
 }
 
 // Helper methods
@@ -139,14 +144,18 @@ func (h *RateLimitCleanupHandler) authenticateRequest(r *http.Request) bool {
 func (h *RateLimitCleanupHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": false,
 		"error":   message,
-	})
+	}); err != nil {
+		h.logger.Error("Failed to encode error response", zap.Error(err))
+	}
 }
 
 func (h *RateLimitCleanupHandler) respondSuccess(w http.ResponseWriter, data RateLimitCleanupResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		h.logger.Error("Failed to encode success response", zap.Error(err))
+	}
 }

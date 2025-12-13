@@ -1,72 +1,32 @@
 package testutil
 
-// TestConstants defines all test data identifiers used across integration tests
-// This provides a single source of truth for test merchants, customers, and other test fixtures
-//
-// IMPORTANT: These constants must be kept in sync with:
-// - scripts/seed_test_chargebacks.sh
-// - Any manual test data seeding scripts
-// - Database seed files
-//
-// SECURITY: Test data is marked with raw_data->>'test' = 'true' to enable safe cleanup
-// without affecting production or staging data
+// TestConstants defines test data values used across integration tests
+// NOTE: Merchant/customer IDs should NOT be hardcoded. Use factory.CreateTestContext(t) instead.
+// NOTE: Card/ACH data is defined as TestCard/TestACH variables in tokenization.go
+
 const (
-	// Test Merchant Identifiers
-	// These identify the test merchant used across all integration tests
-	// The merchant is automatically seeded during test setup with EPX credentials
-	TestMerchantUUID = "00000000-0000-0000-0000-000000000001" // UUID format for database queries
-	TestMerchantSlug = "test-merchant-staging"                // Human-readable slug for API requests
-	TestMerchantName = "Test Merchant (Staging)"              // Display name
+	// Amount Constants (in cents to avoid magic numbers)
+	DefaultAmountCents        = int64(5000)  // $50.00 - standard test amount
+	SmallAmountCents          = int64(100)   // $1.00 - minimum amount tests
+	LargeAmountCents          = int64(99999) // $999.99 - large amount tests
+	PartialRefundCents        = int64(2500)  // $25.00 - partial refund tests
+	DefaultSubscriptionAmount = int64(1999)  // $19.99 - subscription tests
 
-	// Test Customer Identifiers
-	// Used for creating test transactions and chargebacks
-	TestCustomerID = "cust_test_001"
+	// Amount thresholds
+	MaxAmountCents  = int64(99999999) // $999,999.99 - max allowed
+	ZeroAmountCents = int64(0)        // Zero amount edge case
+	OnecentAmount   = int64(1)        // Smallest possible amount
 
-	// Test Chargeback Case Numbers (fixed for idempotency)
-	// These case numbers are used consistently across test runs to prevent duplicates
-	// Each represents a different chargeback status for testing state transitions
-	ChargebackCaseNumberNew       = "CB-NEW-TEST"       // Newly received chargeback
-	ChargebackCaseNumberPending   = "CB-PENDING-TEST"   // Under review
-	ChargebackCaseNumberResponded = "CB-RESPONDED-TEST" // Evidence submitted
-	ChargebackCaseNumberWon       = "CB-WON-TEST"       // Merchant won dispute
-	ChargebackCaseNumberLost      = "CB-LOST-TEST"      // Merchant lost dispute
+	// Currency
+	DefaultCurrency = "USD"
 
-	// Test Data Markers
-	// These JSON fields mark test data for safe cleanup
-	// CLEANUP: Use WHERE raw_data->>'test' = 'true' to delete only test data
-	TestDataMarkerKey   = "test"
-	TestDataMarkerValue = true
-	TestDataSourceKey   = "source"
-	TestDataSource      = "test_seed"
+	// Timeouts (in seconds)
+	ServerReadyTimeout = 30  // seconds to wait for server to be ready
+	TransactionTimeout = 60  // seconds for transaction to complete
+	BrowserPostTimeout = 120 // seconds for browser automation
 
 	// Database Timeouts (in seconds)
-	// These timeouts prevent tests from hanging indefinitely
-	// Adjust based on database performance in CI/CD environment
 	DBQueryTimeout  = 10 // SELECT queries with simple WHERE clauses
 	DBInsertTimeout = 15 // INSERT/UPDATE operations with complex data
 	DBSelectTimeout = 5  // Simple SELECT queries for lookups
 )
-
-// ChargebackTestCases returns all test chargeback case numbers
-// Use this helper to iterate over all test chargebacks in tests
-func ChargebackTestCases() []string {
-	return []string{
-		ChargebackCaseNumberNew,
-		ChargebackCaseNumberPending,
-		ChargebackCaseNumberResponded,
-		ChargebackCaseNumberWon,
-		ChargebackCaseNumberLost,
-	}
-}
-
-// CleanupTestData provides SQL to clean up test data from database
-// DEPRECATED: Use CleanupChargebacks(t) and CleanupTestTransactions(t) instead
-// This function is kept for backward compatibility with manual cleanup scripts
-//
-// SECURITY: Only deletes data marked with test markers or belonging to test merchant
-func CleanupTestData() string {
-	return `
-		DELETE FROM chargebacks WHERE raw_data->>'test' = 'true';
-		DELETE FROM transactions WHERE merchant_id = '00000000-0000-0000-0000-000000000001'::uuid;
-	`
-}

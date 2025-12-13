@@ -210,28 +210,24 @@ func TestMerchant_Deactivate(t *testing.T) {
 
 	t.Run("updates_timestamp", func(t *testing.T) {
 		m := newTestMerchant()
-		originalUpdatedAt := m.UpdatedAt
-
-		// Sleep to ensure timestamp changes
-		time.Sleep(2 * time.Millisecond)
+		beforeOp := time.Now()
 
 		m.Deactivate()
 
-		assert.True(t, m.UpdatedAt.After(originalUpdatedAt), "Deactivate() should update the UpdatedAt timestamp")
+		assert.True(t, !m.UpdatedAt.Before(beforeOp),
+			"Deactivate() should update UpdatedAt to at or after operation time")
 	})
 
 	t.Run("idempotent_deactivation", func(t *testing.T) {
 		m := newTestMerchant()
 		m.IsActive = false
-		m.UpdatedAt = time.Now()
-		firstDeactivation := m.UpdatedAt
-
-		time.Sleep(2 * time.Millisecond)
+		beforeOp := time.Now()
 
 		m.Deactivate()
 
 		assert.False(t, m.IsActive, "Multiple deactivations should keep IsActive false")
-		assert.True(t, m.UpdatedAt.After(firstDeactivation), "UpdatedAt should still be updated even for already inactive merchant")
+		assert.True(t, !m.UpdatedAt.Before(beforeOp),
+			"UpdatedAt should be updated to at or after operation time")
 	})
 }
 
@@ -248,28 +244,24 @@ func TestMerchant_Activate(t *testing.T) {
 
 	t.Run("updates_timestamp", func(t *testing.T) {
 		m := newTestMerchant()
-		originalUpdatedAt := m.UpdatedAt
-
-		// Sleep to ensure timestamp changes
-		time.Sleep(2 * time.Millisecond)
+		beforeOp := time.Now()
 
 		m.Activate()
 
-		assert.True(t, m.UpdatedAt.After(originalUpdatedAt), "Activate() should update the UpdatedAt timestamp")
+		assert.True(t, !m.UpdatedAt.Before(beforeOp),
+			"Activate() should update UpdatedAt to at or after operation time")
 	})
 
 	t.Run("idempotent_activation", func(t *testing.T) {
 		m := newTestMerchant()
 		m.IsActive = true
-		m.UpdatedAt = time.Now()
-		firstActivation := m.UpdatedAt
-
-		time.Sleep(2 * time.Millisecond)
+		beforeOp := time.Now()
 
 		m.Activate()
 
 		assert.True(t, m.IsActive, "Multiple activations should keep IsActive true")
-		assert.True(t, m.UpdatedAt.After(firstActivation), "UpdatedAt should still be updated even for already active merchant")
+		assert.True(t, !m.UpdatedAt.Before(beforeOp),
+			"UpdatedAt should be updated to at or after operation time")
 	})
 }
 
@@ -284,22 +276,20 @@ func TestMerchant_StateTransitions(t *testing.T) {
 		assert.True(t, m.CanProcessTransactions(), "Active merchant should be able to process transactions")
 
 		// Deactivate
-		time.Sleep(2 * time.Millisecond)
 		beforeDeactivate := time.Now()
 		m.Deactivate()
 
 		assert.False(t, m.IsActive, "Merchant should be inactive after Deactivate()")
 		assert.False(t, m.CanProcessTransactions(), "Inactive merchant should not be able to process transactions")
-		assert.True(t, m.UpdatedAt.After(beforeDeactivate.Add(-2*time.Millisecond)), "UpdatedAt should be updated after deactivation")
+		assert.True(t, !m.UpdatedAt.Before(beforeDeactivate), "UpdatedAt should be at or after deactivation time")
 
 		// Re-activate
-		time.Sleep(2 * time.Millisecond)
 		beforeActivate := time.Now()
 		m.Activate()
 
 		assert.True(t, m.IsActive, "Merchant should be active after Activate()")
 		assert.True(t, m.CanProcessTransactions(), "Re-activated merchant should be able to process transactions")
-		assert.True(t, m.UpdatedAt.After(beforeActivate.Add(-2*time.Millisecond)), "UpdatedAt should be updated after activation")
+		assert.True(t, !m.UpdatedAt.Before(beforeActivate), "UpdatedAt should be at or after activation time")
 	})
 
 	t.Run("inactive_to_active_transition", func(t *testing.T) {
@@ -316,26 +306,17 @@ func TestMerchant_StateTransitions(t *testing.T) {
 
 	t.Run("multiple_state_transitions_update_timestamps", func(t *testing.T) {
 		m := newTestMerchant()
-		timestamps := []time.Time{}
 
-		// Record initial timestamp
-		timestamps = append(timestamps, m.UpdatedAt)
-
-		// Perform multiple state transitions
+		// Each operation should update timestamp to at least current time
 		for i := 0; i < 3; i++ {
-			time.Sleep(2 * time.Millisecond)
+			beforeOp := time.Now()
 			if i%2 == 0 {
 				m.Deactivate()
 			} else {
 				m.Activate()
 			}
-			timestamps = append(timestamps, m.UpdatedAt)
-		}
-
-		// Verify timestamps are monotonically increasing
-		for i := 1; i < len(timestamps); i++ {
-			assert.True(t, timestamps[i].After(timestamps[i-1]),
-				"Timestamp %d should be after timestamp %d", i, i-1)
+			assert.True(t, !m.UpdatedAt.Before(beforeOp),
+				"Timestamp after operation %d should be at or after operation time", i)
 		}
 	})
 }
@@ -441,7 +422,6 @@ func TestMerchant_TimestampBehavior(t *testing.T) {
 		m := newTestMerchant()
 		createdAt := m.CreatedAt
 
-		time.Sleep(2 * time.Millisecond)
 		m.Deactivate()
 		m.Activate()
 
@@ -451,15 +431,15 @@ func TestMerchant_TimestampBehavior(t *testing.T) {
 	t.Run("updated_at_reflects_latest_operation", func(t *testing.T) {
 		m := newTestMerchant()
 
-		time.Sleep(2 * time.Millisecond)
+		beforeDeactivate := time.Now()
 		m.Deactivate()
-		deactivatedAt := m.UpdatedAt
+		assert.True(t, !m.UpdatedAt.Before(beforeDeactivate),
+			"UpdatedAt after deactivate should be at or after operation time")
 
-		time.Sleep(2 * time.Millisecond)
+		beforeActivate := time.Now()
 		m.Activate()
-		activatedAt := m.UpdatedAt
-
-		assert.True(t, activatedAt.After(deactivatedAt), "UpdatedAt should reflect the latest operation")
+		assert.True(t, !m.UpdatedAt.Before(beforeActivate),
+			"UpdatedAt after activate should be at or after operation time")
 	})
 }
 

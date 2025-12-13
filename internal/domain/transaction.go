@@ -18,13 +18,14 @@ const (
 type TransactionType string
 
 const (
-	TransactionTypeAuth    TransactionType = "AUTH"     // Authorization only (EPX TRAN_GROUP=A)
-	TransactionTypeCapture TransactionType = "CAPTURE"  // Capture authorized funds
-	TransactionTypeSale    TransactionType = "SALE"     // Combined auth + capture (EPX TRAN_GROUP=U)
-	TransactionTypeRefund  TransactionType = "REFUND"   // Return funds
-	TransactionTypeVoid    TransactionType = "VOID"     // Cancel transaction before settlement
-	TransactionTypePreNote TransactionType = "PRE_NOTE" // ACH verification
-	TransactionTypeStorage TransactionType = "STORAGE"  // Tokenization (credit card or ACH)
+	TransactionTypeAuth     TransactionType = "AUTH"     // Authorization only (EPX TRAN_GROUP=A)
+	TransactionTypeCapture  TransactionType = "CAPTURE"  // Capture authorized funds
+	TransactionTypeSale     TransactionType = "SALE"     // Combined auth + capture (EPX TRAN_GROUP=U)
+	TransactionTypeRefund   TransactionType = "REFUND"   // Return funds
+	TransactionTypeVoid     TransactionType = "VOID"     // Cancel transaction before settlement
+	TransactionTypeReversal TransactionType = "REVERSAL" // Reversal (CCE7) - releases auth hold AND voids in one call
+	TransactionTypePreNote  TransactionType = "PRE_NOTE" // ACH verification
+	TransactionTypeStorage  TransactionType = "STORAGE"  // Tokenization (credit card or ACH)
 )
 
 // RequestTransactionType represents the transaction type from an incoming request
@@ -108,7 +109,7 @@ func (r RequestTransactionType) IsValid() bool {
 }
 
 // ToEPXTranCode returns the EPX TRAN_CODE value for Browser POST forms
-// Per North Developer docs: TRAN_CODE uses text values (SALE, AUTH, STORAGE, ACH_STORAGE_C, ACH_STORAGE_S)
+// Per EPX certification: TRAN_CODE uses text values (SALE, AUTH, STORAGE, ACHSTORAGE_C, ACHSTORAGE_S)
 func (r RequestTransactionType) ToEPXTranCode() string {
 	switch r {
 	case RequestTransactionTypeSale:
@@ -118,9 +119,9 @@ func (r RequestTransactionType) ToEPXTranCode() string {
 	case RequestTransactionTypeStorage:
 		return "STORAGE"
 	case RequestTransactionTypeACHStorageC:
-		return "ACH_STORAGE_C"
+		return "ACHSTORAGE_C"
 	case RequestTransactionTypeACHStorageS:
-		return "ACH_STORAGE_S"
+		return "ACHSTORAGE_S"
 	default:
 		return "SALE"
 	}
@@ -211,6 +212,15 @@ func (t *Transaction) CanBeCaptured() bool {
 func (t *Transaction) CanBeRefunded() bool {
 	return t.Status == TransactionStatusApproved &&
 		(t.Type == TransactionTypeSale || t.Type == TransactionTypeCapture)
+}
+
+// CanBeReversed returns true if the transaction can be reversed (CCE7)
+// Reversal releases the authorization hold AND voids the transaction in one call
+// This provides immediate fund release to cardholder (vs Void which holds 3-10 days)
+// Only approved AUTH and SALE transactions can be reversed (credit cards only)
+func (t *Transaction) CanBeReversed() bool {
+	return t.Status == TransactionStatusApproved &&
+		(t.Type == TransactionTypeAuth || t.Type == TransactionTypeSale)
 }
 
 // GetCustomerID safely retrieves the customer ID

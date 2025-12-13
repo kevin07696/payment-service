@@ -5,6 +5,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -313,9 +314,23 @@ func TestAdminCLI_ArchitectureVerification(t *testing.T) {
 }
 
 func getTestDatabaseURL(t *testing.T) string {
-	dbURL := os.Getenv("TEST_DATABASE_URL")
-	if dbURL == "" {
-		t.Fatal("TEST_DATABASE_URL environment variable is required")
+	// Check for DATABASE_URL first (same as server uses)
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		return dbURL
 	}
-	return dbURL
+
+	// Build from individual DB_* environment variables (same as server uses)
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
+
+	// Validate required configuration
+	if dbHost == "" || dbPort == "" || dbUser == "" || dbPassword == "" || dbName == "" {
+		t.Fatal("Database configuration required: set DATABASE_URL or DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME")
+	}
+
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		dbUser, dbPassword, dbHost, dbPort, dbName)
 }

@@ -59,8 +59,12 @@ func TracingInterceptor() connect.UnaryInterceptorFunc {
 				span.SetStatus(codes.Ok, "success")
 			}
 
-			// Inject trace context into response headers
-			otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(resp.Header()))
+			// Inject trace context into response headers (only on success)
+			// When errors occur, the response or its underlying message may be nil/invalid,
+			// causing resp.Header() to panic. Only inject headers for successful responses.
+			if err == nil && resp != nil {
+				otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(resp.Header()))
+			}
 
 			return resp, err
 		}

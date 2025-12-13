@@ -15,7 +15,9 @@ import (
 // TestRateLimiter_IPExtraction tests the getClientIP method for IP spoofing protection
 // Security Risk: HIGH - Prevents attackers from bypassing rate limits via IP spoofing
 func TestRateLimiter_IPExtraction(t *testing.T) {
-	limiter := middleware.NewRateLimiter(10, 20) // 10 req/sec, burst 20
+	// Create limiter with trusted proxies (10.0.0.1, 10.0.0.2, 10.0.0.99) for testing
+	trustedProxies := []string{"10.0.0.1", "10.0.0.2", "10.0.0.99"}
+	limiter := middleware.NewRateLimiter(10, 20, trustedProxies) // 10 req/sec, burst 20
 	defer limiter.Shutdown()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -25,10 +27,10 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 
 	rateLimitedHandler := limiter.Middleware(handler)
 
-	t.Run("ExtractFrom_XForwardedFor_SingleIP", func(t *testing.T) {
-		// X-Forwarded-For with single IP should be used
+	t.Run("ExtractFrom_XForwardedFor_TrustedProxy", func(t *testing.T) {
+		// X-Forwarded-For from trusted proxy should be used
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.RemoteAddr = "10.0.0.1:12345"                // Proxy IP
+		req.RemoteAddr = "10.0.0.1:12345"                // Trusted proxy IP
 		req.Header.Set("X-Forwarded-For", "203.0.113.1") // Real client IP
 
 		rec := httptest.NewRecorder()
@@ -36,12 +38,12 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rec.Code, "Should accept first request from real IP")
 
-		// Make many requests from same real IP (different proxy IP)
+		// Make many requests from same real IP (different trusted proxy IP)
 		// Should hit rate limit because real IP is the same
 		successCount := 0
 		for i := 0; i < 25; i++ {
 			req := httptest.NewRequest("GET", "/test", nil)
-			req.RemoteAddr = "10.0.0.2:12345"                // Different proxy IP
+			req.RemoteAddr = "10.0.0.2:12345"                // Different trusted proxy IP
 			req.Header.Set("X-Forwarded-For", "203.0.113.1") // Same real client IP
 
 			rec := httptest.NewRecorder()
@@ -56,15 +58,15 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 		assert.Less(t, successCount, 25, "Should hit rate limit for same real IP")
 		assert.Greater(t, successCount, 15, "Some requests should succeed (burst allowance)")
 
-		t.Logf("[PASS] IP extraction from X-Forwarded-For working (allowed %d/25)", successCount)
+		t.Logf("[PASS] IP extraction from X-Forwarded-For working with trusted proxy (allowed %d/25)", successCount)
 	})
 
 	t.Run("ExtractFrom_XForwardedFor_MultipleIPs", func(t *testing.T) {
 		// X-Forwarded-For can contain multiple IPs (client, proxy1, proxy2, ...)
-		// We should use the FIRST IP (original client)
+		// We should use the FIRST IP (original client) when from trusted proxy
 
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.RemoteAddr = "10.0.0.1:12345"
+		req.RemoteAddr = "10.0.0.1:12345" // Trusted proxy
 		req.Header.Set("X-Forwarded-For", "203.0.113.5, 10.0.0.2, 10.0.0.3") // Client, Proxy1, Proxy2
 
 		rec := httptest.NewRecorder()
@@ -76,7 +78,7 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 		successCount := 0
 		for i := 0; i < 25; i++ {
 			req := httptest.NewRequest("GET", "/test", nil)
-			req.RemoteAddr = "10.0.0.99:12345"
+			req.RemoteAddr = "10.0.0.99:12345" // Trusted proxy
 			req.Header.Set("X-Forwarded-For", "203.0.113.5, 10.0.0.4, 10.0.0.5")
 
 			rec := httptest.NewRecorder()
@@ -92,11 +94,11 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 		t.Logf("[PASS] First IP from X-Forwarded-For chain used correctly")
 	})
 
-	t.Run("ExtractFrom_XRealIP", func(t *testing.T) {
-		// X-Real-IP should be used if X-Forwarded-For is not present
+	t.Run("ExtractFrom_XRealIP_TrustedProxy", func(t *testing.T) {
+		// X-Real-IP should be used if X-Forwarded-For is not present (from trusted proxy)
 
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.RemoteAddr = "10.0.0.1:12345"
+		req.RemoteAddr = "10.0.0.1:12345" // Trusted proxy
 		req.Header.Set("X-Real-IP", "203.0.113.10")
 		// No X-Forwarded-For
 
@@ -105,7 +107,7 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rec.Code, "Should accept request")
 
-		t.Log("[PASS] X-Real-IP extraction working")
+		t.Log("[PASS] X-Real-IP extraction working from trusted proxy")
 	})
 
 	t.Run("FallbackTo_RemoteAddr", func(t *testing.T) {
@@ -123,12 +125,11 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 		t.Log("[PASS] RemoteAddr fallback working")
 	})
 
-	t.Run("Prevents_IPSpoofing_Attack", func(t *testing.T) {
-		// Attacker tries to bypass rate limit by changing X-Forwarded-For header
-		// Rate limiter should use the X-Forwarded-For value, so different IPs = different limits
+	t.Run("Ignores_XForwardedFor_UntrustedProxy", func(t *testing.T) {
+		// SECURITY: X-Forwarded-For from untrusted proxy should be IGNORED
+		// This prevents IP spoofing attacks
 
-		// Create fresh limiter for isolated test
-		freshLimiter := middleware.NewRateLimiter(10, 20)
+		freshLimiter := middleware.NewRateLimiter(10, 20, []string{"10.0.0.1"}) // Only 10.0.0.1 is trusted
 		defer freshLimiter.Shutdown()
 
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,31 +137,31 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 		})
 		freshHandler := freshLimiter.Middleware(handler)
 
-		// First, use one IP and exhaust its rate limit
+		// Request from untrusted proxy (192.168.1.1 is NOT in trusted list)
+		// Attacker tries to spoof X-Forwarded-For
 		for i := 0; i < 25; i++ {
 			req := httptest.NewRequest("GET", "/test", nil)
-			req.RemoteAddr = "10.0.0.1:12345"
-			req.Header.Set("X-Forwarded-For", "203.0.113.100")
+			req.RemoteAddr = "192.168.1.1:12345"                         // UNTRUSTED proxy
+			req.Header.Set("X-Forwarded-For", fmt.Sprintf("1.2.3.%d", i)) // Spoofed IPs
 
 			rec := httptest.NewRecorder()
 			freshHandler.ServeHTTP(rec, req)
 		}
 
-		// Now attacker tries with different spoofed IP
+		// All requests should have been rate-limited against the SAME IP (192.168.1.1)
+		// because X-Forwarded-For was ignored from untrusted source
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.RemoteAddr = "10.0.0.1:12345"                  // Same proxy
-		req.Header.Set("X-Forwarded-For", "203.0.113.101") // Different spoofed IP
+		req.RemoteAddr = "192.168.1.1:12345"
+		req.Header.Set("X-Forwarded-For", "1.2.3.255") // Another spoofed IP
 
 		rec := httptest.NewRecorder()
 		freshHandler.ServeHTTP(rec, req)
 
-		// Should succeed because it's treated as different IP
-		// This is CORRECT behavior - we trust the proxy's X-Forwarded-For
-		assert.Equal(t, http.StatusOK, rec.Code,
-			"Different X-Forwarded-For IP should have separate limit")
+		// Should be rate limited because all requests counted against 192.168.1.1
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code,
+			"Should reject - X-Forwarded-For ignored from untrusted proxy")
 
-		t.Log("[PASS] IP spoofing prevented by using X-Forwarded-For correctly")
-		t.Log("[INFO] Assumes trusted proxy sets X-Forwarded-For (e.g., load balancer)")
+		t.Log("[PASS] IP spoofing PREVENTED - X-Forwarded-For ignored from untrusted proxy")
 	})
 }
 
@@ -169,7 +170,7 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 func TestRateLimiter_MemoryCleanup(t *testing.T) {
 	t.Run("Cleanup_GoroutineExists", func(t *testing.T) {
 		// Verify cleanup goroutine starts on creation and stops on shutdown
-		limiter := middleware.NewRateLimiter(100, 200)
+		limiter := middleware.NewRateLimiter(100, 200, nil)
 
 		// Cleanup goroutine should be running
 		// We can't directly check goroutine count, but we can verify shutdown works
@@ -189,7 +190,7 @@ func TestRateLimiter_MemoryCleanup(t *testing.T) {
 		// Since maxSize is 10,000 and cleanup interval is 5 minutes,
 		// we verify the LRU logic exists by testing edge behavior
 
-		limiter := middleware.NewRateLimiter(100, 200)
+		limiter := middleware.NewRateLimiter(100, 200, nil)
 		defer limiter.Shutdown()
 
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -235,7 +236,7 @@ func TestRateLimiter_MemoryCleanup(t *testing.T) {
 		// Test that accessing a rate limiter updates its lastAccess timestamp
 		// This ensures LRU eviction works correctly
 
-		limiter := middleware.NewRateLimiter(100, 200)
+		limiter := middleware.NewRateLimiter(100, 200, nil)
 		defer limiter.Shutdown()
 
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -317,7 +318,7 @@ func TestRateLimiter_MemoryCleanup(t *testing.T) {
 
 // TestRateLimiter_RateLimiting tests the actual rate limiting functionality
 func TestRateLimiter_RateLimiting(t *testing.T) {
-	limiter := middleware.NewRateLimiter(2, 5) // 2 req/sec, burst 5
+	limiter := middleware.NewRateLimiter(2, 5, nil) // 2 req/sec, burst 5
 	defer limiter.Shutdown()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -389,7 +390,7 @@ func TestRateLimiter_RateLimiting(t *testing.T) {
 
 // TestRateLimiter_Shutdown tests graceful shutdown
 func TestRateLimiter_Shutdown(t *testing.T) {
-	limiter := middleware.NewRateLimiter(10, 20)
+	limiter := middleware.NewRateLimiter(10, 20, nil)
 
 	// Shutdown should stop cleanup goroutine
 	limiter.Shutdown()

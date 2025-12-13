@@ -699,7 +699,6 @@ type SubscriptionResponse struct {
 	CreatedAt             *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt             *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	CancelledAt           *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=cancelled_at,json=cancelledAt,proto3,oneof" json:"cancelled_at,omitempty"`
-	Message               string                 `protobuf:"bytes,15,opt,name=message,proto3" json:"message,omitempty"` // Human-readable status message for notifications
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -830,13 +829,6 @@ func (x *SubscriptionResponse) GetCancelledAt() *timestamppb.Timestamp {
 		return x.CancelledAt
 	}
 	return nil
-}
-
-func (x *SubscriptionResponse) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
 }
 
 // Subscription represents a complete subscription record
@@ -1072,7 +1064,7 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\x19ListSubscriptionsResponse\x12C\n" +
 	"\rsubscriptions\x18\x01 \x03(\v2\x1d.subscription.v1.SubscriptionR\rsubscriptions\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xf9\x05\n" +
+	"totalCount\"\xdf\x05\n" +
 	"\x14SubscriptionResponse\x12'\n" +
 	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x1f\n" +
 	"\vmerchant_id\x18\x02 \x01(\tR\n" +
@@ -1092,8 +1084,7 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12B\n" +
-	"\fcancelled_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampH\x00R\vcancelledAt\x88\x01\x01\x12\x18\n" +
-	"\amessage\x18\x0f \x01(\tR\amessageB\x0f\n" +
+	"\fcancelled_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampH\x00R\vcancelledAt\x88\x01\x01B\x0f\n" +
 	"\r_cancelled_at\"\x95\a\n" +
 	"\fSubscription\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +

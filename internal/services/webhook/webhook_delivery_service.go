@@ -137,7 +137,13 @@ func (s *WebhookDeliveryService) deliverToSubscription(
 	defer resp.Body.Close()
 
 	// Read response body (for logging)
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		s.logger.Warn("Failed to read webhook response body",
+			zap.String("subscription_id", subscription.ID.String()),
+			zap.Error(err))
+		body = []byte("(failed to read response body)")
+	}
 
 	// Check response status
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -181,7 +187,7 @@ func (s *WebhookDeliveryService) recordDeliverySuccess(
 			zap.Error(err),
 			zap.String("subscription_id", subscriptionID.String()),
 		)
-		return err
+		return fmt.Errorf("recording webhook delivery success: %w", err)
 	}
 
 	s.logger.Info("Webhook delivered successfully",
@@ -221,7 +227,7 @@ func (s *WebhookDeliveryService) recordDeliveryFailure(
 			zap.Error(err),
 			zap.String("subscription_id", subscriptionID.String()),
 		)
-		return err
+		return fmt.Errorf("recording webhook delivery failure: %w", err)
 	}
 
 	s.logger.Warn("Webhook delivery failed, scheduled for retry",

@@ -68,14 +68,12 @@ type ListTransactionsFilters struct {
 	Offset              int
 }
 
-// PaymentService defines the port for payment operations.
+// PaymentService defines the port for payment command operations.
+// Query operations are in TransactionQueryService.
 type PaymentService interface {
 	Authorize(ctx context.Context, req *AuthorizeRequest) (*domain.Transaction, error)
 	Capture(ctx context.Context, req *CaptureRequest) (*domain.Transaction, error)
 	Sale(ctx context.Context, req *SaleRequest) (*domain.Transaction, error)
 	Void(ctx context.Context, req *VoidRequest) (*domain.Transaction, error)
 	Refund(ctx context.Context, req *RefundRequest) (*domain.Transaction, error)
-	GetTransaction(ctx context.Context, transactionID string) (*domain.Transaction, error)
-	GetTransactionByIdempotencyKey(ctx context.Context, key string) (*domain.Transaction, error)
-	ListTransactions(ctx context.Context, filters *ListTransactionsFilters) ([]*domain.Transaction, int, error)
 }

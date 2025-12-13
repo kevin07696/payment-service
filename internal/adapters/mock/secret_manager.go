@@ -6,16 +6,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/kevin07696/payment-service/internal/ports"
 	"go.uber.org/zap"
 )
 
-// MockSecretManager is a file-based implementation for local development
-// Reads secrets from ./secrets directory structure
+// MockSecretManager is a file-based implementation for local development and testing.
+// Stores secrets both in-memory and optionally on filesystem.
+// For E2E/integration tests, in-memory storage is used for isolation.
 type MockSecretManager struct {
 	logger      *zap.Logger
 	secretsRoot string
+	mu          sync.RWMutex
+	secrets     map[string]string // In-memory storage for tests
 }
 
 // NewMockSecretManager creates a new mock secret manager
@@ -23,10 +27,11 @@ func NewMockSecretManager(logger *zap.Logger) *MockSecretManager {
 	return &MockSecretManager{
 		logger:      logger,
 		secretsRoot: "./secrets", // Root directory for secrets
+		secrets:     make(map[string]string),
 	}
 }
 
-// GetSecret reads a secret from the local filesystem
+// GetSecret reads a secret from in-memory store first, then falls back to filesystem.
 // Secret path format: "payments/merchants/test-merchant/mac"
 // File location: "./secrets/payments/merchants/test-merchant/mac"
 func (m *MockSecretManager) GetSecret(ctx context.Context, secretPath string) (*ports.Secret, error) {
@@ -34,7 +39,24 @@ func (m *MockSecretManager) GetSecret(ctx context.Context, secretPath string) (*
 		zap.String("secret_path", secretPath),
 	)
 
-	// Construct file path
+	// First check in-memory store (for E2E test data)
+	m.mu.RLock()
+	if secretValue, ok := m.secrets[secretPath]; ok {
+		m.mu.RUnlock()
+		m.logger.Info("Retrieved secret from in-memory store",
+			zap.String("secret_path", secretPath),
+			zap.Int("value_length", len(secretValue)),
+		)
+		return &ports.Secret{
+			Value:     secretValue,
+			Version:   "memory-v1",
+			Metadata:  map[string]string{"environment": "e2e-test", "source": "memory"},
+			CreatedAt: "2025-01-01T00:00:00Z",
+		}, nil
+	}
+	m.mu.RUnlock()
+
+	// Fall back to filesystem
 	filePath := filepath.Join(m.secretsRoot, secretPath)
 
 	// Read secret from file
@@ -84,9 +106,21 @@ func (m *MockSecretManager) GetSecretVersion(ctx context.Context, secretPath, ve
 	}, nil
 }
 
-// PutSecret is not implemented for mock
+// PutSecret stores a secret in memory for E2E/integration tests.
+// In development mode, also writes to filesystem for persistence.
 func (m *MockSecretManager) PutSecret(ctx context.Context, secretPath, value string, metadata map[string]string) (string, error) {
-	return "", fmt.Errorf("PutSecret not implemented in mock secret manager")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Store in memory
+	m.secrets[secretPath] = value
+
+	m.logger.Info("Stored secret in mock secret manager",
+		zap.String("secret_path", secretPath),
+		zap.Int("value_length", len(value)),
+	)
+
+	return "mock-version-1", nil
 }
 
 // RotateSecret is not implemented for mock

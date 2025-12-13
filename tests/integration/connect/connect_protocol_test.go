@@ -17,13 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	connectAddress = "http://localhost:8081"
-)
-
-// setupConnectClient creates a Connect protocol client
-func setupConnectClient(t *testing.T) paymentv1connect.PaymentServiceClient {
+// setupConnectClient creates a Connect protocol client using config from environment
+func setupConnectClient(t *testing.T) (paymentv1connect.PaymentServiceClient, *testutil.Config) {
 	t.Helper()
+
+	cfg, err := testutil.LoadConfig()
+	require.NoError(t, err, "Failed to load test config")
 
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
@@ -31,29 +30,21 @@ func setupConnectClient(t *testing.T) paymentv1connect.PaymentServiceClient {
 
 	client := paymentv1connect.NewPaymentServiceClient(
 		httpClient,
-		connectAddress,
+		cfg.ServiceURL,
 	)
 
-	return client
+	return client, cfg
 }
 
 // addAuthToRequest adds JWT authentication to a Connect request
-func addAuthToRequest[T any](t *testing.T, req *connect.Request[T], merchantID string) {
+func addAuthToRequest[T any](t *testing.T, req *connect.Request[T], ctx *testutil.TestContext) {
 	t.Helper()
-
-	// Load test services
-	services, err := testutil.LoadTestServices()
-	require.NoError(t, err, "Failed to load test services")
-	require.NotEmpty(t, services, "No test services available")
-
-	// Use first test service
-	service := services[0]
 
 	// Generate JWT token
 	token, err := testutil.GenerateJWT(
-		service.PrivateKeyPEM,
-		service.ServiceID,
-		merchantID,
+		ctx.Service.PrivateKeyPEM,
+		ctx.Service.ServiceID,
+		ctx.Merchant.ID.String(),
 		1*time.Hour,
 	)
 	require.NoError(t, err, "Failed to generate JWT")
@@ -64,45 +55,52 @@ func addAuthToRequest[T any](t *testing.T, req *connect.Request[T], merchantID s
 
 // TestConnect_ListTransactions tests the Connect protocol ListTransactions endpoint
 func TestConnect_ListTransactions(t *testing.T) {
-	client := setupConnectClient(t)
+	client, _ := setupConnectClient(t)
+	factory := testutil.NewFactory(t)
+	testCtx := factory.CreateTestContext(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// List transactions for test merchant
-	merchantID := "00000000-0000-0000-0000-000000000001" // Test merchant UUID
 	req := connect.NewRequest(&paymentv1.ListTransactionsRequest{
-		MerchantId: merchantID,
+		MerchantId: testCtx.Merchant.ID.String(),
 		Limit:      10,
 		Offset:     0,
 	})
-	addAuthToRequest(t, req, merchantID)
+	addAuthToRequest(t, req, testCtx)
 
-	resp, err := client.ListTransactions(ctx, req)
+	resp, err := client.ListTransactions(reqCtx, req)
 	require.NoError(t, err, "ListTransactions should succeed via Connect protocol")
-	assert.NotNil(t, resp)
-	assert.NotNil(t, resp.Msg.Transactions)
+	require.NotNil(t, resp, "Response should not be nil")
+	require.NotNil(t, resp.Msg, "Response message should not be nil")
+	// Note: Transactions slice may be nil or empty when no transactions exist - both are valid
 
-	t.Logf("✅ Connect protocol: Successfully retrieved %d transactions", len(resp.Msg.Transactions))
+	txCount := 0
+	if resp.Msg.Transactions != nil {
+		txCount = len(resp.Msg.Transactions)
+	}
+	t.Logf("Connect protocol: Successfully retrieved %d transactions", txCount)
 }
 
 // TestConnect_GetTransaction tests retrieving a specific transaction via Connect protocol
 func TestConnect_GetTransaction(t *testing.T) {
-	client := setupConnectClient(t)
+	client, _ := setupConnectClient(t)
+	factory := testutil.NewFactory(t)
+	testCtx := factory.CreateTestContext(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// First, list transactions to get a valid ID
-	merchantID := "00000000-0000-0000-0000-000000000001" // Test merchant UUID
 	listReq := connect.NewRequest(&paymentv1.ListTransactionsRequest{
-		MerchantId: merchantID,
+		MerchantId: testCtx.Merchant.ID.String(),
 		Limit:      1,
 		Offset:     0,
 	})
-	addAuthToRequest(t, listReq, merchantID)
+	addAuthToRequest(t, listReq, testCtx)
 
-	listResp, err := client.ListTransactions(ctx, listReq)
+	listResp, err := client.ListTransactions(reqCtx, listReq)
 	require.NoError(t, err)
 
 	if len(listResp.Msg.Transactions) == 0 {
@@ -114,52 +112,54 @@ func TestConnect_GetTransaction(t *testing.T) {
 	getReq := connect.NewRequest(&paymentv1.GetTransactionRequest{
 		TransactionId: transactionID,
 	})
-	addAuthToRequest(t, getReq, merchantID)
+	addAuthToRequest(t, getReq, testCtx)
 
-	tx, err := client.GetTransaction(ctx, getReq)
+	tx, err := client.GetTransaction(reqCtx, getReq)
 	require.NoError(t, err, "GetTransaction should succeed via Connect protocol")
 	assert.Equal(t, transactionID, tx.Msg.Id)
 
-	t.Logf("✅ Connect protocol: Successfully retrieved transaction %s", transactionID)
+	t.Logf("Connect protocol: Successfully retrieved transaction %s", transactionID)
 }
 
 // TestConnect_ServiceAvailability tests that Connect protocol is available
 func TestConnect_ServiceAvailability(t *testing.T) {
-	client := setupConnectClient(t)
+	client, cfg := setupConnectClient(t)
+	factory := testutil.NewFactory(t)
+	testCtx := factory.CreateTestContext(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Try a simple list request to verify service availability
-	merchantID := "00000000-0000-0000-0000-000000000001" // Test merchant UUID
 	req := connect.NewRequest(&paymentv1.ListTransactionsRequest{
-		MerchantId: merchantID,
+		MerchantId: testCtx.Merchant.ID.String(),
 		Limit:      1,
 		Offset:     0,
 	})
-	addAuthToRequest(t, req, merchantID)
+	addAuthToRequest(t, req, testCtx)
 
-	_, err := client.ListTransactions(ctx, req)
+	_, err := client.ListTransactions(reqCtx, req)
 	require.NoError(t, err, "Service should be available via Connect protocol")
 
-	t.Log("✅ Connect protocol PaymentService is available at " + connectAddress)
+	t.Log("Connect protocol PaymentService is available at " + cfg.ServiceURL)
 }
 
 // TestConnect_ErrorHandling tests that errors are properly propagated through Connect
 func TestConnect_ErrorHandling(t *testing.T) {
-	client := setupConnectClient(t)
+	client, _ := setupConnectClient(t)
+	factory := testutil.NewFactory(t)
+	testCtx := factory.CreateTestContext(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Try to get a non-existent transaction (use valid UUID format)
-	merchantID := "00000000-0000-0000-0000-000000000001" // Test merchant UUID
 	req := connect.NewRequest(&paymentv1.GetTransactionRequest{
 		TransactionId: "00000000-0000-0000-0000-000000000000",
 	})
-	addAuthToRequest(t, req, merchantID)
+	addAuthToRequest(t, req, testCtx)
 
-	_, err := client.GetTransaction(ctx, req)
+	_, err := client.GetTransaction(reqCtx, req)
 	require.Error(t, err, "Should return error for non-existent transaction")
 
 	// Verify it's a Connect error with the right code
@@ -167,28 +167,28 @@ func TestConnect_ErrorHandling(t *testing.T) {
 	require.ErrorAs(t, err, &connectErr)
 	assert.Equal(t, connect.CodeNotFound, connectErr.Code(), "Should return NotFound error code")
 
-	t.Logf("✅ Connect protocol: Error handling works correctly (got %v)", connectErr.Code())
+	t.Logf("Connect protocol: Error handling works correctly (got %v)", connectErr.Code())
 }
 
 // TestConnect_ListTransactionsByGroup tests filtering by parent_transaction_id via Connect protocol
 func TestConnect_ListTransactionsByGroup(t *testing.T) {
-	client := setupConnectClient(t)
+	client, _ := setupConnectClient(t)
+	factory := testutil.NewFactory(t)
+	testCtx := factory.CreateTestContext(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	merchantID := "00000000-0000-0000-0000-000000000001"
 
 	// Query all transactions to find one with parent_transaction_id set
 	// (REFUND, CAPTURE, VOID transactions have parent_transaction_id)
 	listReq := connect.NewRequest(&paymentv1.ListTransactionsRequest{
-		MerchantId: merchantID,
+		MerchantId: testCtx.Merchant.ID.String(),
 		Limit:      100,
 		Offset:     0,
 	})
-	addAuthToRequest(t, listReq, merchantID)
+	addAuthToRequest(t, listReq, testCtx)
 
-	listResp, err := client.ListTransactions(ctx, listReq)
+	listResp, err := client.ListTransactions(reqCtx, listReq)
 	require.NoError(t, err)
 
 	if len(listResp.Msg.Transactions) == 0 {
@@ -210,14 +210,14 @@ func TestConnect_ListTransactionsByGroup(t *testing.T) {
 
 	// Now list transactions filtered by parent_transaction_id
 	groupReq := connect.NewRequest(&paymentv1.ListTransactionsRequest{
-		MerchantId:          merchantID,
+		MerchantId:          testCtx.Merchant.ID.String(),
 		ParentTransactionId: parentTxID,
 		Limit:               100,
 		Offset:              0,
 	})
-	addAuthToRequest(t, groupReq, merchantID)
+	addAuthToRequest(t, groupReq, testCtx)
 
-	groupResp, err := client.ListTransactions(ctx, groupReq)
+	groupResp, err := client.ListTransactions(reqCtx, groupReq)
 	require.NoError(t, err, "ListTransactions by parent_transaction_id should succeed")
 	assert.NotNil(t, groupResp)
 	assert.GreaterOrEqual(t, len(groupResp.Msg.Transactions), 1, "Should have at least 1 transaction in group")
@@ -227,21 +227,22 @@ func TestConnect_ListTransactionsByGroup(t *testing.T) {
 		assert.Equal(t, parentTxID, tx.ParentTransactionId, "All transactions should have same parent_transaction_id")
 	}
 
-	t.Logf("✅ Connect protocol: Successfully retrieved %d transactions for parent_transaction_id %s",
+	t.Logf("Connect protocol: Successfully retrieved %d transactions for parent_transaction_id %s",
 		len(groupResp.Msg.Transactions), parentTxID)
 }
 
 // TestConnect_Headers tests that Connect headers are properly handled
 func TestConnect_Headers(t *testing.T) {
-	client := setupConnectClient(t)
+	client, _ := setupConnectClient(t)
+	factory := testutil.NewFactory(t)
+	testCtx := factory.CreateTestContext(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Create request with custom headers
-	merchantID := "00000000-0000-0000-0000-000000000001" // Test merchant UUID
 	req := connect.NewRequest(&paymentv1.ListTransactionsRequest{
-		MerchantId: merchantID,
+		MerchantId: testCtx.Merchant.ID.String(),
 		Limit:      1,
 		Offset:     0,
 	})
@@ -250,11 +251,11 @@ func TestConnect_Headers(t *testing.T) {
 	req.Header().Set("X-Test-Header", "test-value")
 
 	// Add authentication
-	addAuthToRequest(t, req, merchantID)
+	addAuthToRequest(t, req, testCtx)
 
-	resp, err := client.ListTransactions(ctx, req)
+	resp, err := client.ListTransactions(reqCtx, req)
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	t.Log("✅ Connect protocol: Headers are properly handled")
+	t.Log("Connect protocol: Headers are properly handled")
 }

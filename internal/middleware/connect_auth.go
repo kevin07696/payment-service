@@ -38,6 +38,7 @@ type tokenBucket struct {
 type AuthInterceptor struct {
 	queries         sqlc.Querier
 	publicKeys      map[string]*rsa.PublicKey // service_id -> public key
+	keysMu          sync.RWMutex              // Mutex for thread-safe public key access
 	logger          *zap.Logger
 	stopCh          chan struct{}             // Channel to signal goroutine shutdown
 	rateLimitCB     *gobreaker.CircuitBreaker // Circuit breaker for rate limit DB calls
@@ -90,10 +91,12 @@ func NewAuthInterceptor(queries sqlc.Querier, logger *zap.Logger) (*AuthIntercep
 
 // loadPublicKeys loads all active service public keys from the database
 func (ai *AuthInterceptor) loadPublicKeys() error {
-	ctx := context.Background()
+	// Use timeout context for database query (5 seconds should be sufficient for key lookup)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	keys, err := ai.queries.ListActiveServicePublicKeys(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("listing active service public keys: %w", err)
 	}
 
 	newKeys := make(map[string]*rsa.PublicKey)
@@ -110,11 +113,68 @@ func (ai *AuthInterceptor) loadPublicKeys() error {
 		newKeys[key.ServiceID] = publicKey
 	}
 
+	// Thread-safe replacement of public keys map
+	ai.keysMu.Lock()
 	ai.publicKeys = newKeys
+	ai.keysMu.Unlock()
+
 	ai.logger.Info("Loaded public keys",
-		zap.Int("count", len(ai.publicKeys)))
+		zap.Int("count", len(newKeys)))
 
 	return nil
+}
+
+// getPublicKey retrieves a public key for the given issuer (service_id).
+// It first checks the in-memory cache, then falls back to database lookup.
+// This enables newly created services to be authenticated immediately without
+// waiting for the periodic cache refresh.
+func (ai *AuthInterceptor) getPublicKey(ctx context.Context, issuer string) (*rsa.PublicKey, error) {
+	// Fast path: check cache with read lock
+	ai.keysMu.RLock()
+	publicKey, exists := ai.publicKeys[issuer]
+	ai.keysMu.RUnlock()
+
+	if exists {
+		return publicKey, nil
+	}
+
+	// Slow path: cache miss - query database directly
+	ai.logger.Debug("Public key cache miss, querying database",
+		zap.String("service_id", issuer))
+
+	service, err := ai.queries.GetServiceByServiceID(ctx, issuer)
+	if err != nil {
+		ai.logger.Warn("Service not found in database",
+			zap.String("service_id", issuer),
+			zap.Error(err))
+		return nil, fmt.Errorf("unknown issuer: %s", issuer)
+	}
+
+	// Check if service is active
+	if !service.IsActive.Bool {
+		ai.logger.Warn("Service is inactive",
+			zap.String("service_id", issuer))
+		return nil, fmt.Errorf("service is inactive: %s", issuer)
+	}
+
+	// Parse the public key
+	publicKey, err = jwt.ParseRSAPublicKeyFromPEM([]byte(service.PublicKey))
+	if err != nil {
+		ai.logger.Error("Failed to parse public key from database",
+			zap.String("service_id", issuer),
+			zap.Error(err))
+		return nil, fmt.Errorf("invalid public key for issuer: %s", issuer)
+	}
+
+	// Cache the key for future requests
+	ai.keysMu.Lock()
+	ai.publicKeys[issuer] = publicKey
+	ai.keysMu.Unlock()
+
+	ai.logger.Info("Loaded and cached public key on-demand",
+		zap.String("service_id", issuer))
+
+	return publicKey, nil
 }
 
 // startPublicKeyRefresh periodically refreshes public keys
@@ -278,6 +338,7 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 
 	// Parse and validate token
+	// Note: We use a closure to capture ctx for the database fallback lookup
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Check signing method
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
@@ -295,13 +356,8 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 			return nil, fmt.Errorf("missing issuer")
 		}
 
-		// Look up public key for issuer
-		publicKey, exists := ai.publicKeys[issuer]
-		if !exists {
-			return nil, fmt.Errorf("unknown issuer: %s", issuer)
-		}
-
-		return publicKey, nil
+		// Look up public key for issuer (with database fallback on cache miss)
+		return ai.getPublicKey(ctx, issuer)
 	})
 
 	if err != nil {
@@ -330,7 +386,7 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 
 	// Check if token is blacklisted
 	if jti, ok := claims["jti"].(string); ok {
-		if ai.isTokenBlacklisted(jti) {
+		if ai.isTokenBlacklisted(ctx, jti) {
 			return ctx, fmt.Errorf("token has been revoked")
 		}
 	}
@@ -360,8 +416,10 @@ func (ai *AuthInterceptor) authenticateJWTContext(ctx context.Context, authHeade
 }
 
 // isTokenBlacklisted checks if a JWT has been blacklisted
-func (ai *AuthInterceptor) isTokenBlacklisted(jti string) bool {
-	ctx := context.Background()
+func (ai *AuthInterceptor) isTokenBlacklisted(ctx context.Context, jti string) bool {
+	// Use timeout context for database query (2 seconds should be sufficient)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 	isBlacklisted, err := ai.queries.IsJWTBlacklisted(ctx, jti)
 
 	if err != nil {
@@ -506,8 +564,10 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 	}
 
 	// Write to database (async to avoid blocking the request)
+	// Use detached context with timeout since request context may be cancelled
 	go func() {
-		insertCtx := context.Background()
+		insertCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
 		if err := ai.queries.CreateAuditLog(insertCtx, params); err != nil {
 			ai.logger.Error("Failed to write audit log to database",
 				zap.String("actor_id", actorID),
@@ -532,6 +592,65 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 			zap.String("error", errorMsg),
 			zap.String("ip_address", ipStr))
 	}
+}
+
+// HTTPAuthMiddleware wraps an HTTP handler with JWT authentication
+// This is used for standard HTTP endpoints (not ConnectRPC) that need auth
+func (ai *AuthInterceptor) HTTPAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Add request ID to context
+		requestID := r.Header.Get("X-Request-ID")
+		if requestID == "" {
+			requestID = generateRequestID()
+		}
+		ctx = context.WithValue(ctx, auth.RequestIDKey, requestID)
+
+		// Extract client IP from headers
+		clientIP := extractClientIP(r.Header)
+		if clientIP != "" {
+			ctx = context.WithValue(ctx, auth.ClientIPKey, clientIP)
+		}
+
+		// Extract User-Agent
+		userAgent := r.Header.Get("User-Agent")
+		if userAgent != "" {
+			ctx = context.WithValue(ctx, auth.UserAgentKey, userAgent)
+		}
+
+		// JWT authentication
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			ai.logAuth(ctx, false, "missing authentication credentials", r.URL.Path)
+			http.Error(w, "missing authentication", http.StatusUnauthorized)
+			return
+		}
+
+		// Validate JWT and add auth info to context
+		ctx, err := ai.authenticateJWTContext(ctx, authHeader)
+		if err != nil {
+			ai.logger.Warn("JWT validation failed",
+				zap.String("path", r.URL.Path),
+				zap.Error(err))
+			ai.logAuth(ctx, false, err.Error(), r.URL.Path)
+			http.Error(w, "invalid authentication", http.StatusUnauthorized)
+			return
+		}
+
+		// Apply rate limiting
+		if err := ai.checkRateLimit(ctx); err != nil {
+			ai.logAuth(ctx, false, "rate limit exceeded", r.URL.Path)
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+
+		// Log successful auth
+		ai.logAuth(ctx, true, "", r.URL.Path)
+
+		// Call next handler with authenticated context
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // Helper functions

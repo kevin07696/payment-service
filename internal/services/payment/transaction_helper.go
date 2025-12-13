@@ -3,13 +3,14 @@ package payment
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/converters"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
-	"github.com/kevin07696/payment-service/internal/util"
+	"github.com/kevin07696/payment-service/internal/epxutil"
 	"go.uber.org/zap"
 )
 
@@ -35,7 +36,7 @@ func (s *paymentService) CreatePendingTransaction(ctx context.Context, params Cr
 	txID = params.ID
 
 	// Generate deterministic TRAN_NBR from UUID
-	tranNbr = util.UUIDToEPXTranNbr(txID)
+	tranNbr = epxutil.UUIDToEPXTranNbr(txID)
 
 	// Marshal metadata
 	metadataJSON, err := json.Marshal(params.Metadata)
@@ -72,14 +73,14 @@ func (s *paymentService) CreatePendingTransaction(ctx context.Context, params Cr
 
 		_, err := q.CreateTransaction(ctx, createParams)
 		if err != nil {
-			return err
+			return fmt.Errorf("creating pending transaction: %w", err)
 		}
 
 		return nil
 	})
 
 	if err != nil {
-		return uuid.Nil, "", err
+		return uuid.Nil, "", fmt.Errorf("creating pending transaction in database: %w", err)
 	}
 
 	s.logger.Info("Created pending transaction",
@@ -113,7 +114,10 @@ func (s *paymentService) UpdateTransactionWithEPXResponse(ctx context.Context, t
 			AuthCardType: converters.ToNullableText(authCardType),
 			Metadata:     metadataJSON,
 		})
-		return err
+		if err != nil {
+			return fmt.Errorf("updating transaction from EPX response: %w", err)
+		}
+		return nil
 	})
 
 	if err != nil {
@@ -121,7 +125,7 @@ func (s *paymentService) UpdateTransactionWithEPXResponse(ctx context.Context, t
 			zap.String("tran_nbr", tranNbr),
 			zap.Error(err),
 		)
-		return err
+		return fmt.Errorf("updating transaction with EPX response for tran_nbr %s: %w", tranNbr, err)
 	}
 
 	s.logger.Info("Updated transaction with EPX response",

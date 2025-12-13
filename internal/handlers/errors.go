@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 
 	"connectrpc.com/connect"
 	"go.uber.org/zap"
@@ -127,5 +128,133 @@ func HandleServiceErrorConnect(err error, logger *zap.Logger) error {
 			)
 		}
 		return connect.NewError(connect.CodeInternal, errors.New("internal server error"))
+	}
+}
+
+// HTTPErrorResponse contains the sanitized error response for HTTP handlers.
+// Details field is intentionally omitted to prevent leaking internal information.
+type HTTPErrorResponse struct {
+	Message    string
+	StatusCode int
+}
+
+// HandleServiceErrorHTTP maps domain errors to HTTP status codes and sanitized messages.
+// This is the centralized error handler for Browser POST and other HTTP handlers.
+// It ensures internal error details are never exposed to clients.
+//
+// Security: Always logs full error server-side, returns generic message to client.
+func HandleServiceErrorHTTP(err error, logger *zap.Logger) HTTPErrorResponse {
+	if err == nil {
+		return HTTPErrorResponse{Message: "", StatusCode: http.StatusOK}
+	}
+
+	// Log full error details server-side for debugging
+	if logger != nil {
+		logger.Error("HTTP handler error",
+			zap.Error(err),
+			zap.String("error_type", "http_handler_error"),
+		)
+	}
+
+	switch {
+	// ============================================================
+	// Authentication & Authorization Errors
+	// ============================================================
+	case errors.Is(err, domain.ErrAuthMerchantMismatch):
+		return HTTPErrorResponse{Message: "Access denied: merchant mismatch", StatusCode: http.StatusForbidden}
+	case errors.Is(err, domain.ErrAuthAccessDenied):
+		return HTTPErrorResponse{Message: "Access denied", StatusCode: http.StatusForbidden}
+
+	// ============================================================
+	// Merchant Errors
+	// ============================================================
+	case errors.Is(err, domain.ErrMerchantNotFoundTyped):
+		return HTTPErrorResponse{Message: "Merchant not found", StatusCode: http.StatusNotFound}
+	case errors.Is(err, domain.ErrMerchantInactiveTyped):
+		return HTTPErrorResponse{Message: "Merchant is inactive", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrMerchantAlreadyExists):
+		return HTTPErrorResponse{Message: "Merchant already exists", StatusCode: http.StatusConflict}
+	case errors.Is(err, domain.ErrMerchantInvalidEnv):
+		return HTTPErrorResponse{Message: "Invalid environment", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrMerchantRequired):
+		return HTTPErrorResponse{Message: "Merchant ID is required", StatusCode: http.StatusBadRequest}
+
+	// ============================================================
+	// Transaction Errors
+	// ============================================================
+	case errors.Is(err, domain.ErrTxnNotFound):
+		return HTTPErrorResponse{Message: "Transaction not found", StatusCode: http.StatusNotFound}
+	case errors.Is(err, domain.ErrTxnCannotBeVoided):
+		return HTTPErrorResponse{Message: "Transaction cannot be voided", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrTxnCannotBeCaptured):
+		return HTTPErrorResponse{Message: "Transaction cannot be captured", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrTxnCannotBeRefunded):
+		return HTTPErrorResponse{Message: "Transaction cannot be refunded", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrTxnDeclined):
+		return HTTPErrorResponse{Message: "Transaction was declined", StatusCode: http.StatusPaymentRequired}
+
+	// ============================================================
+	// Payment Method Errors
+	// ============================================================
+	case errors.Is(err, domain.ErrPMNotFound):
+		return HTTPErrorResponse{Message: "Payment method not found", StatusCode: http.StatusNotFound}
+	case errors.Is(err, domain.ErrPMExpired):
+		return HTTPErrorResponse{Message: "Payment method is expired", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrPMNotVerified):
+		return HTTPErrorResponse{Message: "ACH payment method is not verified", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrPMInactive):
+		return HTTPErrorResponse{Message: "Payment method is inactive", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrPMInvalidType):
+		return HTTPErrorResponse{Message: "Invalid payment method type", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrPMNotBelongToCustomer):
+		return HTTPErrorResponse{Message: "Payment method does not belong to customer", StatusCode: http.StatusForbidden}
+
+	// ============================================================
+	// Subscription Errors
+	// ============================================================
+	case errors.Is(err, domain.ErrSubscriptionNotFound):
+		return HTTPErrorResponse{Message: "Subscription not found", StatusCode: http.StatusNotFound}
+	case errors.Is(err, domain.ErrSubscriptionNotActive):
+		return HTTPErrorResponse{Message: "Subscription is not active", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrSubscriptionAlreadyCancelled):
+		return HTTPErrorResponse{Message: "Subscription is already cancelled", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrSubscriptionInvalidInterval):
+		return HTTPErrorResponse{Message: "Invalid billing interval", StatusCode: http.StatusBadRequest}
+
+	// ============================================================
+	// Validation Errors
+	// ============================================================
+	case errors.Is(err, domain.ErrValidationInvalidUUID):
+		return HTTPErrorResponse{Message: "Invalid UUID format", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrInvalidAmount):
+		return HTTPErrorResponse{Message: "Invalid amount", StatusCode: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrInvalidCurrency):
+		return HTTPErrorResponse{Message: "Invalid currency", StatusCode: http.StatusBadRequest}
+
+	// ============================================================
+	// Idempotency Errors
+	// ============================================================
+	case errors.Is(err, domain.ErrDuplicateIdempotencyKey):
+		return HTTPErrorResponse{Message: "Duplicate request", StatusCode: http.StatusConflict}
+
+	// ============================================================
+	// Database Errors
+	// ============================================================
+	case errors.Is(err, domain.ErrDatabaseError):
+		return HTTPErrorResponse{Message: "A database error occurred", StatusCode: http.StatusInternalServerError}
+	case errors.Is(err, sql.ErrNoRows):
+		return HTTPErrorResponse{Message: "Resource not found", StatusCode: http.StatusNotFound}
+
+	// ============================================================
+	// Context Errors
+	// ============================================================
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return HTTPErrorResponse{Message: "Request timed out", StatusCode: http.StatusGatewayTimeout}
+
+	// ============================================================
+	// Default: Internal Server Error
+	// ============================================================
+	default:
+		return HTTPErrorResponse{Message: "An error occurred", StatusCode: http.StatusInternalServerError}
 	}
 }

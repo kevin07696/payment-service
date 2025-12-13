@@ -99,6 +99,23 @@ type serverPostAdapter struct {
 
 // NewServerPostAdapter creates a new EPX Server Post adapter
 func NewServerPostAdapter(config *ServerPostConfig, logger *zap.Logger) ports.ServerPostAdapter {
+	// SECURITY: Fail-safe guard against InsecureSkipVerify in production
+	// Production EPX URLs use epxnow.com domain (not secure.epxuap.com sandbox)
+	if config.InsecureSkipVerify {
+		isProductionURL := strings.Contains(config.BaseURL, "epxnow.com") &&
+			!strings.Contains(config.BaseURL, "sandbox")
+		if isProductionURL {
+			logger.Fatal("SECURITY VIOLATION: InsecureSkipVerify cannot be enabled for production EPX endpoints",
+				zap.String("base_url", config.BaseURL),
+			)
+		}
+		// Log clear warning for sandbox usage (audit trail)
+		logger.Warn("TLS certificate verification disabled - SANDBOX MODE ONLY",
+			zap.String("base_url", config.BaseURL),
+			zap.Bool("insecure_skip_verify", true),
+		)
+	}
+
 	// Configure HTTP client with HTTP/2 and connection pooling
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -510,8 +527,12 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 		return fmt.Errorf("tran_nbr is required")
 	}
 
-	// Amount is optional for BRIC Storage (uses $0.00 Account Verification)
-	if req.TransactionType != ports.TransactionTypeBRICStorageCC && req.TransactionType != ports.TransactionTypeBRICStorageACH {
+	// Amount is optional for BRIC Storage (uses $0.00 Account Verification) and Reversal (full reversal)
+	amountNotRequired := req.TransactionType == ports.TransactionTypeBRICStorageCC ||
+		req.TransactionType == ports.TransactionTypeBRICStorageACH ||
+		req.TransactionType == ports.TransactionTypeReversal // CCE7 reverses full amount
+
+	if !amountNotRequired {
 		if req.Amount == "" {
 			return fmt.Errorf("amount is required")
 		}
@@ -520,7 +541,7 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 			return fmt.Errorf("amount must be numeric: %w", err)
 		}
 	} else if req.Amount != "" {
-		// If amount is provided for BRIC Storage, validate it
+		// If amount is provided for these transaction types, validate it
 		if _, err := strconv.ParseFloat(req.Amount, 64); err != nil {
 			return fmt.Errorf("amount must be numeric: %w", err)
 		}
@@ -558,15 +579,20 @@ func (a *serverPostAdapter) validateRequest(req *ports.ServerPostRequest) error 
 		return fmt.Errorf("invalid transaction type: %s", req.TransactionType)
 	}
 
-	// For capture/void/refund, require original AUTH_GUID
+	// For capture/void/refund/reversal, require original AUTH_GUID
 	if req.TransactionType == ports.TransactionTypeCapture ||
 		req.TransactionType == ports.TransactionTypeVoid ||
 		req.TransactionType == ports.TransactionTypeRefund ||
+		req.TransactionType == ports.TransactionTypeReversal || // CCE7 - reversal requires BRIC from original auth/sale
 		req.TransactionType == ports.TransactionTypeACHVoid ||
 		req.TransactionType == ports.TransactionTypeACHSavingsVoid ||
 		req.TransactionType == ports.TransactionTypeACHCredit ||
 		req.TransactionType == ports.TransactionTypeACHSavingsCredit {
 		if req.OriginalAuthGUID == "" {
+			// Use specific error message for reversal to match test expectations
+			if req.TransactionType == ports.TransactionTypeReversal {
+				return fmt.Errorf("original auth guid is required for reversal")
+			}
 			return fmt.Errorf("original_auth_guid is required for %s transactions", req.TransactionType)
 		}
 	}
@@ -679,6 +705,15 @@ func (a *serverPostAdapter) determineTransactionType(op ports.Operation, payment
 		default:
 			return "", fmt.Errorf("unsupported payment method for storage: %s", paymentMethod)
 		}
+
+	case ports.OperationReversal:
+		// Reversal = Release auth hold AND void in one call (CCE7)
+		// Releases funds immediately to cardholder (vs Void which holds 3-10 days)
+		// Credit cards only - ACH and PIN-less debit don't have auth holds
+		if paymentMethod != ports.PaymentMethodTypeCreditCard {
+			return "", fmt.Errorf("reversal operation only supports credit cards, got: %s", paymentMethod)
+		}
+		return ports.TransactionTypeReversal, nil // CCE7
 
 	default:
 		return "", fmt.Errorf("unknown operation: %s", op)

@@ -18,7 +18,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
-	"github.com/kevin07696/payment-service/internal/util"
+	"github.com/kevin07696/payment-service/internal/epxutil"
 	"github.com/kevin07696/payment-service/pkg/observability"
 	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"github.com/shopspring/decimal"
@@ -70,7 +70,7 @@ type subscriptionService struct {
 	txManager           database.TransactionManager
 	serverPost          ports.ServerPostAdapter
 	secretManager       ports.SecretManagerAdapter
-	merchantAuthService *authorization.MerchantAuthorizationService
+	merchantAuthService ports.MerchantAuthorizationService
 	webhookService      ports.WebhookService
 	logger              *zap.Logger
 	retryConfig         BillingRetryConfig
@@ -686,7 +686,7 @@ func (s *subscriptionService) processSubscriptionBilling(ctx context.Context, su
 
 	// Generate deterministic TRAN_NBR from transaction ID using FNV-1a hash
 	// This ensures the same transaction ID always produces the same TRAN_NBR (idempotency)
-	tranNbr := util.UUIDToEPXTranNbr(txID)
+	tranNbr := epxutil.UUIDToEPXTranNbr(txID)
 
 	// Recurring billing requires specific EPX fields:
 	// - OriginalAuthGUID: the Storage BRIC (not AuthGUID)

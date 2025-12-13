@@ -2,7 +2,9 @@ package payment_method
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -11,7 +13,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
-	"github.com/kevin07696/payment-service/internal/util"
+	"github.com/kevin07696/payment-service/internal/epxutil"
 	"github.com/kevin07696/payment-service/pkg/observability"
 	"go.uber.org/zap"
 )
@@ -24,7 +26,7 @@ type paymentMethodService struct {
 	browserPost         ports.BrowserPostAdapter
 	serverPost          ports.ServerPostAdapter
 	secretManager       ports.SecretManagerAdapter
-	merchantAuthService *authorization.MerchantAuthorizationService
+	merchantAuthService ports.MerchantAuthorizationService
 	logger              *zap.Logger
 }
 
@@ -152,7 +154,14 @@ func (s *paymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, pa
 		return nil, domain.ErrPMNotFound
 	}
 
-	pmMerchantID, _ := uuid.Parse(pm.MerchantID)
+	pmMerchantID, parseErr := uuid.Parse(pm.MerchantID)
+	if parseErr != nil {
+		s.logger.Error("Failed to parse payment method merchant ID",
+			zap.String("payment_method_id", pmID.String()),
+			zap.String("merchant_id_raw", pm.MerchantID),
+			zap.Error(parseErr))
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
+	}
 	if pmMerchantID != mid || pm.CustomerID != customerID {
 		return nil, domain.ErrPMNotBelongToCustomer
 	}
@@ -250,7 +259,14 @@ func (s *paymentMethodService) SetDefaultPaymentMethod(ctx context.Context, paym
 		return nil, domain.ErrPMNotFound
 	}
 
-	pmMerchantID, _ := uuid.Parse(pm.MerchantID)
+	pmMerchantID, parseErr := uuid.Parse(pm.MerchantID)
+	if parseErr != nil {
+		s.logger.Error("Failed to parse payment method merchant ID",
+			zap.String("payment_method_id", pmID.String()),
+			zap.String("merchant_id_raw", pm.MerchantID),
+			zap.Error(parseErr))
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
+	}
 	if pmMerchantID != mid || pm.CustomerID != customerID {
 		return nil, domain.ErrPMNotBelongToCustomer
 	}
@@ -563,7 +579,7 @@ func (s *paymentMethodService) SendPrenote(ctx context.Context, req *ports.SendP
 	}
 
 	prenoteID := uuid.New()
-	prenoteTranNbr := util.UUIDToEPXTranNbr(prenoteID)
+	prenoteTranNbr := epxutil.UUIDToEPXTranNbr(prenoteID)
 
 	cardEntryMethod := "Z"
 	stdEntryClass := "WEB"
@@ -585,7 +601,10 @@ func (s *paymentMethodService) SendPrenote(ctx context.Context, req *ports.SendP
 		IndustryType:     &industryType,
 	}
 
-	prenoteResp, err := s.serverPost.ProcessTransaction(ctx, prenoteReq)
+	// Wrap EPX call with explicit timeout for external service reliability
+	epxCtx, epxCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer epxCancel()
+	prenoteResp, err := s.serverPost.ProcessTransaction(epxCtx, prenoteReq)
 	if err != nil {
 		return domain.ErrGatewayError.WithDetail("operation", "send_prenote")
 	}
@@ -631,7 +650,7 @@ func (s *paymentMethodService) SendPrenote(ctx context.Context, req *ports.SendP
 		return nil
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("sending ACH prenote: %w", err)
 	}
 
 	// Invalidate cache after status update (P0-4)

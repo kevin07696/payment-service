@@ -51,6 +51,7 @@ const (
 	OperationAuthorize Operation = "authorize"
 	OperationCapture   Operation = "capture"
 	OperationStorage   Operation = "storage"
+	OperationReversal  Operation = "reversal" // CCE7 - releases auth hold AND voids in one call
 )
 
 // PaymentMethodType represents the payment method.

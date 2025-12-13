@@ -488,28 +488,28 @@ UPDATE transactions SET
     auth_resp = COALESCE($3, auth_resp),
     auth_code = COALESCE($4, auth_code),
     auth_card_type = COALESCE($5, auth_card_type),
-    processed_at = COALESCE($6, processed_at),
-    metadata = COALESCE($7, metadata),
+    processed_at = CURRENT_TIMESTAMP,
+    metadata = COALESCE($6, metadata),
     updated_at = CURRENT_TIMESTAMP
-WHERE tran_nbr = $8
+WHERE tran_nbr = $7
   AND status = 'pending'  -- Only update pending transactions (TAC replay protection)
 RETURNING id, parent_transaction_id, merchant_id, customer_id, amount_cents, currency, type, payment_method_type, payment_method_id, subscription_id, tran_nbr, auth_guid, auth_resp, auth_code, auth_card_type, status, processed_at, metadata, deleted_at, created_at, updated_at, order_id
 `
 
 type UpdateTransactionFromEPXResponseParams struct {
-	CustomerID   pgtype.Text        `json:"customer_id"`
-	AuthGuid     pgtype.Text        `json:"auth_guid"`
-	AuthResp     pgtype.Text        `json:"auth_resp"`
-	AuthCode     pgtype.Text        `json:"auth_code"`
-	AuthCardType pgtype.Text        `json:"auth_card_type"`
-	ProcessedAt  pgtype.Timestamptz `json:"processed_at"`
-	Metadata     []byte             `json:"metadata"`
-	TranNbr      pgtype.Text        `json:"tran_nbr"`
+	CustomerID   pgtype.Text `json:"customer_id"`
+	AuthGuid     pgtype.Text `json:"auth_guid"`
+	AuthResp     pgtype.Text `json:"auth_resp"`
+	AuthCode     pgtype.Text `json:"auth_code"`
+	AuthCardType pgtype.Text `json:"auth_card_type"`
+	Metadata     []byte      `json:"metadata"`
+	TranNbr      pgtype.Text `json:"tran_nbr"`
 }
 
 // Updates transaction with EPX response data (for Browser Post callback)
 // Only updates EPX response fields, leaves core transaction data unchanged
 // SECURITY: Prevents TAC replay attacks by only updating PENDING transactions
+// Status is GENERATED column based on auth_resp (00=approved, else=declined)
 func (q *Queries) UpdateTransactionFromEPXResponse(ctx context.Context, arg UpdateTransactionFromEPXResponseParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, updateTransactionFromEPXResponse,
 		arg.CustomerID,
@@ -517,7 +517,6 @@ func (q *Queries) UpdateTransactionFromEPXResponse(ctx context.Context, arg Upda
 		arg.AuthResp,
 		arg.AuthCode,
 		arg.AuthCardType,
-		arg.ProcessedAt,
 		arg.Metadata,
 		arg.TranNbr,
 	)

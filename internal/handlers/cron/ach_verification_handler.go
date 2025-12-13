@@ -109,8 +109,10 @@ func (h *ACHVerificationHandler) VerifyACH(w http.ResponseWriter, r *http.Reques
 		batchSize = *req.BatchSize
 	}
 
-	// Process ACH verification
-	ctx := context.Background()
+	// Process ACH verification with request context and timeout
+	// Using r.Context() allows graceful shutdown during deployment
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
 	verified, skipped, errs := h.processACHVerification(ctx, verificationDays, batchSize)
 
 	// Build response
@@ -267,19 +269,9 @@ func (h *ACHVerificationHandler) authenticateRequest(r *http.Request) bool {
 		return true
 	}
 
-	// Check for Google Cloud Scheduler OIDC token (for production)
-	// In production, you would verify the OIDC token here
-	// For now, we'll accept requests from Cloud Scheduler's IP ranges
-	// or rely on the X-Cron-Secret header
-
-	// Check query parameter (less secure, for development only)
-	querySecret := r.URL.Query().Get("secret")
-	if querySecret != "" && querySecret == h.cronSecret {
-		h.logger.Warn("Using query parameter authentication (insecure)",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		return true
-	}
+	// Note: Google Cloud Scheduler OIDC token validation can be added here
+	// for production environments that require additional security.
+	// The X-Cron-Secret header is the primary authentication method.
 
 	return false
 }
@@ -309,7 +301,9 @@ func (h *ACHVerificationHandler) HealthCheck(w http.ResponseWriter, r *http.Requ
 		"time":   timeutil.Now().Format(time.RFC3339),
 	}
 
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("Failed to encode health response", zap.Error(err))
+	}
 }
 
 // Stats handles GET /cron/ach/stats for monitoring ACH verification statistics
@@ -382,5 +376,7 @@ func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		"timestamp": timeutil.Now().Format(time.RFC3339),
 	}
 
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("Failed to encode stats response", zap.Error(err))
+	}
 }

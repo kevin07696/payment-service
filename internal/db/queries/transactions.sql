@@ -123,13 +123,14 @@ LIMIT 1;
 -- Updates transaction with EPX response data (for Browser Post callback)
 -- Only updates EPX response fields, leaves core transaction data unchanged
 -- SECURITY: Prevents TAC replay attacks by only updating PENDING transactions
+-- Status is GENERATED column based on auth_resp (00=approved, else=declined)
 UPDATE transactions SET
     customer_id = COALESCE(sqlc.narg(customer_id), customer_id),
     auth_guid = COALESCE(sqlc.narg(auth_guid), auth_guid),
     auth_resp = COALESCE(sqlc.narg(auth_resp), auth_resp),
     auth_code = COALESCE(sqlc.narg(auth_code), auth_code),
     auth_card_type = COALESCE(sqlc.narg(auth_card_type), auth_card_type),
-    processed_at = COALESCE(sqlc.narg(processed_at), processed_at),
+    processed_at = CURRENT_TIMESTAMP,
     metadata = COALESCE(sqlc.arg(metadata), metadata),
     updated_at = CURRENT_TIMESTAMP
 WHERE tran_nbr = sqlc.arg(tran_nbr)

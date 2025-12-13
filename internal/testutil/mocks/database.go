@@ -854,5 +854,17 @@ func (m *MockQuerier) RecordBillingFailure(ctx context.Context, arg sqlc.RecordB
 	return args.Error(0)
 }
 
+// HardDeleteMerchant permanently deletes a merchant (test cleanup only)
+func (m *MockQuerier) HardDeleteMerchant(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+// HardDeleteService permanently deletes a service (test cleanup only)
+func (m *MockQuerier) HardDeleteService(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
 // Ensure MockQuerier implements sqlc.Querier
 var _ sqlc.Querier = (*MockQuerier)(nil)

@@ -85,3 +85,7 @@ WHERE is_active = true;
 SELECT requests_per_second
 FROM services
 WHERE service_id = sqlc.arg(service_id) AND is_active = true;
+
+-- name: HardDeleteService :exec
+-- WARNING: For test cleanup only. Permanently deletes service record.
+DELETE FROM services WHERE id = sqlc.arg(id);

@@ -2,6 +2,7 @@ package payment
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"io"
 	"sync"
@@ -54,7 +55,7 @@ func (r *TemplateRenderer) loadTemplates() error {
 			"templates/"+string(name)+".html",
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("parsing template %s: %w", name, err)
 		}
 		r.templates[string(name)] = tmpl
 	}

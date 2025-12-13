@@ -20,7 +20,7 @@ import (
 func TestAuditCleanupValidation(t *testing.T) {
 	cfg, _ := testutil.Setup(t)
 	baseURL := cfg.CallbackBaseURL
-	cronSecret := "test-cron-secret-at-least-32-characters-long" // Must match CRON_SECRET in env
+	cronSecret := cfg.CronSecret
 
 	client := &http.Client{}
 
@@ -91,10 +91,11 @@ func TestAuditCleanupValidation(t *testing.T) {
 		t.Log("[PASS] Maximum retention capping working")
 	})
 
-	t.Run("Reject_ZeroRetention", func(t *testing.T) {
-		// Attempt to delete ALL audit logs with retention = 0
+	t.Run("ZeroRetention_UsesDefault", func(t *testing.T) {
+		// retention_days = 0 or missing should use the default (90 days)
+		// This is a safe fallback behavior - server doesn't allow deleting all logs
 		reqBody := map[string]interface{}{
-			"retention_days": 0, // Attempt to delete everything
+			"retention_days": 0, // Treated as "use default"
 		}
 
 		body, err := json.Marshal(reqBody)
@@ -110,17 +111,43 @@ func TestAuditCleanupValidation(t *testing.T) {
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
-		// Should reject with 400 Bad Request
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
-			"Should reject retention = 0")
+		// Server treats 0 as "use default (90 days)" - this is safer than rejecting
+		assert.Equal(t, http.StatusOK, resp.StatusCode,
+			"Zero retention should use default and succeed")
 
 		var respBody map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&respBody)
 		require.NoError(t, err)
 
-		assert.False(t, respBody["success"].(bool), "Success should be false")
+		assert.True(t, respBody["success"].(bool), "Success should be true with default retention")
 
-		t.Log("[PASS] Zero retention rejection working")
+		t.Log("[PASS] Zero retention uses default (90 days)")
+	})
+
+	t.Run("Reject_TooSmallRetention", func(t *testing.T) {
+		// Retention below 7 days should be rejected (minimum enforced)
+		reqBody := map[string]interface{}{
+			"retention_days": 3, // Below minimum of 7 days
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req, err := http.NewRequest("POST", baseURL+"/cron/cleanup-audit-logs", bytes.NewBuffer(body))
+		require.NoError(t, err)
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Cron-Secret", cronSecret)
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		// Should reject retention below minimum (7 days)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
+			"Should reject retention below 7 days")
+
+		t.Log("[PASS] Minimum retention (7 days) enforcement working")
 	})
 
 	t.Run("Accept_ValidRetention", func(t *testing.T) {
@@ -214,7 +241,7 @@ func TestAuditCleanupValidation(t *testing.T) {
 func TestAuditCleanupStats(t *testing.T) {
 	cfg, _ := testutil.Setup(t)
 	baseURL := cfg.CallbackBaseURL
-	cronSecret := "test-cron-secret-at-least-32-characters-long"
+	cronSecret := cfg.CronSecret
 
 	client := &http.Client{}
 

@@ -1,5 +1,6 @@
 import { test, expect } from '../lib/test-fixtures';
 import { VISA_APPROVAL, formatExpDate } from '../lib/test-cards';
+import { retryUntilCondition, quickRetryConfig } from '../lib/retry';
 
 /**
  * Browser Post AUTH + CAPTURE Flow E2E Test
@@ -82,25 +83,27 @@ test.describe('Browser Post AUTH + CAPTURE Flow', () => {
     const finalUrl = page.url();
     console.log(`AUTH callback URL: ${finalUrl}`);
 
-    // Step 3: Verify AUTH transaction was created
-    await page.waitForTimeout(1000);
-
-    const txnResponse = await request.post(
-      `${baseUrl}/payment.v1.PaymentService/GetTransaction`,
-      {
-        headers: {
-          Authorization: `Bearer ${testContext.token}`,
-          'Content-Type': 'application/json',
-        },
-        data: {
-          transaction_id: transactionId,
-        },
-      }
+    // Step 3: Verify AUTH transaction was created (poll until approved)
+    const transaction = await retryUntilCondition(
+      async () => {
+        const resp = await request.post(
+          `${baseUrl}/payment.v1.PaymentService/GetTransaction`,
+          {
+            headers: {
+              Authorization: `Bearer ${testContext.token}`,
+              'Content-Type': 'application/json',
+            },
+            data: {
+              transaction_id: transactionId,
+            },
+          }
+        );
+        if (!resp.ok()) return null;
+        return await resp.json();
+      },
+      (txn) => txn?.status === 'TRANSACTION_STATUS_APPROVED',
+      quickRetryConfig()
     );
-
-    expect(txnResponse.ok(), `GetTransaction failed: ${await txnResponse.text()}`).toBeTruthy();
-
-    const transaction = await txnResponse.json();
     console.log('AUTH transaction response:', JSON.stringify(transaction, null, 2));
 
     // Verify AUTH transaction
@@ -207,23 +210,26 @@ test.describe('Browser Post AUTH + CAPTURE Flow', () => {
 
     await page.setContent(formHtml);
     await page.waitForURL(/callback|return/, { timeout: 30000 });
-    await page.waitForTimeout(1000);
 
-    // Verify AUTH
-    const txnResponse = await request.post(
-      `${baseUrl}/payment.v1.PaymentService/GetTransaction`,
-      {
-        headers: {
-          Authorization: `Bearer ${testContext.token}`,
-          'Content-Type': 'application/json',
-        },
-        data: { transaction_id: transactionId },
-      }
+    // Verify AUTH (poll until approved)
+    const transaction = await retryUntilCondition(
+      async () => {
+        const resp = await request.post(
+          `${baseUrl}/payment.v1.PaymentService/GetTransaction`,
+          {
+            headers: {
+              Authorization: `Bearer ${testContext.token}`,
+              'Content-Type': 'application/json',
+            },
+            data: { transaction_id: transactionId },
+          }
+        );
+        if (!resp.ok()) return null;
+        return await resp.json();
+      },
+      (txn) => txn?.status === 'TRANSACTION_STATUS_APPROVED',
+      quickRetryConfig()
     );
-
-    expect(txnResponse.ok(), `GetTransaction failed: ${await txnResponse.text()}`).toBeTruthy();
-
-    const transaction = await txnResponse.json();
     console.log('AUTH transaction created:', transaction.id);
 
     // Verify AUTH was APPROVED

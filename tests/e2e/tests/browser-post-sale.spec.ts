@@ -1,5 +1,6 @@
 import { test, expect } from '../lib/test-fixtures';
 import { VISA_APPROVAL, formatExpDate } from '../lib/test-cards';
+import { retryUntilCondition, quickRetryConfig } from '../lib/retry';
 
 /**
  * Browser Post SALE Flow E2E Test
@@ -108,26 +109,28 @@ test.describe('Browser Post SALE Flow', () => {
     // Step 4: Verify transaction via API
     console.log(`Verifying transaction: ${transactionId}`);
 
-    // Wait a moment for callback processing
-    await page.waitForTimeout(1000);
-
-    const txnResponse = await request.post(
-      `${baseUrl}/payment.v1.PaymentService/GetTransaction`,
-      {
-        headers: {
-          Authorization: `Bearer ${testContext.token}`,
-          'Content-Type': 'application/json',
-          'Accept-Encoding': 'identity',
-        },
-        data: {
-          transaction_id: transactionId,
-        },
-      }
+    // Poll until transaction is available and approved
+    const transaction = await retryUntilCondition(
+      async () => {
+        const resp = await request.post(
+          `${baseUrl}/payment.v1.PaymentService/GetTransaction`,
+          {
+            headers: {
+              Authorization: `Bearer ${testContext.token}`,
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'identity',
+            },
+            data: {
+              transaction_id: transactionId,
+            },
+          }
+        );
+        if (!resp.ok()) return null;
+        return await resp.json();
+      },
+      (txn) => txn?.status === 'TRANSACTION_STATUS_APPROVED',
+      quickRetryConfig()
     );
-
-    expect(txnResponse.ok(), `GetTransaction failed: ${await txnResponse.text()}`).toBeTruthy();
-
-    const transaction = await txnResponse.json();
     console.log('Transaction response:', JSON.stringify(transaction, null, 2));
 
     // Verify transaction was created with correct type

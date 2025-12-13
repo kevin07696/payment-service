@@ -5,6 +5,7 @@ import (
 
 	"github.com/kevin07696/payment-service/internal/auth"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"go.uber.org/zap"
 )
 
@@ -129,11 +130,31 @@ func (s *MerchantAuthorizationService) ValidateTransactionAccess(ctx context.Con
 		return nil
 	}
 
-	// For service auth, we'd need to verify the service has access to the merchant
-	// This would require a database lookup, which we'll add if needed
+	// For service auth, verify the service has access to the transaction's merchant
 	if authInfo.Type == auth.AuthTypeJWT {
-		// For now, allow service access (actual authorization happens at interceptor level)
-		s.logger.Debug("Allowing service access to transaction",
+		if s.accessChecker != nil {
+			hasAccess, err := s.accessChecker.CheckServiceMerchantAccess(ctx, authInfo.ServiceID, tx.MerchantID)
+			if err != nil {
+				s.logger.Error("Failed to check service-merchant access for transaction",
+					zap.String("service_id", authInfo.ServiceID),
+					zap.String("merchant_id", tx.MerchantID),
+					zap.String("transaction_id", tx.ID),
+					zap.Error(err))
+				return domain.ErrAuthAccessDenied.WithDetail("reason", "access check failed")
+			}
+			if !hasAccess {
+				s.logger.Warn("Service does not have access to transaction's merchant",
+					zap.String("service_id", authInfo.ServiceID),
+					zap.String("merchant_id", tx.MerchantID),
+					zap.String("transaction_id", tx.ID))
+				return domain.ErrAuthAccessDenied.
+					WithDetail("resource", "transaction").
+					WithDetail("transaction_id", tx.ID).
+					WithDetail("service_id", authInfo.ServiceID).
+					WithDetail("merchant_id", tx.MerchantID)
+			}
+		}
+		s.logger.Debug("Service access to transaction validated",
 			zap.String("service_id", authInfo.ServiceID),
 			zap.String("transaction_id", tx.ID))
 		return nil
@@ -169,9 +190,31 @@ func (s *MerchantAuthorizationService) ValidateCustomerAccess(ctx context.Contex
 		return nil
 	}
 
-	// For service auth, allow access (authorization happens at interceptor level)
+	// For service auth, verify the service has access to the customer's merchant
 	if authInfo.Type == auth.AuthTypeJWT {
-		s.logger.Debug("Allowing service access to customer",
+		if s.accessChecker != nil {
+			hasAccess, err := s.accessChecker.CheckServiceMerchantAccess(ctx, authInfo.ServiceID, merchantID)
+			if err != nil {
+				s.logger.Error("Failed to check service-merchant access for customer",
+					zap.String("service_id", authInfo.ServiceID),
+					zap.String("merchant_id", merchantID),
+					zap.String("customer_id", customerID),
+					zap.Error(err))
+				return domain.ErrAuthAccessDenied.WithDetail("reason", "access check failed")
+			}
+			if !hasAccess {
+				s.logger.Warn("Service does not have access to customer's merchant",
+					zap.String("service_id", authInfo.ServiceID),
+					zap.String("merchant_id", merchantID),
+					zap.String("customer_id", customerID))
+				return domain.ErrAuthAccessDenied.
+					WithDetail("resource", "customer").
+					WithDetail("customer_id", customerID).
+					WithDetail("service_id", authInfo.ServiceID).
+					WithDetail("merchant_id", merchantID)
+			}
+		}
+		s.logger.Debug("Service access to customer validated",
 			zap.String("service_id", authInfo.ServiceID),
 			zap.String("customer_id", customerID))
 		return nil
@@ -179,6 +222,9 @@ func (s *MerchantAuthorizationService) ValidateCustomerAccess(ctx context.Contex
 
 	return domain.ErrAuthInvalid.WithDetail("reason", "unknown auth type")
 }
+
+// Ensure MerchantAuthorizationService implements ports.MerchantAuthorizationService
+var _ ports.MerchantAuthorizationService = (*MerchantAuthorizationService)(nil)
 
 // ValidatePaymentMethodAccess validates that the auth context has access to a payment method
 // This ensures that only the owning merchant (or authorized services) can access payment methods
@@ -207,9 +253,31 @@ func (s *MerchantAuthorizationService) ValidatePaymentMethodAccess(ctx context.C
 		return nil
 	}
 
-	// For service auth, allow access (authorization happens at interceptor level)
+	// For service auth, verify the service has access to the payment method's merchant
 	if authInfo.Type == auth.AuthTypeJWT {
-		s.logger.Debug("Allowing service access to payment method",
+		if s.accessChecker != nil {
+			hasAccess, err := s.accessChecker.CheckServiceMerchantAccess(ctx, authInfo.ServiceID, merchantID)
+			if err != nil {
+				s.logger.Error("Failed to check service-merchant access for payment method",
+					zap.String("service_id", authInfo.ServiceID),
+					zap.String("merchant_id", merchantID),
+					zap.String("payment_method_id", paymentMethodID),
+					zap.Error(err))
+				return domain.ErrAuthAccessDenied.WithDetail("reason", "access check failed")
+			}
+			if !hasAccess {
+				s.logger.Warn("Service does not have access to payment method's merchant",
+					zap.String("service_id", authInfo.ServiceID),
+					zap.String("merchant_id", merchantID),
+					zap.String("payment_method_id", paymentMethodID))
+				return domain.ErrAuthAccessDenied.
+					WithDetail("resource", "payment_method").
+					WithDetail("payment_method_id", paymentMethodID).
+					WithDetail("service_id", authInfo.ServiceID).
+					WithDetail("merchant_id", merchantID)
+			}
+		}
+		s.logger.Debug("Service access to payment method validated",
 			zap.String("service_id", authInfo.ServiceID),
 			zap.String("payment_method_id", paymentMethodID))
 		return nil

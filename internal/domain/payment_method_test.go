@@ -7,6 +7,158 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestParseExpirationDateMMYY tests parsing of MMYY expiration date strings
+func TestParseExpirationDateMMYY(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected *ExpirationDate
+	}{
+		{
+			name:     "valid_december_2025",
+			input:    "1225",
+			expected: &ExpirationDate{Month: 12, Year: 2025},
+		},
+		{
+			name:     "valid_january_2030",
+			input:    "0130",
+			expected: &ExpirationDate{Month: 1, Year: 2030},
+		},
+		{
+			name:     "valid_june_2024",
+			input:    "0624",
+			expected: &ExpirationDate{Month: 6, Year: 2024},
+		},
+		{
+			name:     "invalid_month_00",
+			input:    "0025",
+			expected: nil,
+		},
+		{
+			name:     "invalid_month_13",
+			input:    "1325",
+			expected: nil,
+		},
+		{
+			name:     "too_short",
+			input:    "122",
+			expected: nil,
+		},
+		{
+			name:     "too_long",
+			input:    "12255",
+			expected: nil,
+		},
+		{
+			name:     "empty_string",
+			input:    "",
+			expected: nil,
+		},
+		{
+			name:     "non_numeric",
+			input:    "abcd",
+			expected: nil,
+		},
+		{
+			name:     "partial_numeric",
+			input:    "12ab",
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseExpirationDateMMYY(tt.input)
+			if tt.expected == nil {
+				assert.Nil(t, result)
+			} else {
+				assert.NotNil(t, result)
+				assert.Equal(t, tt.expected.Month, result.Month)
+				assert.Equal(t, tt.expected.Year, result.Year)
+			}
+		})
+	}
+}
+
+// TestFormatExpirationDateMMYY tests formatting of MMYY to MM/YY display format
+func TestFormatExpirationDateMMYY(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "valid_december_2025",
+			input:    "1225",
+			expected: "12/25",
+		},
+		{
+			name:     "valid_january_2030",
+			input:    "0130",
+			expected: "01/30",
+		},
+		{
+			name:     "too_short_returned_unchanged",
+			input:    "122",
+			expected: "122",
+		},
+		{
+			name:     "too_long_returned_unchanged",
+			input:    "12255",
+			expected: "12255",
+		},
+		{
+			name:     "empty_returned_unchanged",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatExpirationDateMMYY(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestFormatMaskedCard tests formatting of last four digits as masked card number
+func TestFormatMaskedCard(t *testing.T) {
+	tests := []struct {
+		name     string
+		lastFour string
+		expected string
+	}{
+		{
+			name:     "valid_last_four",
+			lastFour: "4242",
+			expected: "****-****-****-4242",
+		},
+		{
+			name:     "different_last_four",
+			lastFour: "1234",
+			expected: "****-****-****-1234",
+		},
+		{
+			name:     "empty_returns_empty",
+			lastFour: "",
+			expected: "",
+		},
+		{
+			name:     "three_digits",
+			lastFour: "123",
+			expected: "****-****-****-123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatMaskedCard(tt.lastFour)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 // TestPaymentMethod_CanUseForAmount_ACHUnverified tests that unverified ACH accounts are blocked
 func TestPaymentMethod_CanUseForAmount_ACHUnverified(t *testing.T) {
 	pm := &PaymentMethod{
@@ -523,20 +675,16 @@ func TestPaymentMethod_MarkUsed_MultipleSequentialCalls(t *testing.T) {
 
 	// First call
 	pm.MarkUsed()
-	firstTimestamp := pm.LastUsedAt
-	assert.NotNil(t, firstTimestamp)
+	assert.NotNil(t, pm.LastUsedAt)
 
-	// Small delay to ensure time difference
-	time.Sleep(2 * time.Millisecond)
-
-	// Second call
+	// Second call - verify timestamp is at or after current time
+	beforeSecondCall := time.Now()
 	pm.MarkUsed()
-	secondTimestamp := pm.LastUsedAt
-	assert.NotNil(t, secondTimestamp)
+	assert.NotNil(t, pm.LastUsedAt)
 
-	// Assert: Second timestamp is after first
-	assert.True(t, secondTimestamp.After(*firstTimestamp),
-		"Second MarkUsed should update timestamp to a newer value")
+	// Assert: Second timestamp is at or after the time we captured
+	assert.True(t, !pm.LastUsedAt.Before(beforeSecondCall),
+		"Second MarkUsed should update timestamp to at or after operation time")
 }
 
 // TestPaymentMethod_MarkUsed_PreservesOtherFields tests that MarkUsed doesn't affect other fields

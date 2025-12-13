@@ -10,6 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	// Expected character frequency for 100 UUIDs (32 hex chars each = 3200 total)
+	// Each hex char (0-9, a-f = 16 chars) appears ~200 times on average
+	minExpectedCharFreq = 50  // ~200 - 75% variance for randomness
+	maxExpectedCharFreq = 350 // ~200 + 75% variance for randomness
+)
+
 // TestGenerateRequestID_ValidUUIDv4 tests that generated request IDs are valid UUID v4
 // Security Risk: MEDIUM - Weak request IDs could lead to collisions or predictability
 func TestGenerateRequestID_ValidUUIDv4(t *testing.T) {
@@ -232,17 +239,17 @@ func TestGenerateRequestID_NonPredictable(t *testing.T) {
 
 		for char := '0'; char <= '9'; char++ {
 			count := characterCounts[char]
-			assert.Greater(t, count, 50,
+			assert.Greater(t, count, minExpectedCharFreq,
 				"Character '%c' appears too rarely (%d times)", char, count)
-			assert.Less(t, count, 350,
+			assert.Less(t, count, maxExpectedCharFreq,
 				"Character '%c' appears too frequently (%d times)", char, count)
 		}
 
 		for char := 'a'; char <= 'f'; char++ {
 			count := characterCounts[char]
-			assert.Greater(t, count, 50,
+			assert.Greater(t, count, minExpectedCharFreq,
 				"Character '%c' appears too rarely (%d times)", char, count)
-			assert.Less(t, count, 350,
+			assert.Less(t, count, maxExpectedCharFreq,
 				"Character '%c' appears too frequently (%d times)", char, count)
 		}
 

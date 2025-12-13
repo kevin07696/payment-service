@@ -91,3 +91,7 @@ ON CONFLICT (id) DO UPDATE SET
     is_active = EXCLUDED.is_active,
     updated_at = CURRENT_TIMESTAMP
 RETURNING *;
+
+-- name: HardDeleteMerchant :exec
+-- WARNING: For test cleanup only. Permanently deletes merchant record.
+DELETE FROM merchants WHERE id = sqlc.arg(id);

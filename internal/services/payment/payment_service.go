@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -14,8 +15,7 @@ import (
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
 	merchantsvc "github.com/kevin07696/payment-service/internal/services/merchant"
-	"github.com/kevin07696/payment-service/internal/util"
-	"github.com/shopspring/decimal"
+	"github.com/kevin07696/payment-service/internal/epxutil"
 	"go.uber.org/zap"
 )
 
@@ -44,7 +44,7 @@ type paymentService struct {
 	serverPost                 ports.ServerPostAdapter
 	secretManager              ports.SecretManagerAdapter
 	merchantCredentialResolver *authorization.MerchantCredentialResolver
-	merchantAuthService        *authorization.MerchantAuthorizationService
+	merchantAuthService        ports.MerchantAuthorizationService
 	logger                     *zap.Logger
 	config                     PaymentServiceConfig
 }
@@ -158,7 +158,7 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID (parsed from idempotency key above)
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
-	epxTranNbr := util.UUIDToEPXTranNbr(txID)
+	epxTranNbr := epxutil.UUIDToEPXTranNbr(txID)
 
 	// For BRIC-based transactions, set Card Entry Method to "Z"
 	cardEntryMethod := "Z" // BRIC/token
@@ -206,7 +206,10 @@ func (s *paymentService) Sale(ctx context.Context, req *ports.SaleRequest) (*dom
 		epxReq.AuthGUID = authGUID
 	}
 
-	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
+	// Wrap EPX call with explicit timeout for external service reliability
+	epxCtx, epxCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer epxCancel()
+	epxResp, err := s.serverPost.ProcessTransaction(epxCtx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX transaction failed", zap.Error(err))
 		return nil, domain.ErrGatewayError.WithDetail("operation", "process_sale")
@@ -318,7 +321,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 	}
 
 	// Check idempotency
-	existing, err := s.GetTransactionByIdempotencyKey(ctx, *req.IdempotencyKey)
+	existing, err := s.getTransactionByIdempotencyKey(ctx, *req.IdempotencyKey)
 	if err == nil {
 		s.logger.Info("Idempotent request, returning existing transaction",
 			zap.String("transaction_id", existing.ID),
@@ -366,7 +369,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID (parsed from idempotency key above)
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
-	epxTranNbr := util.UUIDToEPXTranNbr(txID)
+	epxTranNbr := epxutil.UUIDToEPXTranNbr(txID)
 
 	s.logger.Debug("Generated EPX TRAN_NBR",
 		zap.String("transaction_id", txID.String()),
@@ -401,7 +404,10 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 		zap.String("tran_group", "AUTH"),
 	)
 
-	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
+	// Wrap EPX call with explicit timeout for external service reliability
+	epxCtx, epxCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer epxCancel()
+	epxResp, err := s.serverPost.ProcessTransaction(epxCtx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX authorization failed", zap.Error(err))
 		return nil, domain.ErrGatewayError.WithDetail("operation", "process_transaction")
@@ -701,7 +707,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
-	epxTranNbr := util.UUIDToEPXTranNbr(txID)
+	epxTranNbr := epxutil.UUIDToEPXTranNbr(txID)
 
 	industryType := "E" // Ecommerce (required for EPX certification)
 
@@ -721,7 +727,10 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		IndustryType:     &industryType, // "E" for Ecommerce
 	}
 
-	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
+	// Wrap EPX call with explicit timeout for external service reliability
+	epxCtx, epxCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer epxCancel()
+	epxResp, err := s.serverPost.ProcessTransaction(epxCtx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX capture failed", zap.Error(err))
 		return nil, domain.ErrGatewayError.WithDetail("operation", "process_transaction")
@@ -965,7 +974,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
-	epxTranNbr := util.UUIDToEPXTranNbr(txID)
+	epxTranNbr := epxutil.UUIDToEPXTranNbr(txID)
 
 	industryType := "E" // Ecommerce (required for EPX certification)
 
@@ -985,7 +994,10 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 		IndustryType:     &industryType, // "E" for Ecommerce
 	}
 
-	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
+	// Wrap EPX call with explicit timeout for external service reliability
+	epxCtx, epxCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer epxCancel()
+	epxResp, err := s.serverPost.ProcessTransaction(epxCtx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX void failed", zap.Error(err))
 		return nil, domain.ErrGatewayError.WithDetail("operation", "process_transaction")
@@ -1232,7 +1244,7 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 
 	// Generate deterministic numeric TRAN_NBR from transaction UUID
 	// This ensures idempotency - same UUID always produces same TRAN_NBR
-	epxTranNbr := util.UUIDToEPXTranNbr(txID)
+	epxTranNbr := epxutil.UUIDToEPXTranNbr(txID)
 
 	industryType := "E" // Ecommerce (required for EPX certification)
 
@@ -1253,7 +1265,10 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 		IndustryType:     &industryType, // "E" for Ecommerce
 	}
 
-	epxResp, err := s.serverPost.ProcessTransaction(ctx, epxReq)
+	// Wrap EPX call with explicit timeout for external service reliability
+	epxCtx, epxCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer epxCancel()
+	epxResp, err := s.serverPost.ProcessTransaction(epxCtx, epxReq)
 	if err != nil {
 		s.logger.Error("EPX refund failed", zap.Error(err))
 		return nil, domain.ErrGatewayError.WithDetail("operation", "process_transaction")
@@ -1297,240 +1312,6 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	return transaction, nil
 }
 
-// GetTransaction retrieves transaction details using sqlc
-func (s *paymentService) GetTransaction(ctx context.Context, transactionID string) (*domain.Transaction, error) {
-	txID, err := uuid.Parse(transactionID)
-	if err != nil {
-		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "transaction_id")
-	}
-
-	dbTx, err := s.queries.GetTransactionByID(ctx, txID)
-	if err != nil {
-		s.logger.Debug("Transaction not found",
-			zap.String("transaction_id", transactionID),
-			zap.Error(err),
-		)
-		return nil, domain.ErrTxnNotFound
-	}
-
-	return sqlcTransactionToDomain(&dbTx), nil
-}
-
-// GetTransactionByIdempotencyKey retrieves a transaction by idempotency key
-// Note: idempotency_key IS the transaction ID (no separate column)
-func (s *paymentService) GetTransactionByIdempotencyKey(ctx context.Context, key string) (*domain.Transaction, error) {
-	// Idempotency key is the transaction ID (UUID)
-	txID, err := uuid.Parse(key)
-	if err != nil {
-		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
-	}
-
-	dbTx, err := s.queries.GetTransactionByID(ctx, txID)
-	if err != nil {
-		s.logger.Debug("Transaction not found by idempotency key",
-			zap.String("idempotency_key", key),
-			zap.Error(err),
-		)
-		return nil, domain.ErrTxnNotFound
-	}
-
-	return sqlcTransactionToDomain(&dbTx), nil
-}
-
-// ListTransactions lists transactions with filters using sqlc
-func (s *paymentService) ListTransactions(ctx context.Context, filters *ports.ListTransactionsFilters) ([]*domain.Transaction, int, error) {
-	// MerchantID is required
-	if filters.MerchantID == nil {
-		return nil, 0, domain.ErrMerchantRequired
-	}
-
-	// Validate service has access to the merchant
-	// Note: merchantAuthService may be nil in unit tests that don't inject it
-	resolvedMerchantID := *filters.MerchantID
-	if s.merchantAuthService != nil {
-		var err error
-		resolvedMerchantID, err = s.merchantAuthService.ResolveMerchantID(ctx, *filters.MerchantID)
-		if err != nil {
-			return nil, 0, err
-		}
-	}
-
-	merchantID, err := uuid.Parse(resolvedMerchantID)
-	if err != nil {
-		return nil, 0, domain.ErrValidationInvalidUUID.WithDetail("field", "merchant_id")
-	}
-
-	// Set defaults
-	limit := filters.Limit
-	if limit <= 0 {
-		limit = 100
-	}
-	offset := filters.Offset
-	if offset < 0 {
-		offset = 0
-	}
-
-	params := sqlc.ListTransactionsParams{
-		MerchantID:          merchantID,
-		CustomerID:          converters.ToNullableText(filters.CustomerID),
-		OrderID:             converters.ToNullableText(filters.OrderID),
-		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
-		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
-		Status:              converters.ToNullableText(filters.Status),
-		Type:                converters.ToNullableText(filters.Type),
-		PaymentMethodID:     converters.ToNullableUUID(filters.PaymentMethodID),
-		LimitVal:            int32(limit),
-		OffsetVal:           int32(offset),
-	}
-
-	dbTxs, err := s.queries.ListTransactions(ctx, params)
-	if err != nil {
-		return nil, 0, domain.ErrDatabaseError.WithDetail("operation", "list_transactions")
-	}
-
-	countParams := sqlc.CountTransactionsParams{
-		MerchantID:          merchantID,
-		CustomerID:          converters.ToNullableText(filters.CustomerID),
-		OrderID:             converters.ToNullableText(filters.OrderID),
-		SubscriptionID:      converters.ToNullableUUID(filters.SubscriptionID),
-		ParentTransactionID: converters.ToNullableUUID(filters.ParentTransactionID),
-		Status:              converters.ToNullableText(filters.Status),
-		Type:                converters.ToNullableText(filters.Type),
-		PaymentMethodID:     converters.ToNullableUUID(filters.PaymentMethodID),
-	}
-
-	count, err := s.queries.CountTransactions(ctx, countParams)
-	if err != nil {
-		return nil, 0, domain.ErrDatabaseError.WithDetail("operation", "count_transactions")
-	}
-
-	transactions := make([]*domain.Transaction, len(dbTxs))
-	for i, dbTx := range dbTxs {
-		transactions[i] = sqlcTransactionToDomain(&dbTx)
-	}
-
-	return transactions, int(count), nil
-}
-
-// GetTransactionsByGroup retrieves all transactions in a group (parent + children) using parent_transaction_id
-func (s *paymentService) GetTransactionsByGroup(ctx context.Context, parentTransactionID string) ([]*domain.Transaction, error) {
-	parentID, err := uuid.Parse(parentTransactionID)
-	if err != nil {
-		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "parent_transaction_id")
-	}
-
-	// Get transaction tree (includes parent + all descendants)
-	groupTxs, err := s.queries.GetTransactionTree(ctx, parentID)
-	if err != nil {
-		return nil, domain.ErrDatabaseError.WithDetail("operation", "get_transaction_tree")
-	}
-
-	transactions := make([]*domain.Transaction, len(groupTxs))
-	for i, tx := range groupTxs {
-		sqlcTx := sqlc.Transaction(tx)
-		transactions[i] = sqlcTransactionToDomain(&sqlcTx)
-	}
-
-	return transactions, nil
-}
-
-// findOriginalTransaction finds the original chargeable transaction in a group
-// that can be voided/refunded. Note: auth_guid (BRIC) is stored in each transaction record
-
-// Helper functions to convert between sqlc and domain models
-
-func sqlcTransactionToDomain(dbTx *sqlc.Transaction) *domain.Transaction {
-	var parentTxID *string
-	if dbTx.ParentTransactionID.Valid {
-		id := uuid.UUID(dbTx.ParentTransactionID.Bytes).String()
-		parentTxID = &id
-	}
-
-	var customerID *string
-	if dbTx.CustomerID.Valid {
-		customerID = &dbTx.CustomerID.String
-	}
-
-	var pmID *string
-	if dbTx.PaymentMethodID.Valid {
-		id := uuid.UUID(dbTx.PaymentMethodID.Bytes).String()
-		pmID = &id
-	}
-
-	var subscriptionID *string
-	if dbTx.SubscriptionID.Valid {
-		id := uuid.UUID(dbTx.SubscriptionID.Bytes).String()
-		subscriptionID = &id
-	}
-
-	var orderID *string
-	if dbTx.OrderID.Valid {
-		orderID = &dbTx.OrderID.String
-	}
-
-	tx := &domain.Transaction{
-		ID:                  dbTx.ID.String(),
-		ParentTransactionID: parentTxID,
-		MerchantID:          dbTx.MerchantID.String(),
-		CustomerID:          customerID,
-		OrderID:             orderID,
-		SubscriptionID:      subscriptionID,
-		AmountCents:         dbTx.AmountCents,
-		Currency:            dbTx.Currency,
-		Type:                domain.TransactionType(dbTx.Type),
-		PaymentMethodType:   domain.PaymentMethodType(dbTx.PaymentMethodType),
-		PaymentMethodID:     pmID,
-		CreatedAt:           dbTx.CreatedAt,
-		UpdatedAt:           dbTx.UpdatedAt,
-	}
-
-	// Status is a GENERATED column in database (pgtype.Text)
-	if dbTx.Status.Valid {
-		tx.Status = domain.TransactionStatus(dbTx.Status.String)
-	}
-
-	// Note: auth_guid (BRIC) is stored in each transaction record
-	if dbTx.AuthGuid.Valid {
-		tx.AuthGUID = dbTx.AuthGuid.String
-	}
-
-	// AuthResp is pgtype.Text
-	if dbTx.AuthResp.Valid {
-		tx.AuthResp = &dbTx.AuthResp.String
-	}
-	if dbTx.AuthCode.Valid {
-		tx.AuthCode = &dbTx.AuthCode.String
-	}
-	if dbTx.AuthCardType.Valid {
-		tx.AuthCardType = &dbTx.AuthCardType.String
-	}
-
-	// Parse metadata JSONB and extract display-only fields
-	if len(dbTx.Metadata) > 0 {
-		if err := json.Unmarshal(dbTx.Metadata, &tx.Metadata); err != nil {
-			// Log error but don't fail the entire operation
-			// Metadata is supplementary information
-			tx.Metadata = nil
-		} else {
-			// Extract display-only fields from metadata for API compatibility
-			if authRespText, ok := tx.Metadata["auth_resp_text"].(string); ok {
-				tx.AuthRespText = &authRespText
-			}
-			if authAvs, ok := tx.Metadata["auth_avs"].(string); ok {
-				tx.AuthAVS = &authAvs
-			}
-			if authCvv2, ok := tx.Metadata["auth_cvv2"].(string); ok {
-				tx.AuthCVV2 = &authCvv2
-			}
-		}
-	}
-
-	// Transaction ID is the idempotency key
-	txID := dbTx.ID.String()
-	tx.IdempotencyKey = &txID
-
-	return tx
-}
 
 // PaymentTokenInfo contains resolved payment token information
 type PaymentTokenInfo struct {
@@ -1597,105 +1378,23 @@ func (s *paymentService) resolvePaymentToken(ctx context.Context, paymentMethodI
 	return nil, domain.ErrValidationMissingField.WithDetail("field", "payment_method_id or payment_token")
 }
 
-func stringOrEmpty(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
-// stringToUUIDPtr converts an optional string to a UUID pointer
-// Returns nil if string is empty or nil
-func stringToUUIDPtr(s *string) *uuid.UUID {
-	if s == nil || *s == "" {
-		return nil
-	}
-	id, err := uuid.Parse(*s)
+// getTransactionByIdempotencyKey is a private helper for idempotency checking.
+// It retrieves a transaction by its ID (idempotency_key IS the transaction ID).
+// This is an internal implementation detail, not exposed via ports.
+func (s *paymentService) getTransactionByIdempotencyKey(ctx context.Context, key string) (*domain.Transaction, error) {
+	txID, err := uuid.Parse(key)
 	if err != nil {
-		return nil
-	}
-	return &id
-}
-
-// centsToDecimalString converts cents (int64) to a decimal string for EPX API
-// Example: 1050 -> "10.50"
-func centsToDecimalString(cents int64) string {
-	d := decimal.NewFromInt(cents).Div(decimal.NewFromInt(100))
-	return d.StringFixed(2)
-}
-
-// formatCentsForLog formats cents (int64) as a dollar amount for logging
-// Example: 1050 -> "$10.50"
-func formatCentsForLog(cents int64) string {
-	return "$" + centsToDecimalString(cents)
-}
-
-// sqlcPaymentMethodToDomain converts sqlc model to domain model
-func sqlcPaymentMethodToDomain(dbPM *sqlc.CustomerPaymentMethod) *domain.PaymentMethod {
-	pm := &domain.PaymentMethod{
-		ID:           dbPM.ID.String(),
-		MerchantID:   dbPM.MerchantID.String(),
-		CustomerID:   dbPM.CustomerID,
-		PaymentType:  domain.PaymentMethodType(dbPM.PaymentType),
-		PaymentToken: dbPM.Bric,
-		LastFour:     dbPM.LastFour,
-		IsDefault:    dbPM.IsDefault.Bool,
-		Status:       domain.PaymentMethodStatus(dbPM.Status),
-		CreatedAt:    dbPM.CreatedAt,
-		UpdatedAt:    dbPM.UpdatedAt,
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
 	}
 
-	if dbPM.CardBrand.Valid {
-		pm.CardBrand = &dbPM.CardBrand.String
+	dbTx, err := s.queries.GetTransactionByID(ctx, txID)
+	if err != nil {
+		s.logger.Debug("Transaction not found by idempotency key",
+			zap.String("idempotency_key", key),
+			zap.Error(err),
+		)
+		return nil, domain.ErrTxnNotFound
 	}
 
-	if dbPM.CardExpMonth.Valid {
-		expMonth := int(dbPM.CardExpMonth.Int32)
-		pm.CardExpMonth = &expMonth
-	}
-
-	if dbPM.CardExpYear.Valid {
-		expYear := int(dbPM.CardExpYear.Int32)
-		pm.CardExpYear = &expYear
-	}
-
-	if dbPM.BankName.Valid {
-		pm.BankName = &dbPM.BankName.String
-	}
-
-	if dbPM.AccountType.Valid {
-		pm.AccountType = &dbPM.AccountType.String
-	}
-
-	if dbPM.LastUsedAt.Valid {
-		pm.LastUsedAt = &dbPM.LastUsedAt.Time
-	}
-
-	if dbPM.PrenoteStatus.Valid {
-		pm.PrenoteStatus = &dbPM.PrenoteStatus.String
-	}
-
-	if dbPM.PrenoteAttempts.Valid {
-		attempts := int(dbPM.PrenoteAttempts.Int32)
-		pm.PrenoteAttempts = &attempts
-	}
-
-	if dbPM.VerifiedAt.Valid {
-		pm.VerifiedAt = &dbPM.VerifiedAt.Time
-	}
-
-	// ReturnCount is NOT NULL DEFAULT 0, so always present
-	returnCount := int(dbPM.ReturnCount)
-	pm.ReturnCount = &returnCount
-
-	// Status metadata
-	if dbPM.StatusReason.Valid {
-		pm.StatusReason = &dbPM.StatusReason.String
-	}
-
-	if dbPM.StatusChangedAt.Valid {
-		pm.StatusChangedAt = &dbPM.StatusChangedAt.Time
-	}
-
-	return pm
+	return sqlcTransactionToDomain(&dbTx), nil
 }

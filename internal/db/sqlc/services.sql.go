@@ -166,6 +166,16 @@ func (q *Queries) GetServiceRateLimit(ctx context.Context, serviceID string) (pg
 	return requests_per_second, err
 }
 
+const hardDeleteService = `-- name: HardDeleteService :exec
+DELETE FROM services WHERE id = $1
+`
+
+// WARNING: For test cleanup only. Permanently deletes service record.
+func (q *Queries) HardDeleteService(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, hardDeleteService, id)
+	return err
+}
+
 const listActiveServicePublicKeys = `-- name: ListActiveServicePublicKeys :many
 SELECT service_id, public_key
 FROM services

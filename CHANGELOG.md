@@ -7,6 +7,193 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-12-12)
+
+**Proto: Add processor_reference field to Transaction message**
+
+Fixed 9 failing e2e tests in `tests/e2e/tests/server-post-flows.spec.ts` where BRIC (processor reference) was not returned in GetTransaction API response.
+
+**Root Cause**: The proto `Transaction` message had no field to expose `auth_guid` (BRIC) from the database/domain model.
+
+**Changes**:
+- `proto/payment/v1/payment.proto`: Added `string processor_reference = 18;` to Transaction message
+- `internal/handlers/payment/payment_converters.go`: Updated `transactionToProto()` to map `AuthGUID` to `ProcessorReference`
+
+This is NOT related to ARCH-001 refactoring - it was a pre-existing proto definition gap.
+
+### Reviewed (2025-12-11)
+
+**Data-Design Code Review (Proactive - No Profiling Data)**
+
+Per style guide `data-design.md` and `memory.md`, reviewed payment service for:
+- Struct field alignment and memory layout
+- Hot path allocation patterns
+- Batch operation efficiency
+- Cache implementation correctness
+
+#### Domain Structs
+- `internal/domain/transaction.go:154-159` - Field alignment documented
+- `internal/domain/payment_method.go:143-149` - Field alignment documented
+- `nit` `internal/domain/subscription.go:41` - Field ordering correct but lacks alignment documentation comment
+- `nit` `internal/domain/merchant.go:19` - Small struct, no alignment doc (low priority)
+
+#### Hot Paths (ProcessDueBilling)
+- `internal/services/subscription/subscription_service.go:577` - Slice preallocation correct
+- `internal/services/subscription/subscription_service.go:659` - Merchant lookup mitigated by P2-1 cache
+- `internal/services/subscription/subscription_service.go:669` - Payment method lookup mitigated by P2-2 cache
+- `nit` `internal/services/subscription/subscription_service.go:601` - Error slice grows via append (negligible impact at batch sizes 100-1000)
+
+#### Memory Patterns - All Good
+- Merchant credential cache: sync.Map + copy-on-read thread safety
+- LRU eviction: O(n log n) sort.Slice instead of O(n^2)
+- Advisory locks: Prevent concurrent cron execution
+- Context timeouts: 30s on all external EPX calls
+
+**Conclusion**: Codebase follows data-design best practices. No blocking or suggestion-level issues found.
+Only documentation nits identified (add alignment comments to Subscription/Merchant structs).
+
+### Added (2025-12-11)
+
+**Context Handling Hardening**
+
+Improved context (ctx) handling across the payment service for proper timeout control, request tracing, and graceful shutdown support.
+
+**Phase 1: Critical Fixes**
+- `internal/handlers/cron/prenote_retry_handler.go`: Added 5min timeout with `r.Context()` for graceful shutdown
+- `internal/handlers/cron/ach_verification_handler.go`: Added 5min timeout with `r.Context()` for graceful shutdown
+- `internal/handlers/cron/dispute_sync_handler.go`: Added 10min timeout with `r.Context()` for graceful shutdown
+- `internal/middleware/connect_auth.go`:
+  - `loadPublicKeys()`: Added 5s timeout for database query
+  - `isTokenBlacklisted()`: Now accepts context parameter with 2s timeout
+  - `logAuth()`: Added 2s timeout to async audit log goroutine
+
+**Phase 2: Graceful Shutdown Support**
+- `internal/handlers/cron/audit_cleanup_handler.go`: Changed `context.Background()` to `r.Context()`
+- `internal/handlers/cron/rate_limit_cleanup_handler.go`: Changed `context.Background()` to `r.Context()`
+- `internal/handlers/cron/billing_handler.go`: Changed `context.Background()` to `r.Context()` (3 locations)
+
+**Phase 3: External Call Hardening**
+- `internal/services/payment/payment_service.go`: Added 30s timeout to EPX calls (Sale, Authorize, Capture, Void, Refund)
+- `internal/services/payment_method/payment_method_service.go`: Added 30s timeout to EPX call in SendPrenote
+- `internal/services/browser_post/browser_post_service.go`: Added 30s timeout to key exchange GetTAC call
+
+**Credit Card Reversal (CCE7) Implementation**
+
+Implemented Reversal (CCE7) as a new transaction type for canceling credit card transactions (Sale CCE1, Auth CCE2). CCE7 releases authorization hold AND voids transaction in one call, providing immediate fund release to cardholders (vs CCEX which holds 3-10 days).
+
+- `internal/ports/server_post_adapter.go`:
+  - Added `OperationReversal` constant
+
+- `internal/adapters/epx/server_post_adapter.go`:
+  - Added reversal case to `determineTransactionType()` (maps to CCE7)
+  - Updated `validateRequest()` to require `OriginalAuthGUID` for reversal
+  - Reversal exempt from amount requirement (always reverses full authorization)
+
+- `internal/domain/transaction.go`:
+  - Added `TransactionTypeReversal` constant
+  - Added `CanBeReversed()` method for state validation
+
+- `docs/integration/certification_sheets.md`:
+  - Added CCE7 to transaction types table
+  - Added section 3.6 Credit Card REVERSAL (CCE7) with actual EPX sandbox response
+  - Includes comparison table of CCE7 vs CCEX behavior
+
+**Lint Fixes**
+
+- `internal/handlers/e2e/setup_handler.go`: Fixed unchecked `json.Encoder.Encode` error
+- `tests/integration/testutil/factories.go`: Fixed 4 unchecked `pool.Exec` errors in cleanup functions
+
+### Changed (2025-12-10)
+
+**E2E Test Type Consolidation**
+
+Consolidated duplicate TypeScript type definitions in E2E tests:
+
+- Created `tests/e2e/lib/types.ts` with shared interfaces (`TestMerchant`, `TestService`, `TestContext`)
+- Updated `tests/e2e/lib/api-client.ts` to import from shared types
+- Updated `tests/e2e/lib/test-fixtures.ts` to import from shared types
+- Removes code duplication and ensures type consistency
+
+**Context Timeouts for Database Operations**
+
+Added proper context timeouts to prevent hanging during database issues:
+
+- `tests/integration/testutil/database_pool.go`:
+  - Pool creation now uses 30-second timeout
+  - Ping verification uses 10-second timeout
+- `tests/integration/testutil/factories.go`:
+  - Cleanup helpers (`CleanupSubscription`, `CleanupPaymentMethod`, `CleanupTransaction`) now use 5-second context timeouts
+
+**SQLC Usage Review for Test Cleanup**
+
+Verified correct SQLC usage in test cleanup:
+
+- SQLC HardDelete methods used where available (merchants, services, payment_methods)
+- Raw SQL cleanup intentionally used for transactions, subscriptions, chargebacks (append-only/soft-delete entities)
+- No changes needed - current architecture is correct
+
+**Integration Test Suite Cleanup**
+
+Comprehensive cleanup of integration test infrastructure following style guide review:
+
+- `tests/integration/testutil/config.go`:
+  - Removed all hardcoded defaults - fail fast if env vars missing
+  - Required: `SERVICE_URL`, `CRON_SECRET`, `EPX_CUST_NBR`, `EPX_MERCH_NBR`, `EPX_DBA_NBR`, `EPX_TERMINAL_NBR`
+  - Optional: `CALLBACK_BASE_URL` (defaults to SERVICE_URL), `EPX_MAC_STAGING` (only for tokenization)
+
+- `tests/integration/testutil/constants.go`:
+  - Removed deprecated card/ACH constants (now in tokenization.go as TestCard/TestACH variables)
+  - Retained only amount constants, timeouts, and currency
+
+- `tests/integration/testutil/tokenization.go`:
+  - Removed inconsistent `//go:build integration` tag (other testutil files don't have it)
+
+- `tests/integration/cron/audit_cleanup_validation_test.go`:
+  - Use `cfg.CronSecret` from config instead of hardcoded string
+
+- Removed emojis from all test log statements (7 files updated)
+
+**Deleted Files**
+
+- `tests/integration/fixtures/test_data.go` - Hardcoded TestMerchantID unused (factory pattern used instead)
+- `tests/integration/fixtures/epx_brics.go` - Placeholder BRICs never worked (dynamic tokenization used)
+- `tests/integration/testutil/ngrok.go` - Unused helper (referenced deleted test files)
+- `tests/integration/README_NGROK.md` - Documentation for deleted ngrok helper
+- `tests/integration/fixtures/` directory removed (empty after deletions)
+
+### Fixed (2025-12-10)
+
+**Integration Test Database Configuration**
+
+Fixed integration tests to use the same database configuration as the server:
+
+- `tests/integration/testutil/database_pool.go`:
+  - Removed hardcoded defaults for database connection (was using `localhost`, `5432`, `postgres`, `payment_service`)
+  - Tests now use the same `DATABASE_URL` or `DB_*` environment variables as the server
+  - Added fail-fast validation for missing required database configuration
+  - This ensures test data (services, merchants) is visible to the running server during integration tests
+
+**Why:** Integration tests were creating test services and merchants in a different database than the running server was using. This caused JWT authentication to fail with 401 (service not found) instead of 403 (access denied) when testing unauthorized merchant access.
+
+**Breaking Change:** Tests now require explicit database configuration via environment variables. Set `DATABASE_URL` or the individual `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` variables.
+
+**Database Constraint Tests**
+
+Fixed database constraint tests to match actual schema:
+
+- `tests/integration/database/constraints_test.go`:
+  - Fixed merchant inserts to include all required fields (`cust_nbr`, `merch_nbr`, etc.)
+  - Fixed chargeback inserts to include required `dispute_date`, `chargeback_date`, `raw_data`
+  - Removed `status` from transaction INSERTs (it's a GENERATED column)
+  - Changed `payment_methods` to `customer_payment_methods` (correct table name)
+  - Updated cascade delete test to handle RESTRICT foreign key policy
+
+**Other Test Fixes**
+
+- `tests/integration/admin/admin_cli_test.go`: Updated to use `DATABASE_URL` or `DB_*` env vars
+- `tests/integration/connect/connect_protocol_test.go`: Fixed nil slice assertion for empty transaction lists
+- `tests/integration/cron/audit_cleanup_validation_test.go`: Updated test to match actual server behavior (0 retention uses default 90 days, added test for minimum 7-day retention)
+
 ### Changed (2025-12-10)
 
 **Browser POST Form Documentation Updates**

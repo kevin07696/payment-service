@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/ports"
-	"github.com/kevin07696/payment-service/internal/util"
+	"github.com/kevin07696/payment-service/internal/epxutil"
 	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"go.uber.org/zap"
 )
@@ -100,8 +100,10 @@ func (h *PrenoteRetryHandler) RetryPrenotes(w http.ResponseWriter, r *http.Reque
 		maxAttempts = *req.MaxAttempts
 	}
 
-	// Process prenote retries
-	ctx := context.Background()
+	// Process prenote retries with request context and timeout
+	// Using r.Context() allows graceful shutdown during deployment
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
 	succeeded, failed, maxRetries, errs := h.processPrenoteRetries(ctx, batchSize, maxAttempts)
 
 	resp := PrenoteRetryResponse{
@@ -207,7 +209,7 @@ func (h *PrenoteRetryHandler) processSinglePrenote(ctx context.Context, pm sqlc.
 
 	// Build prenote request
 	prenoteID := uuid.New()
-	prenoteTranNbr := util.UUIDToEPXTranNbr(prenoteID)
+	prenoteTranNbr := epxutil.UUIDToEPXTranNbr(prenoteID)
 
 	cardEntryMethod := "Z"
 	stdEntryClass := "WEB"
@@ -412,11 +414,9 @@ func (h *PrenoteRetryHandler) authenticateRequest(r *http.Request) bool {
 		return true
 	}
 
-	querySecret := r.URL.Query().Get("secret")
-	if querySecret != "" && querySecret == h.cronSecret {
-		h.logger.Warn("Using query parameter authentication (insecure)")
-		return true
-	}
+	// Note: Google Cloud Scheduler OIDC token validation can be added here
+	// for production environments that require additional security.
+	// The X-Cron-Secret header is the primary authentication method.
 
 	return false
 }
@@ -469,5 +469,7 @@ func (h *PrenoteRetryHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		"timestamp": timeutil.Now().Format(time.RFC3339),
 	}
 
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("Failed to encode stats response", zap.Error(err))
+	}
 }

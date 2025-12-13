@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -676,8 +677,9 @@ func TestDomainErrors_MessageDescriptiveness(t *testing.T) {
 	}
 }
 
-// TestDomainError_WithDetail tests that WithDetail adds details correctly
+// TestDomainError_WithDetail tests that WithDetail returns a copy with details
 func TestDomainError_WithDetail(t *testing.T) {
+	// Test that WithDetail returns a copy, not the original
 	err := ErrTxnNotFound.WithDetail("transaction_id", "abc123")
 
 	if err == nil {
@@ -688,8 +690,117 @@ func TestDomainError_WithDetail(t *testing.T) {
 		t.Fatal("expected details map to be initialized")
 	}
 
+	// err should have the detail
 	if err.Details["transaction_id"] != "abc123" {
 		t.Errorf("expected detail transaction_id to be 'abc123', got %v", err.Details["transaction_id"])
+	}
+
+	// Original should NOT have the detail (proves copy was made)
+	if ErrTxnNotFound.Details != nil && ErrTxnNotFound.Details["transaction_id"] != nil {
+		t.Errorf("original error was mutated - WithDetail should return a copy")
+	}
+
+	// Should still match with errors.Is()
+	if !errors.Is(err, ErrTxnNotFound) {
+		t.Error("errors.Is() should still match after WithDetail")
+	}
+}
+
+// TestDomainError_WithDetail_Chaining tests that chained WithDetail calls work correctly
+func TestDomainError_WithDetail_Chaining(t *testing.T) {
+	err := ErrTxnNotFound.
+		WithDetail("key1", "value1").
+		WithDetail("key2", "value2")
+
+	if err.Details["key1"] != "value1" {
+		t.Errorf("expected key1=value1, got %v", err.Details["key1"])
+	}
+	if err.Details["key2"] != "value2" {
+		t.Errorf("expected key2=value2, got %v", err.Details["key2"])
+	}
+
+	// Original untouched
+	if len(ErrTxnNotFound.Details) > 0 {
+		t.Error("original error was mutated during chaining")
+	}
+}
+
+// TestDomainError_WithDetail_Concurrent tests thread-safety of WithDetail
+func TestDomainError_WithDetail_Concurrent(t *testing.T) {
+	const goroutines = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			err := ErrTxnNotFound.WithDetail("id", id)
+			// Each goroutine should have its own detail
+			if err.Details["id"] != id {
+				t.Errorf("goroutine %d: expected id=%d, got %v", id, id, err.Details["id"])
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Global error should be untouched
+	if len(ErrTxnNotFound.Details) > 0 {
+		t.Error("global ErrTxnNotFound was mutated during concurrent access")
+	}
+}
+
+// TestDomainError_WithDetail_ErrorsIs tests that errors.Is() works after WithDetail
+func TestDomainError_WithDetail_ErrorsIs(t *testing.T) {
+	// errors.Is() must work for error checking
+	err := ErrTxnNotFound.WithDetail("transaction_id", "abc123")
+
+	// Must match original sentinel error
+	if !errors.Is(err, ErrTxnNotFound) {
+		t.Error("errors.Is() should match after WithDetail")
+	}
+
+	// Chained details must also match
+	errChained := ErrPMNotFound.
+		WithDetail("payment_method_id", "pm_123").
+		WithDetail("reason", "expired")
+
+	if !errors.Is(errChained, ErrPMNotFound) {
+		t.Error("errors.Is() should match after chained WithDetail")
+	}
+
+	// Must NOT match different error types
+	if errors.Is(err, ErrPMNotFound) {
+		t.Error("errors.Is() should not match different error type")
+	}
+}
+
+// TestDomainError_Is tests the Is() method for Code-based comparison
+func TestDomainError_Is(t *testing.T) {
+	// Test that Is() compares by Code
+	err1 := NewDomainError(ErrorCodeTxnNotFound, "transaction not found")
+	err2 := NewDomainError(ErrorCodeTxnNotFound, "different message, same code")
+	err3 := NewDomainError(ErrorCodePMNotFound, "payment method not found")
+
+	// Same code should match
+	if !err1.Is(err2) {
+		t.Error("errors with same Code should match via Is()")
+	}
+
+	// Different code should not match
+	if err1.Is(err3) {
+		t.Error("errors with different Code should not match via Is()")
+	}
+
+	// Should work with errors.Is()
+	if !errors.Is(err1, err2) {
+		t.Error("errors.Is() should use Is() method for comparison")
+	}
+
+	// Non-DomainError should not match
+	plainErr := errors.New("plain error")
+	if err1.Is(plainErr) {
+		t.Error("DomainError should not match non-DomainError")
 	}
 }
 

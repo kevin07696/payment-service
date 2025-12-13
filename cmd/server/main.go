@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -22,15 +23,18 @@ import (
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	"github.com/kevin07696/payment-service/internal/adapters/epx"
 	"github.com/kevin07696/payment-service/internal/adapters/north"
-	"github.com/kevin07696/payment-service/internal/db/seed"
+	"github.com/kevin07696/payment-service/internal/adapters/secrets"
+	"github.com/kevin07696/payment-service/internal/services/seeder"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	chargebackHandler "github.com/kevin07696/payment-service/internal/handlers/chargeback"
 	cronHandler "github.com/kevin07696/payment-service/internal/handlers/cron"
+	e2eHandler "github.com/kevin07696/payment-service/internal/handlers/e2e"
 	merchantHandler "github.com/kevin07696/payment-service/internal/handlers/merchant"
 	paymentHandler "github.com/kevin07696/payment-service/internal/handlers/payment"
 	paymentmethodHandler "github.com/kevin07696/payment-service/internal/handlers/payment_method"
 	subscriptionHandler "github.com/kevin07696/payment-service/internal/handlers/subscription"
 	authMiddleware "github.com/kevin07696/payment-service/internal/middleware"
+	"github.com/kevin07696/payment-service/internal/services/authorization"
 	browserpostService "github.com/kevin07696/payment-service/internal/services/browser_post"
 	merchantService "github.com/kevin07696/payment-service/internal/services/merchant"
 	paymentService "github.com/kevin07696/payment-service/internal/services/payment"
@@ -128,13 +132,7 @@ func main() {
 	// Create sqlc queries object
 	queries := sqlc.New(dbPool)
 
-	// Initialize dependencies
-	deps := initDependencies(dbPool, sqlDB, queries, cfg, logger)
-
-	// Create ConnectRPC HTTP mux
-	mux := http.NewServeMux()
-
-	// Initialize authentication interceptor
+	// Initialize authentication interceptor (before deps so it can be passed to handlers)
 	var authInterceptor *authMiddleware.AuthInterceptor
 	if cfg.AuthEnabled {
 		var err error
@@ -146,6 +144,12 @@ func main() {
 	} else {
 		logger.Warn("Authentication is DISABLED - for development only!")
 	}
+
+	// Initialize dependencies
+	deps := initDependencies(dbPool, sqlDB, queries, cfg, logger, authInterceptor)
+
+	// Create ConnectRPC HTTP mux
+	mux := http.NewServeMux()
 
 	// Create Connect interceptors
 	// Order matters: outermost (first) to innermost (last)
@@ -236,7 +240,8 @@ func main() {
 
 	// Create rate limiter (10 requests per second per IP, burst of 20)
 	// Adjust these values based on expected staging traffic
-	rateLimiter := middleware.NewRateLimiter(10, 20)
+	// TrustedProxies: Only trust X-Forwarded-For from these IPs to prevent IP spoofing
+	rateLimiter := middleware.NewRateLimiter(10, 20, cfg.TrustedProxies)
 
 	// Note: EPX callback MAC validation is performed in the service layer
 	// (BrowserPostService.ProcessCallback) rather than middleware, because:
@@ -294,14 +299,30 @@ func main() {
 	// and cannot include custom HTTP headers. MAC signature validation is performed
 	// in the service layer (BrowserPostService.ProcessCallback) using the MAC field
 	// from form parameters, which is signed by EPX using the merchant's MAC secret.
-	mux.HandleFunc("/api/v1/payments/browser-post/form",
-		rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm))
 
+	// Form endpoint requires JWT auth to validate service-merchant access
+	formHandler := http.HandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm)
+	if deps.authInterceptor != nil {
+		// Auth enabled: wrap with JWT auth middleware, then rate limiting
+		mux.Handle("/api/v1/payments/browser-post/form",
+			rateLimiter.HTTPHandler(deps.authInterceptor.HTTPAuthMiddleware(formHandler)))
+	} else {
+		// Auth disabled (dev mode): just rate limiting
+		mux.HandleFunc("/api/v1/payments/browser-post/form",
+			rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm))
+	}
+
+	// Callback doesn't need auth - it comes from EPX redirect with MAC signature validation
 	mux.HandleFunc("/api/v1/payments/browser-post/callback",
 		rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.HandleCallback))
 
 	// Serve Browser Post demo form (avoids CORS issues with file:// protocol)
 	mux.HandleFunc("/browser-post-demo", serveBrowserPostDemo)
+
+	// E2E test endpoints (only active in non-production environments)
+	// These endpoints create isolated test data for E2E tests
+	mux.HandleFunc("/internal/e2e/setup", deps.e2eHandler.Setup)
+	mux.HandleFunc("/internal/e2e/cleanup", deps.e2eHandler.Cleanup)
 
 	// Initialize security headers middleware
 	isDevelopment := getEnv("ENVIRONMENT", "development") != "production"
@@ -476,6 +497,9 @@ type Config struct {
 	AuthSaltPrefix string
 	EPXMacSecret   string
 	AuthEnabled    bool
+
+	// Rate Limiting
+	TrustedProxies []string // List of trusted proxy IPs for X-Forwarded-For header
 }
 
 // Dependencies holds all initialized services and handlers
@@ -496,6 +520,8 @@ type Dependencies struct {
 	auditCleanupCronHandler     *cronHandler.AuditCleanupHandler
 	rateLimitCleanupCronHandler *cronHandler.RateLimitCleanupHandler
 	browserPostCallbackHandler  *paymentHandler.BrowserPostCallbackHandler
+	e2eHandler                  *e2eHandler.Handler
+	authInterceptor             *authMiddleware.AuthInterceptor
 }
 
 // loadConfig loads configuration from environment variables
@@ -546,6 +572,10 @@ func loadConfig(logger *zap.Logger) *Config {
 		AuthSaltPrefix: requireEnv("AUTH_SALT_PREFIX", logger),
 		EPXMacSecret:   getEnv("EPX_SANDBOX_MAC", ""), // Optional: Merchant Authorization Code for sandbox callback auth
 		AuthEnabled:    requireEnvBool("AUTH_ENABLED", logger),
+
+		// Rate Limiting - comma-separated list of trusted proxy IPs
+		// Only requests from these IPs will have X-Forwarded-For headers trusted
+		TrustedProxies: parseTrustedProxies(getEnv("TRUSTED_PROXIES", "")),
 	}
 
 	// Validate CRON_SECRET security requirements
@@ -634,7 +664,7 @@ func initDatabase(cfg *Config, logger *zap.Logger) (*pgxpool.Pool, error) {
 }
 
 // initDependencies initializes all services and handlers with dependency injection
-func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries, cfg *Config, logger *zap.Logger) *Dependencies {
+func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries, cfg *Config, logger *zap.Logger, authInterceptor *authMiddleware.AuthInterceptor) *Dependencies {
 	// Initialize database adapter
 	dbCfg := database.DefaultPostgreSQLConfig(
 		fmt.Sprintf(
@@ -696,18 +726,22 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	businessReporting := epx.NewBusinessReportingAdapter(businessReportingCfg, logger)
 
 	// Initialize secret manager based on environment
-	// Supports: GCP Secret Manager (production) or Mock (development)
-	secretManager := initSecretManager(context.Background(), logger)
+	// Supports: mock (dev), local (dev with real creds), gcp, aws, vault (production)
+	// Configuration via SECRET_MANAGER environment variable
+	secretManager, err := secrets.NewSecretManager(context.Background(), nil, logger)
+	if err != nil {
+		logger.Fatal("Failed to initialize secret manager", zap.Error(err))
+	}
 
 	// Auto-seed sandbox merchant in development/staging (not production)
-	seeder := seed.NewSeeder(queries, secretManager, logger)
-	if err := seeder.SeedIfNeeded(context.Background()); err != nil {
+	dbSeeder := seeder.NewSeeder(queries, secretManager, logger)
+	if err := dbSeeder.SeedIfNeeded(context.Background()); err != nil {
 		logger.Error("Failed to auto-seed sandbox merchant", zap.Error(err))
 		// Non-fatal: continue startup even if seeding fails
 	}
 
 	// Seed test data for API documentation (service, subscriptions, etc.)
-	if err := seeder.SeedTestData(context.Background()); err != nil {
+	if err := dbSeeder.SeedTestData(context.Background()); err != nil {
 		logger.Error("Failed to seed test data", zap.Error(err))
 		// Non-fatal: continue startup even if seeding fails
 	}
@@ -759,6 +793,15 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		nil, // Use default config (DEFAULT_ACH_CLASS env var or "WEB")
 	)
 
+	// Create TransactionQueryService with its own merchant auth service
+	queryAccessChecker := authorization.NewSQLCServiceMerchantAccessChecker(dbAdapter.Queries())
+	queryMerchantAuthSvc := authorization.NewMerchantAuthorizationService(logger, queryAccessChecker)
+	transactionQuerySvc := paymentService.NewTransactionQueryService(
+		dbAdapter.Queries(),
+		queryMerchantAuthSvc,
+		logger,
+	)
+
 	// Initialize webhook delivery service with optimized HTTP client (P2-3)
 	// Must be created before subscription service which depends on it
 	webhookHTTPClient := pkghttp.NewHTTPClient(
@@ -799,7 +842,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	)
 
 	// Initialize ConnectRPC handlers
-	paymentHdlr := paymentHandler.NewConnectHandler(paymentSvc, logger)
+	paymentHdlr := paymentHandler.NewConnectHandler(paymentSvc, transactionQuerySvc, logger)
 	subscriptionHdlr := subscriptionHandler.NewConnectHandler(subscriptionSvc, logger, subscriptionHandler.ConnectHandlerConfig{
 		DefaultMaxRetries: cfg.SubscriptionDefaultMaxRetries,
 	})
@@ -836,12 +879,20 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		logger.Fatal("Failed to initialize template renderer", zap.Error(err))
 	}
 
+	// Create merchant authorization service for HTTP handlers (validates service-merchant access)
+	accessChecker := authorization.NewSQLCServiceMerchantAccessChecker(queries)
+	merchantAuthSvc := authorization.NewMerchantAuthorizationService(logger, accessChecker)
+
 	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(
 		browserPostSvc,
 		paymentMethodSvc,
+		merchantAuthSvc,
 		templateRenderer,
 		logger,
 	)
+
+	// Initialize E2E test handler (only active in non-production environments)
+	e2eHdlr := e2eHandler.NewHandler(queries, secretManager, logger)
 
 	return &Dependencies{
 		dbAdapter:                   dbAdapter,
@@ -860,6 +911,8 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		auditCleanupCronHandler:     auditCleanupCronHdlr,
 		rateLimitCleanupCronHandler: rateLimitCleanupCronHdlr,
 		browserPostCallbackHandler:  browserPostCallbackHdlr,
+		e2eHandler:                  e2eHdlr,
+		authInterceptor:             authInterceptor,
 	}
 }
 
@@ -872,19 +925,21 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		var intValue int
-		if _, err := fmt.Sscanf(value, "%d", &intValue); err == nil {
-			return intValue
+// parseTrustedProxies parses a comma-separated list of trusted proxy IPs
+// Example: "10.0.0.1,10.0.0.2,192.168.1.100"
+func parseTrustedProxies(value string) []string {
+	if value == "" {
+		return nil
+	}
+	proxies := strings.Split(value, ",")
+	result := make([]string, 0, len(proxies))
+	for _, proxy := range proxies {
+		trimmed := strings.TrimSpace(proxy)
+		if trimmed != "" {
+			result = append(result, trimmed)
 		}
 	}
-	return defaultValue
-}
-
-func getEnvDuration(key string, defaultMinutes int) time.Duration {
-	minutes := getEnvInt(key, defaultMinutes)
-	return time.Duration(minutes) * time.Minute
+	return result
 }
 
 // getTracingSampleRate returns the tracing sample rate from environment

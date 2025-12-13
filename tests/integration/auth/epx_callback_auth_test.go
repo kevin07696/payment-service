@@ -61,7 +61,7 @@ func TestEPXCallbackAuthentication_ValidMAC(t *testing.T) {
 		t.Errorf("Valid MAC should pass validation: %v", err)
 	}
 
-	t.Logf("✅ Valid MAC signature accepted")
+	t.Logf("Valid MAC signature accepted")
 }
 
 // Mock adapter for testing
@@ -148,7 +148,7 @@ func TestEPXCallbackAuthentication_InvalidMAC(t *testing.T) {
 		t.Errorf("Invalid MAC should be rejected")
 	}
 
-	t.Logf("✅ Invalid MAC signature rejected: %v", err)
+	t.Logf("Invalid MAC signature rejected: %v", err)
 }
 
 // TestEPXCallbackAuthentication_MissingMAC tests EPX callback without MAC is rejected
@@ -182,7 +182,7 @@ func TestEPXCallbackAuthentication_MissingMAC(t *testing.T) {
 		t.Errorf("Expected 'MAC is missing from response', got: %v", err)
 	}
 
-	t.Logf("✅ Callback without MAC rejected: %v", err)
+	t.Logf("Callback without MAC rejected: %v", err)
 }
 
 // TestEPXCallbackAuthentication_TamperedData tests callback with modified data but original MAC is rejected
@@ -229,7 +229,7 @@ func TestEPXCallbackAuthentication_TamperedData(t *testing.T) {
 		t.Errorf("Tampered data should be rejected")
 	}
 
-	t.Logf("✅ Tampered callback data rejected: %v", err)
+	t.Logf("Tampered callback data rejected: %v", err)
 }
 
 // TestEPXCallbackAuthentication_ReplayAttack tests same callback twice is rejected or handled idempotently
@@ -287,10 +287,10 @@ func TestEPXCallbackAuthentication_IPWhitelist(t *testing.T) {
 	// Actual testing is done via integration tests that use the real middleware
 	// with database-backed IP whitelist from 'services' table
 
-	t.Log("✅ IP whitelist implemented in EPXCallbackAuth middleware")
-	t.Log("✅ getClientIP() extracts IP from X-Forwarded-For, X-Real-IP, CF-Connecting-IP, or RemoteAddr")
-	t.Log("✅ Returns HTTP 403 for non-whitelisted IPs")
-	t.Log("✅ Logs rejected callback attempts to audit table")
+	t.Log("IP whitelist implemented in EPXCallbackAuth middleware")
+	t.Log("getClientIP() extracts IP from X-Forwarded-For, X-Real-IP, CF-Connecting-IP, or RemoteAddr")
+	t.Log("Returns HTTP 403 for non-whitelisted IPs")
+	t.Log("Logs rejected callback attempts to audit table")
 	t.Log("[INFO] Integration coverage via browser post workflow tests with admin IP whitelist")
 }
 

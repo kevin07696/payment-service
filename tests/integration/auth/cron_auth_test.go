@@ -29,7 +29,7 @@ func TestCronAuthentication_ValidSecret(t *testing.T) {
 	require.NotEqual(t, 401, resp.StatusCode, "Should not return 401 with valid cron secret")
 	require.NotEqual(t, 403, resp.StatusCode, "Should not return 403 with valid cron secret")
 
-	t.Logf("✅ Valid X-Cron-Secret accepted (status: %d)", resp.StatusCode)
+	t.Logf("Valid X-Cron-Secret accepted (status: %d)", resp.StatusCode)
 	t.Logf("   Cron URL: %s", cfg.CallbackBaseURL)
 }
 
@@ -51,7 +51,7 @@ func TestCronAuthentication_InvalidSecret(t *testing.T) {
 	// Should reject with 401 Unauthorized
 	require.Equal(t, 401, resp.StatusCode, "Should return 401 with invalid cron secret")
 
-	t.Logf("✅ Invalid X-Cron-Secret rejected (status: %d)", resp.StatusCode)
+	t.Logf("Invalid X-Cron-Secret rejected (status: %d)", resp.StatusCode)
 }
 
 // TestCronAuthentication_MissingSecret tests cron endpoint without X-Cron-Secret is rejected
@@ -72,64 +72,13 @@ func TestCronAuthentication_MissingSecret(t *testing.T) {
 	// Should reject with 401 Unauthorized
 	require.Equal(t, 401, resp.StatusCode, "Should return 401 without authentication")
 
-	t.Logf("✅ Request without authentication rejected (status: %d)", resp.StatusCode)
+	t.Logf("Request without authentication rejected (status: %d)", resp.StatusCode)
 }
 
-// TestCronAuthentication_BearerToken tests cron endpoint with Bearer token
-// NOTE: The cronAuthMiddleware in main.go only supports X-Cron-Secret header.
-// Bearer token auth is not supported by the middleware (though handler code exists).
-func TestCronAuthentication_BearerToken(t *testing.T) {
-	t.Skip("Bearer token auth is not supported - middleware only checks X-Cron-Secret header")
-
-	cfg, _ := testutil.Setup(t)
-
-	// Create client for cron server (port 8081)
-	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
-
-	// Use Bearer token authentication instead of X-Cron-Secret
-	cronClient.SetHeader("Authorization", "Bearer "+cfg.CronSecret)
-
-	// Test ACH verification cron endpoint
-	resp, err := cronClient.Do("POST", "/cron/verify-ach", nil)
-	require.NoError(t, err, "Request should complete")
-	defer resp.Body.Close()
-
-	// Should succeed with valid Bearer token
-	require.NotEqual(t, 401, resp.StatusCode, "Should not return 401 with valid Bearer token")
-	require.NotEqual(t, 403, resp.StatusCode, "Should not return 403 with valid Bearer token")
-
-	t.Logf("✅ Valid Bearer token accepted (status: %d)", resp.StatusCode)
-	t.Logf("   Cron URL: %s", cfg.CallbackBaseURL)
-}
-
-// TestCronAuthentication_QueryParameter tests cron endpoint with secret as query param
-// NOTE: The cronAuthMiddleware in main.go only supports X-Cron-Secret header.
-// Query param auth is not supported by the middleware (though handler code exists).
-func TestCronAuthentication_QueryParameter(t *testing.T) {
-	t.Skip("Query param auth is not supported - middleware only checks X-Cron-Secret header")
-
-	cfg, _ := testutil.Setup(t)
-
-	// Create client for cron server (port 8081)
-	cronClient := testutil.NewClient(cfg.CallbackBaseURL)
-
-	// Use query parameter authentication (insecure, for development only)
-	// No authentication headers
-	cronClient.ClearHeaders()
-
-	// Test ACH verification cron endpoint with secret query parameter
-	resp, err := cronClient.Do("POST", "/cron/verify-ach?secret="+cfg.CronSecret, nil)
-	require.NoError(t, err, "Request should complete")
-	defer resp.Body.Close()
-
-	// Should succeed but log warning
-	require.NotEqual(t, 401, resp.StatusCode, "Should not return 401 with valid query param secret")
-	require.NotEqual(t, 403, resp.StatusCode, "Should not return 403 with valid query param secret")
-
-	t.Logf("✅ Query parameter secret accepted (status: %d)", resp.StatusCode)
-	t.Logf("   Note: Query parameter authentication is insecure and logs warning")
-	t.Logf("   Cron URL: %s", cfg.CallbackBaseURL)
-}
+// NOTE: Bearer token and query parameter authentication are intentionally NOT supported.
+// Only X-Cron-Secret header authentication is supported for security reasons.
+// Query parameter auth was removed as it leaks secrets in logs/URLs.
+// See: CHANGELOG.md for security audit remediation details.
 
 // TestCronAuthentication_AllEndpoints tests all cron endpoints require authentication
 func TestCronAuthentication_AllEndpoints(t *testing.T) {
@@ -172,11 +121,11 @@ func TestCronAuthentication_AllEndpoints(t *testing.T) {
 		require.NotEqual(t, 401, respAuth.StatusCode,
 			"%s (%s %s) should not return 401 with valid auth", endpoint.name, endpoint.method, endpoint.path)
 
-		t.Logf("  ✅ %s (%s %s): 401 without auth, %d with auth",
+		t.Logf("  %s (%s %s): 401 without auth, %d with auth",
 			endpoint.name, endpoint.method, endpoint.path, respAuth.StatusCode)
 	}
 
-	t.Logf("✅ All %d cron endpoints properly require authentication", len(cronEndpoints))
+	t.Logf("All %d cron endpoints properly require authentication", len(cronEndpoints))
 }
 
 // TestCronAuthentication_HealthCheckNoAuth tests health check endpoints don't require auth
@@ -211,9 +160,9 @@ func TestCronAuthentication_HealthCheckNoAuth(t *testing.T) {
 		require.Equal(t, 200, resp.StatusCode,
 			"%s (%s) should return 200 without auth for monitoring", endpoint.name, endpoint.path)
 
-		t.Logf("  ✅ %s (%s %s): accessible without auth",
+		t.Logf("  %s (%s %s): accessible without auth",
 			endpoint.name, endpoint.method, endpoint.path)
 	}
 
-	t.Logf("✅ All %d health check endpoints accessible without authentication", len(healthEndpoints))
+	t.Logf("All %d health check endpoints accessible without authentication", len(healthEndpoints))
 }

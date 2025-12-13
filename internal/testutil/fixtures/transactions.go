@@ -91,6 +91,13 @@ func (b *TransactionBuilder) Void() *TransactionBuilder {
 	return b
 }
 
+// Reversal sets the transaction type to "reversal" (CCE7)
+// Reversal releases the authorization hold AND voids the transaction in one call
+func (b *TransactionBuilder) Reversal() *TransactionBuilder {
+	b.transaction.Type = "reversal"
+	return b
+}
+
 func (b *TransactionBuilder) Storage() *TransactionBuilder {
 	b.transaction.Type = "storage"
 	return b
@@ -257,6 +264,21 @@ func RefundTransaction(merchantID uuid.UUID, parentID uuid.UUID, amountCents int
 		WithAmountCents(amountCents).
 		Refund().
 		CreditCard().
+		Approved().
+		Build()
+}
+
+// ReversalTransaction creates a reversal transaction (CCE7) linked to a parent auth/sale.
+// Reversal releases the authorization hold AND voids the transaction in one call.
+// The authGuid is the BRIC from the original transaction.
+func ReversalTransaction(merchantID uuid.UUID, parentID uuid.UUID, authGuid string) sqlc.Transaction {
+	return NewTransaction().
+		WithMerchantID(merchantID).
+		WithParentTransactionID(parentID).
+		WithAmountCents(0). // Full reversal
+		Reversal().
+		CreditCard().
+		WithAuthGuid(authGuid).
 		Approved().
 		Build()
 }

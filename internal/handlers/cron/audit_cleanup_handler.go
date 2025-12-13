@@ -127,7 +127,8 @@ func (h *AuditCleanupHandler) CleanupAuditLogs(w http.ResponseWriter, r *http.Re
 	)
 
 	// Execute cleanup with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Using r.Context() allows graceful shutdown during deployment
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
 	// Convert time.Time to pgtype.Timestamp
@@ -167,11 +168,13 @@ func (h *AuditCleanupHandler) CleanupAuditLogs(w http.ResponseWriter, r *http.Re
 func (h *AuditCleanupHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "healthy",
 		"service": "audit-cleanup-cron",
 		"time":    timeutil.Now().Format(time.RFC3339),
-	})
+	}); err != nil {
+		h.logger.Error("Failed to encode health response", zap.Error(err))
+	}
 }
 
 // Stats returns statistics about audit log cleanup
@@ -200,13 +203,15 @@ func (h *AuditCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"total_audit_logs":     count,
 		"default_retention":    90,
 		"retention_unit":       "days",
 		"last_check":           timeutil.Now().Format(time.RFC3339),
 		"recommended_schedule": "daily at 2 AM UTC",
-	})
+	}); err != nil {
+		h.logger.Error("Failed to encode stats response", zap.Error(err))
+	}
 }
 
 // Helper methods
@@ -220,14 +225,18 @@ func (h *AuditCleanupHandler) authenticateRequest(r *http.Request) bool {
 func (h *AuditCleanupHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": false,
 		"error":   message,
-	})
+	}); err != nil {
+		h.logger.Error("Failed to encode error response", zap.Error(err))
+	}
 }
 
 func (h *AuditCleanupHandler) respondSuccess(w http.ResponseWriter, data CleanupResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		h.logger.Error("Failed to encode success response", zap.Error(err))
+	}
 }
