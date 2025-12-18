@@ -1,14 +1,26 @@
 # Binaries
 bin/
-server
+/server
+/admin
+/seed
+/paycli
+/payment-service
+!cmd/server/*.go
+!cmd/admin/*.go
+!cmd/seed/*.go
+!cmd/paycli/*.go
+*.test
 
 # Environment
 .env
 
+# VSCode
+.vscode
+
 # Claude Code
 .claude
-# Never commit secrets directory
-secrets/
+# Never commit secrets directory (root-level only, not internal/adapters/secrets/)
+/secrets/
 
 # Test coverage files
 coverage.out
@@ -47,6 +59,10 @@ SETUP_CREDENTIALS.txt
 # Database credentials
 db-credentials.txt
 *-credentials.txt
+*_credentials.txt
+*_credentials.json
+service_*_credentials.json
+seed_credentials.txt
 
 # SSH keys
 id_rsa
@@ -64,12 +80,40 @@ terraform.tfstate.backup
 .terraform/
 .terraform.lock.hcl
 
-# Temporary secrets
-secrets/
-tmp-secrets/
+# Temporary secrets (root-level only)
+/secrets/
+/tmp-secrets/
 *.secret
 
 # Auth tokens
 *token*.txt
 *auth*.txt
 keys/
+*.backup
+
+# Test credentials (NEVER COMMIT!)
+# These are generated dynamically during test execution
+tests/fixtures/auth/test_services.json
+
+# Test artifacts and temporary files
+test-*.json
+grant-*.json
+update-*.json
+merchant_*.json
+apartment-*.json
+*_info.json
+
+# Old reports
+COMPREHENSIVE_TEST_REPORT.md
+DEEP_DIVE_AUDIT_REPORT.md
+
+# Node modules (for e2e tests)
+node_modules/
+package-lock.json
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+
+# Cookies and temp files
+cookies.txt

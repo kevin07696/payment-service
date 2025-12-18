@@ -1,10 +1,13 @@
 package epx
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -13,7 +16,8 @@ import (
 // Test helper to create a test adapter
 func newTestAdapter(t *testing.T) *serverPostAdapter {
 	logger := zap.NewNop() // No-op logger for tests
-	config := DefaultServerPostConfig("sandbox")
+	config, err := DefaultServerPostConfig("sandbox")
+	require.NoError(t, err)
 	return NewServerPostAdapter(config, logger).(*serverPostAdapter)
 }
 
@@ -29,42 +33,43 @@ func generateTranNbr() string {
 
 // TestDefaultServerPostConfig tests configuration initialization
 func TestDefaultServerPostConfig(t *testing.T) {
-	tests := []struct {
-		name        string
-		environment string
-		wantBaseURL string
-		wantSocket  string
-	}{
-		{
-			name:        "sandbox environment",
-			environment: "sandbox",
-			wantBaseURL: "https://secure.epxuap.com",
-			wantSocket:  "secure.epxuap.com:8087",
-		},
-		{
-			name:        "production environment",
-			environment: "production",
-			wantBaseURL: "https://epxnow.com/epx/server_post",
-			wantSocket:  "epxnow.com:8086",
-		},
-	}
+	t.Run("sandbox environment uses hardcoded URLs", func(t *testing.T) {
+		config, err := DefaultServerPostConfig("sandbox")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := DefaultServerPostConfig(tt.environment)
+		require.NoError(t, err)
+		assert.NotNil(t, config)
+		assert.Equal(t, "https://secure.epxuap.com", config.BaseURL)
+		assert.Equal(t, "secure.epxuap.com:8087", config.SocketEndpoint)
+		assert.NotEmpty(t, config.Timeout)
+	})
 
-			assert.NotNil(t, config)
-			assert.Equal(t, tt.wantBaseURL, config.BaseURL)
-			assert.Equal(t, tt.wantSocket, config.SocketEndpoint)
-			assert.NotEmpty(t, config.Timeout)
-		})
-	}
+	t.Run("production environment requires env vars", func(t *testing.T) {
+		// Without env vars, should return error
+		config, err := DefaultServerPostConfig("production")
+
+		assert.Nil(t, config)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "EPX_SERVER_POST_ENDPOINT")
+	})
+
+	t.Run("production environment with env vars succeeds", func(t *testing.T) {
+		t.Setenv("EPX_SERVER_POST_ENDPOINT", "https://prod.example.com")
+		t.Setenv("EPX_SERVER_POST_SOCKET_ENDPOINT", "prod.example.com:8086")
+
+		config, err := DefaultServerPostConfig("production")
+
+		require.NoError(t, err)
+		assert.NotNil(t, config)
+		assert.Equal(t, "https://prod.example.com", config.BaseURL)
+		assert.Equal(t, "prod.example.com:8086", config.SocketEndpoint)
+	})
 }
 
 // TestNewServerPostAdapter tests adapter initialization
 func TestNewServerPostAdapter(t *testing.T) {
 	logger := zap.NewNop()
-	config := DefaultServerPostConfig("sandbox")
+	config, err := DefaultServerPostConfig("sandbox")
+	require.NoError(t, err)
 
 	adapter := NewServerPostAdapter(config, logger)
 
@@ -106,7 +111,8 @@ func TestBuildFormData(t *testing.T) {
 				assert.Equal(t, "CCE1", formData["TRAN_TYPE"][0])
 				assert.Equal(t, "10.00", formData["AMOUNT"][0])
 				assert.Equal(t, "12345", formData["TRAN_NBR"][0])
-				assert.Equal(t, "12345", formData["BATCH_ID"][0])
+				// BATCH_ID is auto-generated as today's date in YYYYMMDD format
+				assert.Regexp(t, `^\d{8}$`, formData["BATCH_ID"][0], "BATCH_ID should be 8 digits (YYYYMMDD)")
 				assert.Equal(t, "4111111111111111", formData["ACCOUNT_NBR"][0])
 				assert.Equal(t, "1225", formData["EXP_DATE"][0])
 				assert.Equal(t, "123", formData["CVV2"][0])
@@ -183,6 +189,28 @@ func TestBuildFormData(t *testing.T) {
 				assert.Equal(t, "0.00", formData["AMOUNT"][0])
 				assert.Equal(t, "123 Main St", formData["ADDRESS"][0])
 				assert.Equal(t, "10001", formData["ZIP_CODE"][0])
+			},
+		},
+		// Reversal transaction (CCE7) - releases auth hold and voids in one call
+		{
+			name: "reversal transaction with BRIC",
+			request: &ports.ServerPostRequest{
+				CustNbr:          "9001",
+				MerchNbr:         "900300",
+				DBAnbr:           "2",
+				TerminalNbr:      "77",
+				TransactionType:  ports.TransactionTypeReversal,
+				TranNbr:          "12349",
+				TranGroup:        "12349",
+				OriginalAuthGUID: "09TESTGUID123456789",
+				CardEntryMethod:  strPtr("Z"),
+				IndustryType:     strPtr("E"),
+			},
+			validate: func(t *testing.T, formData map[string][]string) {
+				assert.Equal(t, "CCE7", formData["TRAN_TYPE"][0])
+				assert.Equal(t, "09TESTGUID123456789", formData["ORIG_AUTH_GUID"][0])
+				assert.Equal(t, "Z", formData["CARD_ENT_METH"][0])
+				assert.Equal(t, "12349", formData["TRAN_NBR"][0])
 			},
 		},
 	}
@@ -273,6 +301,46 @@ func TestValidateRequest(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		// Reversal validation tests (CCE7)
+		{
+			name: "valid reversal request",
+			request: &ports.ServerPostRequest{
+				CustNbr:          "9001",
+				MerchNbr:         "900300",
+				DBAnbr:           "2",
+				TerminalNbr:      "77",
+				TransactionType:  ports.TransactionTypeReversal,
+				TranNbr:          "12345",
+				OriginalAuthGUID: "09TESTGUID123456789",
+			},
+			wantErr: false,
+		},
+		{
+			name: "reversal missing original auth guid",
+			request: &ports.ServerPostRequest{
+				CustNbr:         "9001",
+				MerchNbr:        "900300",
+				DBAnbr:          "2",
+				TerminalNbr:     "77",
+				TransactionType: ports.TransactionTypeReversal,
+				TranNbr:         "12345",
+			},
+			wantErr: true,
+			errMsg:  "original auth guid is required for reversal",
+		},
+		{
+			name: "reversal missing tran_nbr",
+			request: &ports.ServerPostRequest{
+				CustNbr:          "9001",
+				MerchNbr:         "900300",
+				DBAnbr:           "2",
+				TerminalNbr:      "77",
+				TransactionType:  ports.TransactionTypeReversal,
+				OriginalAuthGUID: "09TESTGUID123456789",
+			},
+			wantErr: true,
+			errMsg:  "tran_nbr is required",
+		},
 	}
 
 	for _, tt := range tests {
@@ -300,10 +368,11 @@ func TestTransactionTypeMapping(t *testing.T) {
 		{ports.TransactionTypeSale, "CCE1"},
 		{ports.TransactionTypeAuthOnly, "CCE2"},
 		{ports.TransactionTypeCapture, "CCE4"},
+		{ports.TransactionTypeReversal, "CCE7"},
 		{ports.TransactionTypeRefund, "CCE9"},
 		{ports.TransactionTypeVoid, "CCEX"},
 		{ports.TransactionTypeBRICStorageCC, "CCE8"},
-		{ports.TransactionTypeACHDebit, "CKC1"},
+		{ports.TransactionTypeACHDebit, "CKC2"}, // ACH Checking Account Debit
 	}
 
 	for _, tt := range tests {
@@ -393,6 +462,239 @@ func TestParseXMLResponse(t *testing.T) {
 	}
 }
 
+// TestDetermineTransactionType tests the semantic operation to EPX transaction type mapping
+func TestDetermineTransactionType(t *testing.T) {
+	adapter := newTestAdapter(t)
+
+	tests := []struct {
+		name          string
+		operation     ports.Operation
+		paymentMethod ports.PaymentMethodType
+		wantType      ports.TransactionType
+		wantErr       bool
+		errContains   string
+	}{
+		// Sale operations
+		{
+			name:          "sale with credit card",
+			operation:     ports.OperationSale,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeSale, // CCE1
+			wantErr:       false,
+		},
+		{
+			name:          "sale with ACH",
+			operation:     ports.OperationSale,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantType:      ports.TransactionTypeACHDebit, // CKC2
+			wantErr:       false,
+		},
+		{
+			name:          "sale with PIN-less debit",
+			operation:     ports.OperationSale,
+			paymentMethod: ports.PaymentMethodTypePINlessDebit,
+			wantType:      ports.TransactionTypePINlessDebitPurchase, // DB0P
+			wantErr:       false,
+		},
+
+		// Refund operations - CRITICAL for ACH refund bug fix
+		{
+			name:          "refund with credit card",
+			operation:     ports.OperationRefund,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeRefund, // CCE9
+			wantErr:       false,
+		},
+		{
+			name:          "refund with ACH - FIXES ACH REFUND BUG",
+			operation:     ports.OperationRefund,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantType:      ports.TransactionTypeACHCredit, // CKC3 - THIS IS THE FIX!
+			wantErr:       false,
+		},
+		{
+			name:          "refund with PIN-less debit",
+			operation:     ports.OperationRefund,
+			paymentMethod: ports.PaymentMethodTypePINlessDebit,
+			wantType:      ports.TransactionTypePINlessDebitReturn, // DB0S
+			wantErr:       false,
+		},
+
+		// Void operations
+		{
+			name:          "void with credit card",
+			operation:     ports.OperationVoid,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeVoid, // CCEX
+			wantErr:       false,
+		},
+		{
+			name:          "void with ACH",
+			operation:     ports.OperationVoid,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantType:      ports.TransactionTypeACHVoid, // CKCX
+			wantErr:       false,
+		},
+		{
+			name:          "void with PIN-less debit",
+			operation:     ports.OperationVoid,
+			paymentMethod: ports.PaymentMethodTypePINlessDebit,
+			wantType:      ports.TransactionTypePINlessDebitVoid, // DB0V
+			wantErr:       false,
+		},
+
+		// Authorize - credit card only
+		{
+			name:          "authorize with credit card",
+			operation:     ports.OperationAuthorize,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeAuthOnly, // CCE2
+			wantErr:       false,
+		},
+		{
+			name:          "authorize with ACH - should error",
+			operation:     ports.OperationAuthorize,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantErr:       true,
+			errContains:   "authorize operation only supports credit cards",
+		},
+
+		// Capture - credit card only
+		{
+			name:          "capture with credit card",
+			operation:     ports.OperationCapture,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeCapture, // CCE4
+			wantErr:       false,
+		},
+		{
+			name:          "capture with ACH - should error",
+			operation:     ports.OperationCapture,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantErr:       true,
+			errContains:   "capture operation only supports credit cards",
+		},
+
+		// Storage (tokenization)
+		{
+			name:          "storage with credit card",
+			operation:     ports.OperationStorage,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeBRICStorageCC, // CCE8
+			wantErr:       false,
+		},
+		{
+			name:          "storage with ACH",
+			operation:     ports.OperationStorage,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantType:      ports.TransactionTypeBRICStorageACH, // CKC8
+			wantErr:       false,
+		},
+
+		// Reversal operations - CCE7 (releases auth hold AND voids in one call)
+		{
+			name:          "reversal with credit card",
+			operation:     ports.OperationReversal,
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantType:      ports.TransactionTypeReversal, // CCE7
+			wantErr:       false,
+		},
+		{
+			name:          "reversal with ACH - should error",
+			operation:     ports.OperationReversal,
+			paymentMethod: ports.PaymentMethodTypeACH,
+			wantErr:       true,
+			errContains:   "reversal operation only supports credit cards",
+		},
+		{
+			name:          "reversal with PIN-less debit - should error",
+			operation:     ports.OperationReversal,
+			paymentMethod: ports.PaymentMethodTypePINlessDebit,
+			wantErr:       true,
+			errContains:   "reversal operation only supports credit cards",
+		},
+
+		// Error cases
+		{
+			name:          "unknown operation",
+			operation:     ports.Operation("invalid"),
+			paymentMethod: ports.PaymentMethodTypeCreditCard,
+			wantErr:       true,
+			errContains:   "unknown operation",
+		},
+		{
+			name:          "unsupported payment method for sale",
+			operation:     ports.OperationSale,
+			paymentMethod: ports.PaymentMethodType("invalid"),
+			wantErr:       true,
+			errContains:   "unsupported payment method",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotType, err := adapter.determineTransactionType(tt.operation, tt.paymentMethod)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantType, gotType)
+			}
+		})
+	}
+}
+
+// TestProcessTransaction_WithOperation tests that ProcessTransaction properly uses Operation field
+func TestProcessTransaction_WithOperation(t *testing.T) {
+	adapter := newTestAdapter(t)
+
+	tests := []struct {
+		name             string
+		operation        ports.Operation
+		paymentMethod    ports.PaymentMethodType
+		expectedTranType ports.TransactionType
+	}{
+		{
+			name:             "operation sale translates to correct type",
+			operation:        ports.OperationSale,
+			paymentMethod:    ports.PaymentMethodTypeCreditCard,
+			expectedTranType: ports.TransactionTypeSale, // CCE1
+		},
+		{
+			name:             "operation refund with ACH translates to ACH credit",
+			operation:        ports.OperationRefund,
+			paymentMethod:    ports.PaymentMethodTypeACH,
+			expectedTranType: ports.TransactionTypeACHCredit, // CKC3 - FIXES BUG
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &ports.ServerPostRequest{
+				CustNbr:     "9001",
+				MerchNbr:    "900300",
+				DBAnbr:      "2",
+				TerminalNbr: "77",
+				Operation:   tt.operation,
+				PaymentType: tt.paymentMethod,
+				Amount:      "10.00",
+				TranNbr:     generateTranNbr(),
+				TranGroup:   "TEST",
+			}
+
+			// Simulate what ProcessTransaction does - call determineTransactionType
+			transactionType, err := adapter.determineTransactionType(req.Operation, req.PaymentType)
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedTranType, transactionType)
+		})
+	}
+}
+
 // TestIsApprovedLogic tests approval determination
 func TestIsApprovedLogic(t *testing.T) {
 	tests := []struct {
@@ -465,4 +767,566 @@ func BenchmarkValidateRequest(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = adapter.validateRequest(request)
 	}
+}
+
+// =============================================================================
+// HTTP Layer Tests - Using httptest.NewServer to test actual HTTP request/response
+// =============================================================================
+
+// TestProcessTransaction_HTTPLayer tests the full HTTP request/response cycle with mock EPX server
+func TestProcessTransaction_HTTPLayer(t *testing.T) {
+	t.Run("successful sale request", func(t *testing.T) {
+		// Arrange - mock EPX server
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Verify request method
+			assert.Equal(t, http.MethodPost, r.Method)
+
+			// Verify content type
+			assert.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
+
+			// Parse and verify form data
+			err := r.ParseForm()
+			require.NoError(t, err)
+
+			// Verify required fields are present
+			assert.Equal(t, "CCE1", r.FormValue("TRAN_TYPE"))
+			assert.Equal(t, "10.00", r.FormValue("AMOUNT"))
+			assert.Equal(t, "9001", r.FormValue("CUST_NBR"))
+			assert.Equal(t, "900300", r.FormValue("MERCH_NBR"))
+			assert.Equal(t, "2", r.FormValue("DBA_NBR"))
+			assert.Equal(t, "77", r.FormValue("TERMINAL_NBR"))
+			assert.NotEmpty(t, r.FormValue("TRAN_NBR"))
+			assert.NotEmpty(t, r.FormValue("BATCH_ID"))
+
+			// Return mock EPX XML response
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<RESPONSE><FIELDS>
+				<FIELD KEY="AUTH_RESP">00</FIELD>
+				<FIELD KEY="AUTH_GUID">MOCK-BRIC-123456789</FIELD>
+				<FIELD KEY="AUTH_CODE">057579</FIELD>
+				<FIELD KEY="AUTH_RESP_TEXT">APPROVAL</FIELD>
+				<FIELD KEY="AUTH_CARD_TYPE">V</FIELD>
+				<FIELD KEY="AUTH_AVS">Z</FIELD>
+				<FIELD KEY="AUTH_CVV2">M</FIELD>
+				<FIELD KEY="TRAN_NBR">12345</FIELD>
+				<FIELD KEY="AMOUNT">10.00</FIELD>
+			</FIELDS></RESPONSE>`))
+		}))
+		defer mockEPX.Close()
+
+		// Create adapter with mock URL
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0, // No retries for this test
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout", "connection"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		// Build request
+		req := &ports.ServerPostRequest{
+			CustNbr:         "9001",
+			MerchNbr:        "900300",
+			DBAnbr:          "2",
+			TerminalNbr:     "77",
+			TransactionType: ports.TransactionTypeSale,
+			Amount:          "10.00",
+			TranNbr:         "12345",
+			TranGroup:       "12345",
+			AccountNumber:   strPtr("4000000000000002"),
+			ExpirationDate:  strPtr("1225"),
+			CVV:             strPtr("123"),
+			CardEntryMethod: strPtr("E"),
+			IndustryType:    strPtr("E"),
+		}
+
+		// Act
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		// Assert
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, "00", resp.AuthResp)
+		assert.Equal(t, "MOCK-BRIC-123456789", resp.AuthGUID)
+		assert.Equal(t, "057579", resp.AuthCode)
+		assert.True(t, resp.IsApproved)
+		assert.Equal(t, "V", resp.AuthCardType)
+		assert.Equal(t, "Z", resp.AuthAVS)
+		assert.Equal(t, "M", resp.AuthCVV2)
+	})
+
+	t.Run("declined transaction", func(t *testing.T) {
+		// Mock EPX server that returns decline
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<RESPONSE><FIELDS>
+				<FIELD KEY="AUTH_RESP">05</FIELD>
+				<FIELD KEY="AUTH_GUID">MOCK-DECLINED-GUID</FIELD>
+				<FIELD KEY="AUTH_CODE"></FIELD>
+				<FIELD KEY="AUTH_RESP_TEXT">DO NOT HONOR</FIELD>
+			</FIELDS></RESPONSE>`))
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:         "9001",
+			MerchNbr:        "900300",
+			DBAnbr:          "2",
+			TerminalNbr:     "77",
+			TransactionType: ports.TransactionTypeSale,
+			Amount:          "1.05", // EPX sandbox decline trigger
+			TranNbr:         generateTranNbr(),
+			AccountNumber:   strPtr("4000000000000002"),
+			ExpirationDate:  strPtr("1225"),
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		// Decline is NOT an error - it's a valid response
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, "05", resp.AuthResp)
+		assert.False(t, resp.IsApproved)
+		assert.Equal(t, "DO NOT HONOR", resp.AuthRespText)
+	})
+
+	t.Run("capture with BRIC", func(t *testing.T) {
+		// Mock EPX server that handles capture
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := r.ParseForm()
+			require.NoError(t, err)
+
+			// Verify capture-specific fields
+			assert.Equal(t, "CCE4", r.FormValue("TRAN_TYPE"))
+			assert.Equal(t, "25.00", r.FormValue("AMOUNT"))
+			assert.Equal(t, "ORIGINAL-AUTH-GUID-123", r.FormValue("ORIG_AUTH_GUID"))
+
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<RESPONSE><FIELDS>
+				<FIELD KEY="AUTH_RESP">00</FIELD>
+				<FIELD KEY="AUTH_GUID">CAPTURE-BRIC-123</FIELD>
+				<FIELD KEY="AUTH_CODE">123456</FIELD>
+				<FIELD KEY="AUTH_RESP_TEXT">CAPTURED</FIELD>
+			</FIELDS></RESPONSE>`))
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:          "9001",
+			MerchNbr:         "900300",
+			DBAnbr:           "2",
+			TerminalNbr:      "77",
+			TransactionType:  ports.TransactionTypeCapture,
+			Amount:           "25.00",
+			TranNbr:          generateTranNbr(),
+			OriginalAuthGUID: "ORIGINAL-AUTH-GUID-123",
+			CardEntryMethod:  strPtr("Z"), // BRIC entry method
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		require.NoError(t, err)
+		assert.True(t, resp.IsApproved)
+		assert.Equal(t, "CAPTURE-BRIC-123", resp.AuthGUID)
+	})
+
+	t.Run("ACH debit transaction", func(t *testing.T) {
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := r.ParseForm()
+			require.NoError(t, err)
+
+			// Verify ACH-specific fields
+			assert.Equal(t, "CKC2", r.FormValue("TRAN_TYPE"))
+			assert.Equal(t, "50.00", r.FormValue("AMOUNT"))
+			assert.Equal(t, "021000021", r.FormValue("ROUTING_NBR"))
+			assert.Equal(t, "1234567890", r.FormValue("ACCOUNT_NBR"))
+
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<RESPONSE><FIELDS>
+				<FIELD KEY="AUTH_RESP">00</FIELD>
+				<FIELD KEY="AUTH_GUID">ACH-BRIC-123</FIELD>
+				<FIELD KEY="AUTH_CODE"></FIELD>
+				<FIELD KEY="AUTH_RESP_TEXT">ACH ACCEPTED</FIELD>
+			</FIELDS></RESPONSE>`))
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:         "9001",
+			MerchNbr:        "900300",
+			DBAnbr:          "2",
+			TerminalNbr:     "77",
+			TransactionType: ports.TransactionTypeACHDebit,
+			PaymentType:     ports.PaymentMethodTypeACH,
+			Amount:          "50.00",
+			TranNbr:         generateTranNbr(),
+			AccountNumber:   strPtr("1234567890"),
+			RoutingNumber:   strPtr("021000021"),
+			FirstName:       strPtr("John"),
+			LastName:        strPtr("Doe"),
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		require.NoError(t, err)
+		assert.True(t, resp.IsApproved)
+		assert.Equal(t, "ACH-BRIC-123", resp.AuthGUID)
+	})
+}
+
+// TestProcessTransaction_NetworkErrors tests network error handling
+func TestProcessTransaction_NetworkErrors(t *testing.T) {
+	t.Run("connection refused", func(t *testing.T) {
+		// Point to a port that isn't listening
+		config := &ServerPostConfig{
+			BaseURL:         "http://localhost:59999", // Unlikely to be in use
+			SocketEndpoint:  "localhost:59998",
+			Timeout:         2 * time.Second,
+			MaxRetries:      0, // No retries
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout", "connection"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:         "9001",
+			MerchNbr:        "900300",
+			DBAnbr:          "2",
+			TerminalNbr:     "77",
+			TransactionType: ports.TransactionTypeSale,
+			Amount:          "10.00",
+			TranNbr:         generateTranNbr(),
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "connection refused")
+	})
+
+	t.Run("request timeout", func(t *testing.T) {
+		// Mock server that sleeps longer than timeout
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(3 * time.Second) // Longer than client timeout
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         500 * time.Millisecond, // Short timeout
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:         "9001",
+			MerchNbr:        "900300",
+			DBAnbr:          "2",
+			TerminalNbr:     "77",
+			TransactionType: ports.TransactionTypeSale,
+			Amount:          "10.00",
+			TranNbr:         generateTranNbr(),
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		// Error should indicate timeout
+		assert.Contains(t, err.Error(), "context deadline exceeded")
+	})
+
+	t.Run("server returns 500", func(t *testing.T) {
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Internal Server Error"))
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:         "9001",
+			MerchNbr:        "900300",
+			DBAnbr:          "2",
+			TerminalNbr:     "77",
+			TransactionType: ports.TransactionTypeSale,
+			Amount:          "10.00",
+			TranNbr:         generateTranNbr(),
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		// EPX adapter returns the response body as-is for parsing
+		// The error comes from parsing non-XML response
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+	})
+
+	t.Run("server returns invalid XML", func(t *testing.T) {
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("not valid xml at all"))
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:         "9001",
+			MerchNbr:        "900300",
+			DBAnbr:          "2",
+			TerminalNbr:     "77",
+			TransactionType: ports.TransactionTypeSale,
+			Amount:          "10.00",
+			TranNbr:         generateTranNbr(),
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "parse")
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(5 * time.Second) // Wait longer than context timeout
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:         "9001",
+			MerchNbr:        "900300",
+			DBAnbr:          "2",
+			TerminalNbr:     "77",
+			TransactionType: ports.TransactionTypeSale,
+			Amount:          "10.00",
+			TranNbr:         generateTranNbr(),
+		}
+
+		// Create context that cancels after 100ms
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "context deadline exceeded")
+	})
+}
+
+// TestProcessTransaction_WithOperation_HTTPLayer tests operation translation through HTTP layer
+func TestProcessTransaction_WithOperation_HTTPLayer(t *testing.T) {
+	t.Run("operation refund with ACH sends CKC3", func(t *testing.T) {
+		// This test verifies the ACH refund bug fix - it should send CKC3, not CCE9
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := r.ParseForm()
+			require.NoError(t, err)
+
+			// CRITICAL: Verify ACH refund sends CKC3 (ACH Credit), NOT CCE9 (CC Refund)
+			assert.Equal(t, "CKC3", r.FormValue("TRAN_TYPE"), "ACH refund should use CKC3, not CCE9")
+			assert.Equal(t, "50.00", r.FormValue("AMOUNT"))
+
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<RESPONSE><FIELDS>
+				<FIELD KEY="AUTH_RESP">00</FIELD>
+				<FIELD KEY="AUTH_GUID">ACH-CREDIT-BRIC</FIELD>
+				<FIELD KEY="AUTH_RESP_TEXT">ACH CREDIT ACCEPTED</FIELD>
+			</FIELDS></RESPONSE>`))
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:          "9001",
+			MerchNbr:         "900300",
+			DBAnbr:           "2",
+			TerminalNbr:      "77",
+			Operation:        ports.OperationRefund, // Use Operation field
+			PaymentType:      ports.PaymentMethodTypeACH,
+			Amount:           "50.00",
+			TranNbr:          generateTranNbr(),
+			OriginalAuthGUID: "ORIGINAL-ACH-BRIC",
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		require.NoError(t, err)
+		assert.True(t, resp.IsApproved)
+	})
+
+	t.Run("operation sale with credit card sends CCE1", func(t *testing.T) {
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := r.ParseForm()
+			require.NoError(t, err)
+
+			assert.Equal(t, "CCE1", r.FormValue("TRAN_TYPE"))
+
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<RESPONSE><FIELDS>
+				<FIELD KEY="AUTH_RESP">00</FIELD>
+				<FIELD KEY="AUTH_GUID">SALE-BRIC</FIELD>
+				<FIELD KEY="AUTH_RESP_TEXT">APPROVED</FIELD>
+			</FIELDS></RESPONSE>`))
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:         "9001",
+			MerchNbr:        "900300",
+			DBAnbr:          "2",
+			TerminalNbr:     "77",
+			Operation:       ports.OperationSale,
+			PaymentType:     ports.PaymentMethodTypeCreditCard,
+			Amount:          "10.00",
+			TranNbr:         generateTranNbr(),
+			AccountNumber:   strPtr("4000000000000002"),
+			ExpirationDate:  strPtr("1225"),
+			CVV:             strPtr("123"),
+			CardEntryMethod: strPtr("E"),
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		require.NoError(t, err)
+		assert.True(t, resp.IsApproved)
+	})
+
+	t.Run("operation reversal sends CCE7", func(t *testing.T) {
+		mockEPX := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := r.ParseForm()
+			require.NoError(t, err)
+
+			assert.Equal(t, "CCE7", r.FormValue("TRAN_TYPE"))
+			assert.NotEmpty(t, r.FormValue("ORIG_AUTH_GUID"))
+
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<RESPONSE><FIELDS>
+				<FIELD KEY="AUTH_RESP">00</FIELD>
+				<FIELD KEY="AUTH_GUID">REVERSAL-BRIC</FIELD>
+				<FIELD KEY="AUTH_RESP_TEXT">REVERSED</FIELD>
+			</FIELDS></RESPONSE>`))
+		}))
+		defer mockEPX.Close()
+
+		config := &ServerPostConfig{
+			BaseURL:         mockEPX.URL,
+			SocketEndpoint:  "localhost:8087",
+			Timeout:         30 * time.Second,
+			MaxRetries:      0,
+			RetryDelay:      time.Second,
+			RetryableErrors: []string{"timeout"},
+		}
+		adapter := NewServerPostAdapter(config, zap.NewNop())
+
+		req := &ports.ServerPostRequest{
+			CustNbr:          "9001",
+			MerchNbr:         "900300",
+			DBAnbr:           "2",
+			TerminalNbr:      "77",
+			Operation:        ports.OperationReversal,
+			PaymentType:      ports.PaymentMethodTypeCreditCard,
+			TranNbr:          generateTranNbr(),
+			OriginalAuthGUID: "AUTH-TO-REVERSE",
+		}
+
+		ctx := context.Background()
+		resp, err := adapter.ProcessTransaction(ctx, req)
+
+		require.NoError(t, err)
+		assert.True(t, resp.IsApproved)
+	})
 }

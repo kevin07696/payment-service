@@ -1,0 +1,45 @@
+{{ define "title" }}Bank Account Saved{{ end }}
+
+{{ define "content" }}
+<div class="header">
+    <div class="icon warning">&#9888;</div>
+    <div class="status warning">Verification Pending</div>
+</div>
+
+<div class="details">
+    <div class="detail-row">
+        <span class="detail-label">Account Type</span>
+        <span class="detail-value">{{ .AccountType }}</span>
+    </div>
+
+    <div class="detail-row">
+        <span class="detail-label">Account Number</span>
+        <span class="detail-value">***** {{ .LastFour }}</span>
+    </div>
+
+    <div class="detail-row">
+        <span class="detail-label">Status</span>
+        <span class="detail-value"><span class="badge pending">Pending Verification</span></span>
+    </div>
+
+    {{ if .PaymentMethodID }}
+    <div class="detail-row">
+        <span class="detail-label">Payment Method ID</span>
+        <span class="detail-value">{{ .PaymentMethodID }}</span>
+    </div>
+    {{ end }}
+</div>
+
+<div class="warning-box">
+    <strong>Verification in Progress</strong><br>
+    A prenote has been sent to verify your bank account. This typically takes 2-3 business days.
+    You will be able to use this payment method once verification is complete.
+</div>
+
+<div class="footer">
+    <p>Your bank account has been saved and is pending verification.</p>
+    {{ if .ReturnURL }}
+    <a href="{{ .ReturnURL }}" class="button">Return to Application</a>
+    {{ end }}
+</div>
+{{ end }}

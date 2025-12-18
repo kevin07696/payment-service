@@ -1,32 +1,146 @@
 package domain
 
 import (
+	"strings"
 	"time"
-
-	"github.com/shopspring/decimal"
 )
 
-// TransactionStatus represents the current state of a transaction
+// TransactionStatus represents the outcome of a transaction (approved/declined by gateway)
+// This is NOT the transaction lifecycle state - use TransactionType for that
 type TransactionStatus string
 
 const (
-	TransactionStatusPending   TransactionStatus = "pending"
-	TransactionStatusCompleted TransactionStatus = "completed"
-	TransactionStatusFailed    TransactionStatus = "failed"
-	TransactionStatusRefunded  TransactionStatus = "refunded"
-	TransactionStatusVoided    TransactionStatus = "voided"
+	TransactionStatusApproved TransactionStatus = "approved" // Gateway approved (auth_resp='00')
+	TransactionStatusDeclined TransactionStatus = "declined" // Gateway declined (auth_resp != '00')
 )
 
 // TransactionType represents the type of transaction
 type TransactionType string
 
 const (
-	TransactionTypeAuth    TransactionType = "auth"     // Authorization only
-	TransactionTypeCapture TransactionType = "capture"  // Capture authorized funds
-	TransactionTypeCharge  TransactionType = "charge"   // Combined auth + capture (sale)
-	TransactionTypeRefund  TransactionType = "refund"   // Return funds
-	TransactionTypePreNote TransactionType = "pre_note" // ACH verification
+	TransactionTypeAuth     TransactionType = "AUTH"     // Authorization only (EPX TRAN_GROUP=A)
+	TransactionTypeCapture  TransactionType = "CAPTURE"  // Capture authorized funds
+	TransactionTypeSale     TransactionType = "SALE"     // Combined auth + capture (EPX TRAN_GROUP=U)
+	TransactionTypeRefund   TransactionType = "REFUND"   // Return funds
+	TransactionTypeVoid     TransactionType = "VOID"     // Cancel transaction before settlement
+	TransactionTypeReversal TransactionType = "REVERSAL" // Reversal (CCE7) - releases auth hold AND voids in one call
+	TransactionTypePreNote  TransactionType = "PRE_NOTE" // ACH verification
+	TransactionTypeStorage  TransactionType = "STORAGE"  // Tokenization (credit card or ACH)
 )
+
+// RequestTransactionType represents the transaction type from an incoming request
+// This is separate from TransactionType to handle request-specific values like ACH_STORAGE_C/S
+type RequestTransactionType string
+
+const (
+	RequestTransactionTypeSale        RequestTransactionType = "SALE"
+	RequestTransactionTypeAuth        RequestTransactionType = "AUTH"
+	RequestTransactionTypeStorage     RequestTransactionType = "STORAGE"
+	RequestTransactionTypeACHStorageC RequestTransactionType = "ACH_STORAGE_C" // ACH checking storage
+	RequestTransactionTypeACHStorageS RequestTransactionType = "ACH_STORAGE_S" // ACH savings storage
+)
+
+// ParseRequestTransactionType parses a string into a RequestTransactionType
+// Returns RequestTransactionTypeSale as default for unknown values
+func ParseRequestTransactionType(input string) RequestTransactionType {
+	switch strings.ToUpper(input) {
+	case "AUTH":
+		return RequestTransactionTypeAuth
+	case "SALE":
+		return RequestTransactionTypeSale
+	case "STORAGE":
+		return RequestTransactionTypeStorage
+	case "ACH_STORAGE_C":
+		return RequestTransactionTypeACHStorageC
+	case "ACH_STORAGE_S":
+		return RequestTransactionTypeACHStorageS
+	default:
+		return RequestTransactionTypeSale
+	}
+}
+
+// ToTransactionType converts RequestTransactionType to the internal TransactionType
+// ACH_STORAGE_C and ACH_STORAGE_S both map to STORAGE
+func (r RequestTransactionType) ToTransactionType() TransactionType {
+	switch r {
+	case RequestTransactionTypeAuth:
+		return TransactionTypeAuth
+	case RequestTransactionTypeSale:
+		return TransactionTypeSale
+	case RequestTransactionTypeStorage, RequestTransactionTypeACHStorageC, RequestTransactionTypeACHStorageS:
+		return TransactionTypeStorage
+	default:
+		return TransactionTypeSale
+	}
+}
+
+// IsACHStorage returns true if this is an ACH storage request type
+func (r RequestTransactionType) IsACHStorage() bool {
+	return r == RequestTransactionTypeACHStorageC || r == RequestTransactionTypeACHStorageS
+}
+
+// IsCheckingAccount returns true if this is a checking account ACH storage
+func (r RequestTransactionType) IsCheckingAccount() bool {
+	return r == RequestTransactionTypeACHStorageC
+}
+
+// IsStorage returns true if this is any storage transaction type
+func (r RequestTransactionType) IsStorage() bool {
+	return r == RequestTransactionTypeStorage || r.IsACHStorage()
+}
+
+// ToPaymentMethodType returns the payment method type for this transaction
+func (r RequestTransactionType) ToPaymentMethodType() PaymentMethodType {
+	if r.IsACHStorage() {
+		return PaymentMethodTypeACH
+	}
+	return PaymentMethodTypeCreditCard
+}
+
+// IsValid returns true if this is a valid transaction type
+func (r RequestTransactionType) IsValid() bool {
+	switch r {
+	case RequestTransactionTypeSale, RequestTransactionTypeAuth, RequestTransactionTypeStorage,
+		RequestTransactionTypeACHStorageC, RequestTransactionTypeACHStorageS:
+		return true
+	default:
+		return false
+	}
+}
+
+// ToEPXTranCode returns the EPX TRAN_CODE value for Browser POST forms
+// Per EPX certification: TRAN_CODE uses text values (SALE, AUTH, STORAGE, ACHSTORAGE_C, ACHSTORAGE_S)
+func (r RequestTransactionType) ToEPXTranCode() string {
+	switch r {
+	case RequestTransactionTypeSale:
+		return "SALE"
+	case RequestTransactionTypeAuth:
+		return "AUTH"
+	case RequestTransactionTypeStorage:
+		return "STORAGE"
+	case RequestTransactionTypeACHStorageC:
+		return "ACHSTORAGE_C"
+	case RequestTransactionTypeACHStorageS:
+		return "ACHSTORAGE_S"
+	default:
+		return "SALE"
+	}
+}
+
+// ToEPXTranGroup returns the EPX TRAN_GROUP value for Key Exchange
+// This is the high-level category sent to EPX Key Exchange API
+func (r RequestTransactionType) ToEPXTranGroup() string {
+	switch r {
+	case RequestTransactionTypeSale:
+		return "SALE"
+	case RequestTransactionTypeAuth:
+		return "AUTH"
+	case RequestTransactionTypeStorage, RequestTransactionTypeACHStorageC, RequestTransactionTypeACHStorageS:
+		return "STORAGE"
+	default:
+		return "SALE"
+	}
+}
 
 // PaymentMethodType represents the payment method used
 type PaymentMethodType string
@@ -37,45 +151,45 @@ const (
 )
 
 // Transaction represents a payment transaction
+// Field order optimized for memory alignment (largest to smallest):
+// - time.Time (24 bytes) first
+// - map (8 bytes header)
+// - strings (16 bytes)
+// - pointers (8 bytes)
+// - int64 (8 bytes)
 type Transaction struct {
-	// Identity
-	ID      string `json:"id"`       // UUID
-	GroupID string `json:"group_id"` // Links related transactions (auth → capture → refund)
-
-	// Multi-tenant
-	AgentID string `json:"agent_id"` // Which agent/merchant owns this transaction
-
-	// Customer
-	CustomerID *string `json:"customer_id"` // NULL for guest transactions
-
-	// Transaction details
-	Amount            decimal.Decimal   `json:"amount"`
-	Currency          string            `json:"currency"` // ISO 4217 code (e.g., "USD")
-	Status            TransactionStatus `json:"status"`
-	Type              TransactionType   `json:"type"`
-	PaymentMethodType PaymentMethodType `json:"payment_method_type"`
-	PaymentMethodID   *string           `json:"payment_method_id"` // References saved payment method (NULL if one-time)
-
-	// EPX Gateway response fields
-	AuthGUID     *string `json:"auth_guid"`      // EPX transaction token (BRIC format) - required for refunds/voids/captures
-	AuthResp     *string `json:"auth_resp"`      // EPX approval code ("00" = approved, "05" = declined)
-	AuthCode     *string `json:"auth_code"`      // Bank authorization code (NULL if declined)
-	AuthRespText *string `json:"auth_resp_text"` // Human-readable response message
-	AuthCardType *string `json:"auth_card_type"` // Card brand ("V"/"M"/"A"/"D") - NULL for ACH
-	AuthAVS      *string `json:"auth_avs"`       // Address verification result
-	AuthCVV2     *string `json:"auth_cvv2"`      // CVV verification result
-
-	// Idempotency and metadata
-	IdempotencyKey *string                `json:"idempotency_key"`
-	Metadata       map[string]interface{} `json:"metadata"` // Deprecated: Use ExternalReferenceID instead
-
-	// POS Integration (Option 2 architecture)
-	ExternalReferenceID *string `json:"external_reference_id"` // Opaque POS reference (e.g., "order-123")
-	ReturnURL           *string `json:"return_url"`            // POS callback URL for browser redirect
-
-	// Timestamps
+	// Timestamps (24 bytes each) - largest fields first
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Map (8 byte header + data)
+	Metadata map[string]interface{} `json:"metadata"`
+
+	// Strings (16 bytes each on 64-bit)
+	ID                string            `json:"id"`
+	MerchantID        string            `json:"merchant_id"`
+	AuthGUID          string            `json:"auth_guid"`
+	Currency          string            `json:"currency"`
+	Status            TransactionStatus `json:"status"`              // string alias
+	Type              TransactionType   `json:"type"`                // string alias
+	PaymentMethodType PaymentMethodType `json:"payment_method_type"` // string alias
+
+	// Pointers (8 bytes each) grouped together
+	ParentTransactionID *string `json:"parent_transaction_id"`
+	CustomerID          *string `json:"customer_id"`
+	OrderID             *string `json:"order_id"` // Merchant's external order/invoice ID
+	SubscriptionID      *string `json:"subscription_id"`
+	PaymentMethodID     *string `json:"payment_method_id"`
+	IdempotencyKey      *string `json:"idempotency_key"`
+	AuthResp            *string `json:"auth_resp"`
+	AuthCode            *string `json:"auth_code"`
+	AuthRespText        *string `json:"auth_resp_text"`
+	AuthCardType        *string `json:"auth_card_type"`
+	AuthAVS             *string `json:"auth_avs"`
+	AuthCVV2            *string `json:"auth_cvv2"`
+
+	// int64 (8 bytes) - same size as pointers, grouped at end
+	AmountCents int64 `json:"amount_cents"`
 }
 
 // IsApproved returns true if the transaction was approved by the gateway
@@ -85,27 +199,28 @@ func (t *Transaction) IsApproved() bool {
 
 // CanBeVoided returns true if the transaction can be voided
 func (t *Transaction) CanBeVoided() bool {
-	return t.Status == TransactionStatusCompleted &&
-		(t.Type == TransactionTypeAuth || t.Type == TransactionTypeCharge)
+	return t.Status == TransactionStatusApproved &&
+		(t.Type == TransactionTypeAuth || t.Type == TransactionTypeSale)
 }
 
 // CanBeCaptured returns true if the transaction can be captured
 func (t *Transaction) CanBeCaptured() bool {
-	return t.Status == TransactionStatusCompleted && t.Type == TransactionTypeAuth
+	return t.Status == TransactionStatusApproved && t.Type == TransactionTypeAuth
 }
 
 // CanBeRefunded returns true if the transaction can be refunded
 func (t *Transaction) CanBeRefunded() bool {
-	return t.Status == TransactionStatusCompleted &&
-		(t.Type == TransactionTypeCharge || t.Type == TransactionTypeCapture)
+	return t.Status == TransactionStatusApproved &&
+		(t.Type == TransactionTypeSale || t.Type == TransactionTypeCapture)
 }
 
-// GetAuthGUID safely retrieves the AUTH_GUID
-func (t *Transaction) GetAuthGUID() string {
-	if t.AuthGUID != nil {
-		return *t.AuthGUID
-	}
-	return ""
+// CanBeReversed returns true if the transaction can be reversed (CCE7)
+// Reversal releases the authorization hold AND voids the transaction in one call
+// This provides immediate fund release to cardholder (vs Void which holds 3-10 days)
+// Only approved AUTH and SALE transactions can be reversed (credit cards only)
+func (t *Transaction) CanBeReversed() bool {
+	return t.Status == TransactionStatusApproved &&
+		(t.Type == TransactionTypeAuth || t.Type == TransactionTypeSale)
 }
 
 // GetCustomerID safely retrieves the customer ID

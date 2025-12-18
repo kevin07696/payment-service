@@ -19,14 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PaymentMethodService_SavePaymentMethod_FullMethodName                 = "/payment_method.v1.PaymentMethodService/SavePaymentMethod"
-	PaymentMethodService_GetPaymentMethod_FullMethodName                  = "/payment_method.v1.PaymentMethodService/GetPaymentMethod"
-	PaymentMethodService_ListPaymentMethods_FullMethodName                = "/payment_method.v1.PaymentMethodService/ListPaymentMethods"
-	PaymentMethodService_UpdatePaymentMethodStatus_FullMethodName         = "/payment_method.v1.PaymentMethodService/UpdatePaymentMethodStatus"
-	PaymentMethodService_DeletePaymentMethod_FullMethodName               = "/payment_method.v1.PaymentMethodService/DeletePaymentMethod"
-	PaymentMethodService_SetDefaultPaymentMethod_FullMethodName           = "/payment_method.v1.PaymentMethodService/SetDefaultPaymentMethod"
-	PaymentMethodService_VerifyACHAccount_FullMethodName                  = "/payment_method.v1.PaymentMethodService/VerifyACHAccount"
-	PaymentMethodService_ConvertFinancialBRICToStorageBRIC_FullMethodName = "/payment_method.v1.PaymentMethodService/ConvertFinancialBRICToStorageBRIC"
+	PaymentMethodService_GetPaymentMethod_FullMethodName          = "/payment_method.v1.PaymentMethodService/GetPaymentMethod"
+	PaymentMethodService_ListPaymentMethods_FullMethodName        = "/payment_method.v1.PaymentMethodService/ListPaymentMethods"
+	PaymentMethodService_UpdatePaymentMethodStatus_FullMethodName = "/payment_method.v1.PaymentMethodService/UpdatePaymentMethodStatus"
+	PaymentMethodService_DeletePaymentMethod_FullMethodName       = "/payment_method.v1.PaymentMethodService/DeletePaymentMethod"
+	PaymentMethodService_SetDefaultPaymentMethod_FullMethodName   = "/payment_method.v1.PaymentMethodService/SetDefaultPaymentMethod"
+	PaymentMethodService_UpdatePaymentMethod_FullMethodName       = "/payment_method.v1.PaymentMethodService/UpdatePaymentMethod"
 )
 
 // PaymentMethodServiceClient is the client API for PaymentMethodService service.
@@ -35,8 +33,6 @@ const (
 //
 // PaymentMethodService handles saved payment method operations
 type PaymentMethodServiceClient interface {
-	// SavePaymentMethod tokenizes and saves a payment method
-	SavePaymentMethod(ctx context.Context, in *SavePaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error)
 	// GetPaymentMethod retrieves a specific payment method
 	GetPaymentMethod(ctx context.Context, in *GetPaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethod, error)
 	// ListPaymentMethods lists all payment methods for a customer
@@ -47,11 +43,9 @@ type PaymentMethodServiceClient interface {
 	DeletePaymentMethod(ctx context.Context, in *DeletePaymentMethodRequest, opts ...grpc.CallOption) (*DeletePaymentMethodResponse, error)
 	// SetDefaultPaymentMethod marks a payment method as default
 	SetDefaultPaymentMethod(ctx context.Context, in *SetDefaultPaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error)
-	// VerifyACHAccount sends pre-note for ACH verification
-	VerifyACHAccount(ctx context.Context, in *VerifyACHAccountRequest, opts ...grpc.CallOption) (*VerifyACHAccountResponse, error)
-	// ConvertFinancialBRICToStorageBRIC converts Financial BRIC to Storage BRIC and saves payment method
-	// Use case: Customer completes payment and wants to save their payment method
-	ConvertFinancialBRICToStorageBRIC(ctx context.Context, in *ConvertFinancialBRICRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error)
+	// UpdatePaymentMethod updates metadata only (billing info, nickname)
+	// Does NOT support changing account/routing numbers - create new payment method instead
+	UpdatePaymentMethod(ctx context.Context, in *UpdatePaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error)
 }
 
 type paymentMethodServiceClient struct {
@@ -60,16 +54,6 @@ type paymentMethodServiceClient struct {
 
 func NewPaymentMethodServiceClient(cc grpc.ClientConnInterface) PaymentMethodServiceClient {
 	return &paymentMethodServiceClient{cc}
-}
-
-func (c *paymentMethodServiceClient) SavePaymentMethod(ctx context.Context, in *SavePaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PaymentMethodResponse)
-	err := c.cc.Invoke(ctx, PaymentMethodService_SavePaymentMethod_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *paymentMethodServiceClient) GetPaymentMethod(ctx context.Context, in *GetPaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethod, error) {
@@ -122,20 +106,10 @@ func (c *paymentMethodServiceClient) SetDefaultPaymentMethod(ctx context.Context
 	return out, nil
 }
 
-func (c *paymentMethodServiceClient) VerifyACHAccount(ctx context.Context, in *VerifyACHAccountRequest, opts ...grpc.CallOption) (*VerifyACHAccountResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(VerifyACHAccountResponse)
-	err := c.cc.Invoke(ctx, PaymentMethodService_VerifyACHAccount_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *paymentMethodServiceClient) ConvertFinancialBRICToStorageBRIC(ctx context.Context, in *ConvertFinancialBRICRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error) {
+func (c *paymentMethodServiceClient) UpdatePaymentMethod(ctx context.Context, in *UpdatePaymentMethodRequest, opts ...grpc.CallOption) (*PaymentMethodResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PaymentMethodResponse)
-	err := c.cc.Invoke(ctx, PaymentMethodService_ConvertFinancialBRICToStorageBRIC_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, PaymentMethodService_UpdatePaymentMethod_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -148,8 +122,6 @@ func (c *paymentMethodServiceClient) ConvertFinancialBRICToStorageBRIC(ctx conte
 //
 // PaymentMethodService handles saved payment method operations
 type PaymentMethodServiceServer interface {
-	// SavePaymentMethod tokenizes and saves a payment method
-	SavePaymentMethod(context.Context, *SavePaymentMethodRequest) (*PaymentMethodResponse, error)
 	// GetPaymentMethod retrieves a specific payment method
 	GetPaymentMethod(context.Context, *GetPaymentMethodRequest) (*PaymentMethod, error)
 	// ListPaymentMethods lists all payment methods for a customer
@@ -160,11 +132,9 @@ type PaymentMethodServiceServer interface {
 	DeletePaymentMethod(context.Context, *DeletePaymentMethodRequest) (*DeletePaymentMethodResponse, error)
 	// SetDefaultPaymentMethod marks a payment method as default
 	SetDefaultPaymentMethod(context.Context, *SetDefaultPaymentMethodRequest) (*PaymentMethodResponse, error)
-	// VerifyACHAccount sends pre-note for ACH verification
-	VerifyACHAccount(context.Context, *VerifyACHAccountRequest) (*VerifyACHAccountResponse, error)
-	// ConvertFinancialBRICToStorageBRIC converts Financial BRIC to Storage BRIC and saves payment method
-	// Use case: Customer completes payment and wants to save their payment method
-	ConvertFinancialBRICToStorageBRIC(context.Context, *ConvertFinancialBRICRequest) (*PaymentMethodResponse, error)
+	// UpdatePaymentMethod updates metadata only (billing info, nickname)
+	// Does NOT support changing account/routing numbers - create new payment method instead
+	UpdatePaymentMethod(context.Context, *UpdatePaymentMethodRequest) (*PaymentMethodResponse, error)
 	mustEmbedUnimplementedPaymentMethodServiceServer()
 }
 
@@ -175,9 +145,6 @@ type PaymentMethodServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedPaymentMethodServiceServer struct{}
 
-func (UnimplementedPaymentMethodServiceServer) SavePaymentMethod(context.Context, *SavePaymentMethodRequest) (*PaymentMethodResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SavePaymentMethod not implemented")
-}
 func (UnimplementedPaymentMethodServiceServer) GetPaymentMethod(context.Context, *GetPaymentMethodRequest) (*PaymentMethod, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPaymentMethod not implemented")
 }
@@ -193,11 +160,8 @@ func (UnimplementedPaymentMethodServiceServer) DeletePaymentMethod(context.Conte
 func (UnimplementedPaymentMethodServiceServer) SetDefaultPaymentMethod(context.Context, *SetDefaultPaymentMethodRequest) (*PaymentMethodResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetDefaultPaymentMethod not implemented")
 }
-func (UnimplementedPaymentMethodServiceServer) VerifyACHAccount(context.Context, *VerifyACHAccountRequest) (*VerifyACHAccountResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method VerifyACHAccount not implemented")
-}
-func (UnimplementedPaymentMethodServiceServer) ConvertFinancialBRICToStorageBRIC(context.Context, *ConvertFinancialBRICRequest) (*PaymentMethodResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ConvertFinancialBRICToStorageBRIC not implemented")
+func (UnimplementedPaymentMethodServiceServer) UpdatePaymentMethod(context.Context, *UpdatePaymentMethodRequest) (*PaymentMethodResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdatePaymentMethod not implemented")
 }
 func (UnimplementedPaymentMethodServiceServer) mustEmbedUnimplementedPaymentMethodServiceServer() {}
 func (UnimplementedPaymentMethodServiceServer) testEmbeddedByValue()                              {}
@@ -218,24 +182,6 @@ func RegisterPaymentMethodServiceServer(s grpc.ServiceRegistrar, srv PaymentMeth
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&PaymentMethodService_ServiceDesc, srv)
-}
-
-func _PaymentMethodService_SavePaymentMethod_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SavePaymentMethodRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PaymentMethodServiceServer).SavePaymentMethod(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PaymentMethodService_SavePaymentMethod_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PaymentMethodServiceServer).SavePaymentMethod(ctx, req.(*SavePaymentMethodRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _PaymentMethodService_GetPaymentMethod_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -328,38 +274,20 @@ func _PaymentMethodService_SetDefaultPaymentMethod_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PaymentMethodService_VerifyACHAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(VerifyACHAccountRequest)
+func _PaymentMethodService_UpdatePaymentMethod_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdatePaymentMethodRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(PaymentMethodServiceServer).VerifyACHAccount(ctx, in)
+		return srv.(PaymentMethodServiceServer).UpdatePaymentMethod(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: PaymentMethodService_VerifyACHAccount_FullMethodName,
+		FullMethod: PaymentMethodService_UpdatePaymentMethod_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PaymentMethodServiceServer).VerifyACHAccount(ctx, req.(*VerifyACHAccountRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _PaymentMethodService_ConvertFinancialBRICToStorageBRIC_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ConvertFinancialBRICRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PaymentMethodServiceServer).ConvertFinancialBRICToStorageBRIC(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PaymentMethodService_ConvertFinancialBRICToStorageBRIC_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PaymentMethodServiceServer).ConvertFinancialBRICToStorageBRIC(ctx, req.(*ConvertFinancialBRICRequest))
+		return srv.(PaymentMethodServiceServer).UpdatePaymentMethod(ctx, req.(*UpdatePaymentMethodRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -371,10 +299,6 @@ var PaymentMethodService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "payment_method.v1.PaymentMethodService",
 	HandlerType: (*PaymentMethodServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "SavePaymentMethod",
-			Handler:    _PaymentMethodService_SavePaymentMethod_Handler,
-		},
 		{
 			MethodName: "GetPaymentMethod",
 			Handler:    _PaymentMethodService_GetPaymentMethod_Handler,
@@ -396,12 +320,8 @@ var PaymentMethodService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _PaymentMethodService_SetDefaultPaymentMethod_Handler,
 		},
 		{
-			MethodName: "VerifyACHAccount",
-			Handler:    _PaymentMethodService_VerifyACHAccount_Handler,
-		},
-		{
-			MethodName: "ConvertFinancialBRICToStorageBRIC",
-			Handler:    _PaymentMethodService_ConvertFinancialBRICToStorageBRIC_Handler,
+			MethodName: "UpdatePaymentMethod",
+			Handler:    _PaymentMethodService_UpdatePaymentMethod_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

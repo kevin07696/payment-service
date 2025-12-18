@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	adapterports "github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 )
 
 // MerchantReportingConfig contains configuration for merchant reporting adapter
@@ -18,27 +18,19 @@ type MerchantReportingConfig struct {
 	Timeout time.Duration
 }
 
-// DefaultMerchantReportingConfig returns default configuration
-func DefaultMerchantReportingConfig() *MerchantReportingConfig {
-	return &MerchantReportingConfig{
-		BaseURL: "https://api.north.com",
-		Timeout: 30 * time.Second,
-	}
-}
-
 // merchantReportingAdapter implements the MerchantReportingAdapter port
 type merchantReportingAdapter struct {
 	config     *MerchantReportingConfig
-	httpClient adapterports.HTTPClient
-	logger     adapterports.Logger
+	httpClient ports.HTTPClient
+	logger     ports.Logger
 }
 
 // NewMerchantReportingAdapter creates a new merchant reporting adapter
 func NewMerchantReportingAdapter(
 	config *MerchantReportingConfig,
-	httpClient adapterports.HTTPClient,
-	logger adapterports.Logger,
-) adapterports.MerchantReportingAdapter {
+	httpClient ports.HTTPClient,
+	logger ports.Logger,
+) ports.MerchantReportingAdapter {
 	return &merchantReportingAdapter{
 		config:     config,
 		httpClient: httpClient,
@@ -74,9 +66,9 @@ type northDisputeSearchResponse struct {
 }
 
 // SearchDisputes retrieves dispute/chargeback data for a merchant
-func (a *merchantReportingAdapter) SearchDisputes(ctx context.Context, req *adapterports.DisputeSearchRequest) (*adapterports.DisputeSearchResponse, error) {
+func (a *merchantReportingAdapter) SearchDisputes(ctx context.Context, req *ports.DisputeSearchRequest) (*ports.DisputeSearchResponse, error) {
 	a.logger.Info("Searching disputes",
-		adapterports.String("merchant_id", req.MerchantID),
+		ports.String("merchant_id", req.MerchantID),
 	)
 
 	// Build findBy parameter
@@ -103,8 +95,8 @@ func (a *merchantReportingAdapter) SearchDisputes(ctx context.Context, req *adap
 	reqURL.RawQuery = query.Encode()
 
 	a.logger.Info("Calling North Dispute API",
-		adapterports.String("url", reqURL.String()),
-		adapterports.String("findBy", findBy),
+		ports.String("url", reqURL.String()),
+		ports.String("findBy", findBy),
 	)
 
 	// Create HTTP request
@@ -121,8 +113,8 @@ func (a *merchantReportingAdapter) SearchDisputes(ctx context.Context, req *adap
 	resp, err := a.httpClient.Do(httpReq)
 	if err != nil {
 		a.logger.Error("North Dispute API request failed",
-			adapterports.Err(err),
-			adapterports.String("elapsed", time.Since(startTime).String()),
+			ports.Err(err),
+			ports.String("elapsed", time.Since(startTime).String()),
 		)
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
@@ -135,15 +127,15 @@ func (a *merchantReportingAdapter) SearchDisputes(ctx context.Context, req *adap
 	}
 
 	a.logger.Info("North Dispute API response",
-		adapterports.Int("status_code", resp.StatusCode),
-		adapterports.String("elapsed", time.Since(startTime).String()),
+		ports.Int("status_code", resp.StatusCode),
+		ports.String("elapsed", time.Since(startTime).String()),
 	)
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
 		a.logger.Error("North Dispute API returned non-200 status",
-			adapterports.Int("status_code", resp.StatusCode),
-			adapterports.String("response_body", string(body)),
+			ports.Int("status_code", resp.StatusCode),
+			ports.String("response_body", string(body)),
 		)
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
@@ -160,9 +152,9 @@ func (a *merchantReportingAdapter) SearchDisputes(ctx context.Context, req *adap
 	}
 
 	// Convert to domain model
-	disputes := make([]*adapterports.Dispute, len(northResp.Data.Disputes))
+	disputes := make([]*ports.Dispute, len(northResp.Data.Disputes))
 	for i, d := range northResp.Data.Disputes {
-		disputes[i] = &adapterports.Dispute{
+		disputes[i] = &ports.Dispute{
 			CaseNumber:         d.CaseNumber,
 			DisputeDate:        d.DisputeDate,
 			ChargebackDate:     d.ChargebackDate,
@@ -180,11 +172,11 @@ func (a *merchantReportingAdapter) SearchDisputes(ctx context.Context, req *adap
 	}
 
 	a.logger.Info("Disputes retrieved successfully",
-		adapterports.Int("total_disputes", northResp.Data.Meta.TotalDisputes),
-		adapterports.Int("current_result_count", northResp.Data.Meta.CurrentResultCount),
+		ports.Int("total_disputes", northResp.Data.Meta.TotalDisputes),
+		ports.Int("current_result_count", northResp.Data.Meta.CurrentResultCount),
 	)
 
-	return &adapterports.DisputeSearchResponse{
+	return &ports.DisputeSearchResponse{
 		Disputes:           disputes,
 		TotalDisputes:      northResp.Data.Meta.TotalDisputes,
 		CurrentResultCount: northResp.Data.Meta.CurrentResultCount,

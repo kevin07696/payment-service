@@ -19,14 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SubscriptionService_CreateSubscription_FullMethodName        = "/subscription.v1.SubscriptionService/CreateSubscription"
-	SubscriptionService_UpdateSubscription_FullMethodName        = "/subscription.v1.SubscriptionService/UpdateSubscription"
-	SubscriptionService_CancelSubscription_FullMethodName        = "/subscription.v1.SubscriptionService/CancelSubscription"
-	SubscriptionService_PauseSubscription_FullMethodName         = "/subscription.v1.SubscriptionService/PauseSubscription"
-	SubscriptionService_ResumeSubscription_FullMethodName        = "/subscription.v1.SubscriptionService/ResumeSubscription"
-	SubscriptionService_GetSubscription_FullMethodName           = "/subscription.v1.SubscriptionService/GetSubscription"
-	SubscriptionService_ListCustomerSubscriptions_FullMethodName = "/subscription.v1.SubscriptionService/ListCustomerSubscriptions"
-	SubscriptionService_ProcessDueBilling_FullMethodName         = "/subscription.v1.SubscriptionService/ProcessDueBilling"
+	SubscriptionService_CreateSubscription_FullMethodName = "/subscription.v1.SubscriptionService/CreateSubscription"
+	SubscriptionService_UpdateSubscription_FullMethodName = "/subscription.v1.SubscriptionService/UpdateSubscription"
+	SubscriptionService_CancelSubscription_FullMethodName = "/subscription.v1.SubscriptionService/CancelSubscription"
+	SubscriptionService_PauseSubscription_FullMethodName  = "/subscription.v1.SubscriptionService/PauseSubscription"
+	SubscriptionService_ResumeSubscription_FullMethodName = "/subscription.v1.SubscriptionService/ResumeSubscription"
+	SubscriptionService_GetSubscription_FullMethodName    = "/subscription.v1.SubscriptionService/GetSubscription"
+	SubscriptionService_ListSubscriptions_FullMethodName  = "/subscription.v1.SubscriptionService/ListSubscriptions"
 )
 
 // SubscriptionServiceClient is the client API for SubscriptionService service.
@@ -47,10 +46,8 @@ type SubscriptionServiceClient interface {
 	ResumeSubscription(ctx context.Context, in *ResumeSubscriptionRequest, opts ...grpc.CallOption) (*SubscriptionResponse, error)
 	// GetSubscription retrieves subscription details
 	GetSubscription(ctx context.Context, in *GetSubscriptionRequest, opts ...grpc.CallOption) (*Subscription, error)
-	// ListCustomerSubscriptions lists all subscriptions for a customer
-	ListCustomerSubscriptions(ctx context.Context, in *ListCustomerSubscriptionsRequest, opts ...grpc.CallOption) (*ListCustomerSubscriptionsResponse, error)
-	// ProcessDueBilling processes subscriptions due for billing (internal/admin use)
-	ProcessDueBilling(ctx context.Context, in *ProcessDueBillingRequest, opts ...grpc.CallOption) (*ProcessDueBillingResponse, error)
+	// ListSubscriptions lists subscriptions with optional filters
+	ListSubscriptions(ctx context.Context, in *ListSubscriptionsRequest, opts ...grpc.CallOption) (*ListSubscriptionsResponse, error)
 }
 
 type subscriptionServiceClient struct {
@@ -121,20 +118,10 @@ func (c *subscriptionServiceClient) GetSubscription(ctx context.Context, in *Get
 	return out, nil
 }
 
-func (c *subscriptionServiceClient) ListCustomerSubscriptions(ctx context.Context, in *ListCustomerSubscriptionsRequest, opts ...grpc.CallOption) (*ListCustomerSubscriptionsResponse, error) {
+func (c *subscriptionServiceClient) ListSubscriptions(ctx context.Context, in *ListSubscriptionsRequest, opts ...grpc.CallOption) (*ListSubscriptionsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListCustomerSubscriptionsResponse)
-	err := c.cc.Invoke(ctx, SubscriptionService_ListCustomerSubscriptions_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *subscriptionServiceClient) ProcessDueBilling(ctx context.Context, in *ProcessDueBillingRequest, opts ...grpc.CallOption) (*ProcessDueBillingResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ProcessDueBillingResponse)
-	err := c.cc.Invoke(ctx, SubscriptionService_ProcessDueBilling_FullMethodName, in, out, cOpts...)
+	out := new(ListSubscriptionsResponse)
+	err := c.cc.Invoke(ctx, SubscriptionService_ListSubscriptions_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -159,10 +146,8 @@ type SubscriptionServiceServer interface {
 	ResumeSubscription(context.Context, *ResumeSubscriptionRequest) (*SubscriptionResponse, error)
 	// GetSubscription retrieves subscription details
 	GetSubscription(context.Context, *GetSubscriptionRequest) (*Subscription, error)
-	// ListCustomerSubscriptions lists all subscriptions for a customer
-	ListCustomerSubscriptions(context.Context, *ListCustomerSubscriptionsRequest) (*ListCustomerSubscriptionsResponse, error)
-	// ProcessDueBilling processes subscriptions due for billing (internal/admin use)
-	ProcessDueBilling(context.Context, *ProcessDueBillingRequest) (*ProcessDueBillingResponse, error)
+	// ListSubscriptions lists subscriptions with optional filters
+	ListSubscriptions(context.Context, *ListSubscriptionsRequest) (*ListSubscriptionsResponse, error)
 	mustEmbedUnimplementedSubscriptionServiceServer()
 }
 
@@ -191,11 +176,8 @@ func (UnimplementedSubscriptionServiceServer) ResumeSubscription(context.Context
 func (UnimplementedSubscriptionServiceServer) GetSubscription(context.Context, *GetSubscriptionRequest) (*Subscription, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetSubscription not implemented")
 }
-func (UnimplementedSubscriptionServiceServer) ListCustomerSubscriptions(context.Context, *ListCustomerSubscriptionsRequest) (*ListCustomerSubscriptionsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListCustomerSubscriptions not implemented")
-}
-func (UnimplementedSubscriptionServiceServer) ProcessDueBilling(context.Context, *ProcessDueBillingRequest) (*ProcessDueBillingResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ProcessDueBilling not implemented")
+func (UnimplementedSubscriptionServiceServer) ListSubscriptions(context.Context, *ListSubscriptionsRequest) (*ListSubscriptionsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSubscriptions not implemented")
 }
 func (UnimplementedSubscriptionServiceServer) mustEmbedUnimplementedSubscriptionServiceServer() {}
 func (UnimplementedSubscriptionServiceServer) testEmbeddedByValue()                             {}
@@ -326,38 +308,20 @@ func _SubscriptionService_GetSubscription_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SubscriptionService_ListCustomerSubscriptions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListCustomerSubscriptionsRequest)
+func _SubscriptionService_ListSubscriptions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSubscriptionsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SubscriptionServiceServer).ListCustomerSubscriptions(ctx, in)
+		return srv.(SubscriptionServiceServer).ListSubscriptions(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: SubscriptionService_ListCustomerSubscriptions_FullMethodName,
+		FullMethod: SubscriptionService_ListSubscriptions_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SubscriptionServiceServer).ListCustomerSubscriptions(ctx, req.(*ListCustomerSubscriptionsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _SubscriptionService_ProcessDueBilling_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ProcessDueBillingRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(SubscriptionServiceServer).ProcessDueBilling(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: SubscriptionService_ProcessDueBilling_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SubscriptionServiceServer).ProcessDueBilling(ctx, req.(*ProcessDueBillingRequest))
+		return srv.(SubscriptionServiceServer).ListSubscriptions(ctx, req.(*ListSubscriptionsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -394,12 +358,8 @@ var SubscriptionService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _SubscriptionService_GetSubscription_Handler,
 		},
 		{
-			MethodName: "ListCustomerSubscriptions",
-			Handler:    _SubscriptionService_ListCustomerSubscriptions_Handler,
-		},
-		{
-			MethodName: "ProcessDueBilling",
-			Handler:    _SubscriptionService_ProcessDueBilling_Handler,
+			MethodName: "ListSubscriptions",
+			Handler:    _SubscriptionService_ListSubscriptions_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

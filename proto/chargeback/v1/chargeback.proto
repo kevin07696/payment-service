@@ -32,14 +32,14 @@ service ChargebackService {
 // GetChargebackRequest retrieves a chargeback by ID
 message GetChargebackRequest {
   string chargeback_id = 1; // UUID
-  string agent_id = 2;      // For authorization
+  string merchant_id = 2;   // For authorization
 }
 
 // ListChargebacksRequest lists chargebacks with flexible filters
 message ListChargebacksRequest {
-  string agent_id = 1;                                  // Required: merchant/agent ID
+  string merchant_id = 1;                                // Required: merchant ID (UUID)
   optional string customer_id = 2;                       // Optional: filter by customer
-  optional string group_id = 3;                          // Optional: filter by transaction group
+  optional string transaction_id = 3;                    // Optional: filter by specific transaction
   optional ChargebackStatus status = 4;                  // Optional: filter by status
   optional google.protobuf.Timestamp dispute_date_from = 5; // Optional: date range
   optional google.protobuf.Timestamp dispute_date_to = 6;
@@ -56,8 +56,8 @@ message ListChargebacksResponse {
 // Chargeback represents a complete chargeback record (read-only)
 message Chargeback {
   string id = 1;
-  string group_id = 2; // Links to transaction group
-  string agent_id = 3;
+  string transaction_id = 2; // Links to specific disputed transaction (UUID)
+  string merchant_id = 3;
   string customer_id = 4;
 
   // North API fields

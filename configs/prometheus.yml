@@ -1,0 +1,22 @@
+# Prometheus Configuration for Payment Service
+#
+# Scrapes metrics from the payment service's /metrics endpoint
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Payment Service metrics
+  - job_name: 'payment-service'
+    static_configs:
+      # Payment service running on host machine
+      # Use host.docker.internal to reach host from within Docker
+      - targets: ['host.docker.internal:9090']
+    metrics_path: /metrics
+    scheme: http
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

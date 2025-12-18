@@ -1,775 +1,411 @@
 package payment
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
-	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
-	serviceports "github.com/kevin07696/payment-service/internal/services/ports"
+	"github.com/kevin07696/payment-service/internal/handlers"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"go.uber.org/zap"
 )
 
-// DatabaseAdapter defines the interface for database operations
-type DatabaseAdapter interface {
-	Queries() *sqlc.Queries
-}
-
-// PaymentMethodService defines the interface for payment method operations
-type PaymentMethodService interface {
-	ConvertFinancialBRICToStorageBRIC(ctx context.Context, req *serviceports.ConvertFinancialBRICRequest) (*domain.PaymentMethod, error)
-}
-
-// BrowserPostCallbackHandler handles the redirect callback from EPX Browser Post API
-// This endpoint receives the transaction results after EPX processes the payment
+// BrowserPostCallbackHandler handles Browser Post HTTP requests
+// Responsible for HTTP concerns only - parsing requests and formatting responses
+// Business logic is delegated to BrowserPostService and PaymentMethodService
 type BrowserPostCallbackHandler struct {
-	dbAdapter        DatabaseAdapter
-	browserPost      ports.BrowserPostAdapter
-	paymentMethodSvc PaymentMethodService
-	logger           *zap.Logger
-	epxPostURL       string // EPX Browser Post endpoint URL
-	epxCustNbr       string // EPX Customer Number
-	epxMerchNbr      string // EPX Merchant Number
-	epxDBAnbr        string // EPX DBA Number
-	epxTerminalNbr   string // EPX Terminal Number
-	callbackBaseURL  string // Base URL for callback (e.g., "http://localhost:8081")
+	browserPostSvc       ports.BrowserPostService
+	paymentMethodSvc     ports.PaymentMethodService
+	merchantAuthSvc      ports.MerchantAuthorizationService
+	renderer             *TemplateRenderer
+	logger               *zap.Logger
+	allowedReturnDomains map[string]bool // Allowlist of domains for return URLs (prevents open redirect)
 }
 
 // NewBrowserPostCallbackHandler creates a new Browser Post callback handler
+// allowedReturnDomains is a list of domains that are allowed for return_url redirects
+// An empty list allows any URL (for development only - NOT recommended in production)
 func NewBrowserPostCallbackHandler(
-	dbAdapter DatabaseAdapter,
-	browserPost ports.BrowserPostAdapter,
-	paymentMethodSvc PaymentMethodService,
+	browserPostSvc ports.BrowserPostService,
+	paymentMethodSvc ports.PaymentMethodService,
+	merchantAuthSvc ports.MerchantAuthorizationService,
+	renderer *TemplateRenderer,
 	logger *zap.Logger,
-	epxPostURL string,
-	epxCustNbr string,
-	epxMerchNbr string,
-	epxDBAnbr string,
-	epxTerminalNbr string,
-	callbackBaseURL string,
+	allowedReturnDomains []string,
 ) *BrowserPostCallbackHandler {
+	// Build domain allowlist map for O(1) lookup
+	domainMap := make(map[string]bool, len(allowedReturnDomains))
+	for _, domain := range allowedReturnDomains {
+		// Normalize: lowercase and trim whitespace
+		normalized := strings.ToLower(strings.TrimSpace(domain))
+		if normalized != "" {
+			domainMap[normalized] = true
+		}
+	}
+
+	if len(domainMap) == 0 {
+		logger.Warn("SECURITY WARNING: No allowed return URL domains configured - open redirect possible",
+			zap.String("recommendation", "Set ALLOWED_RETURN_DOMAINS environment variable"))
+	} else {
+		logger.Info("Return URL domain allowlist configured",
+			zap.Int("allowed_domains_count", len(domainMap)))
+	}
+
 	return &BrowserPostCallbackHandler{
-		dbAdapter:        dbAdapter,
-		browserPost:      browserPost,
-		paymentMethodSvc: paymentMethodSvc,
-		logger:           logger,
-		epxPostURL:       epxPostURL,
-		epxCustNbr:       epxCustNbr,
-		epxMerchNbr:      epxMerchNbr,
-		epxDBAnbr:        epxDBAnbr,
-		epxTerminalNbr:   epxTerminalNbr,
-		callbackBaseURL:  callbackBaseURL,
+		browserPostSvc:       browserPostSvc,
+		paymentMethodSvc:     paymentMethodSvc,
+		merchantAuthSvc:      merchantAuthSvc,
+		renderer:             renderer,
+		logger:               logger,
+		allowedReturnDomains: domainMap,
 	}
 }
 
-// GetPaymentForm generates form configuration for Browser Post payment
-// This endpoint is called by the frontend to get EPX credentials and form fields
-// Endpoint: GET /api/v1/payments/browser-post/form?amount=99.99
+// validateReturnURL checks if the return URL is from an allowed domain
+// Returns true if allowed, false if blocked (with reason in error)
+func (h *BrowserPostCallbackHandler) validateReturnURL(returnURL string) (bool, string) {
+	// If no allowlist configured, allow all (with warning logged at startup)
+	if len(h.allowedReturnDomains) == 0 {
+		return true, ""
+	}
+
+	parsedURL, err := url.Parse(returnURL)
+	if err != nil {
+		return false, "invalid URL format"
+	}
+
+	// Must be http or https
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return false, "URL scheme must be http or https"
+	}
+
+	// Extract and normalize the domain
+	host := strings.ToLower(parsedURL.Hostname())
+	if host == "" {
+		return false, "URL must have a valid hostname"
+	}
+
+	// Check exact match first
+	if h.allowedReturnDomains[host] {
+		return true, ""
+	}
+
+	// Check if host is a subdomain of an allowed domain
+	// e.g., if "example.com" is allowed, "www.example.com" should also be allowed
+	for allowedDomain := range h.allowedReturnDomains {
+		if strings.HasSuffix(host, "."+allowedDomain) {
+			return true, ""
+		}
+	}
+
+	h.logger.Warn("Return URL domain not in allowlist",
+		zap.String("return_url", returnURL),
+		zap.String("host", host))
+
+	return false, "return URL domain not allowed"
+}
+
+// GetPaymentForm handles GET /api/v1/payments/browser-post/form
 func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		h.logger.Warn("Browser Post form generator received non-GET request",
-			zap.String("method", r.Method),
-		)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Extract amount from query parameters
+	// Parse required parameters
+	transactionID := r.URL.Query().Get("transaction_id")
+	if transactionID == "" {
+		http.Error(w, "transaction_id parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	merchantID := r.URL.Query().Get("merchant_id")
+	if merchantID == "" {
+		http.Error(w, "merchant_id parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate service has access to merchant (uses JWT auth from context)
+	resolvedMerchantID, err := h.merchantAuthSvc.ResolveMerchantID(r.Context(), merchantID)
+	if err != nil {
+		h.logger.Warn("Service-merchant access denied",
+			zap.String("merchant_id", merchantID),
+			zap.Error(err))
+		http.Error(w, "access denied to merchant", http.StatusForbidden)
+		return
+	}
+	merchantID = resolvedMerchantID
+
 	amount := r.URL.Query().Get("amount")
 	if amount == "" {
-		h.logger.Warn("Browser Post form request missing amount parameter")
 		http.Error(w, "amount parameter is required", http.StatusBadRequest)
 		return
 	}
 
-	// Validate amount format
-	if _, err := fmt.Sscanf(amount, "%f", new(float64)); err != nil {
-		h.logger.Warn("Invalid amount format",
-			zap.String("amount", amount),
-			zap.Error(err),
-		)
-		http.Error(w, "amount must be a valid number", http.StatusBadRequest)
+	returnURL := r.URL.Query().Get("return_url")
+	if returnURL == "" {
+		http.Error(w, "return_url parameter is required", http.StatusBadRequest)
 		return
 	}
 
-	// Generate unique transaction number using Unix timestamp with microseconds
-	// This ensures uniqueness even for rapid requests within the same second
-	now := time.Now()
-	tranNbr := fmt.Sprintf("%d%06d", now.Unix()%100000, now.Nanosecond()/1000)
-
-	h.logger.Info("Generating Browser Post form configuration",
-		zap.String("amount", amount),
-		zap.String("tran_nbr", tranNbr),
-	)
-
-	// Build form configuration
-	// Note: This returns EPX credentials and configuration that the frontend
-	// will use to construct an HTML form that posts directly to EPX
-	formConfig := map[string]string{
-		// EPX endpoint URL (where the form will POST to)
-		"postURL": h.epxPostURL,
-
-		// EPX credentials (hidden fields)
-		"custNbr":     h.epxCustNbr,
-		"merchNbr":    h.epxMerchNbr,
-		"dBAnbr":      h.epxDBAnbr,
-		"terminalNbr": h.epxTerminalNbr,
-
-		// Transaction details
-		"amount":       amount,
-		"tranNbr":      tranNbr,
-		"tranGroup":    "SALE",
-		"tranCode":     "SALE",
-		"industryType": "E", // E-commerce
-		"cardEntMeth":  "E", // E-commerce card entry
-
-		// Callback URL (where EPX will redirect after payment)
-		"redirectURL": h.callbackBaseURL + "/api/v1/payments/browser-post/callback",
-
-		// Additional fields for display/tracking
-		"merchantName": "Payment Service",
+	// Validate return URL against allowlist (prevents open redirect)
+	if allowed, reason := h.validateReturnURL(returnURL); !allowed {
+		http.Error(w, reason, http.StatusBadRequest)
+		return
 	}
 
-	// Return JSON response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	// Parse optional parameters
+	transactionType := r.URL.Query().Get("transaction_type")
+	if transactionType == "" {
+		transactionType = "SALE"
+	}
+	customerID := r.URL.Query().Get("customer_id")
 
+	// Call service
+	resp, err := h.browserPostSvc.GenerateFormConfig(r.Context(), &ports.GenerateFormConfigRequest{
+		TransactionID:   transactionID,
+		MerchantID:      merchantID,
+		Amount:          amount,
+		TransactionType: transactionType,
+		CustomerID:      customerID,
+		ReturnURL:       returnURL,
+	})
+	if err != nil {
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		http.Error(w, errResp.Message, errResp.StatusCode)
+		return
+	}
+
+	// Build JSON response per North Developer Browser Post API Integration Guide
+	// Note: returnUrl and merchantId are not included - caller already has these values
+	// redirectURL is internal (embedded in TAC) and not needed by the form
+	formConfig := map[string]interface{}{
+		"transactionId": resp.TransactionID,
+		"epxTranNbr":    resp.EPXTranNbr,
+		"tac":           resp.TAC,
+		"expiresAt":     resp.ExpiresAt.Unix(),
+		"postURL":       resp.PostURL,
+		"custNbr":       resp.CustNbr,
+		"merchNbr":      resp.MerchNbr,
+		"dbaName":       resp.DBAName,
+		"terminalNbr":   resp.TerminalNbr,
+		"industryType":  resp.IndustryType,
+		"tranCode":      resp.TranCode, // EPX TRAN_CODE for Browser POST form (SALE, AUTH, STORAGE, ACHSTORAGE_C, ACHSTORAGE_S)
+		"merchantName":  resp.MerchantName,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(formConfig); err != nil {
-		h.logger.Error("Failed to encode form configuration",
-			zap.Error(err),
-		)
+		h.logger.Error("Failed to encode form configuration", zap.Error(err))
 	}
 }
 
-// HandleCallback processes the Browser Post redirect callback from EPX
-// According to EPX docs (page 7-8): EPX redirects browser with transaction results as self-posting form
-// Endpoint: POST /api/v1/payments/browser-post/callback
+// HandleCallback handles GET/POST /api/v1/payments/browser-post/callback
+// EPX redirects via 302 which browsers follow as GET with query parameters
 func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		h.logger.Warn("Browser Post callback received non-POST request",
-			zap.String("method", r.Method),
-		)
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Parse form data
 	if err := r.ParseForm(); err != nil {
-		h.logger.Error("Failed to parse form data",
-			zap.Error(err),
-		)
-		h.renderErrorPage(w, "Invalid request data", "")
+		h.renderError(w, "Invalid request data", "", "")
 		return
 	}
 
-	h.logger.Info("Received Browser Post callback",
-		zap.Int("form_values", len(r.Form)),
-	)
-
-	// Convert r.Form (url.Values) to map[string][]string for ParseRedirectResponse
+	// Parse EPX response from query params (GET) or form body (POST)
+	// r.Form contains both URL query values and POST body values
 	params := make(map[string][]string)
 	for key, values := range r.Form {
 		params[key] = values
 	}
 
-	// Parse the response using BrowserPostAdapter
-	response, err := h.browserPost.ParseRedirectResponse(params)
+	epxResponse, err := h.browserPostSvc.ParseRedirectResponse(params)
 	if err != nil {
-		h.logger.Error("Failed to parse Browser Post response",
-			zap.Error(err),
-		)
-		h.renderErrorPage(w, "Failed to process payment response", err.Error())
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		h.renderError(w, errResp.Message, "", "")
 		return
 	}
 
-	// Check for duplicate transaction using TRAN_NBR (as recommended in EPX docs page 8)
-	// This handles the PRG (POST-REDIRECT-GET) pattern where same response can be received multiple times
-	if response.TranNbr != "" {
-		existingTx, err := h.dbAdapter.Queries().GetTransactionByIdempotencyKey(r.Context(), pgtype.Text{
-			String: response.TranNbr,
-			Valid:  true,
-		})
+	// Extract transaction type
+	transactionTypeStr := epxResponse.RawParams["transaction_type"]
+	if transactionTypeStr == "" {
+		transactionTypeStr = "SALE"
+	}
+	txType := domain.ParseRequestTransactionType(transactionTypeStr)
 
-		if err == nil {
-			// Transaction already exists - this is a duplicate callback
-			h.logger.Info("Duplicate Browser Post callback detected",
-				zap.String("tran_nbr", response.TranNbr),
-				zap.String("existing_tx_id", existingTx.ID.String()),
-			)
-			// Still render success page with existing transaction
-			h.renderReceiptPage(w, response, existingTx.ID.String())
-			return
+	// Extract return URL for error pages
+	returnURL := epxResponse.RawParams["USER_DATA_1"]
+
+	// Validate return URL against allowlist (defense in depth - data came from client via EPX)
+	if returnURL != "" {
+		if allowed, _ := h.validateReturnURL(returnURL); !allowed {
+			// Clear invalid return URL to prevent open redirect
+			returnURL = ""
+			h.logger.Warn("Blocked potentially tampered return URL from EPX callback")
 		}
 	}
 
-	// Store the transaction in database
-	// We store AUTH_GUID (BRIC) even for guest checkouts because it's needed for:
-	// - Refunds (most common reason)
-	// - Voids/cancellations
-	// - Chargeback defense
-	// - Reconciliation with EPX settlement reports
-	txID, err := h.storeTransaction(r.Context(), response)
+	// Process callback
+	callbackReq := &ports.ProcessCallbackRequest{
+		TranNbr:         epxResponse.TranNbr,
+		AuthGUID:        epxResponse.AuthGUID,
+		AuthResp:        epxResponse.AuthResp,
+		AuthCode:        epxResponse.AuthCode,
+		AuthCardType:    epxResponse.AuthCardType,
+		AuthRespText:    epxResponse.AuthRespText,
+		AuthAVS:         epxResponse.AuthAVS,
+		AuthCVV2:        epxResponse.AuthCVV2,
+		Amount:          epxResponse.Amount,
+		IsApproved:      epxResponse.IsApproved,
+		TransactionID:   epxResponse.RawParams["transaction_id"],
+		MerchantID:      epxResponse.RawParams["merchant_id"],
+		TransactionType: txType,
+		CustomerID:      epxResponse.RawParams["USER_DATA_2"],
+		RawParams:       epxResponse.RawParams,
+	}
+
+	callbackResp, err := h.browserPostSvc.ProcessCallback(r.Context(), callbackReq)
 	if err != nil {
-		h.logger.Error("Failed to store transaction",
-			zap.Error(err),
-			zap.String("auth_guid", response.AuthGUID),
-		)
-		// Still show success to user if payment was approved, but log the error
-		if response.AuthResp == "00" {
-			h.renderReceiptPage(w, response, "")
-			return
-		}
-		h.renderErrorPage(w, "Failed to record transaction", "")
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		h.renderError(w, errResp.Message, "", returnURL)
 		return
 	}
 
-	h.logger.Info("Successfully processed Browser Post callback",
-		zap.String("transaction_id", txID),
-		zap.String("auth_resp", response.AuthResp),
-		zap.String("auth_guid", response.AuthGUID),
-	)
+	// Route to appropriate response based on transaction type
+	switch {
+	case txType == domain.RequestTransactionTypeStorage && epxResponse.IsApproved:
+		h.handleCreditCardStorage(w, r, epxResponse, returnURL)
 
-	// Check if user wants to save payment method (from USER_DATA fields)
-	// If yes and transaction approved, convert Financial BRIC to Storage BRIC
-	if response.IsApproved && h.shouldSavePaymentMethod(response.RawParams) {
-		if err := h.savePaymentMethod(r.Context(), response, txID); err != nil {
-			h.logger.Error("Failed to save payment method",
-				zap.Error(err),
-				zap.String("transaction_id", txID),
-			)
-			// Don't fail the transaction - user can save it later
-		}
+	case txType.IsACHStorage() && epxResponse.IsApproved:
+		h.handleBankAccountStorage(w, r, txType, epxResponse, returnURL)
+
+	default:
+		h.renderReceipt(w, epxResponse, callbackResp, returnURL)
 	}
-
-	// Render receipt page based on transaction status
-	h.renderReceiptPage(w, response, txID)
 }
 
-// storeTransaction saves the transaction to the database
-// AUTH_GUID (BRIC) is stored for refunds, voids, disputes, and reconciliation
-func (h *BrowserPostCallbackHandler) storeTransaction(ctx context.Context, response *ports.BrowserPostResponse) (string, error) {
-	// Determine status from AUTH_RESP
-	// "00" = approved, others = failed/declined
-	status := "failed"
-	if response.IsApproved {
-		status = "completed"
-	}
+// handleCreditCardStorage saves credit card and renders confirmation
+func (h *BrowserPostCallbackHandler) handleCreditCardStorage(w http.ResponseWriter, r *http.Request, epxResponse *ports.BrowserPostResponse, returnURL string) {
+	merchantID := epxResponse.RawParams["merchant_id"]
+	customerID := epxResponse.RawParams["customer_id"]
 
-	// Determine transaction type (Browser Post is always charge, refunds go through Server Post)
-	txType := "charge"
-
-	// Create transaction
-	txID := uuid.New()
-	groupID := uuid.New()
-
-	// Parse amount to numeric
-	var amountNumeric pgtype.Numeric
-	if err := amountNumeric.Scan(response.Amount); err != nil {
-		return "", fmt.Errorf("invalid amount: %w", err)
-	}
-
-	// Get agent ID from raw params (CUST_NBR)
-	agentID := "unknown"
-	if custNbr, ok := response.RawParams["CUST_NBR"]; ok && custNbr != "" {
-		agentID = custNbr
-	}
-
-	_, err := h.dbAdapter.Queries().CreateTransaction(ctx, sqlc.CreateTransactionParams{
-		ID:                txID,
-		GroupID:           groupID,
-		AgentID:           agentID,
-		CustomerID:        pgtype.Text{}, // No customer ID in Browser Post (guest checkout)
-		Amount:            amountNumeric,
-		Currency:          "USD",
-		Status:            status,
-		Type:              txType,
-		PaymentMethodType: "credit_card",
-		PaymentMethodID:   pgtype.UUID{}, // No saved payment method for Browser Post
-		AuthGuid: pgtype.Text{
-			String: response.AuthGUID,
-			Valid:  response.AuthGUID != "",
-		},
-		AuthResp: pgtype.Text{
-			String: response.AuthResp,
-			Valid:  response.AuthResp != "",
-		},
-		AuthCode: pgtype.Text{
-			String: response.AuthCode,
-			Valid:  response.AuthCode != "",
-		},
-		AuthRespText: pgtype.Text{
-			String: response.AuthRespText,
-			Valid:  response.AuthRespText != "",
-		},
-		AuthCardType: pgtype.Text{
-			String: response.AuthCardType,
-			Valid:  response.AuthCardType != "",
-		},
-		AuthAvs: pgtype.Text{
-			String: response.AuthAVS,
-			Valid:  response.AuthAVS != "",
-		},
-		AuthCvv2: pgtype.Text{
-			String: response.AuthCVV2,
-			Valid:  response.AuthCVV2 != "",
-		},
-		IdempotencyKey: pgtype.Text{
-			String: response.TranNbr,
-			Valid:  response.TranNbr != "",
-		},
-		Metadata: []byte("{}"),
+	pm, err := h.paymentMethodSvc.SaveCreditCardFromCallback(r.Context(), &ports.SaveCreditCardFromCallbackRequest{
+		MerchantID:       merchantID,
+		CustomerID:       customerID,
+		BRIC:             epxResponse.AuthGUID,
+		MaskedAccountNbr: epxResponse.RawParams["AUTH_MASKED_ACCOUNT_NBR"],
+		ExpirationDate:   epxResponse.RawParams["EXP_DATE"],
+		CardTypeCode:     epxResponse.AuthCardType,
 	})
-
 	if err != nil {
-		return "", fmt.Errorf("failed to create transaction: %w", err)
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		h.renderError(w, errResp.Message, "", returnURL)
+		return
 	}
 
-	return txID.String(), nil
+	h.logger.Info("Credit card saved", zap.String("payment_method_id", pm.ID))
+
+	// Extract last four and expiration for display
+	lastFour := domain.ExtractLastFour(epxResponse.RawParams["AUTH_MASKED_ACCOUNT_NBR"])
+	expDate := domain.FormatExpirationDateMMYY(epxResponse.RawParams["EXP_DATE"])
+	cardBrand := string(domain.CardBrandFromEPXCode(epxResponse.AuthCardType))
+
+	h.renderTemplate(w, TemplatePaymentMethodCreditCard, &CreditCardData{
+		CardBrand:       cardBrand,
+		LastFour:        lastFour,
+		ExpirationDate:  expDate,
+		PaymentMethodID: pm.ID,
+		ReturnURL:       returnURL,
+	})
 }
 
-// renderReceiptPage renders an HTML receipt page to the user
-func (h *BrowserPostCallbackHandler) renderReceiptPage(w http.ResponseWriter, response *ports.BrowserPostResponse, txID string) {
-	approved := response.IsApproved
+// handleBankAccountStorage saves bank account, sends prenote, and renders confirmation
+func (h *BrowserPostCallbackHandler) handleBankAccountStorage(w http.ResponseWriter, r *http.Request, txType domain.RequestTransactionType, epxResponse *ports.BrowserPostResponse, returnURL string) {
+	merchantID := epxResponse.RawParams["merchant_id"]
+	customerID := epxResponse.RawParams["customer_id"]
 
-	// Mask card number (show last 4 digits) - get from raw params if available
-	maskedCard := ""
-	if cardNbr, ok := response.RawParams["CARD_NBR"]; ok && len(cardNbr) >= 4 {
-		maskedCard = "****-****-****-" + cardNbr[len(cardNbr)-4:]
-	}
-
-	// Get invoice number from raw params if available
-	invoiceNbr := ""
-	if inv, ok := response.RawParams["INVOICE_NBR"]; ok {
-		invoiceNbr = inv
-	}
-
-	tmpl := template.Must(template.New("receipt").Parse(receiptTemplate))
-
-	data := map[string]interface{}{
-		"Approved":      approved,
-		"Amount":        response.Amount,
-		"Currency":      "USD",
-		"CardType":      getCardTypeName(response.AuthCardType),
-		"MaskedCard":    maskedCard,
-		"AuthCode":      response.AuthCode,
-		"AuthRespText":  response.AuthRespText,
-		"TransactionID": txID,
-		"TranNbr":       response.TranNbr,
-		"BRIC":          response.AuthGUID,
-		"InvoiceNbr":    invoiceNbr,
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-
-	if err := tmpl.Execute(w, data); err != nil {
-		h.logger.Error("Failed to render receipt template",
-			zap.Error(err),
-		)
-	}
-}
-
-// renderErrorPage renders an HTML error page
-func (h *BrowserPostCallbackHandler) renderErrorPage(w http.ResponseWriter, message, details string) {
-	tmpl := template.Must(template.New("error").Parse(errorTemplate))
-
-	data := map[string]interface{}{
-		"Message": message,
-		"Details": details,
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK) // Still 200 because this is a redirect from EPX
-
-	if err := tmpl.Execute(w, data); err != nil {
-		h.logger.Error("Failed to render error template",
-			zap.Error(err),
-		)
-	}
-}
-
-// shouldSavePaymentMethod checks if the user requested to save their payment method
-// This is indicated by USER_DATA_1 field containing "save_payment_method=true"
-func (h *BrowserPostCallbackHandler) shouldSavePaymentMethod(rawParams map[string]string) bool {
-	// Check USER_DATA_1 for save_payment_method flag
-	if userData1, ok := rawParams["USER_DATA_1"]; ok {
-		return strings.Contains(strings.ToLower(userData1), "save_payment_method=true") ||
-			strings.Contains(strings.ToLower(userData1), "save_payment_method=1")
-	}
-	return false
-}
-
-// savePaymentMethod converts the Financial BRIC to a Storage BRIC and saves it
-func (h *BrowserPostCallbackHandler) savePaymentMethod(ctx context.Context, response *ports.BrowserPostResponse, txID string) error {
-	// Extract customer_id from USER_DATA_2
-	customerID, ok := response.RawParams["USER_DATA_2"]
-	if !ok || customerID == "" {
-		return fmt.Errorf("customer_id not provided in USER_DATA_2")
-	}
-
-	// Extract agent_id from CUST_NBR
-	agentID, ok := response.RawParams["CUST_NBR"]
-	if !ok || agentID == "" {
-		return fmt.Errorf("agent_id not found in CUST_NBR")
-	}
-
-	// Determine payment type
-	paymentType := "credit_card" // Browser Post is typically credit card
-	// Note: If we support ACH through Browser Post, we'd need to detect it here
-
-	// Extract last four digits from card number
-	lastFour := ""
-	if cardNbr, ok := response.RawParams["CARD_NBR"]; ok && len(cardNbr) >= 4 {
-		lastFour = cardNbr[len(cardNbr)-4:]
-	}
-
-	if lastFour == "" {
-		return fmt.Errorf("unable to extract last four digits from card number")
-	}
-
-	// Extract card expiration (YYMM format)
-	var cardExpMonth, cardExpYear *int
-	if expDate, ok := response.RawParams["EXP_DATE"]; ok && len(expDate) == 4 {
-		// Parse YYMM format
-		year := expDate[0:2]
-		month := expDate[2:4]
-
-		var yy, mm int
-		fmt.Sscanf(year, "%d", &yy)
-		fmt.Sscanf(month, "%d", &mm)
-
-		// Convert YY to full year (20YY)
-		fullYear := 2000 + yy
-		cardExpYear = &fullYear
-		cardExpMonth = &mm
-	}
-
-	// Extract card brand from AUTH_CARD_TYPE
-	var cardBrand *string
-	if response.AuthCardType != "" {
-		brand := getCardTypeName(response.AuthCardType)
-		cardBrand = &brand
-	}
-
-	// Extract billing information
-	firstName := getStringPtr(response.RawParams, "FIRST_NAME")
-	lastName := getStringPtr(response.RawParams, "LAST_NAME")
-	address := getStringPtr(response.RawParams, "ADDRESS")
-	city := getStringPtr(response.RawParams, "CITY")
-	state := getStringPtr(response.RawParams, "STATE")
-	zipCode := getStringPtr(response.RawParams, "ZIP_CODE")
-
-	// Build ConvertFinancialBRICRequest
-	req := &serviceports.ConvertFinancialBRICRequest{
-		AgentID:       agentID,
-		CustomerID:    customerID,
-		FinancialBRIC: response.AuthGUID,
-		PaymentType:   domain.PaymentMethodType(paymentType),
-		TransactionID: txID,
-		LastFour:      lastFour,
-		CardBrand:     cardBrand,
-		CardExpMonth:  cardExpMonth,
-		CardExpYear:   cardExpYear,
-		IsDefault:     false, // Don't auto-set as default
-		FirstName:     firstName,
-		LastName:      lastName,
-		Address:       address,
-		City:          city,
-		State:         state,
-		ZipCode:       zipCode,
-	}
-
-	// Call payment method service to convert Financial BRIC to Storage BRIC
-	_, err := h.paymentMethodSvc.ConvertFinancialBRICToStorageBRIC(ctx, req)
+	// Step 1: Save ACH payment method
+	pm, err := h.paymentMethodSvc.SaveACHFromCallback(r.Context(), &ports.SaveACHFromCallbackRequest{
+		MerchantID:       merchantID,
+		CustomerID:       customerID,
+		BRIC:             epxResponse.AuthGUID,
+		MaskedAccountNbr: epxResponse.RawParams["AUTH_MASKED_ACCOUNT_NBR"],
+		TransactionType:  txType,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to convert Financial BRIC to Storage BRIC: %w", err)
+		errResp := handlers.HandleServiceErrorHTTP(err, h.logger)
+		h.renderError(w, errResp.Message, "", returnURL)
+		return
 	}
 
-	h.logger.Info("Payment method saved successfully",
-		zap.String("customer_id", customerID),
-		zap.String("agent_id", agentID),
-		zap.String("last_four", lastFour),
-	)
+	h.logger.Info("Bank account saved (unverified)", zap.String("payment_method_id", pm.ID))
 
-	return nil
+	// Step 2: Send prenote
+	accountType := "Checking"
+	if !txType.IsCheckingAccount() {
+		accountType = "Savings"
+	}
+
+	if err := h.paymentMethodSvc.SendPrenote(r.Context(), &ports.SendPrenoteRequest{
+		MerchantID:      merchantID,
+		PaymentMethodID: pm.ID,
+		CustomerID:      customerID,
+		BRIC:            epxResponse.AuthGUID,
+		AccountType:     accountType,
+	}); err != nil {
+		h.logger.Error("Failed to send prenote", zap.Error(err), zap.String("payment_method_id", pm.ID))
+		// Don't fail - payment method was saved, prenote can be retried
+	} else {
+		h.logger.Info("Prenote sent", zap.String("payment_method_id", pm.ID))
+	}
+
+	lastFour := domain.ExtractLastFour(epxResponse.RawParams["AUTH_MASKED_ACCOUNT_NBR"])
+
+	h.renderTemplate(w, TemplatePaymentMethodBankAccount, &BankAccountData{
+		AccountType:     accountType,
+		LastFour:        lastFour,
+		PaymentMethodID: pm.ID,
+		ReturnURL:       returnURL,
+	})
 }
 
-// getStringPtr returns a pointer to the string value if it exists in the map
-func getStringPtr(m map[string]string, key string) *string {
-	if val, ok := m[key]; ok && val != "" {
-		return &val
-	}
-	return nil
+// renderReceipt renders the receipt template for SALE/AUTH transactions
+func (h *BrowserPostCallbackHandler) renderReceipt(w http.ResponseWriter, epxResponse *ports.BrowserPostResponse, callbackResp *ports.ProcessCallbackResponse, returnURL string) {
+	// Per North Developer Browser Post API Guide: EPX returns AUTH_ACCOUNT_NBR in response
+	lastFour := domain.ExtractLastFour(epxResponse.RawParams["AUTH_ACCOUNT_NBR"])
+	maskedCard := domain.FormatMaskedCard(lastFour)
+
+	h.renderTemplate(w, TemplateReceipt, &ReceiptData{
+		Approved:      epxResponse.IsApproved,
+		Amount:        epxResponse.Amount,
+		Currency:      "USD",
+		CardType:      string(domain.CardBrandFromEPXCode(epxResponse.AuthCardType)),
+		MaskedCard:    maskedCard,
+		AuthCode:      epxResponse.AuthCode,
+		AuthRespText:  epxResponse.AuthRespText,
+		TransactionID: callbackResp.TransactionID,
+		TranNbr:       epxResponse.TranNbr,
+		ReturnURL:     returnURL,
+	})
 }
 
-// getCardTypeName converts EPX card type code to human-readable name
-func getCardTypeName(code string) string {
-	cardTypes := map[string]string{
-		"V": "Visa",
-		"M": "Mastercard",
-		"A": "American Express",
-		"D": "Discover",
-		"J": "JCB",
-	}
-
-	if name, ok := cardTypes[strings.ToUpper(code)]; ok {
-		return name
-	}
-	return code
+// renderError renders the error template
+func (h *BrowserPostCallbackHandler) renderError(w http.ResponseWriter, message, details, returnURL string) {
+	h.renderTemplate(w, TemplateError, &ErrorData{
+		Message:   message,
+		Details:   details,
+		ReturnURL: returnURL,
+	})
 }
 
-// HTML template for receipt page
-const receiptTemplate = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment {{if .Approved}}Successful{{else}}Failed{{end}}</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            max-width: 600px;
-            margin: 50px auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .receipt {
-            background: white;
-            padding: 40px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .status {
-            font-size: 24px;
-            font-weight: bold;
-            margin: 20px 0;
-        }
-        .status.success {
-            color: #10b981;
-        }
-        .status.failed {
-            color: #ef4444;
-        }
-        .icon {
-            font-size: 64px;
-            margin-bottom: 20px;
-        }
-        .details {
-            margin: 30px 0;
-            border-top: 2px solid #e5e7eb;
-            padding-top: 20px;
-        }
-        .detail-row {
-            display: flex;
-            justify-content: space-between;
-            margin: 15px 0;
-            padding: 10px 0;
-        }
-        .detail-label {
-            font-weight: 600;
-            color: #6b7280;
-        }
-        .detail-value {
-            color: #111827;
-            font-weight: 500;
-        }
-        .amount {
-            font-size: 32px;
-            font-weight: bold;
-            text-align: center;
-            margin: 20px 0;
-            color: #111827;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #e5e7eb;
-            color: #6b7280;
-            font-size: 14px;
-        }
-        .button {
-            display: inline-block;
-            padding: 12px 24px;
-            background-color: #3b82f6;
-            color: white;
-            text-decoration: none;
-            border-radius: 6px;
-            margin-top: 20px;
-            font-weight: 500;
-        }
-        .button:hover {
-            background-color: #2563eb;
-        }
-    </style>
-</head>
-<body>
-    <div class="receipt">
-        <div class="header">
-            <div class="icon">{{if .Approved}}✓{{else}}✗{{end}}</div>
-            <div class="status {{if .Approved}}success{{else}}failed{{end}}">
-                Payment {{if .Approved}}Successful{{else}}Failed{{end}}
-            </div>
-        </div>
-
-        {{if .Approved}}
-            <div class="amount">${{.Amount}} {{.Currency}}</div>
-
-            <div class="details">
-                {{if .CardType}}
-                <div class="detail-row">
-                    <span class="detail-label">Card Type</span>
-                    <span class="detail-value">{{.CardType}}</span>
-                </div>
-                {{end}}
-
-                {{if .MaskedCard}}
-                <div class="detail-row">
-                    <span class="detail-label">Card Number</span>
-                    <span class="detail-value">{{.MaskedCard}}</span>
-                </div>
-                {{end}}
-
-                {{if .AuthCode}}
-                <div class="detail-row">
-                    <span class="detail-label">Authorization Code</span>
-                    <span class="detail-value">{{.AuthCode}}</span>
-                </div>
-                {{end}}
-
-                {{if .TransactionID}}
-                <div class="detail-row">
-                    <span class="detail-label">Transaction ID</span>
-                    <span class="detail-value">{{.TransactionID}}</span>
-                </div>
-                {{end}}
-
-                {{if .TranNbr}}
-                <div class="detail-row">
-                    <span class="detail-label">Reference Number</span>
-                    <span class="detail-value">{{.TranNbr}}</span>
-                </div>
-                {{end}}
-
-                {{if .InvoiceNbr}}
-                <div class="detail-row">
-                    <span class="detail-label">Invoice Number</span>
-                    <span class="detail-value">{{.InvoiceNbr}}</span>
-                </div>
-                {{end}}
-            </div>
-
-            <div class="footer">
-                <p>Thank you for your payment!</p>
-                <p>A confirmation email has been sent to your email address.</p>
-            </div>
-        {{else}}
-            <div class="details">
-                <div class="detail-row">
-                    <span class="detail-label">Status</span>
-                    <span class="detail-value">{{.AuthRespText}}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Amount</span>
-                    <span class="detail-value">${{.Amount}} {{.Currency}}</span>
-                </div>
-            </div>
-
-            <div class="footer">
-                <p>Your payment could not be processed.</p>
-                <p>Please check your payment information and try again.</p>
-                <a href="/" class="button">Try Again</a>
-            </div>
-        {{end}}
-    </div>
-</body>
-</html>
-`
-
-// HTML template for error page
-const errorTemplate = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment Error</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            max-width: 600px;
-            margin: 50px auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .error-page {
-            background: white;
-            padding: 40px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .icon {
-            font-size: 64px;
-            color: #ef4444;
-            margin-bottom: 20px;
-        }
-        h1 {
-            color: #ef4444;
-            margin-bottom: 20px;
-        }
-        .message {
-            color: #6b7280;
-            margin: 20px 0;
-        }
-        .details {
-            background-color: #fef2f2;
-            border: 1px solid #fecaca;
-            padding: 15px;
-            border-radius: 6px;
-            margin: 20px 0;
-            color: #991b1b;
-        }
-        .button {
-            display: inline-block;
-            padding: 12px 24px;
-            background-color: #3b82f6;
-            color: white;
-            text-decoration: none;
-            border-radius: 6px;
-            margin-top: 20px;
-            font-weight: 500;
-        }
-        .button:hover {
-            background-color: #2563eb;
-        }
-    </style>
-</head>
-<body>
-    <div class="error-page">
-        <div class="icon">⚠</div>
-        <h1>Payment Error</h1>
-        <p class="message">{{.Message}}</p>
-        {{if .Details}}
-        <div class="details">{{.Details}}</div>
-        {{end}}
-        <a href="/" class="button">Return to Home</a>
-    </div>
-</body>
-</html>
-`
+// renderTemplate renders a template with proper headers
+func (h *BrowserPostCallbackHandler) renderTemplate(w http.ResponseWriter, name TemplateName, data interface{}) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.renderer.Render(w, name, data); err != nil {
+		h.logger.Error("Failed to render template", zap.Error(err), zap.String("template", string(name)))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}

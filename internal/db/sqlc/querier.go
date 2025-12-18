@@ -6,82 +6,298 @@ package sqlc
 
 import (
 	"context"
+	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
-	ActivateAgent(ctx context.Context, agentID string) error
-	ActivatePaymentMethod(ctx context.Context, id uuid.UUID) error
+	ActivateAdmin(ctx context.Context, id uuid.UUID) error
+	ActivateMerchant(ctx context.Context, id uuid.UUID) error
+	// Mark payment method as active (verified and usable)
+	ActivatePaymentMethod(ctx context.Context, arg ActivatePaymentMethodParams) error
+	ActivateService(ctx context.Context, id uuid.UUID) error
 	AddEvidenceFile(ctx context.Context, arg AddEvidenceFileParams) error
-	AgentExists(ctx context.Context, agentID string) (bool, error)
+	// Add an IP address to the EPX whitelist
+	AddIPToWhitelist(ctx context.Context, arg AddIPToWhitelistParams) (EpxIpWhitelist, error)
+	// Releases an advisory lock. Returns true if lock was held and released.
+	AdvisoryUnlock(ctx context.Context, lockID int64) (bool, error)
+	// Add a JWT token to the blacklist
+	BlacklistJWT(ctx context.Context, arg BlacklistJWTParams) error
 	CancelSubscription(ctx context.Context, arg CancelSubscriptionParams) (Subscription, error)
-	CountAgents(ctx context.Context, arg CountAgentsParams) (int64, error)
+	// Cancels subscription with reason tracking (idempotent - won't overwrite existing cancellation)
+	// Returns the subscription even if already cancelled (for idempotency)
+	CancelSubscriptionWithReason(ctx context.Context, arg CancelSubscriptionWithReasonParams) (Subscription, error)
+	CheckServiceHasScope(ctx context.Context, arg CheckServiceHasScopeParams) (bool, error)
+	// Check if a service has access to a merchant by merchant UUID (for authentication)
+	CheckServiceMerchantAccessByID(ctx context.Context, arg CheckServiceMerchantAccessByIDParams) (bool, error)
+	// Check if a service has access to a merchant by merchant slug (for authentication)
+	CheckServiceMerchantAccessBySlug(ctx context.Context, arg CheckServiceMerchantAccessBySlugParams) (bool, error)
+	// Remove expired entries from JWT blacklist
+	CleanupExpiredBlacklist(ctx context.Context) error
+	// Remove old rate limit bucket entries (runs every 5 minutes)
+	// Keeps last hour of data for analytics
+	CleanupOldRateLimitBuckets(ctx context.Context) error
+	// Clears retry backoff after successful billing. Resets error tracking.
+	ClearBillingRetryBackoff(ctx context.Context, id uuid.UUID) error
+	// Atomically consume a token from the rate limit bucket (UNLOGGED for speed)
+	// Returns the number of tokens remaining after consumption
+	// Uses UNLOGGED table for 2-3x faster writes (no WAL overhead)
+	ConsumeRateLimitToken(ctx context.Context, arg ConsumeRateLimitTokenParams) (int32, error)
+	// Count active/verified ACH payment methods
+	CountActiveACH(ctx context.Context) (int64, error)
+	CountAuditLogs(ctx context.Context, arg CountAuditLogsParams) (int64, error)
+	// For monitoring: count payment methods by status
+	CountByStatus(ctx context.Context) ([]CountByStatusRow, error)
 	CountChargebacks(ctx context.Context, arg CountChargebacksParams) (int64, error)
+	// Count ACH payment methods eligible for verification (pending with prenote sent, past cutoff date)
+	CountEligibleACH(ctx context.Context, cutoffDate time.Time) (int64, error)
+	// Count failed ACH payment methods
+	CountFailedACH(ctx context.Context) (int64, error)
+	CountMerchants(ctx context.Context, arg CountMerchantsParams) (int64, error)
+	// Count ACH payment methods pending verification
+	CountPendingACH(ctx context.Context) (int64, error)
+	// For monitoring: count payment methods by prenote status
+	CountPrenotesByStatus(ctx context.Context) ([]CountPrenotesByStatusRow, error)
+	CountServices(ctx context.Context, arg CountServicesParams) (int64, error)
 	CountSubscriptions(ctx context.Context, arg CountSubscriptionsParams) (int64, error)
+	// =============================================================================
+	// ACH STATISTICS
+	// =============================================================================
+	CountTotalACH(ctx context.Context) (int64, error)
 	CountTransactions(ctx context.Context, arg CountTransactionsParams) (int64, error)
-	CreateAgent(ctx context.Context, arg CreateAgentParams) (AgentCredential, error)
+	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
+	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
+	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) error
 	CreateChargeback(ctx context.Context, arg CreateChargebackParams) (Chargeback, error)
+	CreateMerchant(ctx context.Context, arg CreateMerchantParams) (Merchant, error)
 	CreatePaymentMethod(ctx context.Context, arg CreatePaymentMethodParams) (CustomerPaymentMethod, error)
+	CreateService(ctx context.Context, arg CreateServiceParams) (Service, error)
 	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error)
+	// Transactions are append-only/immutable event logs
+	// status is GENERATED column based on auth_resp, so we don't insert it
+	// Uses ON CONFLICT DO NOTHING for idempotency: EPX callback retries return existing record unchanged
+	// Modifications (VOID/REFUND) create NEW transaction records linked via parent_transaction_id
+	// auth_guid stores EPX BRIC for this transaction (each transaction can have its own BRIC)
+	// tran_nbr stores EPX TRAN_NBR (deterministic 10-digit numeric ID from UUID)
+	// parent_transaction_id links to parent transaction (CAPTURE→AUTH, REFUND→SALE/CAPTURE, etc.)
 	CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error)
 	CreateWebhookDelivery(ctx context.Context, arg CreateWebhookDeliveryParams) (WebhookDelivery, error)
 	CreateWebhookSubscription(ctx context.Context, arg CreateWebhookSubscriptionParams) (WebhookSubscription, error)
-	DeactivateAgent(ctx context.Context, agentID string) error
-	DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error
-	DeletePaymentMethod(ctx context.Context, id uuid.UUID) error
+	DeactivateAdmin(ctx context.Context, id uuid.UUID) error
+	DeactivateMerchant(ctx context.Context, id uuid.UUID) error
+	DeactivateService(ctx context.Context, id uuid.UUID) error
+	DeleteAdminSession(ctx context.Context, id uuid.UUID) error
+	DeleteExpiredAdminSessions(ctx context.Context) error
+	// Deletes audit logs older than the specified retention period
+	// Used by audit log retention policy to prevent unbounded growth
+	DeleteOldAuditLogs(ctx context.Context, cutoffDate pgtype.Timestamp) (pgconn.CommandTag, error)
 	DeleteWebhookSubscription(ctx context.Context, arg DeleteWebhookSubscriptionParams) error
-	GetAgentByAgentID(ctx context.Context, agentID string) (AgentCredential, error)
-	GetAgentByID(ctx context.Context, id uuid.UUID) (AgentCredential, error)
+	// Mark payment method as expired (card past expiration)
+	ExpirePaymentMethod(ctx context.Context, id uuid.UUID) error
+	// Mark payment method as failed (verification failed)
+	FailPaymentMethod(ctx context.Context, arg FailPaymentMethodParams) error
+	// Find ACH payment methods eligible for verification
+	FindEligibleACHForVerification(ctx context.Context, arg FindEligibleACHForVerificationParams) ([]FindEligibleACHForVerificationRow, error)
+	// =============================================================================
+	// CARD EXPIRATION
+	// =============================================================================
+	// Find active credit cards that are past expiration
+	FindExpiredCreditCards(ctx context.Context, batchLimit int32) ([]CustomerPaymentMethod, error)
+	// Find terminal status payment methods older than 7 days for cleanup
+	FindPaymentMethodsForHardDelete(ctx context.Context, batchLimit int32) ([]CustomerPaymentMethod, error)
+	// =============================================================================
+	// PRENOTE RETRY
+	// =============================================================================
+	// Find ACH payment methods that need prenote retry
+	GetACHNeedingPrenoteRetry(ctx context.Context, arg GetACHNeedingPrenoteRetryParams) ([]GetACHNeedingPrenoteRetryRow, error)
+	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
+	GetAdminByID(ctx context.Context, id uuid.UUID) (Admin, error)
+	GetAdminSession(ctx context.Context, id uuid.UUID) (AdminSession, error)
+	GetAuditLogsByActor(ctx context.Context, arg GetAuditLogsByActorParams) ([]AuditLog, error)
+	GetAuditLogsByEntity(ctx context.Context, arg GetAuditLogsByEntityParams) ([]AuditLog, error)
 	GetChargebackByCaseNumber(ctx context.Context, arg GetChargebackByCaseNumberParams) (Chargeback, error)
-	GetChargebackByGroupID(ctx context.Context, groupID pgtype.UUID) (Chargeback, error)
 	GetChargebackByID(ctx context.Context, id uuid.UUID) (Chargeback, error)
+	GetChargebackByTransactionID(ctx context.Context, transactionID uuid.UUID) (Chargeback, error)
 	GetDefaultPaymentMethod(ctx context.Context, arg GetDefaultPaymentMethodParams) (CustomerPaymentMethod, error)
+	// Get a specific IP whitelist entry
+	GetIPWhitelistEntry(ctx context.Context, ipAddress netip.Addr) (EpxIpWhitelist, error)
+	GetMerchantByID(ctx context.Context, id uuid.UUID) (Merchant, error)
+	GetMerchantBySlug(ctx context.Context, slug string) (Merchant, error)
 	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (CustomerPaymentMethod, error)
+	// Get payment method that has a prenote transaction (for return code processing)
+	GetPaymentMethodByPrenoteTransaction(ctx context.Context, prenoteTransactionID uuid.UUID) (CustomerPaymentMethod, error)
+	// =============================================================================
+	// ACH VERIFICATION MANAGEMENT
+	// =============================================================================
+	// Get ACH payment methods pending verification older than specified cutoff date
+	// Used by cron job to mark accounts as verified after 3 days with no returns
+	GetPendingACHVerifications(ctx context.Context, arg GetPendingACHVerificationsParams) ([]CustomerPaymentMethod, error)
+	// Get all prenote transaction attempts for a payment method
+	GetPrenoteAttemptsForPaymentMethod(ctx context.Context, paymentMethodID pgtype.UUID) ([]Transaction, error)
+	// Get current state of a rate limit bucket
+	GetRateLimitBucket(ctx context.Context, bucketKey string) (RateLimitCache, error)
+	GetServiceByID(ctx context.Context, id uuid.UUID) (Service, error)
+	GetServiceByServiceID(ctx context.Context, serviceID string) (Service, error)
+	GetServiceMerchantAccess(ctx context.Context, arg GetServiceMerchantAccessParams) (ServiceMerchant, error)
+	// Get rate limit for a specific service
+	GetServiceRateLimit(ctx context.Context, serviceID string) (pgtype.Int4, error)
 	GetSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscription, error)
+	// Locks the row for update to prevent race conditions during concurrent modifications
+	GetSubscriptionByIDForUpdate(ctx context.Context, id uuid.UUID) (Subscription, error)
+	// Gets subscription statistics for monitoring
+	GetSubscriptionStats(ctx context.Context, merchantID pgtype.UUID) (GetSubscriptionStatsRow, error)
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (Transaction, error)
-	GetTransactionByIdempotencyKey(ctx context.Context, idempotencyKey pgtype.Text) (Transaction, error)
-	GetTransactionsByGroupID(ctx context.Context, groupID uuid.UUID) ([]Transaction, error)
+	GetTransactionByTranNbr(ctx context.Context, tranNbr pgtype.Text) (Transaction, error)
+	// Recursively fetches the ENTIRE transaction tree starting from the root
+	// Walks UP to find the root (transaction with parent_transaction_id = NULL), then DOWN to get all descendants
+	// This ensures you always get the complete tree regardless of which transaction you query
+	// Example: GetTransactionTree(auth1) returns [auth1, auth2, capture2, refund2]
+	// Example: GetTransactionTree(auth2) returns [auth1, auth2, capture2, refund2] (includes root!)
+	// Example: GetTransactionTree(capture2) returns [auth1, auth2, capture2, refund2] (includes root!)
+	// DEPTH LIMIT: Max 100 levels to prevent DoS via deep transaction chains (realistic chains are 2-5 levels)
+	// Step 1: Walk UP the parent chain to find the root
+	// Step 2: Get the root transaction (has no parent)
+	// Note: Select only the original transaction columns, not the depth from find_root
+	// Column order must match table definition for SQLC struct compatibility
+	// Step 3: Walk DOWN from root to get all descendants
+	GetTransactionTree(ctx context.Context, transactionID uuid.UUID) ([]GetTransactionTreeRow, error)
 	GetWebhookDeliveryHistory(ctx context.Context, arg GetWebhookDeliveryHistoryParams) ([]WebhookDelivery, error)
 	GetWebhookSubscription(ctx context.Context, id uuid.UUID) (WebhookSubscription, error)
+	GrantServiceAccess(ctx context.Context, arg GrantServiceAccessParams) (ServiceMerchant, error)
+	// WARNING: For test cleanup only. Permanently deletes merchant record.
+	HardDeleteMerchant(ctx context.Context, id uuid.UUID) error
+	// =============================================================================
+	// DELETION (Hard delete with FK protection)
+	// =============================================================================
+	// Hard delete payment method
+	// Will fail with FK violation if transactions exist (ON DELETE RESTRICT)
+	// Subscriptions will have payment_method_id set to NULL (ON DELETE SET NULL)
+	HardDeletePaymentMethod(ctx context.Context, id uuid.UUID) error
+	// WARNING: For test cleanup only. Permanently deletes service record.
+	HardDeleteService(ctx context.Context, id uuid.UUID) error
+	// Increment ACH return count and update status to failed if threshold reached
+	IncrementReturnCount(ctx context.Context, arg IncrementReturnCountParams) error
+	// Updates failure count and manages past_due_since timestamp:
+	// - Sets past_due_since when transitioning TO past_due (fresh grace period)
+	// - Clears past_due_since when leaving past_due status (e.g., successful retry)
 	IncrementSubscriptionFailureCount(ctx context.Context, arg IncrementSubscriptionFailureCountParams) (Subscription, error)
 	IncrementSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
-	ListActiveAgents(ctx context.Context) ([]AgentCredential, error)
+	// Check if a JWT token is blacklisted
+	IsJWTBlacklisted(ctx context.Context, jti string) (bool, error)
+	// Get all active IP addresses from EPX whitelist
+	ListActiveIPWhitelist(ctx context.Context) ([]netip.Addr, error)
+	ListActiveMerchants(ctx context.Context) ([]Merchant, error)
+	ListActivePaymentMethodsByCustomer(ctx context.Context, arg ListActivePaymentMethodsByCustomerParams) ([]CustomerPaymentMethod, error)
+	// Get all active service public keys for JWT verification
+	ListActiveServicePublicKeys(ctx context.Context) ([]ListActiveServicePublicKeysRow, error)
 	ListActiveWebhooksByEvent(ctx context.Context, arg ListActiveWebhooksByEventParams) ([]WebhookSubscription, error)
-	ListAgents(ctx context.Context, arg ListAgentsParams) ([]AgentCredential, error)
+	ListAdmins(ctx context.Context, arg ListAdminsParams) ([]Admin, error)
+	ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]AuditLog, error)
 	ListChargebacks(ctx context.Context, arg ListChargebacksParams) ([]Chargeback, error)
 	ListDueSubscriptions(ctx context.Context, arg ListDueSubscriptionsParams) ([]Subscription, error)
+	// Lists subscriptions where grace period has expired and should be auto-cancelled
+	// Uses make_interval for safer interval calculation
+	ListExpiredPastDueSubscriptions(ctx context.Context, limitVal int32) ([]Subscription, error)
+	// Get all services that have access to a merchant
+	ListMerchantServices(ctx context.Context, merchantID uuid.UUID) ([]ListMerchantServicesRow, error)
+	ListMerchants(ctx context.Context, arg ListMerchantsParams) ([]Merchant, error)
 	ListPaymentMethods(ctx context.Context, arg ListPaymentMethodsParams) ([]CustomerPaymentMethod, error)
 	ListPaymentMethodsByCustomer(ctx context.Context, arg ListPaymentMethodsByCustomerParams) ([]CustomerPaymentMethod, error)
 	ListPendingWebhookDeliveries(ctx context.Context, limitVal int32) ([]WebhookDelivery, error)
+	// Get all merchants a service has access to
+	ListServiceMerchants(ctx context.Context, serviceID uuid.UUID) ([]ListServiceMerchantsRow, error)
+	ListServices(ctx context.Context, arg ListServicesParams) ([]Service, error)
 	ListSubscriptions(ctx context.Context, arg ListSubscriptionsParams) ([]Subscription, error)
 	ListSubscriptionsByCustomer(ctx context.Context, arg ListSubscriptionsByCustomerParams) ([]Subscription, error)
+	// Lists subscriptions due for billing, respecting retry backoff for transient errors.
+	// A subscription is eligible if:
+	//   1. status = 'active' AND next_billing_date <= as_of_date
+	//   2. AND (no backoff scheduled OR backoff time has passed)
 	ListSubscriptionsDueForBilling(ctx context.Context, arg ListSubscriptionsDueForBillingParams) ([]Subscription, error)
 	ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error)
+	// UpdateTransaction removed: transactions are immutable/append-only
+	// To modify a transaction (VOID/REFUND), create a NEW transaction record with parent_transaction_id
+	// Get all transactions for a specific order (AUTH, CAPTURE, REFUND chain)
+	ListTransactionsByOrderID(ctx context.Context, arg ListTransactionsByOrderIDParams) ([]Transaction, error)
 	ListWebhookSubscriptions(ctx context.Context, arg ListWebhookSubscriptionsParams) ([]WebhookSubscription, error)
 	MarkChargebackResolved(ctx context.Context, arg MarkChargebackResolvedParams) error
 	// Then set the specified one as default
 	MarkPaymentMethodAsDefault(ctx context.Context, id uuid.UUID) error
 	MarkPaymentMethodUsed(ctx context.Context, id uuid.UUID) error
-	MarkPaymentMethodVerified(ctx context.Context, id uuid.UUID) error
+	MerchantExists(ctx context.Context, id uuid.UUID) (bool, error)
+	MerchantExistsBySlug(ctx context.Context, slug string) (bool, error)
+	// Reactivates a past_due subscription (clears past_due_since, resets status)
+	ReactivateSubscription(ctx context.Context, id uuid.UUID) (Subscription, error)
+	// Records a billing failure without backoff (for permanent errors like card declined).
+	// Increments retry count but does not schedule backoff.
+	RecordBillingFailure(ctx context.Context, arg RecordBillingFailureParams) error
+	// Refill a rate limit bucket to maximum capacity
+	RefillRateLimitBucket(ctx context.Context, arg RefillRateLimitBucketParams) error
+	// Deactivate an IP address from the EPX whitelist
+	RemoveIPFromWhitelist(ctx context.Context, ipAddress netip.Addr) error
 	ResetSubscriptionRetryCount(ctx context.Context, id uuid.UUID) error
+	// Manually revoke a payment method
+	RevokePaymentMethod(ctx context.Context, arg RevokePaymentMethodParams) error
+	RevokeServiceAccess(ctx context.Context, arg RevokeServiceAccessParams) error
+	RotateServiceKey(ctx context.Context, arg RotateServiceKeyParams) (Service, error)
+	// Schedules next billing retry with backoff for transient errors (network issues).
+	// Only use for transient errors - permanent failures should not set backoff.
+	SetBillingRetryBackoff(ctx context.Context, arg SetBillingRetryBackoffParams) error
 	// First unset all defaults for this customer
 	SetPaymentMethodAsDefault(ctx context.Context, arg SetPaymentMethodAsDefaultParams) error
-	UpdateAgent(ctx context.Context, arg UpdateAgentParams) (AgentCredential, error)
-	UpdateAgentMACPath(ctx context.Context, arg UpdateAgentMACPathParams) error
+	// Tries to acquire an advisory lock (non-blocking). Returns true if lock acquired.
+	// Use for preventing concurrent cron job execution.
+	TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error)
+	UpdateAdminPassword(ctx context.Context, arg UpdateAdminPasswordParams) error
+	UpdateAdminRole(ctx context.Context, arg UpdateAdminRoleParams) error
 	UpdateChargeback(ctx context.Context, arg UpdateChargebackParams) (Chargeback, error)
 	UpdateChargebackNotes(ctx context.Context, arg UpdateChargebackNotesParams) error
 	UpdateChargebackResponse(ctx context.Context, arg UpdateChargebackResponseParams) error
 	UpdateChargebackStatus(ctx context.Context, arg UpdateChargebackStatusParams) (Chargeback, error)
+	UpdateMerchant(ctx context.Context, arg UpdateMerchantParams) (Merchant, error)
+	UpdateMerchantMACPath(ctx context.Context, arg UpdateMerchantMACPathParams) error
 	UpdateNextBillingDate(ctx context.Context, arg UpdateNextBillingDateParams) error
+	// =============================================================================
+	// STATUS MANAGEMENT
+	// =============================================================================
+	// Update payment method status with reason and timestamp
+	UpdatePaymentMethodStatus(ctx context.Context, arg UpdatePaymentMethodStatusParams) error
+	// Mark prenote as failed with next retry time (for transient errors)
+	UpdatePrenoteStatusFailed(ctx context.Context, arg UpdatePrenoteStatusFailedParams) error
+	// Mark prenote as max retries exceeded (fail payment method)
+	UpdatePrenoteStatusMaxRetries(ctx context.Context, id uuid.UUID) error
+	// Mark prenote as permanently failed due to user/data error (no retry, fail PM)
+	UpdatePrenoteStatusPermanentFailure(ctx context.Context, arg UpdatePrenoteStatusPermanentFailureParams) error
+	// Mark prenote as successfully sent
+	UpdatePrenoteStatusSuccess(ctx context.Context, id uuid.UUID) error
+	UpdateService(ctx context.Context, arg UpdateServiceParams) (Service, error)
+	UpdateServiceScopes(ctx context.Context, arg UpdateServiceScopesParams) (ServiceMerchant, error)
 	UpdateSubscription(ctx context.Context, arg UpdateSubscriptionParams) (Subscription, error)
 	UpdateSubscriptionBilling(ctx context.Context, arg UpdateSubscriptionBillingParams) (Subscription, error)
+	// Updates the grace period for a subscription
+	UpdateSubscriptionGracePeriod(ctx context.Context, arg UpdateSubscriptionGracePeriodParams) (Subscription, error)
 	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) (Subscription, error)
-	UpdateTransaction(ctx context.Context, arg UpdateTransactionParams) (Transaction, error)
-	UpdateTransactionStatus(ctx context.Context, arg UpdateTransactionStatusParams) error
+	// Updates transaction with EPX response data (for Browser Post callback)
+	// Only updates EPX response fields, leaves core transaction data unchanged
+	// SECURITY: Prevents TAC replay attacks by only updating PENDING transactions
+	// Status is GENERATED column based on auth_resp (00=approved, else=declined)
+	UpdateTransactionFromEPXResponse(ctx context.Context, arg UpdateTransactionFromEPXResponseParams) (Transaction, error)
 	UpdateWebhookDeliveryStatus(ctx context.Context, arg UpdateWebhookDeliveryStatusParams) (WebhookDelivery, error)
 	UpdateWebhookSubscription(ctx context.Context, arg UpdateWebhookSubscriptionParams) (WebhookSubscription, error)
+	// Create or update an admin account (updates password on conflict)
+	UpsertAdmin(ctx context.Context, arg UpsertAdminParams) (Admin, error)
+	// Add or update an IP address in the EPX whitelist
+	UpsertIPWhitelist(ctx context.Context, arg UpsertIPWhitelistParams) error
+	// Upserts a merchant record for dynamic seeding from environment variables.
+	// Creates if not exists, updates credentials if exists (idempotent).
+	UpsertMerchant(ctx context.Context, arg UpsertMerchantParams) (Merchant, error)
+	UpsertService(ctx context.Context, arg UpsertServiceParams) (Service, error)
+	// Mark an ACH payment method as verified/active
+	VerifyACHPaymentMethod(ctx context.Context, id uuid.UUID) (pgconn.CommandTag, error)
 }
 
 var _ Querier = (*Queries)(nil)

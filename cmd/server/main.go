@@ -2,48 +2,61 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
+	"connectrpc.com/connect"
+	"connectrpc.com/grpchealth"
+	"connectrpc.com/grpcreflect"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	"github.com/kevin07696/payment-service/internal/adapters/epx"
 	"github.com/kevin07696/payment-service/internal/adapters/north"
 	"github.com/kevin07696/payment-service/internal/adapters/secrets"
-	agentHandler "github.com/kevin07696/payment-service/internal/handlers/agent"
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	chargebackHandler "github.com/kevin07696/payment-service/internal/handlers/chargeback"
 	cronHandler "github.com/kevin07696/payment-service/internal/handlers/cron"
+	e2eHandler "github.com/kevin07696/payment-service/internal/handlers/e2e"
+	merchantHandler "github.com/kevin07696/payment-service/internal/handlers/merchant"
 	paymentHandler "github.com/kevin07696/payment-service/internal/handlers/payment"
 	paymentmethodHandler "github.com/kevin07696/payment-service/internal/handlers/payment_method"
 	subscriptionHandler "github.com/kevin07696/payment-service/internal/handlers/subscription"
-	agentService "github.com/kevin07696/payment-service/internal/services/agent"
+	authMiddleware "github.com/kevin07696/payment-service/internal/middleware"
+	"github.com/kevin07696/payment-service/internal/services/authorization"
+	browserpostService "github.com/kevin07696/payment-service/internal/services/browser_post"
+	merchantService "github.com/kevin07696/payment-service/internal/services/merchant"
 	paymentService "github.com/kevin07696/payment-service/internal/services/payment"
 	paymentmethodService "github.com/kevin07696/payment-service/internal/services/payment_method"
+	"github.com/kevin07696/payment-service/internal/services/seeder"
 	subscriptionService "github.com/kevin07696/payment-service/internal/services/subscription"
 	webhookService "github.com/kevin07696/payment-service/internal/services/webhook"
+	pkghttp "github.com/kevin07696/payment-service/pkg/http"
 	"github.com/kevin07696/payment-service/pkg/middleware"
+	"github.com/kevin07696/payment-service/pkg/observability"
+	"github.com/kevin07696/payment-service/pkg/resilience"
+	"github.com/kevin07696/payment-service/pkg/resourcemgmt"
 	"github.com/kevin07696/payment-service/pkg/security"
-	agentv1 "github.com/kevin07696/payment-service/proto/agent/v1"
-	chargebackv1 "github.com/kevin07696/payment-service/proto/chargeback/v1"
-	paymentv1 "github.com/kevin07696/payment-service/proto/payment/v1"
-	paymentmethodv1 "github.com/kevin07696/payment-service/proto/payment_method/v1"
-	subscriptionv1 "github.com/kevin07696/payment-service/proto/subscription/v1"
+	"github.com/kevin07696/payment-service/pkg/shutdown"
+	"github.com/kevin07696/payment-service/proto/chargeback/v1/chargebackv1connect"
+	"github.com/kevin07696/payment-service/proto/merchant/v1/merchantv1connect"
+	"github.com/kevin07696/payment-service/proto/payment/v1/paymentv1connect"
+	"github.com/kevin07696/payment-service/proto/payment_method/v1/paymentmethodv1connect"
+	"github.com/kevin07696/payment-service/proto/subscription/v1/subscriptionv1connect"
 )
 
 func main() {
 	// Initialize logger
 	logger := initLogger()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	logger.Info("Starting payment service",
 		zap.String("version", "0.1.0"),
@@ -51,6 +64,38 @@ func main() {
 
 	// Load configuration from environment
 	cfg := loadConfig(logger)
+
+	// Initialize OpenTelemetry distributed tracing
+	tracingConfig := observability.TracingConfig{
+		ServiceName:    "payment-service",
+		ServiceVersion: "0.1.0",
+		Environment:    cfg.Environment,
+		Endpoint:       cfg.OTLPEndpoint,
+		Enabled:        cfg.TracingEnabled,
+		SampleRate:     cfg.TracingSampleRate,
+	}
+
+	_, shutdownTracing, err := observability.InitTracing(context.Background(), tracingConfig)
+	if err != nil {
+		logger.Fatal("Failed to initialize tracing", zap.Error(err))
+	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			logger.Error("Error shutting down tracing", zap.Error(err))
+		}
+	}()
+
+	if tracingConfig.Enabled {
+		logger.Info("Distributed tracing enabled",
+			zap.String("endpoint", tracingConfig.Endpoint),
+			zap.Float64("sample_rate", tracingConfig.SampleRate),
+		)
+	} else {
+		logger.Info("Distributed tracing disabled (set TRACING_ENABLED=true to enable)")
+	}
+
+	// Metrics server will be started after database initialization
+	var metricsServer *http.Server
 
 	// Initialize database connection pool
 	dbPool, err := initDatabase(cfg, logger)
@@ -63,182 +108,371 @@ func main() {
 		zap.String("database", cfg.DBName),
 	)
 
-	// Initialize dependencies
-	deps := initDependencies(dbPool, cfg, logger)
+	// Initialize Prometheus metrics server (after database so health checks work)
+	if cfg.MetricsEnabled {
+		healthChecker := observability.NewHealthChecker(dbPool)
+		metricsServer = observability.StartMetricsServer(cfg.MetricsPort, healthChecker)
+		logger.Info("Prometheus metrics server started",
+			zap.String("port", cfg.MetricsPort),
+			zap.String("metrics_endpoint", "/metrics"),
+			zap.String("health_endpoint", "/health"),
+		)
+	} else {
+		logger.Info("Prometheus metrics server disabled (set METRICS_ENABLED=true to enable)")
+	}
 
-	// Initialize gRPC server with interceptors
-	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(
-			loggingInterceptor(logger),
-			recoveryInterceptor(logger),
-		),
+	// Create sql.DB for auth middleware and cron handlers (needed for standard database/sql interface)
+	sqlDB := stdlib.OpenDBFromPool(dbPool)
+	defer sqlDB.Close()
+
+	// Create sqlc queries object
+	queries := sqlc.New(dbPool)
+
+	// Initialize authentication interceptor (before deps so it can be passed to handlers)
+	var authInterceptor *authMiddleware.AuthInterceptor
+	if cfg.AuthEnabled {
+		var err error
+		authInterceptor, err = authMiddleware.NewAuthInterceptor(queries, logger, cfg.TrustedProxies)
+		if err != nil {
+			logger.Fatal("Failed to initialize auth interceptor", zap.Error(err))
+		}
+		logger.Info("Authentication enabled",
+			zap.Int("trusted_proxies", len(cfg.TrustedProxies)))
+	} else {
+		logger.Warn("Authentication is DISABLED - for development only!")
+	}
+
+	// Initialize dependencies
+	deps := initDependencies(dbPool, sqlDB, queries, cfg, logger, authInterceptor)
+
+	// Create ConnectRPC HTTP mux
+	mux := http.NewServeMux()
+
+	// Create Connect interceptors
+	// Order matters: outermost (first) to innermost (last)
+	// 1. Timeout - outermost, enforces request deadlines
+	// 2. Tracing - extracts/injects trace context, creates spans
+	// 3. Recovery - catches panics before they crash the server
+	// 4. Logging - logs request/response with correlation IDs
+	// 5. Auth - validates JWT/API key (innermost before handler)
+	var interceptorList []connect.Interceptor
+
+	// Add timeout interceptor first (outermost layer)
+	timeoutConfig := resilience.DefaultTimeoutConfig()
+	timeoutInterceptor := middleware.NewTimeoutInterceptor(timeoutConfig, logger)
+	interceptorList = append(interceptorList, timeoutInterceptor)
+
+	// Add tracing interceptor (extracts trace context, creates spans)
+	interceptorList = append(interceptorList, observability.TracingInterceptor())
+
+	// Recovery and logging interceptors (logging now includes trace_id, request_id)
+	interceptorList = append(interceptorList, middleware.RecoveryInterceptor(logger))
+	interceptorList = append(interceptorList, middleware.LoggingInterceptor(logger))
+
+	// Add auth interceptor if enabled
+	if authInterceptor != nil {
+		interceptorList = append(interceptorList, authInterceptor)
+	}
+
+	interceptors := connect.WithInterceptors(interceptorList...)
+
+	// Register all ConnectRPC services
+	paymentPath, paymentHandler := paymentv1connect.NewPaymentServiceHandler(
+		deps.paymentHandler,
+		interceptors,
+	)
+	mux.Handle(paymentPath, paymentHandler)
+
+	subscriptionPath, subscriptionHandler := subscriptionv1connect.NewSubscriptionServiceHandler(
+		deps.subscriptionHandler,
+		interceptors,
+	)
+	mux.Handle(subscriptionPath, subscriptionHandler)
+
+	paymentMethodPath, paymentMethodHandler := paymentmethodv1connect.NewPaymentMethodServiceHandler(
+		deps.paymentMethodHandler,
+		interceptors,
+	)
+	mux.Handle(paymentMethodPath, paymentMethodHandler)
+
+	chargebackPath, chargebackHandler := chargebackv1connect.NewChargebackServiceHandler(
+		deps.chargebackHandler,
+		interceptors,
+	)
+	mux.Handle(chargebackPath, chargebackHandler)
+
+	merchantPath, merchantHandler := merchantv1connect.NewMerchantServiceHandler(
+		deps.merchantHandler,
+		interceptors,
+	)
+	mux.Handle(merchantPath, merchantHandler)
+
+	// Add health check
+	checker := grpchealth.NewStaticChecker(
+		paymentv1connect.PaymentServiceName,
+		subscriptionv1connect.SubscriptionServiceName,
+		paymentmethodv1connect.PaymentMethodServiceName,
+		chargebackv1connect.ChargebackServiceName,
+		merchantv1connect.MerchantServiceName,
+	)
+	mux.Handle(grpchealth.NewHandler(checker))
+
+	// Add reflection
+	reflector := grpcreflect.NewStaticReflector(
+		paymentv1connect.PaymentServiceName,
+		subscriptionv1connect.SubscriptionServiceName,
+		paymentmethodv1connect.PaymentMethodServiceName,
+		chargebackv1connect.ChargebackServiceName,
+		merchantv1connect.MerchantServiceName,
+	)
+	mux.Handle(grpcreflect.NewHandlerV1(reflector))
+	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
+
+	logger.Info("ConnectRPC services registered",
+		zap.String("protocols", "gRPC, Connect, gRPC-Web, HTTP/JSON"),
 	)
 
-	// Register all gRPC services
-	paymentv1.RegisterPaymentServiceServer(grpcServer, deps.paymentHandler)
-	subscriptionv1.RegisterSubscriptionServiceServer(grpcServer, deps.subscriptionHandler)
-	paymentmethodv1.RegisterPaymentMethodServiceServer(grpcServer, deps.paymentMethodHandler)
-	agentv1.RegisterAgentServiceServer(grpcServer, deps.agentHandler)
-	chargebackv1.RegisterChargebackServiceServer(grpcServer, deps.chargebackHandler)
-
-	// Register reflection service (for tools like grpcurl)
-	reflection.Register(grpcServer)
-
-	// Setup HTTP server for cron endpoints and Browser Post callback
-	httpMux := http.NewServeMux()
+	// Initialize in-flight request tracking (P2-5) - Zero-downtime deployments
+	serverTracker := shutdown.NewHTTPInFlightTracker("server", logger)
 
 	// Create rate limiter (10 requests per second per IP, burst of 20)
 	// Adjust these values based on expected staging traffic
-	rateLimiter := middleware.NewRateLimiter(10, 20)
+	// TrustedProxies: Only trust X-Forwarded-For from these IPs to prevent IP spoofing
+	rateLimiter := middleware.NewRateLimiter(10, 20, cfg.TrustedProxies)
 
-	// Cron endpoints
-	httpMux.HandleFunc("/cron/process-billing", deps.billingCronHandler.ProcessBilling)
-	httpMux.HandleFunc("/cron/sync-disputes", deps.disputeSyncCronHandler.SyncDisputes)
-	httpMux.HandleFunc("/cron/health", deps.billingCronHandler.HealthCheck)
-	httpMux.HandleFunc("/cron/stats", deps.billingCronHandler.Stats)
+	// Note: EPX callback MAC validation is performed in the service layer
+	// (BrowserPostService.ProcessCallback) rather than middleware, because:
+	// 1. EPX includes MAC in form parameters, not HTTP headers
+	// 2. Each merchant has their own MAC secret (per-merchant validation)
+	// 3. Browser Post redirects come from user's browser, not EPX servers
+
+	// Cron endpoints with authentication (timing-safe comparison)
+	cronAuthMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// Skip auth if disabled
+			if !cfg.AuthEnabled {
+				next(w, r)
+				return
+			}
+
+			// Check cron secret using timing-safe comparison
+			if !cronHandler.AuthenticateCronRequest(r, cfg.CronSecret) {
+				logger.Warn("Unauthorized cron request",
+					zap.String("path", r.URL.Path),
+					zap.String("remote_addr", r.RemoteAddr))
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			next(w, r)
+		}
+	}
+
+	// Cron endpoints requiring authentication (added to main mux)
+	mux.HandleFunc("/cron/process-billing", cronAuthMiddleware(deps.billingCronHandler.ProcessBilling))
+	mux.HandleFunc("/cron/process-expired-past-due", cronAuthMiddleware(deps.billingCronHandler.ProcessExpiredPastDue))
+	mux.HandleFunc("/cron/sync-disputes", cronAuthMiddleware(deps.disputeSyncCronHandler.SyncDisputes))
+	mux.HandleFunc("/cron/verify-ach", cronAuthMiddleware(deps.achVerificationCronHandler.VerifyACH))
+	mux.HandleFunc("/cron/prenote-retry", cronAuthMiddleware(deps.prenoteRetryCronHandler.RetryPrenotes))
+	mux.HandleFunc("/cron/cleanup-audit-logs", cronAuthMiddleware(deps.auditCleanupCronHandler.CleanupAuditLogs))
+	mux.HandleFunc("/cron/cleanup-rate-limits", cronAuthMiddleware(deps.rateLimitCleanupCronHandler.CleanupRateLimitBuckets))
+	mux.HandleFunc("/cron/stats", cronAuthMiddleware(deps.billingCronHandler.Stats))
+	mux.HandleFunc("/cron/ach/stats", cronAuthMiddleware(deps.achVerificationCronHandler.Stats))
+	mux.HandleFunc("/cron/prenote/stats", cronAuthMiddleware(deps.prenoteRetryCronHandler.Stats))
+	mux.HandleFunc("/cron/audit/stats", cronAuthMiddleware(deps.auditCleanupCronHandler.Stats))
+	mux.HandleFunc("/cron/rate-limit/stats", cronAuthMiddleware(deps.rateLimitCleanupCronHandler.Stats))
+
+	// Health endpoints (no auth required for monitoring/load balancers)
+	// Wrap health checks with draining awareness - returns 503 during shutdown
+	// This allows load balancers to remove instances from rotation before draining
+	mux.Handle("/cron/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.billingCronHandler.HealthCheck)))
+	mux.Handle("/cron/ach/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.achVerificationCronHandler.HealthCheck)))
+	mux.Handle("/cron/audit/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.auditCleanupCronHandler.HealthCheck)))
+	mux.Handle("/cron/rate-limit/health", serverTracker.DrainingHealthCheck(http.HandlerFunc(deps.rateLimitCleanupCronHandler.HealthCheck)))
 
 	// Browser Post endpoints (with rate limiting)
-	httpMux.HandleFunc("/api/v1/payments/browser-post/form", rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm))
-	httpMux.HandleFunc("/api/v1/payments/browser-post/callback", rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.HandleCallback))
+	// Note: Browser Post callbacks come from user's browser (via EPX 302 redirect)
+	// and cannot include custom HTTP headers. MAC signature validation is performed
+	// in the service layer (BrowserPostService.ProcessCallback) using the MAC field
+	// from form parameters, which is signed by EPX using the merchant's MAC secret.
 
-	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler: rateLimiter.Middleware(httpMux), // Apply rate limiting to all HTTP endpoints
+	// Form endpoint requires JWT auth to validate service-merchant access
+	formHandler := http.HandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm)
+	if deps.authInterceptor != nil {
+		// Auth enabled: wrap with JWT auth middleware, then rate limiting
+		mux.Handle("/api/v1/payments/browser-post/form",
+			rateLimiter.HTTPHandler(deps.authInterceptor.HTTPAuthMiddleware(formHandler)))
+	} else {
+		// Auth disabled (dev mode): just rate limiting
+		mux.HandleFunc("/api/v1/payments/browser-post/form",
+			rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.GetPaymentForm))
 	}
 
-	// Start gRPC server
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
-	if err != nil {
-		logger.Fatal("Failed to listen", zap.Error(err))
+	// Callback doesn't need auth - it comes from EPX redirect with MAC signature validation
+	mux.HandleFunc("/api/v1/payments/browser-post/callback",
+		rateLimiter.HTTPHandlerFunc(deps.browserPostCallbackHandler.HandleCallback))
+
+	// Serve Browser Post demo form (avoids CORS issues with file:// protocol)
+	mux.HandleFunc("/browser-post-demo", serveBrowserPostDemo)
+
+	// E2E test endpoints (only active in non-production environments)
+	// These endpoints create isolated test data for E2E tests
+	mux.HandleFunc("/internal/e2e/setup", deps.e2eHandler.Setup)
+	mux.HandleFunc("/internal/e2e/cleanup", deps.e2eHandler.Cleanup)
+
+	// Initialize security headers middleware
+	isDevelopment := cfg.Environment != "production"
+	securityHeaders := authMiddleware.NewSecurityHeaders(isDevelopment)
+
+	// Initialize compression middleware (P2-4) - 40-60% bandwidth reduction
+	// NOTE: ConnectRPC paths are excluded because Connect has its own built-in compression
+	// that uses Connect-Content-Encoding header. Using both causes double compression.
+	gzipConfig := middleware.DefaultGzipConfig()
+	gzipConfig.ExcludedPaths = []string{
+		"/cron/health",
+		"/cron/ach/health",
+		// Exclude all ConnectRPC service paths - Connect handles compression internally
+		"/payment.v1.PaymentService/",
+		"/subscription.v1.SubscriptionService/",
+		"/paymentmethod.v1.PaymentMethodService/",
+		"/chargeback.v1.ChargebackService/",
+		"/merchant.v1.MerchantService/",
+	}
+	compressionMiddleware := middleware.GzipHandlerWithCustomConfig(gzipConfig, logger)
+
+	// Request size limits for DOS protection
+	const maxRequestBodySize = 1 << 20 // 1 MB limit for request bodies
+
+	// Create unified server with H2C support (HTTP/2 without TLS)
+	// This allows the server to accept gRPC, Connect, gRPC-Web, HTTP/JSON, and REST requests
+	server := &http.Server{
+		Addr: fmt.Sprintf(":%d", cfg.Port),
+		// Middleware chain (innermost to outermost):
+		// 1. RemoteAddrMiddleware (captures r.RemoteAddr for X-Forwarded-For validation)
+		// 2. mux (ConnectRPC + REST routes)
+		// 3. h2c.NewHandler (HTTP/2 cleartext)
+		// 4. compressionMiddleware (gzip)
+		// 5. securityHeaders (CSP, HSTS, etc.)
+		// 6. serverTracker (in-flight request tracking + draining)
+		// 7. MaxBytesHandler (request size limit)
+		Handler:           http.MaxBytesHandler(serverTracker.Middleware(securityHeaders.Middleware(compressionMiddleware(h2c.NewHandler(authMiddleware.RemoteAddrMiddleware(mux), &http2.Server{})))), maxRequestBodySize),
+		ReadTimeout:       65 * time.Second, // Slightly longer than handler timeout (60s)
+		WriteTimeout:      65 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MB max header size
 	}
 
-	// Start gRPC server in goroutine
+	// Initialize graceful shutdown manager (P2-5) - Zero-downtime deployments
+	// CRITICAL: Create shutdown manager BEFORE starting servers to handle early SIGTERM
+	shutdownMgr := shutdown.NewManager(logger, 30*time.Second)
+
+	// Prepare goroutine leak monitoring (P2-6) - will start after registering shutdown handlers
+	// This prevents race condition where early SIGTERM could arrive before handlers are registered
+	monitorCtx, cancelMonitor := context.WithCancel(context.Background())
+	monitorStarted := make(chan struct{})
+
+	// Register shutdown components in proper LIFO order
+	// Components registered first shut down LAST
+	// This ensures proper dependency ordering
+
+	// 1. Database (shut down last - everything depends on it)
+	shutdownMgr.Register("database", func(ctx context.Context) error {
+		deps.dbAdapter.Close() // Close doesn't return error
+		return nil
+	})
+
+	// 2. Background services
+	shutdownMgr.Register("goroutine_tracker", func(ctx context.Context) error {
+		cancelMonitor() // Stop monitoring
+		return nil
+	})
+
+	if authInterceptor != nil {
+		shutdownMgr.Register("auth_interceptor", func(ctx context.Context) error {
+			authInterceptor.Shutdown()
+			return nil
+		})
+	}
+
+	if deps.disputeSyncCronHandler != nil {
+		shutdownMgr.Register("dispute_sync_handler", func(ctx context.Context) error {
+			deps.disputeSyncCronHandler.Shutdown()
+			return nil
+		})
+	}
+
+	if rateLimiter != nil {
+		shutdownMgr.Register("rate_limiter", func(ctx context.Context) error {
+			rateLimiter.Shutdown()
+			return nil
+		})
+	}
+
+	// 3. Metrics server (shut down early - stop accepting new scrapes)
+	if metricsServer != nil {
+		shutdownMgr.Register("metrics_server", func(ctx context.Context) error {
+			return observability.ShutdownMetricsServer(metricsServer)
+		})
+	}
+
+	// 4. HTTP server (shut down first - stop accepting new requests)
+	// Use draining shutdown: first drain in-flight requests, then shutdown server
+	// This enables zero-downtime deployments by completing all active requests
+	shutdownMgr.RegisterHTTPServerWithDraining("server", server, serverTracker)
+
+	logger.Info("Shutdown manager initialized - all components registered")
+
+	// NOW start goroutine monitoring (after shutdown handler is registered)
+	// This ensures clean shutdown even if SIGTERM arrives during startup
 	go func() {
-		logger.Info("gRPC server listening",
-			zap.String("address", listener.Addr().String()),
+		close(monitorStarted) // Signal that goroutine has started
+		deps.goroutineTracker.StartMonitoring(monitorCtx)
+	}()
+	<-monitorStarted // Wait for monitoring to start
+	logger.Info("Goroutine leak monitoring started")
+
+	// NOW start server (after shutdown manager is ready)
+	go func() {
+		logger.Info("Server listening",
 			zap.Int("port", cfg.Port),
+			zap.String("protocols", "gRPC, Connect, gRPC-Web, HTTP/JSON, REST"),
 		)
-		if err := grpcServer.Serve(listener); err != nil {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("Failed to serve", zap.Error(err))
 		}
 	}()
 
-	// Start HTTP server for cron in goroutine
-	go func() {
-		logger.Info("HTTP cron server listening",
-			zap.Int("port", cfg.HTTPPort),
-		)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Failed to serve HTTP", zap.Error(err))
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	logger.Info("Shutting down servers...")
-
-	// Graceful shutdown
-	grpcServer.GracefulStop()
-
-	// Shutdown HTTP server
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		logger.Error("HTTP server shutdown error", zap.Error(err))
-	}
-
-	logger.Info("Servers stopped")
-}
-
-// Config holds application configuration
-type Config struct {
-	Port     int
-	HTTPPort int // HTTP port for cron endpoints
-
-	// Database
-	DBHost     string
-	DBPort     int
-	DBUser     string
-	DBPassword string
-	DBName     string
-	DBSSLMode  string
-	MaxConns   int32
-	MinConns   int32
-
-	// EPX Payment Gateway (Server Post API for transactions)
-	EPXServerPostURL string // EPX Server Post API URL (e.g., https://secure.epxuap.com)
-	EPXTimeout       int
-	EPXCustNbr       string // EPX Customer Number
-	EPXMerchNbr      string // EPX Merchant Number
-	EPXDBAnbr        string // EPX DBA Number
-	EPXTerminalNbr   string // EPX Terminal Number
-
-	// North Merchant Reporting API (for disputes/chargebacks, NOT payments)
-	NorthMerchantReportingURL string // North Reporting API URL (e.g., https://api.north.com)
-	NorthTimeout              int
-
-	// Browser Post Configuration
-	CallbackBaseURL string // Base URL for Browser Post callbacks (e.g., "http://localhost:8081")
-
-	// Cron authentication
-	CronSecret string
+	// Wait for shutdown signal and execute graceful shutdown
+	shutdownMgr.WaitForShutdown()
 }
 
 // Dependencies holds all initialized services and handlers
 type Dependencies struct {
-	paymentHandler             paymentv1.PaymentServiceServer
-	subscriptionHandler        subscriptionv1.SubscriptionServiceServer
-	paymentMethodHandler       paymentmethodv1.PaymentMethodServiceServer
-	agentHandler               agentv1.AgentServiceServer
-	chargebackHandler          chargebackv1.ChargebackServiceServer
-	billingCronHandler         *cronHandler.BillingHandler
-	disputeSyncCronHandler     *cronHandler.DisputeSyncHandler
-	browserPostCallbackHandler *paymentHandler.BrowserPostCallbackHandler
-}
-
-// loadConfig loads configuration from environment variables
-func loadConfig(logger *zap.Logger) *Config {
-	cfg := &Config{
-		Port:       getEnvInt("PORT", 8080),
-		HTTPPort:   getEnvInt("HTTP_PORT", 8081),
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnvInt("DB_PORT", 5432),
-		DBUser:     getEnv("DB_USER", "postgres"),
-		DBPassword: getEnv("DB_PASSWORD", "postgres"),
-		DBName:     getEnv("DB_NAME", "payment_service"),
-		DBSSLMode:  getEnv("DB_SSL_MODE", "disable"),
-		MaxConns:   int32(getEnvInt("DB_MAX_CONNS", 25)),
-		MinConns:   int32(getEnvInt("DB_MIN_CONNS", 5)),
-		// Try new variable name first, fallback to old name for backwards compatibility
-		EPXServerPostURL:          getEnvWithFallback("EPX_SERVER_POST_URL", "EPX_BASE_URL", "https://sandbox.north.com"),
-		EPXTimeout:                getEnvInt("EPX_TIMEOUT", 30),
-		EPXCustNbr:                getEnv("EPX_CUST_NBR", "9001"),    // EPX sandbox customer number
-		EPXMerchNbr:               getEnv("EPX_MERCH_NBR", "900300"), // EPX sandbox merchant number
-		EPXDBAnbr:                 getEnv("EPX_DBA_NBR", "2"),        // EPX sandbox DBA number
-		EPXTerminalNbr:            getEnv("EPX_TERMINAL_NBR", "77"),  // EPX sandbox terminal number
-		NorthMerchantReportingURL: getEnvWithFallback("NORTH_MERCHANT_REPORTING_URL", "NORTH_API_URL", "https://api.north.com"),
-		NorthTimeout:              getEnvInt("NORTH_TIMEOUT", 30),
-		CallbackBaseURL:           getEnv("CALLBACK_BASE_URL", "http://localhost:8081"),
-		CronSecret:                getEnv("CRON_SECRET", "change-me-in-production"),
-	}
-
-	logger.Info("Configuration loaded",
-		zap.Int("port", cfg.Port),
-		zap.String("db_host", cfg.DBHost),
-		zap.Int("db_port", cfg.DBPort),
-		zap.String("epx_server_post_url", cfg.EPXServerPostURL),
-		zap.String("north_merchant_reporting_url", cfg.NorthMerchantReportingURL),
-	)
-
-	return cfg
+	dbAdapter                   *database.PostgreSQLAdapter
+	goroutineTracker            *resourcemgmt.GoroutineTracker
+	merchantCache               *merchantService.MerchantCredentialCache
+	paymentMethodCache          *paymentmethodService.PaymentMethodCache
+	paymentHandler              *paymentHandler.ConnectHandler
+	subscriptionHandler         *subscriptionHandler.ConnectHandler
+	paymentMethodHandler        *paymentmethodHandler.ConnectHandler
+	chargebackHandler           *chargebackHandler.ConnectHandler
+	merchantHandler             *merchantHandler.ConnectHandler
+	billingCronHandler          *cronHandler.BillingHandler
+	disputeSyncCronHandler      *cronHandler.DisputeSyncHandler
+	achVerificationCronHandler  *cronHandler.ACHVerificationHandler
+	prenoteRetryCronHandler     *cronHandler.PrenoteRetryHandler
+	auditCleanupCronHandler     *cronHandler.AuditCleanupHandler
+	rateLimitCleanupCronHandler *cronHandler.RateLimitCleanupHandler
+	browserPostCallbackHandler  *paymentHandler.BrowserPostCallbackHandler
+	e2eHandler                  *e2eHandler.Handler
+	authInterceptor             *authMiddleware.AuthInterceptor
 }
 
 // initLogger initializes the logger
+// Note: Uses os.Getenv directly since this runs before config loading
 func initLogger() *zap.Logger {
-	env := getEnv("ENVIRONMENT", "development")
+	env := os.Getenv("ENVIRONMENT")
 
 	if env == "production" {
 		zapCfg := zap.NewProductionConfig()
@@ -247,6 +481,7 @@ func initLogger() *zap.Logger {
 		return logger
 	}
 
+	// Development mode for non-production (including empty/unset)
 	logger, _ := zap.NewDevelopment()
 	return logger
 }
@@ -289,7 +524,7 @@ func initDatabase(cfg *Config, logger *zap.Logger) (*pgxpool.Pool, error) {
 }
 
 // initDependencies initializes all services and handlers with dependency injection
-func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *Dependencies {
+func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries, cfg *Config, logger *zap.Logger, authInterceptor *authMiddleware.AuthInterceptor) *Dependencies {
 	// Initialize database adapter
 	dbCfg := database.DefaultPostgreSQLConfig(
 		fmt.Sprintf(
@@ -308,188 +543,532 @@ func initDependencies(dbPool *pgxpool.Pool, cfg *Config, logger *zap.Logger) *De
 		logger.Fatal("Failed to initialize database adapter", zap.Error(err))
 	}
 
+	// Start database connection pool monitoring (checks every 30 seconds)
+	dbAdapter.StartPoolMonitoring(context.Background(), 30*time.Second)
+
 	// Initialize EPX adapters with environment-specific configuration
 	epxEnv := "sandbox"
-	if getEnv("ENVIRONMENT", "development") == "production" {
+	if cfg.Environment == "production" {
 		epxEnv = "production"
 	}
 
 	// Server Post adapter configuration
-	serverPostCfg := epx.DefaultServerPostConfig(epxEnv)
-	serverPostCfg.BaseURL = cfg.EPXServerPostURL // Override with env var
+	serverPostCfg, err := epx.DefaultServerPostConfig(epxEnv)
+	if err != nil {
+		logger.Fatal("Failed to create Server Post config", zap.Error(err))
+	}
 	serverPost := epx.NewServerPostAdapter(serverPostCfg, logger)
 
 	// Browser Post adapter configuration
-	browserPostCfg := epx.DefaultBrowserPostConfig(epxEnv)
-	browserPostCfg.PostURL = cfg.EPXServerPostURL + "/browserpost" // Derived from Server Post URL
+	browserPostCfg, err := epx.DefaultBrowserPostConfig(epxEnv)
+	if err != nil {
+		logger.Fatal("Failed to create Browser Post config", zap.Error(err))
+	}
 	browserPost := epx.NewBrowserPostAdapter(browserPostCfg, logger)
 
-	// BRIC Storage adapter configuration
-	bricStorageCfg := epx.DefaultBRICStorageConfig(epxEnv)
-	bricStorageCfg.BaseURL = cfg.EPXServerPostURL // Same as Server Post
-	bricStorage := epx.NewBRICStorageAdapter(bricStorageCfg, logger)
+	// Key Exchange adapter configuration
+	keyExchangeCfg, err := epx.DefaultKeyExchangeConfig(epxEnv)
+	if err != nil {
+		logger.Fatal("Failed to create Key Exchange config", zap.Error(err))
+	}
+	keyExchange := epx.NewKeyExchangeAdapter(keyExchangeCfg, logger)
 
-	// Initialize secret manager (using local file system for development)
-	secretManager := secrets.NewLocalSecretManager("./secrets", logger)
+	// Business Reporting adapter configuration (for ACH return checks)
+	businessReportingCfg := epx.DefaultBusinessReportingConfig(epxEnv)
+	businessReportingCfg.BaseURL = cfg.NorthMerchantReportingURL
+	businessReportingCfg.CustNbr = cfg.EPXCustNbr
+	businessReportingCfg.MerchNbr = cfg.EPXMerchNbr
+	businessReportingCfg.DBAnbr = cfg.EPXDBAnbr
+	businessReportingCfg.Timeout = time.Duration(cfg.NorthTimeout) * time.Second
+	// API credentials will be needed from environment if using API key auth
+	businessReportingCfg.APIKey = cfg.EPXAPIKey
+	businessReportingCfg.APISecret = cfg.EPXAPISecret
+	businessReporting := epx.NewBusinessReportingAdapter(businessReportingCfg, logger)
+
+	// Initialize secret manager based on environment
+	// Supports: mock (dev), local (dev with real creds), gcp, aws, vault (production)
+	// Configuration via SECRET_MANAGER environment variable
+	secretManager, err := secrets.NewSecretManager(context.Background(), nil, logger)
+	if err != nil {
+		logger.Fatal("Failed to initialize secret manager", zap.Error(err))
+	}
+
+	// Auto-seed sandbox merchant in development/staging (not production)
+	dbSeeder := seeder.NewSeeder(queries, secretManager, logger)
+	if err := dbSeeder.SeedIfNeeded(context.Background()); err != nil {
+		logger.Error("Failed to auto-seed sandbox merchant", zap.Error(err))
+		// Non-fatal: continue startup even if seeding fails
+	}
+
+	// Seed test data for API documentation (service, subscriptions, etc.)
+	if err := dbSeeder.SeedTestData(context.Background()); err != nil {
+		logger.Error("Failed to seed test data", zap.Error(err))
+		// Non-fatal: continue startup even if seeding fails
+	}
+
+	// Initialize P2 optimizations
+
+	// Goroutine leak detection (P2-6)
+	goroutineTracker := resourcemgmt.NewGoroutineTracker(logger, resourcemgmt.DefaultConfig())
+	// Monitoring will be started in main()
+
+	// Merchant credential cache (P2-1) - 70% DB load reduction
+	merchantCache := merchantService.NewMerchantCredentialCache(
+		queries,
+		secretManager,
+		logger,
+		5*time.Minute, // 5 minute TTL
+		1000,          // 1000 merchants max
+	)
+
+	// Payment method cache (P2-2) - 60% faster lookups
+	paymentMethodCache := paymentmethodService.NewPaymentMethodCache(
+		queries,
+		logger,
+		2*time.Minute, // 2 minute TTL (shorter for fresher data)
+		10000,         // 10,000 payment methods max
+	)
 
 	// Initialize North merchant reporting adapter
 	merchantReportingCfg := &north.MerchantReportingConfig{
 		BaseURL: cfg.NorthMerchantReportingURL,
 		Timeout: time.Duration(cfg.NorthTimeout) * time.Second,
 	}
-	httpClient := &http.Client{Timeout: time.Duration(cfg.NorthTimeout) * time.Second}
+	// Use optimized HTTP client config (P2-3) - 90%+ connection reuse
+	northHTTPClient := pkghttp.NewHTTPClient(
+		pkghttp.DefaultClientConfig(),
+		time.Duration(cfg.NorthTimeout)*time.Second,
+	)
 	loggerAdapter := security.NewZapLogger(logger)
-	merchantReporting := north.NewMerchantReportingAdapter(merchantReportingCfg, httpClient, loggerAdapter)
+	merchantReporting := north.NewMerchantReportingAdapter(merchantReportingCfg, northHTTPClient, loggerAdapter)
 
-	// Initialize services
+	// Initialize services with caches
 	paymentSvc := paymentService.NewPaymentService(
+		dbAdapter.Queries(),
 		dbAdapter,
 		serverPost,
 		secretManager,
+		merchantCache, // P2-1: Merchant credential cache (70% DB load reduction)
+		logger,
+		nil, // Use default config (DEFAULT_ACH_CLASS env var or "WEB")
+	)
+
+	// Create TransactionQueryService with its own merchant auth service
+	queryAccessChecker := authorization.NewSQLCServiceMerchantAccessChecker(dbAdapter.Queries())
+	queryMerchantAuthSvc := authorization.NewMerchantAuthorizationService(logger, queryAccessChecker)
+	transactionQuerySvc := paymentService.NewTransactionQueryService(
+		dbAdapter.Queries(),
+		queryMerchantAuthSvc,
 		logger,
 	)
 
+	// Initialize webhook delivery service with optimized HTTP client (P2-3)
+	// Must be created before subscription service which depends on it
+	webhookHTTPClient := pkghttp.NewHTTPClient(
+		pkghttp.WebhookClientConfig(), // Optimized for many different hosts
+		10*time.Second,                // Request timeout
+	)
+	webhookSvc := webhookService.NewWebhookDeliveryService(dbAdapter, webhookHTTPClient, logger)
+
 	subscriptionSvc := subscriptionService.NewSubscriptionService(
+		dbAdapter.Queries(),
 		dbAdapter,
 		serverPost,
 		secretManager,
+		webhookSvc, // Webhook service for subscription.cancelled notifications
 		logger,
+		&subscriptionService.BillingRetryConfig{
+			BaseDelaySecs: cfg.SubscriptionRetryBaseDelaySecs,
+			MaxDelaySecs:  cfg.SubscriptionRetryMaxDelaySecs,
+			Multiplier:    cfg.SubscriptionRetryMultiplier,
+		},
 	)
 
 	paymentMethodSvc := paymentmethodService.NewPaymentMethodService(
+		dbAdapter.Queries(),
 		dbAdapter,
 		browserPost,
 		serverPost,
-		bricStorage,
 		secretManager,
+		paymentMethodCache, // P2-2: Payment method cache (60% faster lookups)
 		logger,
 	)
 
-	agentSvc := agentService.NewAgentService(
+	merchantSvc := merchantService.NewMerchantService(
+		dbAdapter.Queries(),
 		dbAdapter,
 		secretManager,
 		logger,
 	)
 
-	// Initialize webhook delivery service
-	webhookSvc := webhookService.NewWebhookDeliveryService(dbAdapter, nil, logger)
-
-	// Initialize handlers
-	paymentHdlr := paymentHandler.NewHandler(paymentSvc, logger)
-	subscriptionHdlr := subscriptionHandler.NewHandler(subscriptionSvc, logger)
-	paymentMethodHdlr := paymentmethodHandler.NewHandler(paymentMethodSvc, logger)
-	agentHdlr := agentHandler.NewHandler(agentSvc, logger)
-	chargebackHdlr := chargebackHandler.NewHandler(dbAdapter, logger)
+	// Initialize ConnectRPC handlers
+	paymentHdlr := paymentHandler.NewConnectHandler(paymentSvc, transactionQuerySvc, logger)
+	subscriptionHdlr := subscriptionHandler.NewConnectHandler(subscriptionSvc, logger, subscriptionHandler.ConnectHandlerConfig{
+		DefaultMaxRetries: cfg.SubscriptionDefaultMaxRetries,
+	})
+	paymentMethodHdlr := paymentmethodHandler.NewConnectHandler(paymentMethodSvc, logger)
+	chargebackHdlr := chargebackHandler.NewConnectHandler(dbAdapter, logger)
+	merchantHdlr := merchantHandler.NewConnectHandler(merchantSvc, logger)
 
 	// Initialize cron handlers (for HTTP endpoints)
-	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, logger, cfg.CronSecret)
-	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
+	// Note: Cron auth is handled by cronAuthMiddleware (timing-safe)
+	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, queries, logger, cronHandler.BillingHandlerConfig{
+		JobTimeoutSecs:   cfg.CronJobTimeoutSeconds,
+		DefaultBatchSize: cfg.CronDefaultBatchSize,
+		MaxBatchSize:     cfg.CronMaxBatchSize,
+	})
+	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger)
+	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(queries, businessReporting, logger)
+	prenoteRetryCronHdlr := cronHandler.NewPrenoteRetryHandler(queries, serverPost, logger)
+	auditCleanupCronHdlr := cronHandler.NewAuditCleanupHandler(queries, logger)
+	rateLimitCleanupCronHdlr := cronHandler.NewRateLimitCleanupHandler(queries, logger)
 
-	// Initialize Browser Post callback handler
-	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(
-		dbAdapter,
+	// Initialize Browser Post service and handler
+	browserPostSvc := browserpostService.NewBrowserPostService(
+		queries,
+		keyExchange,
 		browserPost,
-		paymentMethodSvc,
+		secretManager,
 		logger,
-		browserPostCfg.PostURL, // EPX Browser Post endpoint URL
-		cfg.EPXCustNbr,         // EPX Customer Number
-		cfg.EPXMerchNbr,        // EPX Merchant Number
-		cfg.EPXDBAnbr,          // EPX DBA Number
-		cfg.EPXTerminalNbr,     // EPX Terminal Number
-		cfg.CallbackBaseURL,    // Base URL for callbacks
+		browserPostCfg.PostURL,
+		cfg.CallbackBaseURL,
 	)
 
+	templateRenderer, err := paymentHandler.NewTemplateRenderer()
+	if err != nil {
+		logger.Fatal("Failed to initialize template renderer", zap.Error(err))
+	}
+
+	// Create merchant authorization service for HTTP handlers (validates service-merchant access)
+	accessChecker := authorization.NewSQLCServiceMerchantAccessChecker(queries)
+	merchantAuthSvc := authorization.NewMerchantAuthorizationService(logger, accessChecker)
+
+	browserPostCallbackHdlr := paymentHandler.NewBrowserPostCallbackHandler(
+		browserPostSvc,
+		paymentMethodSvc,
+		merchantAuthSvc,
+		templateRenderer,
+		logger,
+		cfg.AllowedReturnDomains,
+	)
+
+	// Initialize E2E test handler (only active in non-production environments)
+	// Pass cfg.Environment to ensure production guard uses the same env variable as the rest of the app
+	e2eHdlr := e2eHandler.NewHandler(queries, secretManager, logger, cfg.Environment)
+
 	return &Dependencies{
-		paymentHandler:             paymentHdlr,
-		subscriptionHandler:        subscriptionHdlr,
-		paymentMethodHandler:       paymentMethodHdlr,
-		agentHandler:               agentHdlr,
-		chargebackHandler:          chargebackHdlr,
-		billingCronHandler:         billingCronHdlr,
-		disputeSyncCronHandler:     disputeSyncCronHdlr,
-		browserPostCallbackHandler: browserPostCallbackHdlr,
+		dbAdapter:                   dbAdapter,
+		goroutineTracker:            goroutineTracker,
+		merchantCache:               merchantCache,
+		paymentMethodCache:          paymentMethodCache,
+		paymentHandler:              paymentHdlr,
+		subscriptionHandler:         subscriptionHdlr,
+		paymentMethodHandler:        paymentMethodHdlr,
+		chargebackHandler:           chargebackHdlr,
+		merchantHandler:             merchantHdlr,
+		billingCronHandler:          billingCronHdlr,
+		disputeSyncCronHandler:      disputeSyncCronHdlr,
+		achVerificationCronHandler:  achVerificationCronHdlr,
+		prenoteRetryCronHandler:     prenoteRetryCronHdlr,
+		auditCleanupCronHandler:     auditCleanupCronHdlr,
+		rateLimitCleanupCronHandler: rateLimitCleanupCronHdlr,
+		browserPostCallbackHandler:  browserPostCallbackHdlr,
+		e2eHandler:                  e2eHdlr,
+		authInterceptor:             authInterceptor,
 	}
 }
 
-// Interceptors
+// serveBrowserPostDemo serves the Browser Post demo HTML form
+// Serving from the server avoids CORS issues with file:// protocol
+func serveBrowserPostDemo(w http.ResponseWriter, r *http.Request) {
+	html := `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPX Browser Post - Demo Form</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; margin-bottom: 10px; }
+        .subtitle { color: #666; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        .card-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover { background: #45a049; }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .test-cards {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .test-card {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            font-size: 13px;
+        }
+        .test-card button {
+            padding: 4px 10px;
+            font-size: 12px;
+            width: auto;
+            margin: 0;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EPX Browser Post Payment</h1>
+        <div class="subtitle">Using TAC Authentication (Working Method)</div>
 
-func loggingInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context,
-		req interface{},
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
-	) (interface{}, error) {
-		start := time.Now()
+        <div class="info">
+            <strong>How This Works:</strong><br>
+            1. Get TAC from payment service<br>
+            2. Submit to EPX with TAC + card data<br>
+            3. EPX processes and calls back<br>
+            4. Transaction complete!
+        </div>
 
-		// Call the handler
-		resp, err := handler(ctx, req)
+        <div class="test-cards">
+            <h3>TEST CARDS</h3>
+            <div class="test-card">
+                <span>Visa (Approved): 4111111111111111</span>
+                <button type="button" onclick="fillCard('4111111111111111', '123')">Use</button>
+            </div>
+            <div class="test-card">
+                <span>Visa (Approved): 4788250000028291</span>
+                <button type="button" onclick="fillCard('4788250000028291', '123')">Use</button>
+            </div>
+        </div>
 
-		// Log the request
-		if err != nil {
-			logger.Error("gRPC request failed",
-				zap.String("method", info.FullMethod),
-				zap.Duration("duration", time.Since(start)),
-				zap.Error(err),
-			)
-		} else {
-			logger.Info("gRPC request",
-				zap.String("method", info.FullMethod),
-				zap.Duration("duration", time.Since(start)),
-			)
-		}
+        <div class="form-group">
+            <label for="merchantSelect">Merchant</label>
+            <select id="merchantSelect">
+                <option value="550e8400-e29b-41d4-a716-446655440000">Test Merchant</option>
+                <option value="1a20fff8-2cec-48e5-af49-87e501652913">ACME Corporation</option>
+            </select>
+        </div>
 
-		return resp, err
-	}
-}
+        <div class="form-group">
+            <label for="amount">Amount</label>
+            <input type="text" id="amount" value="10.00" placeholder="10.00">
+        </div>
 
-func recoveryInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context,
-		req interface{},
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
-	) (resp interface{}, err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Error("Panic recovered in gRPC handler",
-					zap.String("method", info.FullMethod),
-					zap.Any("panic", r),
-				)
-				err = fmt.Errorf("internal server error")
-			}
-		}()
+        <div class="form-group">
+            <label for="transactionType">Transaction Type</label>
+            <select id="transactionType">
+                <option value="SALE">SALE (Auth + Capture)</option>
+                <option value="AUTH">AUTH (Hold funds only)</option>
+            </select>
+        </div>
 
-		return handler(ctx, req)
-	}
-}
+        <div class="form-group">
+            <label for="cardNumber">Card Number</label>
+            <input type="text" id="cardNumber" placeholder="4111111111111111" maxlength="16">
+        </div>
 
-// Helper functions
+        <div class="card-row">
+            <div class="form-group">
+                <label for="expDate">Exp Date (MMYY)</label>
+                <input type="text" id="expDate" placeholder="1225" maxlength="4">
+            </div>
+            <div class="form-group">
+                <label for="cvv">CVV</label>
+                <input type="text" id="cvv" placeholder="123" maxlength="4">
+            </div>
+        </div>
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
+        <button id="submitBtn" onclick="processPayment()">Process Payment</button>
 
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		var intValue int
-		fmt.Sscanf(value, "%d", &intValue)
-		return intValue
-	}
-	return defaultValue
-}
+        <div id="status"></div>
 
-// getEnvWithFallback tries the primary key first, then fallback key, then default value
-// This provides backwards compatibility when renaming environment variables
-func getEnvWithFallback(primaryKey, fallbackKey, defaultValue string) string {
-	if value := os.Getenv(primaryKey); value != "" {
-		return value
-	}
-	if value := os.Getenv(fallbackKey); value != "" {
-		return value
-	}
-	return defaultValue
+        <!-- Hidden form that will be auto-submitted to EPX -->
+        <form id="epxForm" method="POST" style="display:none;" target="epxWindow">
+            <input type="hidden" name="TAC" id="tac">
+            <input type="hidden" name="CUST_NBR" id="custNbr">
+            <input type="hidden" name="MERCH_NBR" id="merchNbr">
+            <input type="hidden" name="DBA_NBR" id="dbaNbr">
+            <input type="hidden" name="TERMINAL_NBR" id="terminalNbr">
+            <input type="hidden" name="TRAN_NBR" id="tranNbr">
+            <input type="hidden" name="TRAN_GROUP" id="tranGroup">
+            <input type="hidden" name="AMOUNT" id="amountHidden">
+            <input type="hidden" name="ACCOUNT_NBR" id="cardNbrHidden">
+            <input type="hidden" name="EXP_DATE" id="expDateHidden">
+            <input type="hidden" name="CVV2" id="cvvHidden">
+            <input type="hidden" name="REDIRECT_URL" id="redirectUrl">
+            <input type="hidden" name="USER_DATA_1" id="userData1">
+            <input type="hidden" name="USER_DATA_2" value="browser-post-demo">
+            <input type="hidden" name="USER_DATA_3" id="userData3">
+            <input type="hidden" name="INDUSTRY_TYPE" value="E">
+        </form>
+    </div>
+
+    <script>
+        const SERVICE_URL = window.location.origin;
+
+        function fillCard(number, cvv) {
+            document.getElementById('cardNumber').value = number;
+            document.getElementById('cvv').value = cvv;
+            const nextYear = new Date().getFullYear() + 1;
+            document.getElementById('expDate').value = '12' + nextYear.toString().substr(-2);
+        }
+
+        async function processPayment() {
+            const btn = document.getElementById('submitBtn');
+            const status = document.getElementById('status');
+
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+            status.innerHTML = '<div class="info">Step 1: Getting TAC from payment service...</div>';
+
+            try {
+                // Get form values
+                const merchantId = document.getElementById('merchantSelect').value;
+                const amount = document.getElementById('amount').value;
+                const transactionType = document.getElementById('transactionType').value;
+                const cardNumber = document.getElementById('cardNumber').value;
+                const expDate = document.getElementById('expDate').value;
+                const cvv = document.getElementById('cvv').value;
+
+                // Generate transaction ID
+                const transactionId = generateUUID();
+                const returnUrl = SERVICE_URL + '/api/v1/payments/browser-post/callback';
+
+                // Step 1: Get TAC from payment service
+                const formUrl = SERVICE_URL + '/api/v1/payments/browser-post/form?' +
+                    'transaction_id=' + transactionId + '&' +
+                    'merchant_id=' + merchantId + '&' +
+                    'amount=' + amount + '&' +
+                    'transaction_type=' + transactionType + '&' +
+                    'return_url=' + encodeURIComponent(returnUrl);
+
+                const response = await fetch(formUrl);
+                if (!response.ok) {
+                    throw new Error('Failed to get TAC: ' + response.status);
+                }
+
+                const formConfig = await response.json();
+
+                status.innerHTML += '<div class="success">✅ Got TAC from payment service</div>';
+                status.innerHTML += '<div class="info">Step 2: Submitting to EPX...</div>';
+
+                // Step 2: Fill hidden form with EPX data
+                const form = document.getElementById('epxForm');
+                form.action = formConfig.postURL;
+
+                document.getElementById('tac').value = formConfig.tac;
+                document.getElementById('custNbr').value = formConfig.custNbr;
+                document.getElementById('merchNbr').value = formConfig.merchNbr;
+                document.getElementById('dbaNbr').value = formConfig.dbaName;
+                document.getElementById('terminalNbr').value = formConfig.terminalNbr;
+                document.getElementById('tranNbr').value = formConfig.epxTranNbr;
+                document.getElementById('tranGroup').value = transactionType === 'AUTH' ? 'A' : 'U';
+                document.getElementById('amountHidden').value = amount;
+                document.getElementById('cardNbrHidden').value = cardNumber;
+                document.getElementById('expDateHidden').value = expDate;
+                document.getElementById('cvvHidden').value = cvv;
+                document.getElementById('redirectUrl').value = returnUrl;
+                document.getElementById('userData1').value = returnUrl;
+                document.getElementById('userData3').value = merchantId;
+
+                // Step 3: Submit to EPX in popup window
+                const epxWindow = window.open('', 'epxWindow', 'width=800,height=600');
+                form.submit();
+
+                status.innerHTML += '<div class="success">✅ Form submitted to EPX - check popup window!</div>';
+                status.innerHTML += '<div class="info">EPX will process the payment and redirect back to the payment service.</div>';
+
+            } catch (error) {
+                status.innerHTML = '<div class="error">❌ Error: ' + error.message + '</div>';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Process Payment';
+            }
+        }
+
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // Set defaults on load
+        window.onload = function() {
+            fillCard('4111111111111111', '123');
+        };
+    </script>
+</body>
+</html>`
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(html))
 }

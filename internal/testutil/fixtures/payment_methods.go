@@ -1,0 +1,221 @@
+package fixtures
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/kevin07696/payment-service/internal/db/sqlc"
+	"github.com/kevin07696/payment-service/internal/domain"
+)
+
+// PaymentMethodBuilder provides fluent API for building test payment methods.
+type PaymentMethodBuilder struct {
+	paymentMethod *sqlc.CustomerPaymentMethod
+}
+
+// NewPaymentMethod creates a new payment method builder with sensible defaults.
+func NewPaymentMethod() *PaymentMethodBuilder {
+	now := time.Now()
+	return &PaymentMethodBuilder{
+		paymentMethod: &sqlc.CustomerPaymentMethod{
+			ID:           uuid.New(),
+			MerchantID:   uuid.New(),
+			CustomerID:   "cust_test_" + uuid.New().String()[:8],
+			Bric:         "bric_test_" + uuid.New().String()[:8],
+			PaymentType:  "credit_card",
+			LastFour:     "4242",
+			CardBrand:    pgtype.Text{String: "visa", Valid: true},
+			CardExpMonth: pgtype.Int4{Int32: 12, Valid: true},
+			CardExpYear:  pgtype.Int4{Int32: 2025, Valid: true},
+			IsDefault:    pgtype.Bool{Bool: false, Valid: true},
+			Status:       string(domain.PaymentMethodStatusActive),
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+	}
+}
+
+func (b *PaymentMethodBuilder) WithID(id uuid.UUID) *PaymentMethodBuilder {
+	b.paymentMethod.ID = id
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithMerchantID(merchantID uuid.UUID) *PaymentMethodBuilder {
+	b.paymentMethod.MerchantID = merchantID
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithCustomerID(customerID string) *PaymentMethodBuilder {
+	b.paymentMethod.CustomerID = customerID
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithBric(bric string) *PaymentMethodBuilder {
+	b.paymentMethod.Bric = bric
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithPaymentType(paymentType string) *PaymentMethodBuilder {
+	b.paymentMethod.PaymentType = paymentType
+	return b
+}
+
+func (b *PaymentMethodBuilder) CreditCard() *PaymentMethodBuilder {
+	b.paymentMethod.PaymentType = "credit_card"
+	return b
+}
+
+func (b *PaymentMethodBuilder) ACH() *PaymentMethodBuilder {
+	b.paymentMethod.PaymentType = "ach"
+	// Clear credit card fields
+	b.paymentMethod.CardBrand = pgtype.Text{}
+	b.paymentMethod.CardExpMonth = pgtype.Int4{}
+	b.paymentMethod.CardExpYear = pgtype.Int4{}
+	// Set ACH fields
+	b.paymentMethod.BankName = pgtype.Text{String: "Test Bank", Valid: true}
+	b.paymentMethod.AccountType = pgtype.Text{String: "checking", Valid: true}
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithLastFour(lastFour string) *PaymentMethodBuilder {
+	b.paymentMethod.LastFour = lastFour
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithCardBrand(brand string) *PaymentMethodBuilder {
+	b.paymentMethod.CardBrand = pgtype.Text{String: brand, Valid: true}
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithCardExpiration(month, year int32) *PaymentMethodBuilder {
+	b.paymentMethod.CardExpMonth = pgtype.Int4{Int32: month, Valid: true}
+	b.paymentMethod.CardExpYear = pgtype.Int4{Int32: year, Valid: true}
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithBankName(bankName string) *PaymentMethodBuilder {
+	b.paymentMethod.BankName = pgtype.Text{String: bankName, Valid: true}
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithAccountType(accountType string) *PaymentMethodBuilder {
+	b.paymentMethod.AccountType = pgtype.Text{String: accountType, Valid: true}
+	return b
+}
+
+func (b *PaymentMethodBuilder) Default() *PaymentMethodBuilder {
+	b.paymentMethod.IsDefault = pgtype.Bool{Bool: true, Valid: true}
+	return b
+}
+
+func (b *PaymentMethodBuilder) NotDefault() *PaymentMethodBuilder {
+	b.paymentMethod.IsDefault = pgtype.Bool{Bool: false, Valid: true}
+	return b
+}
+
+// WithStatus sets the payment method status
+func (b *PaymentMethodBuilder) WithStatus(status domain.PaymentMethodStatus) *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(status)
+	return b
+}
+
+// Active sets status to active
+func (b *PaymentMethodBuilder) Active() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusActive)
+	return b
+}
+
+// Inactive sets status to revoked (manual deactivation)
+func (b *PaymentMethodBuilder) Inactive() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusRevoked)
+	return b
+}
+
+// Verified sets status to active (verified = active for payment methods)
+func (b *PaymentMethodBuilder) Verified() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusActive)
+	return b
+}
+
+// NotVerified sets status to pending (unverified)
+func (b *PaymentMethodBuilder) NotVerified() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusPending)
+	return b
+}
+
+// Pending sets status to pending
+func (b *PaymentMethodBuilder) Pending() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusPending)
+	return b
+}
+
+// Failed sets status to failed
+func (b *PaymentMethodBuilder) Failed() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusFailed)
+	return b
+}
+
+// Expired sets status to expired
+func (b *PaymentMethodBuilder) Expired() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusExpired)
+	return b
+}
+
+// Revoked sets status to revoked
+func (b *PaymentMethodBuilder) Revoked() *PaymentMethodBuilder {
+	b.paymentMethod.Status = string(domain.PaymentMethodStatusRevoked)
+	return b
+}
+
+func (b *PaymentMethodBuilder) WithLastUsedAt(t time.Time) *PaymentMethodBuilder {
+	b.paymentMethod.LastUsedAt = pgtype.Timestamptz{Time: t, Valid: true}
+	return b
+}
+
+func (b *PaymentMethodBuilder) Build() sqlc.CustomerPaymentMethod {
+	return *b.paymentMethod
+}
+
+// Convenience functions for common payment method scenarios
+
+// VisaCard creates a verified Visa credit card payment method.
+func VisaCard(merchantID uuid.UUID, customerID string, bric string) sqlc.CustomerPaymentMethod {
+	return NewPaymentMethod().
+		WithMerchantID(merchantID).
+		WithCustomerID(customerID).
+		WithBric(bric).
+		CreditCard().
+		WithCardBrand("visa").
+		WithLastFour("4242").
+		Active().
+		Build()
+}
+
+// DefaultVisaCard creates a default Visa credit card payment method.
+func DefaultVisaCard(merchantID uuid.UUID, customerID string, bric string) sqlc.CustomerPaymentMethod {
+	return NewPaymentMethod().
+		WithMerchantID(merchantID).
+		WithCustomerID(customerID).
+		WithBric(bric).
+		CreditCard().
+		WithCardBrand("visa").
+		WithLastFour("4242").
+		Active().
+		Default().
+		Build()
+}
+
+// CheckingAccount creates a verified checking account payment method.
+func CheckingAccount(merchantID uuid.UUID, customerID string, bric string) sqlc.CustomerPaymentMethod {
+	return NewPaymentMethod().
+		WithMerchantID(merchantID).
+		WithCustomerID(customerID).
+		WithBric(bric).
+		ACH().
+		WithLastFour("6789").
+		WithBankName("Test Bank").
+		WithAccountType("checking").
+		Active().
+		Build()
+}

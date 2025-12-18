@@ -1,0 +1,154 @@
+package testutil
+
+import (
+	cryptoRand "crypto/rand"
+	"crypto/rsa"
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/kevin07696/payment-service/pkg/crypto"
+)
+
+// TestServiceCredentials represents a test service with RSA keys
+type TestServiceCredentials struct {
+	ServiceID            string `json:"service_id"`
+	ServiceName          string `json:"service_name"`
+	Environment          string `json:"environment"`
+	PrivateKeyPEM        string `json:"private_key_pem"`
+	PublicKeyPEM         string `json:"public_key_pem"`
+	PublicKeyFingerprint string `json:"public_key_fingerprint"`
+}
+
+// LoadTestServices loads test service credentials from JSON
+// If the file doesn't exist, it returns an error prompting to generate keys
+func LoadTestServices() ([]TestServiceCredentials, error) {
+	// Path is relative to test package directory (e.g., tests/integration/auth/)
+	// Go up 2 levels to tests/, then into fixtures/auth/
+	jsonPath := "../../fixtures/auth/test_services.json"
+	jsonData, err := os.ReadFile(jsonPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, &TestKeysNotFoundError{
+				Path: jsonPath,
+			}
+		}
+		return nil, err
+	}
+
+	var services []TestServiceCredentials
+	if err := json.Unmarshal(jsonData, &services); err != nil {
+		return nil, err
+	}
+
+	return services, nil
+}
+
+// TestKeysNotFoundError is returned when test service keys are not found
+type TestKeysNotFoundError struct {
+	Path string
+}
+
+func (e *TestKeysNotFoundError) Error() string {
+	return fmt.Sprintf(
+		"test service keys not found at %s\n\n"+
+			"SOLUTION: Generate ephemeral test keys by running:\n"+
+			"  ./scripts/generate_test_keys.sh\n\n"+
+			"This generates fresh RSA keys for testing without committing secrets to Git.",
+		e.Path,
+	)
+}
+
+func (e *TestKeysNotFoundError) Is(target error) bool {
+	_, ok := target.(*TestKeysNotFoundError)
+	return ok
+}
+
+// GenerateJWT creates a JWT signed with the service's private key
+func GenerateJWT(privateKeyPEM, issuer, merchantID string, expiresIn time.Duration) (string, error) {
+	return GenerateJWTWithScopes(privateKeyPEM, issuer, merchantID, expiresIn, nil)
+}
+
+// GenerateJWTWithScopes creates a JWT signed with the service's private key and custom scopes
+func GenerateJWTWithScopes(privateKeyPEM, issuer, merchantID string, expiresIn time.Duration, scopes []string) (string, error) {
+	// Parse private key
+	privateKey, err := crypto.ParsePrivateKey(privateKeyPEM)
+	if err != nil {
+		return "", err
+	}
+
+	now := time.Now()
+
+	// Default scopes if not provided
+	if scopes == nil {
+		scopes = []string{
+			"payments:create",
+			"payments:read",
+			"payments:void",
+			"payments:refund",
+			"payment_methods:read",
+			"payment_methods:create",
+			"subscriptions:manage",
+			"subscriptions:read",
+		}
+	}
+
+	// Create claims matching jwtgen structure
+	claims := jwt.MapClaims{
+		"iss":         issuer,
+		"sub":         issuer,
+		"merchant_id": merchantID,
+		"scopes":      scopes,
+		"exp":         now.Add(expiresIn).Unix(),
+		"iat":         now.Unix(),
+		"nbf":         now.Unix(),
+		"jti":         uuid.New().String(),
+	}
+
+	// Sign token
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		return "", err
+	}
+
+	return tokenString, nil
+}
+
+// GenerateJWTWithClaims creates a JWT with custom claims for testing
+func GenerateJWTWithClaims(privateKeyPEM string, claims jwt.MapClaims) (string, error) {
+	privateKey, err := crypto.ParsePrivateKey(privateKeyPEM)
+	if err != nil {
+		return "", err
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	return token.SignedString(privateKey)
+}
+
+// GenerateJWTWithWrongKey creates a JWT signed with a different private key (for testing invalid signatures)
+func GenerateJWTWithWrongKey(issuer, merchantID string) (string, error) {
+	// Generate a random key pair
+	wrongKey, err := rsa.GenerateKey(cryptoRand.Reader, 2048)
+	if err != nil {
+		return "", err
+	}
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":         issuer,
+		"sub":         issuer,
+		"merchant_id": merchantID,
+		"scopes":      []string{"payments:create", "payments:read"},
+		"exp":         now.Add(1 * time.Hour).Unix(),
+		"iat":         now.Unix(),
+		"nbf":         now.Unix(),
+		"jti":         uuid.New().String(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	return token.SignedString(wrongKey)
+}

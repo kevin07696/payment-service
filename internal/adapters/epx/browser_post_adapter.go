@@ -5,42 +5,42 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"net/url"
-	"sort"
-	"strconv"
-	"strings"
+	"os"
 	"time"
 
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"go.uber.org/zap"
 )
 
 // BrowserPostConfig contains configuration for EPX Browser Post adapter
 type BrowserPostConfig struct {
 	// EPX Browser Post endpoint URL
-	// Sandbox: https://epxnow.com/epx/browser_post_sandbox
-	// Production: https://epxnow.com/epx/browser_post
+	// Sandbox: https://services.epxuap.com/browserpost/
+	// Production: https://epxnow.com/epx/browser_post (or contact North for production URL)
 	PostURL string
 
 	// Default merchant name for display
 	MerchantName string
-
-	// Whether to validate MAC signatures in responses
-	ValidateMAC bool
 }
 
 // DefaultBrowserPostConfig returns default configuration for Browser Post adapter
-func DefaultBrowserPostConfig(environment string) *BrowserPostConfig {
-	postURL := "https://epxnow.com/epx/browser_post" // Production
+// Production endpoint must be set via EPX_BROWSER_POST_ENDPOINT environment variable
+func DefaultBrowserPostConfig(environment string) (*BrowserPostConfig, error) {
+	var postURL string
+
 	if environment == "sandbox" {
-		postURL = "https://secure.epxuap.com/browserpost"
+		postURL = "https://services.epxuap.com/browserpost/"
+	} else {
+		postURL = os.Getenv("EPX_BROWSER_POST_ENDPOINT")
+		if postURL == "" {
+			return nil, fmt.Errorf("EPX_BROWSER_POST_ENDPOINT environment variable is required for %s environment", environment)
+		}
 	}
 
 	return &BrowserPostConfig{
 		PostURL:      postURL,
 		MerchantName: "Payment Service",
-		ValidateMAC:  true,
-	}
+	}, nil
 }
 
 // browserPostAdapter implements the BrowserPostAdapter port
@@ -57,53 +57,8 @@ func NewBrowserPostAdapter(config *BrowserPostConfig, logger *zap.Logger) ports.
 	}
 }
 
-// BuildFormData constructs the form data structure needed for Browser Post
-// Based on EPX Browser Post API - Required Fields (page 8-13)
-func (a *browserPostAdapter) BuildFormData(tac, amount, tranNbr, tranGroup, redirectURL string) (*ports.BrowserPostFormData, error) {
-	// Validate required fields
-	if tac == "" {
-		return nil, fmt.Errorf("tac is required")
-	}
-	if amount == "" {
-		return nil, fmt.Errorf("amount is required")
-	}
-	if tranNbr == "" {
-		return nil, fmt.Errorf("tran_nbr is required")
-	}
-	if tranGroup == "" {
-		return nil, fmt.Errorf("tran_group is required")
-	}
-	if redirectURL == "" {
-		return nil, fmt.Errorf("redirect_url is required")
-	}
-
-	// Validate amount format
-	if _, err := strconv.ParseFloat(amount, 64); err != nil {
-		return nil, fmt.Errorf("amount must be numeric: %w", err)
-	}
-
-	a.logger.Info("Building Browser Post form data",
-		zap.String("tran_nbr", tranNbr),
-		zap.String("amount", amount),
-	)
-
-	return &ports.BrowserPostFormData{
-		PostURL:     a.config.PostURL,
-		TAC:         tac,
-		Amount:      amount,
-		TranNbr:     tranNbr,
-		TranGroup:   tranGroup,
-		RedirectURL: redirectURL,
-		// Optional redirect URLs for decline/error (can be same as success URL)
-		RedirectURLDecline: redirectURL,
-		RedirectURLError:   redirectURL,
-		MerchantName:       a.config.MerchantName,
-		Metadata:           make(map[string]string),
-	}, nil
-}
-
 // ParseRedirectResponse parses the query parameters from EPX redirect
-// Based on EPX Browser Post API - Response Fields (page 14-17)
+// Based on EPX Browser Post API Integration Guide - Response Fields (page 7)
 func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (*ports.BrowserPostResponse, error) {
 	// Helper to get first value from slice
 	getValue := func(key string) string {
@@ -113,12 +68,13 @@ func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (
 		return ""
 	}
 
-	// Extract required fields
+	// Extract required fields per North Developer Browser Post API Guide
 	authGUID := getValue("AUTH_GUID")
 	authResp := getValue("AUTH_RESP")
 	authRespText := getValue("AUTH_RESP_TEXT")
 
-	a.logger.Info("Parsing Browser Post redirect response",
+	// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+	a.logger.Debug("Parsing Browser Post redirect response",
 		zap.String("auth_guid", authGUID),
 		zap.String("auth_resp", authResp),
 	)
@@ -151,6 +107,7 @@ func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (
 		}
 	}
 
+	// Build response with EPX field names per North Developer Browser Post API Guide (page 7)
 	response := &ports.BrowserPostResponse{
 		AuthGUID:     authGUID,
 		AuthResp:     authResp,
@@ -162,12 +119,13 @@ func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (
 		AuthCVV2:     getValue("AUTH_CVV2"),
 		TranNbr:      getValue("TRAN_NBR"),
 		TranGroup:    getValue("TRAN_GROUP"),
-		Amount:       getValue("AMOUNT"),
+		Amount:       getValue("AUTH_AMOUNT"), // EPX returns amount in AUTH_AMOUNT field (page 7: AMOUNT=100.00)
 		ProcessedAt:  processedAt,
 		RawParams:    rawParams,
 	}
 
-	a.logger.Info("Parsed Browser Post response",
+	// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+	a.logger.Debug("Parsed Browser Post response",
 		zap.String("auth_guid", response.AuthGUID),
 		zap.String("auth_resp", response.AuthResp),
 		zap.Bool("is_approved", response.IsApproved),
@@ -177,16 +135,10 @@ func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (
 	return response, nil
 }
 
-// ValidateResponseMAC validates the MAC signature in the redirect response
-// Ensures the response hasn't been tampered with
-// Based on EPX Browser Post API - Response Validation (page 17-18)
-func (a *browserPostAdapter) ValidateResponseMAC(params map[string][]string, mac string) error {
-	if !a.config.ValidateMAC {
-		a.logger.Warn("MAC validation is disabled")
-		return nil
-	}
-
-	// Helper to get first value from slice
+// ValidateResponseMAC validates the MAC signature in the EPX redirect response.
+// EPX signs specific fields using HMAC-SHA256 with the merchant's MAC secret.
+// Field order per EPX spec: CUST_NBR + MERCH_NBR + AUTH_GUID + AUTH_RESP + AMOUNT + TRAN_NBR + TRAN_GROUP
+func (a *browserPostAdapter) ValidateResponseMAC(params map[string][]string, macSecret string) error {
 	getValue := func(key string) string {
 		if values, ok := params[key]; ok && len(values) > 0 {
 			return values[0]
@@ -194,15 +146,16 @@ func (a *browserPostAdapter) ValidateResponseMAC(params map[string][]string, mac
 		return ""
 	}
 
-	// Get the MAC from response
 	responseMAC := getValue("MAC")
 	if responseMAC == "" {
-		return fmt.Errorf("MAC is missing from response")
+		// MAC is optional in Browser Post redirects - EPX only includes it in server-to-server callbacks.
+		// Security for browser redirects relies on TAC validation (transaction must be in PENDING state).
+		a.logger.Debug("MAC not present in EPX response - skipping signature validation (browser redirect)")
+		return nil
 	}
 
-	// Build signature string from response parameters
-	// EPX typically signs specific fields in a deterministic order
-	// Example: CUST_NBR + MERCH_NBR + AUTH_GUID + AUTH_RESP + AMOUNT + TRAN_NBR
+	// Build signature string from response parameters in EPX-specified field order
+	// Per EPX Browser Post API: CUST_NBR + MERCH_NBR + AUTH_GUID + AUTH_RESP + AMOUNT + TRAN_NBR + TRAN_GROUP
 	signatureFields := []string{
 		getValue("CUST_NBR"),
 		getValue("MERCH_NBR"),
@@ -213,80 +166,27 @@ func (a *browserPostAdapter) ValidateResponseMAC(params map[string][]string, mac
 		getValue("TRAN_GROUP"),
 	}
 
-	// Build signature string
-	signatureStr := strings.Join(signatureFields, "")
+	var signatureStr string
+	for _, field := range signatureFields {
+		signatureStr += field
+	}
 
-	// Compute HMAC-SHA256
-	expectedMAC := computeHMAC(signatureStr, mac)
+	// Calculate expected MAC using HMAC-SHA256
+	h := hmac.New(sha256.New, []byte(macSecret))
+	h.Write([]byte(signatureStr))
+	expectedMAC := hex.EncodeToString(h.Sum(nil))
 
-	// Compare MACs (constant-time comparison)
+	// Constant-time comparison to prevent timing attacks
 	if !hmac.Equal([]byte(expectedMAC), []byte(responseMAC)) {
-		a.logger.Error("MAC validation failed",
-			zap.String("expected", expectedMAC),
-			zap.String("received", responseMAC),
+		a.logger.Warn("MAC validation failed",
+			zap.String("tran_nbr", getValue("TRAN_NBR")),
+			// SECURITY: Do not log actual MAC values to prevent offline attacks
 		)
-		return fmt.Errorf("MAC validation failed: signature mismatch")
+		return fmt.Errorf("MAC signature validation failed")
 	}
 
-	a.logger.Info("MAC validation successful")
-	return nil
-}
-
-// computeHMAC computes HMAC-SHA256 signature
-func computeHMAC(message, key string) string {
-	h := hmac.New(sha256.New, []byte(key))
-	h.Write([]byte(message))
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-// sortedKeys returns sorted keys from a map (for deterministic signing)
-func sortedKeys(m map[string][]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-// buildSignatureString builds a canonical signature string from parameters
-// Used for MAC validation - must match EPX's signing algorithm
-func buildSignatureString(params map[string][]string, fieldsToSign []string) string {
-	var parts []string
-	for _, field := range fieldsToSign {
-		if values, ok := params[field]; ok && len(values) > 0 {
-			parts = append(parts, values[0])
-		}
-	}
-	return strings.Join(parts, "")
-}
-
-// ValidateRedirectURL validates that the redirect URL matches expected format
-// Prevents open redirect vulnerabilities
-func (a *browserPostAdapter) ValidateRedirectURL(redirectURL string, allowedDomains []string) error {
-	parsed, err := url.Parse(redirectURL)
-	if err != nil {
-		return fmt.Errorf("invalid redirect URL: %w", err)
-	}
-
-	// Must be HTTPS in production
-	if parsed.Scheme != "https" && a.config.PostURL != "" && !strings.Contains(a.config.PostURL, "sandbox") {
-		return fmt.Errorf("redirect URL must use HTTPS in production")
-	}
-
-	// Check against allowed domains
-	if len(allowedDomains) > 0 {
-		allowed := false
-		for _, domain := range allowedDomains {
-			if parsed.Host == domain || strings.HasSuffix(parsed.Host, "."+domain) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return fmt.Errorf("redirect URL domain %s is not in allowed list", parsed.Host)
-		}
-	}
-
+	a.logger.Info("MAC validation successful",
+		zap.String("tran_nbr", getValue("TRAN_NBR")),
+	)
 	return nil
 }

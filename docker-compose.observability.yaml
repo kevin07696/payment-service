@@ -1,0 +1,78 @@
+# Observability Stack for Payment Service
+# Includes: Jaeger (tracing), Prometheus (metrics)
+#
+# Usage:
+#   docker-compose -f docker-compose.observability.yaml up -d
+#
+# Access:
+#   - Jaeger UI: http://localhost:16686
+#   - Prometheus UI: http://localhost:9091
+#   - OTLP endpoint: localhost:4318 (HTTP) or localhost:4317 (gRPC)
+#
+# Payment Service Config:
+#   export TRACING_ENABLED=true
+#   export OTLP_ENDPOINT=localhost:4318
+#   export TRACING_SAMPLE_RATE=1.0
+#   export METRICS_ENABLED=true
+#   export METRICS_PORT=9090
+
+version: '3.8'
+
+services:
+  # Jaeger All-in-One for distributed tracing
+  # Receives traces via OTLP and provides a UI for visualization
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: jaeger
+    environment:
+      # Enable OTLP receiver
+      - COLLECTOR_OTLP_ENABLED=true
+      # Log level
+      - LOG_LEVEL=info
+    ports:
+      # Jaeger UI
+      - "16686:16686"
+      # OTLP gRPC receiver
+      - "4317:4317"
+      # OTLP HTTP receiver
+      - "4318:4318"
+      # Jaeger thrift compact (legacy)
+      - "6831:6831/udp"
+      # Jaeger thrift binary (legacy)
+      - "6832:6832/udp"
+      # Jaeger agent (legacy)
+      - "5778:5778"
+      # Jaeger collector HTTP (legacy)
+      - "14268:14268"
+    restart: unless-stopped
+    networks:
+      - observability
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9091:9090"
+    restart: unless-stopped
+    networks:
+      - observability
+    extra_hosts:
+      # Allow Prometheus to scrape payment-service running on host
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  prometheus_data:
+
+networks:
+  observability:
+    driver: bridge

@@ -1,0 +1,136 @@
+name: Sync Docs to Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  sync-wiki:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Get full history for commit info
+
+      - name: Checkout wiki repository
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+
+      - name: Copy integration documentation
+        run: |
+          echo "📋 Copying integration documentation..."
+          if [ -d "docs/integration" ]; then
+            for file in docs/integration/*.md; do
+              [ -f "$file" ] || continue
+              filename=$(basename "$file")
+              # Skip generated files
+              if [[ "$filename" == *"_GENERATED.md" ]]; then
+                continue
+              fi
+              cp "$file" "wiki/$filename"
+              echo "   Copied: $filename"
+            done
+          fi
+
+      - name: Copy development documentation
+        run: |
+          echo "📋 Copying development documentation..."
+          if [ -d "docs/development" ]; then
+            for file in docs/development/*.md; do
+              [ -f "$file" ] || continue
+              filename=$(basename "$file")
+              # Prefix with "Dev-" to avoid conflicts
+              cp "$file" "wiki/Dev-$filename"
+              echo "   Copied: Dev-$filename"
+            done
+          fi
+
+      - name: Copy README as Home page
+        run: |
+          echo "📋 Copying README.md as Home.md..."
+          cp README.md wiki/Home.md
+
+      - name: Copy documentation style guide
+        run: |
+          echo "📋 Copying documentation style guide..."
+          if [ -f "docs/DOCUMENTATION_STYLE_GUIDE.md" ]; then
+            cp docs/DOCUMENTATION_STYLE_GUIDE.md wiki/DOCUMENTATION_STYLE_GUIDE.md
+          fi
+
+      - name: Create wiki sidebar
+        run: |
+          cat > wiki/_Sidebar.md << 'EOF'
+# Payment Service Wiki
+
+## 🚀 Getting Started
+- [Home](Home)
+- [Quick Start](Home#quick-start)
+
+## 📖 Integration Guides
+- [Payment CLI](PAYMENT_CLI)
+- [React Integration](REACT_INTEGRATION)
+- [API Specifications](API_SPECS)
+- [Browser Post Form Setup](BROWSER_POST_FORM_SETUP)
+- [Token Generation](TOKEN_GENERATION)
+
+## 🛠️ Development
+- [Authentication](Dev-AUTH)
+- [Setup](Dev-SETUP)
+- [Development Guide](Dev-DEVELOP)
+- [Database](Dev-DATABASE)
+
+## 📚 Reference
+- [Style Guide](DOCUMENTATION_STYLE_GUIDE)
+- [Changelog](https://github.com/kevin07696/payment-service/blob/main/CHANGELOG.md)
+EOF
+
+      - name: Create wiki footer
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          COMMIT_DATE=$(date '+%Y-%m-%d %H:%M:%S')
+          cat > wiki/_Footer.md << EOF
+---
+**Last synced:** $COMMIT_DATE | **Commit:** [\`$COMMIT_SHA\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)
+
+[📖 View on GitHub](https://github.com/${{ github.repository }}) | [🐛 Report Issue](https://github.com/${{ github.repository }}/issues)
+EOF
+
+      - name: Commit and push to wiki
+        run: |
+          cd wiki
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+
+          if git diff --cached --quiet; then
+            echo "ℹ️  No changes to commit"
+          else
+            COMMIT_SHA=$(cd .. && git rev-parse --short HEAD)
+            git commit -m "Auto-sync documentation from main
+
+          Commit: $COMMIT_SHA
+          Triggered by: ${{ github.event_name }}
+          Actor: ${{ github.actor }}"
+
+            git push
+            echo "✅ Documentation pushed to wiki successfully!"
+          fi
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "=================================="
+          echo "✅ Wiki sync complete!"
+          echo "=================================="
+          echo ""
+          echo "View your wiki at:"
+          echo "https://github.com/${{ github.repository }}/wiki"

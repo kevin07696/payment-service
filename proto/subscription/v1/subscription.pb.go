@@ -138,11 +138,11 @@ func (SubscriptionStatus) EnumDescriptor() ([]byte, []int) {
 
 // CreateSubscriptionRequest creates a new subscription
 type CreateSubscriptionRequest struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	AgentId    string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	CustomerId string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
-	Amount     string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"` // Decimal as string
-	Currency   string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	MerchantId  string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
+	CustomerId  string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	AmountCents int64                  `protobuf:"varint,3,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (smallest currency unit)
+	Currency    string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
 	// Billing interval (e.g., 1 month, 2 weeks, 3 months)
 	IntervalValue   int32                  `protobuf:"varint,5,opt,name=interval_value,json=intervalValue,proto3" json:"interval_value,omitempty"`                                // 1, 2, 3, etc.
 	IntervalUnit    IntervalUnit           `protobuf:"varint,6,opt,name=interval_unit,json=intervalUnit,proto3,enum=subscription.v1.IntervalUnit" json:"interval_unit,omitempty"` // day, week, month, year
@@ -185,9 +185,9 @@ func (*CreateSubscriptionRequest) Descriptor() ([]byte, []int) {
 	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *CreateSubscriptionRequest) GetAgentId() string {
+func (x *CreateSubscriptionRequest) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -199,11 +199,11 @@ func (x *CreateSubscriptionRequest) GetCustomerId() string {
 	return ""
 }
 
-func (x *CreateSubscriptionRequest) GetAmount() string {
+func (x *CreateSubscriptionRequest) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *CreateSubscriptionRequest) GetCurrency() string {
@@ -266,7 +266,7 @@ func (x *CreateSubscriptionRequest) GetIdempotencyKey() string {
 type UpdateSubscriptionRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SubscriptionId  string                 `protobuf:"bytes,1,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"`
-	Amount          *string                `protobuf:"bytes,2,opt,name=amount,proto3,oneof" json:"amount,omitempty"`                                                                    // Optional: update amount
+	AmountCents     *int64                 `protobuf:"varint,2,opt,name=amount_cents,json=amountCents,proto3,oneof" json:"amount_cents,omitempty"`                                      // Optional: update amount in cents
 	IntervalValue   *int32                 `protobuf:"varint,3,opt,name=interval_value,json=intervalValue,proto3,oneof" json:"interval_value,omitempty"`                                // Optional: update interval value
 	IntervalUnit    *IntervalUnit          `protobuf:"varint,4,opt,name=interval_unit,json=intervalUnit,proto3,enum=subscription.v1.IntervalUnit,oneof" json:"interval_unit,omitempty"` // Optional: update interval unit
 	PaymentMethodId *string                `protobuf:"bytes,5,opt,name=payment_method_id,json=paymentMethodId,proto3,oneof" json:"payment_method_id,omitempty"`                         // Optional: update payment method
@@ -312,11 +312,11 @@ func (x *UpdateSubscriptionRequest) GetSubscriptionId() string {
 	return ""
 }
 
-func (x *UpdateSubscriptionRequest) GetAmount() string {
-	if x != nil && x.Amount != nil {
-		return *x.Amount
+func (x *UpdateSubscriptionRequest) GetAmountCents() int64 {
+	if x != nil && x.AmountCents != nil {
+		return *x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *UpdateSubscriptionRequest) GetIntervalValue() int32 {
@@ -551,30 +551,32 @@ func (x *GetSubscriptionRequest) GetSubscriptionId() string {
 	return ""
 }
 
-// ListCustomerSubscriptionsRequest lists customer subscriptions
-type ListCustomerSubscriptionsRequest struct {
+// ListSubscriptionsRequest lists subscriptions with filters
+type ListSubscriptionsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	CustomerId    string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	MerchantId    string                 `protobuf:"bytes,1,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
+	CustomerId    string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`                      // Optional: filter by customer
 	Status        *SubscriptionStatus    `protobuf:"varint,3,opt,name=status,proto3,enum=subscription.v1.SubscriptionStatus,oneof" json:"status,omitempty"` // Optional: filter by status
+	Limit         int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`                                                 // Default: 100, max: 1000
+	Offset        int32                  `protobuf:"varint,5,opt,name=offset,proto3" json:"offset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListCustomerSubscriptionsRequest) Reset() {
-	*x = ListCustomerSubscriptionsRequest{}
+func (x *ListSubscriptionsRequest) Reset() {
+	*x = ListSubscriptionsRequest{}
 	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListCustomerSubscriptionsRequest) String() string {
+func (x *ListSubscriptionsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListCustomerSubscriptionsRequest) ProtoMessage() {}
+func (*ListSubscriptionsRequest) ProtoMessage() {}
 
-func (x *ListCustomerSubscriptionsRequest) ProtoReflect() protoreflect.Message {
+func (x *ListSubscriptionsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -586,54 +588,69 @@ func (x *ListCustomerSubscriptionsRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListCustomerSubscriptionsRequest.ProtoReflect.Descriptor instead.
-func (*ListCustomerSubscriptionsRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListSubscriptionsRequest.ProtoReflect.Descriptor instead.
+func (*ListSubscriptionsRequest) Descriptor() ([]byte, []int) {
 	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ListCustomerSubscriptionsRequest) GetAgentId() string {
+func (x *ListSubscriptionsRequest) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
 
-func (x *ListCustomerSubscriptionsRequest) GetCustomerId() string {
+func (x *ListSubscriptionsRequest) GetCustomerId() string {
 	if x != nil {
 		return x.CustomerId
 	}
 	return ""
 }
 
-func (x *ListCustomerSubscriptionsRequest) GetStatus() SubscriptionStatus {
+func (x *ListSubscriptionsRequest) GetStatus() SubscriptionStatus {
 	if x != nil && x.Status != nil {
 		return *x.Status
 	}
 	return SubscriptionStatus_SUBSCRIPTION_STATUS_UNSPECIFIED
 }
 
-// ListCustomerSubscriptionsResponse contains subscription list
-type ListCustomerSubscriptionsResponse struct {
+func (x *ListSubscriptionsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListSubscriptionsRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+// ListSubscriptionsResponse contains subscription list
+type ListSubscriptionsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Subscriptions []*Subscription        `protobuf:"bytes,1,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
+	TotalCount    int32                  `protobuf:"varint,2,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListCustomerSubscriptionsResponse) Reset() {
-	*x = ListCustomerSubscriptionsResponse{}
+func (x *ListSubscriptionsResponse) Reset() {
+	*x = ListSubscriptionsResponse{}
 	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListCustomerSubscriptionsResponse) String() string {
+func (x *ListSubscriptionsResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListCustomerSubscriptionsResponse) ProtoMessage() {}
+func (*ListSubscriptionsResponse) ProtoMessage() {}
 
-func (x *ListCustomerSubscriptionsResponse) ProtoReflect() protoreflect.Message {
+func (x *ListSubscriptionsResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -645,224 +662,32 @@ func (x *ListCustomerSubscriptionsResponse) ProtoReflect() protoreflect.Message 
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListCustomerSubscriptionsResponse.ProtoReflect.Descriptor instead.
-func (*ListCustomerSubscriptionsResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListSubscriptionsResponse.ProtoReflect.Descriptor instead.
+func (*ListSubscriptionsResponse) Descriptor() ([]byte, []int) {
 	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *ListCustomerSubscriptionsResponse) GetSubscriptions() []*Subscription {
+func (x *ListSubscriptionsResponse) GetSubscriptions() []*Subscription {
 	if x != nil {
 		return x.Subscriptions
 	}
 	return nil
 }
 
-// ProcessDueBillingRequest processes billing batch
-type ProcessDueBillingRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AsOfDate      *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=as_of_date,json=asOfDate,proto3" json:"as_of_date,omitempty"`
-	BatchSize     int32                  `protobuf:"varint,2,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"` // Default: 100
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ProcessDueBillingRequest) Reset() {
-	*x = ProcessDueBillingRequest{}
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ProcessDueBillingRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ProcessDueBillingRequest) ProtoMessage() {}
-
-func (x *ProcessDueBillingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[8]
+func (x *ListSubscriptionsResponse) GetTotalCount() int32 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ProcessDueBillingRequest.ProtoReflect.Descriptor instead.
-func (*ProcessDueBillingRequest) Descriptor() ([]byte, []int) {
-	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *ProcessDueBillingRequest) GetAsOfDate() *timestamppb.Timestamp {
-	if x != nil {
-		return x.AsOfDate
-	}
-	return nil
-}
-
-func (x *ProcessDueBillingRequest) GetBatchSize() int32 {
-	if x != nil {
-		return x.BatchSize
+		return x.TotalCount
 	}
 	return 0
-}
-
-// ProcessDueBillingResponse contains billing results
-type ProcessDueBillingResponse struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ProcessedCount int32                  `protobuf:"varint,1,opt,name=processed_count,json=processedCount,proto3" json:"processed_count,omitempty"`
-	SuccessCount   int32                  `protobuf:"varint,2,opt,name=success_count,json=successCount,proto3" json:"success_count,omitempty"`
-	FailedCount    int32                  `protobuf:"varint,3,opt,name=failed_count,json=failedCount,proto3" json:"failed_count,omitempty"`
-	SkippedCount   int32                  `protobuf:"varint,4,opt,name=skipped_count,json=skippedCount,proto3" json:"skipped_count,omitempty"`
-	Errors         []*BillingError        `protobuf:"bytes,5,rep,name=errors,proto3" json:"errors,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *ProcessDueBillingResponse) Reset() {
-	*x = ProcessDueBillingResponse{}
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ProcessDueBillingResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ProcessDueBillingResponse) ProtoMessage() {}
-
-func (x *ProcessDueBillingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ProcessDueBillingResponse.ProtoReflect.Descriptor instead.
-func (*ProcessDueBillingResponse) Descriptor() ([]byte, []int) {
-	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *ProcessDueBillingResponse) GetProcessedCount() int32 {
-	if x != nil {
-		return x.ProcessedCount
-	}
-	return 0
-}
-
-func (x *ProcessDueBillingResponse) GetSuccessCount() int32 {
-	if x != nil {
-		return x.SuccessCount
-	}
-	return 0
-}
-
-func (x *ProcessDueBillingResponse) GetFailedCount() int32 {
-	if x != nil {
-		return x.FailedCount
-	}
-	return 0
-}
-
-func (x *ProcessDueBillingResponse) GetSkippedCount() int32 {
-	if x != nil {
-		return x.SkippedCount
-	}
-	return 0
-}
-
-func (x *ProcessDueBillingResponse) GetErrors() []*BillingError {
-	if x != nil {
-		return x.Errors
-	}
-	return nil
-}
-
-// BillingError represents a billing failure
-type BillingError struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	SubscriptionId string                 `protobuf:"bytes,1,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"`
-	CustomerId     string                 `protobuf:"bytes,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
-	Error          string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
-	Retriable      bool                   `protobuf:"varint,4,opt,name=retriable,proto3" json:"retriable,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *BillingError) Reset() {
-	*x = BillingError{}
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BillingError) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BillingError) ProtoMessage() {}
-
-func (x *BillingError) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BillingError.ProtoReflect.Descriptor instead.
-func (*BillingError) Descriptor() ([]byte, []int) {
-	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *BillingError) GetSubscriptionId() string {
-	if x != nil {
-		return x.SubscriptionId
-	}
-	return ""
-}
-
-func (x *BillingError) GetCustomerId() string {
-	if x != nil {
-		return x.CustomerId
-	}
-	return ""
-}
-
-func (x *BillingError) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
-}
-
-func (x *BillingError) GetRetriable() bool {
-	if x != nil {
-		return x.Retriable
-	}
-	return false
 }
 
 // SubscriptionResponse is returned from subscription operations
 type SubscriptionResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	SubscriptionId string                 `protobuf:"bytes,1,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"`
-	AgentId        string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MerchantId     string                 `protobuf:"bytes,2,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
 	CustomerId     string                 `protobuf:"bytes,3,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
-	Amount         string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	AmountCents    int64                  `protobuf:"varint,4,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (smallest currency unit)
 	Currency       string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`
 	// Billing interval
 	IntervalValue         int32                  `protobuf:"varint,6,opt,name=interval_value,json=intervalValue,proto3" json:"interval_value,omitempty"`
@@ -880,7 +705,7 @@ type SubscriptionResponse struct {
 
 func (x *SubscriptionResponse) Reset() {
 	*x = SubscriptionResponse{}
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[11]
+	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -892,7 +717,7 @@ func (x *SubscriptionResponse) String() string {
 func (*SubscriptionResponse) ProtoMessage() {}
 
 func (x *SubscriptionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[11]
+	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -905,7 +730,7 @@ func (x *SubscriptionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscriptionResponse.ProtoReflect.Descriptor instead.
 func (*SubscriptionResponse) Descriptor() ([]byte, []int) {
-	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{11}
+	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SubscriptionResponse) GetSubscriptionId() string {
@@ -915,9 +740,9 @@ func (x *SubscriptionResponse) GetSubscriptionId() string {
 	return ""
 }
 
-func (x *SubscriptionResponse) GetAgentId() string {
+func (x *SubscriptionResponse) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -929,11 +754,11 @@ func (x *SubscriptionResponse) GetCustomerId() string {
 	return ""
 }
 
-func (x *SubscriptionResponse) GetAmount() string {
+func (x *SubscriptionResponse) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *SubscriptionResponse) GetCurrency() string {
@@ -1008,12 +833,12 @@ func (x *SubscriptionResponse) GetCancelledAt() *timestamppb.Timestamp {
 
 // Subscription represents a complete subscription record
 type Subscription struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	AgentId    string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	CustomerId string                 `protobuf:"bytes,3,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
-	Amount     string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
-	Currency   string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	MerchantId  string                 `protobuf:"bytes,2,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
+	CustomerId  string                 `protobuf:"bytes,3,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	AmountCents int64                  `protobuf:"varint,4,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"` // Amount in cents (smallest currency unit)
+	Currency    string                 `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`
 	// Billing interval
 	IntervalValue         int32                  `protobuf:"varint,6,opt,name=interval_value,json=intervalValue,proto3" json:"interval_value,omitempty"`
 	IntervalUnit          IntervalUnit           `protobuf:"varint,7,opt,name=interval_unit,json=intervalUnit,proto3,enum=subscription.v1.IntervalUnit" json:"interval_unit,omitempty"`
@@ -1033,7 +858,7 @@ type Subscription struct {
 
 func (x *Subscription) Reset() {
 	*x = Subscription{}
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[12]
+	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1045,7 +870,7 @@ func (x *Subscription) String() string {
 func (*Subscription) ProtoMessage() {}
 
 func (x *Subscription) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[12]
+	mi := &file_proto_subscription_v1_subscription_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1058,7 +883,7 @@ func (x *Subscription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Subscription.ProtoReflect.Descriptor instead.
 func (*Subscription) Descriptor() ([]byte, []int) {
-	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{12}
+	return file_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Subscription) GetId() string {
@@ -1068,9 +893,9 @@ func (x *Subscription) GetId() string {
 	return ""
 }
 
-func (x *Subscription) GetAgentId() string {
+func (x *Subscription) GetMerchantId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MerchantId
 	}
 	return ""
 }
@@ -1082,11 +907,11 @@ func (x *Subscription) GetCustomerId() string {
 	return ""
 }
 
-func (x *Subscription) GetAmount() string {
+func (x *Subscription) GetAmountCents() int64 {
 	if x != nil {
-		return x.Amount
+		return x.AmountCents
 	}
-	return ""
+	return 0
 }
 
 func (x *Subscription) GetCurrency() string {
@@ -1184,12 +1009,13 @@ var File_proto_subscription_v1_subscription_proto protoreflect.FileDescriptor
 
 const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\n" +
-	"(proto/subscription/v1/subscription.proto\x12\x0fsubscription.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x04\n" +
-	"\x19CreateSubscriptionRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
+	"(proto/subscription/v1/subscription.proto\x12\x0fsubscription.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcb\x04\n" +
+	"\x19CreateSubscriptionRequest\x12\x1f\n" +
+	"\vmerchant_id\x18\x01 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12\x16\n" +
-	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1a\n" +
+	"customerId\x12!\n" +
+	"\famount_cents\x18\x03 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12%\n" +
 	"\x0einterval_value\x18\x05 \x01(\x05R\rintervalValue\x12B\n" +
 	"\rinterval_unit\x18\x06 \x01(\x0e2\x1d.subscription.v1.IntervalUnitR\fintervalUnit\x12*\n" +
@@ -1203,15 +1029,15 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\x0fidempotency_key\x18\v \x01(\tR\x0eidempotencyKey\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf6\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x87\x03\n" +
 	"\x19UpdateSubscriptionRequest\x12'\n" +
-	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x1b\n" +
-	"\x06amount\x18\x02 \x01(\tH\x00R\x06amount\x88\x01\x01\x12*\n" +
+	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12&\n" +
+	"\famount_cents\x18\x02 \x01(\x03H\x00R\vamountCents\x88\x01\x01\x12*\n" +
 	"\x0einterval_value\x18\x03 \x01(\x05H\x01R\rintervalValue\x88\x01\x01\x12G\n" +
 	"\rinterval_unit\x18\x04 \x01(\x0e2\x1d.subscription.v1.IntervalUnitH\x02R\fintervalUnit\x88\x01\x01\x12/\n" +
 	"\x11payment_method_id\x18\x05 \x01(\tH\x03R\x0fpaymentMethodId\x88\x01\x01\x12'\n" +
-	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKeyB\t\n" +
-	"\a_amountB\x11\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKeyB\x0f\n" +
+	"\r_amount_centsB\x11\n" +
 	"\x0f_interval_valueB\x10\n" +
 	"\x0e_interval_unitB\x14\n" +
 	"\x12_payment_method_id\"\xb6\x01\n" +
@@ -1225,38 +1051,27 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\x19ResumeSubscriptionRequest\x12'\n" +
 	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\"A\n" +
 	"\x16GetSubscriptionRequest\x12'\n" +
-	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\"\xab\x01\n" +
-	" ListCustomerSubscriptionsRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
+	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\"\xd7\x01\n" +
+	"\x18ListSubscriptionsRequest\x12\x1f\n" +
+	"\vmerchant_id\x18\x01 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
 	"customerId\x12@\n" +
-	"\x06status\x18\x03 \x01(\x0e2#.subscription.v1.SubscriptionStatusH\x00R\x06status\x88\x01\x01B\t\n" +
-	"\a_status\"h\n" +
-	"!ListCustomerSubscriptionsResponse\x12C\n" +
-	"\rsubscriptions\x18\x01 \x03(\v2\x1d.subscription.v1.SubscriptionR\rsubscriptions\"s\n" +
-	"\x18ProcessDueBillingRequest\x128\n" +
-	"\n" +
-	"as_of_date\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\basOfDate\x12\x1d\n" +
-	"\n" +
-	"batch_size\x18\x02 \x01(\x05R\tbatchSize\"\xe8\x01\n" +
-	"\x19ProcessDueBillingResponse\x12'\n" +
-	"\x0fprocessed_count\x18\x01 \x01(\x05R\x0eprocessedCount\x12#\n" +
-	"\rsuccess_count\x18\x02 \x01(\x05R\fsuccessCount\x12!\n" +
-	"\ffailed_count\x18\x03 \x01(\x05R\vfailedCount\x12#\n" +
-	"\rskipped_count\x18\x04 \x01(\x05R\fskippedCount\x125\n" +
-	"\x06errors\x18\x05 \x03(\v2\x1d.subscription.v1.BillingErrorR\x06errors\"\x8c\x01\n" +
-	"\fBillingError\x12'\n" +
-	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x1f\n" +
-	"\vcustomer_id\x18\x02 \x01(\tR\n" +
-	"customerId\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\x12\x1c\n" +
-	"\tretriable\x18\x04 \x01(\bR\tretriable\"\xce\x05\n" +
+	"\x06status\x18\x03 \x01(\x0e2#.subscription.v1.SubscriptionStatusH\x00R\x06status\x88\x01\x01\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06offset\x18\x05 \x01(\x05R\x06offsetB\t\n" +
+	"\a_status\"\x81\x01\n" +
+	"\x19ListSubscriptionsResponse\x12C\n" +
+	"\rsubscriptions\x18\x01 \x03(\v2\x1d.subscription.v1.SubscriptionR\rsubscriptions\x12\x1f\n" +
+	"\vtotal_count\x18\x02 \x01(\x05R\n" +
+	"totalCount\"\xdf\x05\n" +
 	"\x14SubscriptionResponse\x12'\n" +
-	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x19\n" +
-	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1f\n" +
+	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x1f\n" +
+	"\vmerchant_id\x18\x02 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x03 \x01(\tR\n" +
-	"customerId\x12\x16\n" +
-	"\x06amount\x18\x04 \x01(\tR\x06amount\x12\x1a\n" +
+	"customerId\x12!\n" +
+	"\famount_cents\x18\x04 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x05 \x01(\tR\bcurrency\x12%\n" +
 	"\x0einterval_value\x18\x06 \x01(\x05R\rintervalValue\x12B\n" +
 	"\rinterval_unit\x18\a \x01(\x0e2\x1d.subscription.v1.IntervalUnitR\fintervalUnit\x12;\n" +
@@ -1270,13 +1085,14 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12B\n" +
 	"\fcancelled_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampH\x00R\vcancelledAt\x88\x01\x01B\x0f\n" +
-	"\r_cancelled_at\"\x84\a\n" +
+	"\r_cancelled_at\"\x95\a\n" +
 	"\fSubscription\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
-	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1f\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
+	"\vmerchant_id\x18\x02 \x01(\tR\n" +
+	"merchantId\x12\x1f\n" +
 	"\vcustomer_id\x18\x03 \x01(\tR\n" +
-	"customerId\x12\x16\n" +
-	"\x06amount\x18\x04 \x01(\tR\x06amount\x12\x1a\n" +
+	"customerId\x12!\n" +
+	"\famount_cents\x18\x04 \x01(\x03R\vamountCents\x12\x1a\n" +
 	"\bcurrency\x18\x05 \x01(\tR\bcurrency\x12%\n" +
 	"\x0einterval_value\x18\x06 \x01(\x05R\rintervalValue\x12B\n" +
 	"\rinterval_unit\x18\a \x01(\x0e2\x1d.subscription.v1.IntervalUnitR\fintervalUnit\x12;\n" +
@@ -1309,16 +1125,15 @@ const file_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\x1aSUBSCRIPTION_STATUS_ACTIVE\x10\x01\x12\x1e\n" +
 	"\x1aSUBSCRIPTION_STATUS_PAUSED\x10\x02\x12!\n" +
 	"\x1dSUBSCRIPTION_STATUS_CANCELLED\x10\x03\x12 \n" +
-	"\x1cSUBSCRIPTION_STATUS_PAST_DUE\x10\x042\xec\x06\n" +
-	"\x13SubscriptionService\x12g\n" +
-	"\x12CreateSubscription\x12*.subscription.v1.CreateSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\x12g\n" +
-	"\x12UpdateSubscription\x12*.subscription.v1.UpdateSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\x12g\n" +
-	"\x12CancelSubscription\x12*.subscription.v1.CancelSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\x12e\n" +
-	"\x11PauseSubscription\x12).subscription.v1.PauseSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\x12g\n" +
-	"\x12ResumeSubscription\x12*.subscription.v1.ResumeSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\x12Y\n" +
-	"\x0fGetSubscription\x12'.subscription.v1.GetSubscriptionRequest\x1a\x1d.subscription.v1.Subscription\x12\x82\x01\n" +
-	"\x19ListCustomerSubscriptions\x121.subscription.v1.ListCustomerSubscriptionsRequest\x1a2.subscription.v1.ListCustomerSubscriptionsResponse\x12j\n" +
-	"\x11ProcessDueBilling\x12).subscription.v1.ProcessDueBillingRequest\x1a*.subscription.v1.ProcessDueBillingResponseBLZJgithub.com/kevin07696/payment-service/proto/subscription/v1;subscriptionv1b\x06proto3"
+	"\x1cSUBSCRIPTION_STATUS_PAST_DUE\x10\x042\xf5\x05\n" +
+	"\x13SubscriptionService\x12i\n" +
+	"\x12CreateSubscription\x12*.subscription.v1.CreateSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12i\n" +
+	"\x12UpdateSubscription\x12*.subscription.v1.UpdateSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12i\n" +
+	"\x12CancelSubscription\x12*.subscription.v1.CancelSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12g\n" +
+	"\x11PauseSubscription\x12).subscription.v1.PauseSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12i\n" +
+	"\x12ResumeSubscription\x12*.subscription.v1.ResumeSubscriptionRequest\x1a%.subscription.v1.SubscriptionResponse\"\x00\x12[\n" +
+	"\x0fGetSubscription\x12'.subscription.v1.GetSubscriptionRequest\x1a\x1d.subscription.v1.Subscription\"\x00\x12l\n" +
+	"\x11ListSubscriptions\x12).subscription.v1.ListSubscriptionsRequest\x1a*.subscription.v1.ListSubscriptionsResponse\"\x00BLZJgithub.com/kevin07696/payment-service/proto/subscription/v1;subscriptionv1b\x06proto3"
 
 var (
 	file_proto_subscription_v1_subscription_proto_rawDescOnce sync.Once
@@ -1333,70 +1148,63 @@ func file_proto_subscription_v1_subscription_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_subscription_v1_subscription_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_proto_subscription_v1_subscription_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_proto_subscription_v1_subscription_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_proto_subscription_v1_subscription_proto_goTypes = []any{
-	(IntervalUnit)(0),                         // 0: subscription.v1.IntervalUnit
-	(SubscriptionStatus)(0),                   // 1: subscription.v1.SubscriptionStatus
-	(*CreateSubscriptionRequest)(nil),         // 2: subscription.v1.CreateSubscriptionRequest
-	(*UpdateSubscriptionRequest)(nil),         // 3: subscription.v1.UpdateSubscriptionRequest
-	(*CancelSubscriptionRequest)(nil),         // 4: subscription.v1.CancelSubscriptionRequest
-	(*PauseSubscriptionRequest)(nil),          // 5: subscription.v1.PauseSubscriptionRequest
-	(*ResumeSubscriptionRequest)(nil),         // 6: subscription.v1.ResumeSubscriptionRequest
-	(*GetSubscriptionRequest)(nil),            // 7: subscription.v1.GetSubscriptionRequest
-	(*ListCustomerSubscriptionsRequest)(nil),  // 8: subscription.v1.ListCustomerSubscriptionsRequest
-	(*ListCustomerSubscriptionsResponse)(nil), // 9: subscription.v1.ListCustomerSubscriptionsResponse
-	(*ProcessDueBillingRequest)(nil),          // 10: subscription.v1.ProcessDueBillingRequest
-	(*ProcessDueBillingResponse)(nil),         // 11: subscription.v1.ProcessDueBillingResponse
-	(*BillingError)(nil),                      // 12: subscription.v1.BillingError
-	(*SubscriptionResponse)(nil),              // 13: subscription.v1.SubscriptionResponse
-	(*Subscription)(nil),                      // 14: subscription.v1.Subscription
-	nil,                                       // 15: subscription.v1.CreateSubscriptionRequest.MetadataEntry
-	nil,                                       // 16: subscription.v1.Subscription.MetadataEntry
-	(*timestamppb.Timestamp)(nil),             // 17: google.protobuf.Timestamp
+	(IntervalUnit)(0),                 // 0: subscription.v1.IntervalUnit
+	(SubscriptionStatus)(0),           // 1: subscription.v1.SubscriptionStatus
+	(*CreateSubscriptionRequest)(nil), // 2: subscription.v1.CreateSubscriptionRequest
+	(*UpdateSubscriptionRequest)(nil), // 3: subscription.v1.UpdateSubscriptionRequest
+	(*CancelSubscriptionRequest)(nil), // 4: subscription.v1.CancelSubscriptionRequest
+	(*PauseSubscriptionRequest)(nil),  // 5: subscription.v1.PauseSubscriptionRequest
+	(*ResumeSubscriptionRequest)(nil), // 6: subscription.v1.ResumeSubscriptionRequest
+	(*GetSubscriptionRequest)(nil),    // 7: subscription.v1.GetSubscriptionRequest
+	(*ListSubscriptionsRequest)(nil),  // 8: subscription.v1.ListSubscriptionsRequest
+	(*ListSubscriptionsResponse)(nil), // 9: subscription.v1.ListSubscriptionsResponse
+	(*SubscriptionResponse)(nil),      // 10: subscription.v1.SubscriptionResponse
+	(*Subscription)(nil),              // 11: subscription.v1.Subscription
+	nil,                               // 12: subscription.v1.CreateSubscriptionRequest.MetadataEntry
+	nil,                               // 13: subscription.v1.Subscription.MetadataEntry
+	(*timestamppb.Timestamp)(nil),     // 14: google.protobuf.Timestamp
 }
 var file_proto_subscription_v1_subscription_proto_depIdxs = []int32{
 	0,  // 0: subscription.v1.CreateSubscriptionRequest.interval_unit:type_name -> subscription.v1.IntervalUnit
-	17, // 1: subscription.v1.CreateSubscriptionRequest.start_date:type_name -> google.protobuf.Timestamp
-	15, // 2: subscription.v1.CreateSubscriptionRequest.metadata:type_name -> subscription.v1.CreateSubscriptionRequest.MetadataEntry
+	14, // 1: subscription.v1.CreateSubscriptionRequest.start_date:type_name -> google.protobuf.Timestamp
+	12, // 2: subscription.v1.CreateSubscriptionRequest.metadata:type_name -> subscription.v1.CreateSubscriptionRequest.MetadataEntry
 	0,  // 3: subscription.v1.UpdateSubscriptionRequest.interval_unit:type_name -> subscription.v1.IntervalUnit
-	1,  // 4: subscription.v1.ListCustomerSubscriptionsRequest.status:type_name -> subscription.v1.SubscriptionStatus
-	14, // 5: subscription.v1.ListCustomerSubscriptionsResponse.subscriptions:type_name -> subscription.v1.Subscription
-	17, // 6: subscription.v1.ProcessDueBillingRequest.as_of_date:type_name -> google.protobuf.Timestamp
-	12, // 7: subscription.v1.ProcessDueBillingResponse.errors:type_name -> subscription.v1.BillingError
-	0,  // 8: subscription.v1.SubscriptionResponse.interval_unit:type_name -> subscription.v1.IntervalUnit
-	1,  // 9: subscription.v1.SubscriptionResponse.status:type_name -> subscription.v1.SubscriptionStatus
-	17, // 10: subscription.v1.SubscriptionResponse.next_billing_date:type_name -> google.protobuf.Timestamp
-	17, // 11: subscription.v1.SubscriptionResponse.created_at:type_name -> google.protobuf.Timestamp
-	17, // 12: subscription.v1.SubscriptionResponse.updated_at:type_name -> google.protobuf.Timestamp
-	17, // 13: subscription.v1.SubscriptionResponse.cancelled_at:type_name -> google.protobuf.Timestamp
-	0,  // 14: subscription.v1.Subscription.interval_unit:type_name -> subscription.v1.IntervalUnit
-	1,  // 15: subscription.v1.Subscription.status:type_name -> subscription.v1.SubscriptionStatus
-	17, // 16: subscription.v1.Subscription.next_billing_date:type_name -> google.protobuf.Timestamp
-	17, // 17: subscription.v1.Subscription.created_at:type_name -> google.protobuf.Timestamp
-	17, // 18: subscription.v1.Subscription.updated_at:type_name -> google.protobuf.Timestamp
-	17, // 19: subscription.v1.Subscription.cancelled_at:type_name -> google.protobuf.Timestamp
-	16, // 20: subscription.v1.Subscription.metadata:type_name -> subscription.v1.Subscription.MetadataEntry
-	2,  // 21: subscription.v1.SubscriptionService.CreateSubscription:input_type -> subscription.v1.CreateSubscriptionRequest
-	3,  // 22: subscription.v1.SubscriptionService.UpdateSubscription:input_type -> subscription.v1.UpdateSubscriptionRequest
-	4,  // 23: subscription.v1.SubscriptionService.CancelSubscription:input_type -> subscription.v1.CancelSubscriptionRequest
-	5,  // 24: subscription.v1.SubscriptionService.PauseSubscription:input_type -> subscription.v1.PauseSubscriptionRequest
-	6,  // 25: subscription.v1.SubscriptionService.ResumeSubscription:input_type -> subscription.v1.ResumeSubscriptionRequest
-	7,  // 26: subscription.v1.SubscriptionService.GetSubscription:input_type -> subscription.v1.GetSubscriptionRequest
-	8,  // 27: subscription.v1.SubscriptionService.ListCustomerSubscriptions:input_type -> subscription.v1.ListCustomerSubscriptionsRequest
-	10, // 28: subscription.v1.SubscriptionService.ProcessDueBilling:input_type -> subscription.v1.ProcessDueBillingRequest
-	13, // 29: subscription.v1.SubscriptionService.CreateSubscription:output_type -> subscription.v1.SubscriptionResponse
-	13, // 30: subscription.v1.SubscriptionService.UpdateSubscription:output_type -> subscription.v1.SubscriptionResponse
-	13, // 31: subscription.v1.SubscriptionService.CancelSubscription:output_type -> subscription.v1.SubscriptionResponse
-	13, // 32: subscription.v1.SubscriptionService.PauseSubscription:output_type -> subscription.v1.SubscriptionResponse
-	13, // 33: subscription.v1.SubscriptionService.ResumeSubscription:output_type -> subscription.v1.SubscriptionResponse
-	14, // 34: subscription.v1.SubscriptionService.GetSubscription:output_type -> subscription.v1.Subscription
-	9,  // 35: subscription.v1.SubscriptionService.ListCustomerSubscriptions:output_type -> subscription.v1.ListCustomerSubscriptionsResponse
-	11, // 36: subscription.v1.SubscriptionService.ProcessDueBilling:output_type -> subscription.v1.ProcessDueBillingResponse
-	29, // [29:37] is the sub-list for method output_type
-	21, // [21:29] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	1,  // 4: subscription.v1.ListSubscriptionsRequest.status:type_name -> subscription.v1.SubscriptionStatus
+	11, // 5: subscription.v1.ListSubscriptionsResponse.subscriptions:type_name -> subscription.v1.Subscription
+	0,  // 6: subscription.v1.SubscriptionResponse.interval_unit:type_name -> subscription.v1.IntervalUnit
+	1,  // 7: subscription.v1.SubscriptionResponse.status:type_name -> subscription.v1.SubscriptionStatus
+	14, // 8: subscription.v1.SubscriptionResponse.next_billing_date:type_name -> google.protobuf.Timestamp
+	14, // 9: subscription.v1.SubscriptionResponse.created_at:type_name -> google.protobuf.Timestamp
+	14, // 10: subscription.v1.SubscriptionResponse.updated_at:type_name -> google.protobuf.Timestamp
+	14, // 11: subscription.v1.SubscriptionResponse.cancelled_at:type_name -> google.protobuf.Timestamp
+	0,  // 12: subscription.v1.Subscription.interval_unit:type_name -> subscription.v1.IntervalUnit
+	1,  // 13: subscription.v1.Subscription.status:type_name -> subscription.v1.SubscriptionStatus
+	14, // 14: subscription.v1.Subscription.next_billing_date:type_name -> google.protobuf.Timestamp
+	14, // 15: subscription.v1.Subscription.created_at:type_name -> google.protobuf.Timestamp
+	14, // 16: subscription.v1.Subscription.updated_at:type_name -> google.protobuf.Timestamp
+	14, // 17: subscription.v1.Subscription.cancelled_at:type_name -> google.protobuf.Timestamp
+	13, // 18: subscription.v1.Subscription.metadata:type_name -> subscription.v1.Subscription.MetadataEntry
+	2,  // 19: subscription.v1.SubscriptionService.CreateSubscription:input_type -> subscription.v1.CreateSubscriptionRequest
+	3,  // 20: subscription.v1.SubscriptionService.UpdateSubscription:input_type -> subscription.v1.UpdateSubscriptionRequest
+	4,  // 21: subscription.v1.SubscriptionService.CancelSubscription:input_type -> subscription.v1.CancelSubscriptionRequest
+	5,  // 22: subscription.v1.SubscriptionService.PauseSubscription:input_type -> subscription.v1.PauseSubscriptionRequest
+	6,  // 23: subscription.v1.SubscriptionService.ResumeSubscription:input_type -> subscription.v1.ResumeSubscriptionRequest
+	7,  // 24: subscription.v1.SubscriptionService.GetSubscription:input_type -> subscription.v1.GetSubscriptionRequest
+	8,  // 25: subscription.v1.SubscriptionService.ListSubscriptions:input_type -> subscription.v1.ListSubscriptionsRequest
+	10, // 26: subscription.v1.SubscriptionService.CreateSubscription:output_type -> subscription.v1.SubscriptionResponse
+	10, // 27: subscription.v1.SubscriptionService.UpdateSubscription:output_type -> subscription.v1.SubscriptionResponse
+	10, // 28: subscription.v1.SubscriptionService.CancelSubscription:output_type -> subscription.v1.SubscriptionResponse
+	10, // 29: subscription.v1.SubscriptionService.PauseSubscription:output_type -> subscription.v1.SubscriptionResponse
+	10, // 30: subscription.v1.SubscriptionService.ResumeSubscription:output_type -> subscription.v1.SubscriptionResponse
+	11, // 31: subscription.v1.SubscriptionService.GetSubscription:output_type -> subscription.v1.Subscription
+	9,  // 32: subscription.v1.SubscriptionService.ListSubscriptions:output_type -> subscription.v1.ListSubscriptionsResponse
+	26, // [26:33] is the sub-list for method output_type
+	19, // [19:26] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_proto_subscription_v1_subscription_proto_init() }
@@ -1406,15 +1214,15 @@ func file_proto_subscription_v1_subscription_proto_init() {
 	}
 	file_proto_subscription_v1_subscription_proto_msgTypes[1].OneofWrappers = []any{}
 	file_proto_subscription_v1_subscription_proto_msgTypes[6].OneofWrappers = []any{}
-	file_proto_subscription_v1_subscription_proto_msgTypes[11].OneofWrappers = []any{}
-	file_proto_subscription_v1_subscription_proto_msgTypes[12].OneofWrappers = []any{}
+	file_proto_subscription_v1_subscription_proto_msgTypes[8].OneofWrappers = []any{}
+	file_proto_subscription_v1_subscription_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_subscription_v1_subscription_proto_rawDesc), len(file_proto_subscription_v1_subscription_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   15,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

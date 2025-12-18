@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kevin07696/payment-service/internal/adapters/ports"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -48,7 +48,10 @@ func (s *EPXIntegrationTestSuite) SetupSuite() {
 	}
 
 	// Initialize EPX adapter
-	config := DefaultServerPostConfig("sandbox")
+	config, err := DefaultServerPostConfig("sandbox")
+	if err != nil {
+		panic("failed to create server post config: " + err.Error())
+	}
 	s.adapter = NewServerPostAdapter(config, logger)
 
 	s.ctx = context.Background()
