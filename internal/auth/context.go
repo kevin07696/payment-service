@@ -17,6 +17,7 @@ var (
 	TokenJTIKey     = contextKey{"token_jti"}
 	RequestIDKey    = contextKey{"request_id"}
 	ClientIPKey     = contextKey{"client_ip"}
+	RemoteAddrKey   = contextKey{"remote_addr"} // TCP connection address (for proxy validation)
 	UserAgentKey    = contextKey{"user_agent"}
 	ScopesKey       = contextKey{"scopes"}
 	EnvironmentKey  = contextKey{"environment"}

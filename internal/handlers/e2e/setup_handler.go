@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -21,14 +20,17 @@ type Handler struct {
 	queries       sqlc.Querier
 	secretManager ports.SecretManagerAdapter
 	logger        *zap.Logger
+	environment   string // Injected environment (development, staging, production)
 }
 
 // NewHandler creates a new E2E handler
-func NewHandler(queries sqlc.Querier, secretManager ports.SecretManagerAdapter, logger *zap.Logger) *Handler {
+// environment should be passed from cfg.Environment to ensure consistency
+func NewHandler(queries sqlc.Querier, secretManager ports.SecretManagerAdapter, logger *zap.Logger, environment string) *Handler {
 	return &Handler{
 		queries:       queries,
 		secretManager: secretManager,
 		logger:        logger,
+		environment:   environment,
 	}
 }
 
@@ -81,8 +83,7 @@ type ServiceResponse struct {
 // Creates isolated test merchant and service for E2E tests
 func (h *Handler) Setup(w http.ResponseWriter, r *http.Request) {
 	// Only allow in non-production environments
-	env := os.Getenv("APP_ENV")
-	if env == "production" || env == "prod" {
+	if h.environment == "production" {
 		http.Error(w, "E2E setup not available in production", http.StatusForbidden)
 		return
 	}
@@ -245,8 +246,7 @@ type CleanupRequest struct {
 // Removes test data created by Setup
 func (h *Handler) Cleanup(w http.ResponseWriter, r *http.Request) {
 	// Only allow in non-production environments
-	env := os.Getenv("APP_ENV")
-	if env == "production" || env == "prod" {
+	if h.environment == "production" {
 		http.Error(w, "E2E cleanup not available in production", http.StatusForbidden)
 		return
 	}

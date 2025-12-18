@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -48,12 +47,9 @@ func (m *mockSecretManager) DeleteSecret(ctx context.Context, path string) error
 }
 
 func TestHandler_Setup_ProductionBlocked(t *testing.T) {
-	// Set production environment
-	os.Setenv("APP_ENV", "production")
-	defer os.Unsetenv("APP_ENV")
-
 	mockQ := new(mocks.MockQuerier)
-	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop())
+	// Pass "production" via dependency injection
+	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop(), "production")
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/e2e/setup", nil)
 	w := httptest.NewRecorder()
@@ -65,10 +61,8 @@ func TestHandler_Setup_ProductionBlocked(t *testing.T) {
 }
 
 func TestHandler_Setup_MethodNotAllowed(t *testing.T) {
-	os.Unsetenv("APP_ENV") // Ensure not in production
-
 	mockQ := new(mocks.MockQuerier)
-	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop())
+	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop(), "development")
 
 	// Test GET method
 	req := httptest.NewRequest(http.MethodGet, "/internal/e2e/setup", nil)
@@ -80,10 +74,8 @@ func TestHandler_Setup_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandler_Setup_InvalidJSON(t *testing.T) {
-	os.Unsetenv("APP_ENV")
-
 	mockQ := new(mocks.MockQuerier)
-	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop())
+	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop(), "development")
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/e2e/setup", bytes.NewBufferString("invalid json"))
 	w := httptest.NewRecorder()
@@ -95,8 +87,6 @@ func TestHandler_Setup_InvalidJSON(t *testing.T) {
 }
 
 func TestHandler_Setup_Success(t *testing.T) {
-	os.Unsetenv("APP_ENV")
-
 	mockQ := new(mocks.MockQuerier)
 	merchantID := uuid.New()
 	serviceID := uuid.New()
@@ -111,7 +101,7 @@ func TestHandler_Setup_Success(t *testing.T) {
 	mockQ.On("GrantServiceAccess", mock.Anything, mock.AnythingOfType("sqlc.GrantServiceAccessParams")).
 		Return(sqlc.ServiceMerchant{}, nil)
 
-	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop())
+	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop(), "development")
 
 	setupReq := SetupRequest{
 		Merchant: MerchantRequest{
@@ -151,11 +141,9 @@ func TestHandler_Setup_Success(t *testing.T) {
 }
 
 func TestHandler_Cleanup_ProductionBlocked(t *testing.T) {
-	os.Setenv("APP_ENV", "prod")
-	defer os.Unsetenv("APP_ENV")
-
 	mockQ := new(mocks.MockQuerier)
-	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop())
+	// Pass "production" via dependency injection
+	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop(), "production")
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/e2e/cleanup", nil)
 	w := httptest.NewRecorder()
@@ -166,10 +154,8 @@ func TestHandler_Cleanup_ProductionBlocked(t *testing.T) {
 }
 
 func TestHandler_Cleanup_MethodNotAllowed(t *testing.T) {
-	os.Unsetenv("APP_ENV")
-
 	mockQ := new(mocks.MockQuerier)
-	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop())
+	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop(), "development")
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/e2e/cleanup", nil)
 	w := httptest.NewRecorder()
@@ -180,8 +166,6 @@ func TestHandler_Cleanup_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandler_Cleanup_Success(t *testing.T) {
-	os.Unsetenv("APP_ENV")
-
 	mockQ := new(mocks.MockQuerier)
 
 	// Setup expectations
@@ -189,7 +173,7 @@ func TestHandler_Cleanup_Success(t *testing.T) {
 	mockQ.On("HardDeleteService", mock.Anything, mock.AnythingOfType("uuid.UUID")).Return(nil)
 	mockQ.On("HardDeleteMerchant", mock.Anything, mock.AnythingOfType("uuid.UUID")).Return(nil)
 
-	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop())
+	handler := NewHandler(mockQ, &mockSecretManager{}, zap.NewNop(), "development")
 
 	cleanupReq := CleanupRequest{
 		MerchantID: uuid.New().String(),

@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security (2025-12-17)
+
+**Fixed: Cron Auth Timing Attack Vulnerability (M-2+M-3)**
+
+Consolidated cron endpoint authentication to use timing-safe comparison at the middleware level, eliminating timing attack vulnerability in the previous insecure string comparison.
+
+**What was fixed**:
+- Middleware now uses `AuthenticateCronRequest()` with `subtle.ConstantTimeCompare` (timing-safe)
+- Previously used `!=` comparison which was vulnerable to timing attacks
+
+**Code consolidation**:
+- Removed redundant handler-level auth from 6 handlers (auth now handled solely by middleware)
+- Removed `cronSecret` field from: BillingHandler, DisputeSyncHandler, ACHVerificationHandler, PrenoteRetryHandler, AuditCleanupHandler, RateLimitCleanupHandler
+- Removed 12 auth check blocks from handler methods
+- Retained `AuthenticateCronRequest` and `constantTimeEqual` functions (used by middleware)
+
+**Files modified**:
+- `cmd/server/main.go` - Middleware now uses `cronHandler.AuthenticateCronRequest()`, removed cronSecret from constructor calls
+- `internal/handlers/cron/billing_handler.go` - Removed CronSecret from config, auth checks from ProcessBilling, ProcessExpiredPastDue, Stats
+- `internal/handlers/cron/dispute_sync_handler.go` - Removed cronSecret parameter and auth checks
+- `internal/handlers/cron/ach_verification_handler.go` - Removed cronSecret parameter and auth checks
+- `internal/handlers/cron/prenote_retry_handler.go` - Removed cronSecret parameter and auth checks
+- `internal/handlers/cron/audit_cleanup_handler.go` - Removed cronSecret parameter and auth checks
+- `internal/handlers/cron/rate_limit_cleanup_handler.go` - Removed cronSecret parameter and auth checks
+- `cmd/server/cron_secret_validation_test.go` - Updated to read config.go (validation was moved there during config refactor)
+
+**Impact**: All 12 protected cron routes now use consistent timing-safe authentication via middleware.
+
+### Changed (2025-12-13)
+
+**BREAKING: Idempotency Keys Now Required for All Payment Operations**
+
+Enforced idempotency key requirement for Capture, Void, and Refund operations. Previously these operations auto-generated UUIDs if idempotency key was not provided, creating inconsistency with Sale/Authorize which already required them.
+
+**Why**: Idempotency keys are critical for preventing duplicate transactions (double charges, double refunds). Using the idempotency key as the transaction ID ensures:
+- Same request with same key returns same transaction (no duplicates)
+- EPX TRAN_NBR is deterministic (derived from UUID)
+- Client has full control over transaction identity
+
+**Changes**:
+- `internal/services/payment/payment_service.go`:
+  - Capture(): Now requires `idempotency_key` (was optional)
+  - Void(): Now requires `idempotency_key` (was optional)
+  - Refund(): Now requires `idempotency_key` (was optional)
+  - Reordered validations for fail-fast (validate all inputs before DB calls)
+
+**API Impact**:
+- Requests without `idempotency_key` now return `ErrValidationMissingField` with `field: "idempotency_key"`
+- Requests with invalid UUID format return `ErrValidationInvalidUUID`
+
+**Tests Added**:
+- `internal/services/payment/payment_service_test.go`:
+  - 6 individual tests for missing/invalid idempotency keys
+  - 1 table-driven test with 15 sub-tests covering edge cases
+
+### Added (2025-12-13)
+
+**Unit Tests for Missing Use Cases**
+
+Added unit tests for use cases identified during deep dive code review audit.
+
+**Payment Service** (`internal/services/payment/payment_service_test.go`):
+- Sale idempotency key validation (missing/invalid UUID format)
+- Authorize idempotency key validation (missing/invalid UUID format)
+- Coverage: 20.5% → 22.7%
+
+**Browser Post Service** (`internal/services/browser_post/browser_post_service_test.go`):
+- `buildRedirectURL` - URL construction with all parameters
+- `buildRedirectURL` - Empty customer_id handling
+- `buildRedirectURL` - Special character URL encoding
+- `buildRedirectURL` - Injection prevention (ampersand, equals, question mark, newline)
+- Coverage: 10.0% → 16.4%
+
+**Note**: Tests requiring mocking of 158-method `sqlc.Querier` interface are documented for integration tests:
+- `resolvePaymentToken` validation (payment method status checks)
+- `GenerateFormConfig` input validation
+- `validateMACSignature` validation
+
+Domain-level payment method validation is already tested in `internal/domain/payment_method_test.go`.
+
 ### Fixed (2025-12-12)
 
 **Proto: Add processor_reference field to Transaction message**

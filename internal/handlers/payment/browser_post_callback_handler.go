@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/kevin07696/payment-service/internal/domain"
 	"github.com/kevin07696/payment-service/internal/handlers"
@@ -15,28 +16,95 @@ import (
 // Responsible for HTTP concerns only - parsing requests and formatting responses
 // Business logic is delegated to BrowserPostService and PaymentMethodService
 type BrowserPostCallbackHandler struct {
-	browserPostSvc   ports.BrowserPostService
-	paymentMethodSvc ports.PaymentMethodService
-	merchantAuthSvc  ports.MerchantAuthorizationService
-	renderer         *TemplateRenderer
-	logger           *zap.Logger
+	browserPostSvc       ports.BrowserPostService
+	paymentMethodSvc     ports.PaymentMethodService
+	merchantAuthSvc      ports.MerchantAuthorizationService
+	renderer             *TemplateRenderer
+	logger               *zap.Logger
+	allowedReturnDomains map[string]bool // Allowlist of domains for return URLs (prevents open redirect)
 }
 
 // NewBrowserPostCallbackHandler creates a new Browser Post callback handler
+// allowedReturnDomains is a list of domains that are allowed for return_url redirects
+// An empty list allows any URL (for development only - NOT recommended in production)
 func NewBrowserPostCallbackHandler(
 	browserPostSvc ports.BrowserPostService,
 	paymentMethodSvc ports.PaymentMethodService,
 	merchantAuthSvc ports.MerchantAuthorizationService,
 	renderer *TemplateRenderer,
 	logger *zap.Logger,
+	allowedReturnDomains []string,
 ) *BrowserPostCallbackHandler {
-	return &BrowserPostCallbackHandler{
-		browserPostSvc:   browserPostSvc,
-		paymentMethodSvc: paymentMethodSvc,
-		merchantAuthSvc:  merchantAuthSvc,
-		renderer:         renderer,
-		logger:           logger,
+	// Build domain allowlist map for O(1) lookup
+	domainMap := make(map[string]bool, len(allowedReturnDomains))
+	for _, domain := range allowedReturnDomains {
+		// Normalize: lowercase and trim whitespace
+		normalized := strings.ToLower(strings.TrimSpace(domain))
+		if normalized != "" {
+			domainMap[normalized] = true
+		}
 	}
+
+	if len(domainMap) == 0 {
+		logger.Warn("SECURITY WARNING: No allowed return URL domains configured - open redirect possible",
+			zap.String("recommendation", "Set ALLOWED_RETURN_DOMAINS environment variable"))
+	} else {
+		logger.Info("Return URL domain allowlist configured",
+			zap.Int("allowed_domains_count", len(domainMap)))
+	}
+
+	return &BrowserPostCallbackHandler{
+		browserPostSvc:       browserPostSvc,
+		paymentMethodSvc:     paymentMethodSvc,
+		merchantAuthSvc:      merchantAuthSvc,
+		renderer:             renderer,
+		logger:               logger,
+		allowedReturnDomains: domainMap,
+	}
+}
+
+// validateReturnURL checks if the return URL is from an allowed domain
+// Returns true if allowed, false if blocked (with reason in error)
+func (h *BrowserPostCallbackHandler) validateReturnURL(returnURL string) (bool, string) {
+	// If no allowlist configured, allow all (with warning logged at startup)
+	if len(h.allowedReturnDomains) == 0 {
+		return true, ""
+	}
+
+	parsedURL, err := url.Parse(returnURL)
+	if err != nil {
+		return false, "invalid URL format"
+	}
+
+	// Must be http or https
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return false, "URL scheme must be http or https"
+	}
+
+	// Extract and normalize the domain
+	host := strings.ToLower(parsedURL.Hostname())
+	if host == "" {
+		return false, "URL must have a valid hostname"
+	}
+
+	// Check exact match first
+	if h.allowedReturnDomains[host] {
+		return true, ""
+	}
+
+	// Check if host is a subdomain of an allowed domain
+	// e.g., if "example.com" is allowed, "www.example.com" should also be allowed
+	for allowedDomain := range h.allowedReturnDomains {
+		if strings.HasSuffix(host, "."+allowedDomain) {
+			return true, ""
+		}
+	}
+
+	h.logger.Warn("Return URL domain not in allowlist",
+		zap.String("return_url", returnURL),
+		zap.String("host", host))
+
+	return false, "return URL domain not allowed"
 }
 
 // GetPaymentForm handles GET /api/v1/payments/browser-post/form
@@ -82,8 +150,9 @@ func (h *BrowserPostCallbackHandler) GetPaymentForm(w http.ResponseWriter, r *ht
 		return
 	}
 
-	if _, err := url.Parse(returnURL); err != nil {
-		http.Error(w, "invalid return_url format", http.StatusBadRequest)
+	// Validate return URL against allowlist (prevents open redirect)
+	if allowed, reason := h.validateReturnURL(returnURL); !allowed {
+		http.Error(w, reason, http.StatusBadRequest)
 		return
 	}
 
@@ -169,6 +238,15 @@ func (h *BrowserPostCallbackHandler) HandleCallback(w http.ResponseWriter, r *ht
 
 	// Extract return URL for error pages
 	returnURL := epxResponse.RawParams["USER_DATA_1"]
+
+	// Validate return URL against allowlist (defense in depth - data came from client via EPX)
+	if returnURL != "" {
+		if allowed, _ := h.validateReturnURL(returnURL); !allowed {
+			// Clear invalid return URL to prevent open redirect
+			returnURL = ""
+			h.logger.Warn("Blocked potentially tampered return URL from EPX callback")
+		}
+	}
 
 	// Process callback
 	callbackReq := &ports.ProcessCallbackRequest{

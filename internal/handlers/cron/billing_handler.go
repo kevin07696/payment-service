@@ -22,7 +22,6 @@ const (
 
 // BillingHandlerConfig holds configuration for the billing cron handler
 type BillingHandlerConfig struct {
-	CronSecret       string
 	JobTimeoutSecs   int
 	DefaultBatchSize int
 	MaxBatchSize     int
@@ -33,7 +32,6 @@ type BillingHandler struct {
 	subscriptionService ports.SubscriptionService
 	queries             sqlc.Querier
 	logger              *zap.Logger
-	cronSecret          string        // Secret token for authenticating cron requests
 	jobTimeout          time.Duration // Maximum time allowed for cron job execution
 	defaultBatchSize    int           // Default batch size for processing
 	maxBatchSize        int           // Maximum allowed batch size
@@ -65,7 +63,6 @@ func NewBillingHandler(
 		subscriptionService: subscriptionService,
 		queries:             queries,
 		logger:              logger,
-		cronSecret:          cfg.CronSecret,
 		jobTimeout:          timeout,
 		defaultBatchSize:    defaultBatch,
 		maxBatchSize:        maxBatch,
@@ -100,15 +97,6 @@ func (h *BillingHandler) ProcessBilling(w http.ResponseWriter, r *http.Request) 
 	// Verify request method
 	if r.Method != http.MethodPost {
 		h.respondError(w, http.StatusMethodNotAllowed, "only POST method is allowed")
-		return
-	}
-
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.logger.Warn("Unauthorized cron request",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -215,15 +203,6 @@ func (h *BillingHandler) ProcessExpiredPastDue(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.logger.Warn("Unauthorized cron request",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
 	// Parse request body (optional parameters)
 	var req ProcessExpiredPastDueRequest
 	if r.Body != nil && r.ContentLength > 0 {
@@ -285,27 +264,6 @@ func (h *BillingHandler) ProcessExpiredPastDue(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// authenticateRequest verifies the cron request is authorized
-func (h *BillingHandler) authenticateRequest(r *http.Request) bool {
-	// Check X-Cron-Secret header
-	cronSecret := r.Header.Get("X-Cron-Secret")
-	if cronSecret != "" && cronSecret == h.cronSecret {
-		return true
-	}
-
-	// Check Authorization header (Bearer token)
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "Bearer "+h.cronSecret {
-		return true
-	}
-
-	// Note: Google Cloud Scheduler OIDC token validation can be added here
-	// for production environments that require additional security.
-	// The X-Cron-Secret header is the primary authentication method.
-
-	return false
-}
-
 // respondError sends an error response
 func (h *BillingHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -338,12 +296,6 @@ func (h *BillingHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 
 // Stats handles GET /cron/stats for monitoring billing statistics
 func (h *BillingHandler) Stats(w http.ResponseWriter, r *http.Request) {
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
 	// Using r.Context() allows graceful shutdown during deployment
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()

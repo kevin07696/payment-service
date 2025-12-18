@@ -30,7 +30,6 @@ type DisputeSyncHandler struct {
 	db                *database.PostgreSQLAdapter
 	webhookService    *webhook.WebhookDeliveryService
 	logger            *zap.Logger
-	cronSecret        string
 	webhookJobs       chan webhookJob // Buffered channel for webhook delivery jobs
 	stopCh            chan struct{}   // Channel to signal worker shutdown
 	workerCount       int             // Number of webhook delivery workers
@@ -42,7 +41,6 @@ func NewDisputeSyncHandler(
 	db *database.PostgreSQLAdapter,
 	webhookService *webhook.WebhookDeliveryService,
 	logger *zap.Logger,
-	cronSecret string,
 ) *DisputeSyncHandler {
 	const workerCount = 5 // Max 5 concurrent webhook deliveries
 	const queueSize = 100 // Max 100 pending webhooks in queue
@@ -52,7 +50,6 @@ func NewDisputeSyncHandler(
 		db:                db,
 		webhookService:    webhookService,
 		logger:            logger,
-		cronSecret:        cronSecret,
 		webhookJobs:       make(chan webhookJob, queueSize),
 		stopCh:            make(chan struct{}),
 		workerCount:       workerCount,
@@ -130,15 +127,6 @@ func (h *DisputeSyncHandler) SyncDisputes(w http.ResponseWriter, r *http.Request
 	// Verify request method
 	if r.Method != http.MethodPost {
 		h.respondError(w, http.StatusMethodNotAllowed, "only POST method is allowed")
-		return
-	}
-
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.logger.Warn("Unauthorized cron request",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -445,27 +433,6 @@ func mapDisputeStatus(northStatus string) string {
 	default:
 		return "new"
 	}
-}
-
-// authenticateRequest verifies the cron request is authorized
-func (h *DisputeSyncHandler) authenticateRequest(r *http.Request) bool {
-	// Check X-Cron-Secret header
-	cronSecret := r.Header.Get("X-Cron-Secret")
-	if cronSecret != "" && cronSecret == h.cronSecret {
-		return true
-	}
-
-	// Check Authorization header (Bearer token)
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "Bearer "+h.cronSecret {
-		return true
-	}
-
-	// Note: Google Cloud Scheduler OIDC token validation can be added here
-	// for production environments that require additional security.
-	// The X-Cron-Secret header is the primary authentication method.
-
-	return false
 }
 
 // respondError sends an error response

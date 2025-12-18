@@ -23,7 +23,6 @@ type PrenoteRetryHandler struct {
 	queries    sqlc.Querier
 	serverPost ports.ServerPostAdapter
 	logger     *zap.Logger
-	cronSecret string
 }
 
 // NewPrenoteRetryHandler creates a new prenote retry cron handler
@@ -31,13 +30,11 @@ func NewPrenoteRetryHandler(
 	queries sqlc.Querier,
 	serverPost ports.ServerPostAdapter,
 	logger *zap.Logger,
-	cronSecret string,
 ) *PrenoteRetryHandler {
 	return &PrenoteRetryHandler{
 		queries:    queries,
 		serverPost: serverPost,
 		logger:     logger,
-		cronSecret: cronSecret,
 	}
 }
 
@@ -71,12 +68,6 @@ func (h *PrenoteRetryHandler) RetryPrenotes(w http.ResponseWriter, r *http.Reque
 
 	if r.Method != http.MethodPost {
 		h.respondError(w, http.StatusMethodNotAllowed, "only POST method is allowed")
-		return
-	}
-
-	if !h.authenticateRequest(r) {
-		h.logger.Warn("Unauthorized cron request", zap.String("remote_addr", r.RemoteAddr))
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -402,25 +393,6 @@ func isTransientError(err error) bool {
 		strings.Contains(errStr, "504")
 }
 
-// authenticateRequest verifies the cron request is authorized
-func (h *PrenoteRetryHandler) authenticateRequest(r *http.Request) bool {
-	cronSecret := r.Header.Get("X-Cron-Secret")
-	if cronSecret != "" && cronSecret == h.cronSecret {
-		return true
-	}
-
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "Bearer "+h.cronSecret {
-		return true
-	}
-
-	// Note: Google Cloud Scheduler OIDC token validation can be added here
-	// for production environments that require additional security.
-	// The X-Cron-Secret header is the primary authentication method.
-
-	return false
-}
-
 // respondError sends an error response
 func (h *PrenoteRetryHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -438,11 +410,6 @@ func (h *PrenoteRetryHandler) respondError(w http.ResponseWriter, statusCode int
 
 // Stats handles GET /cron/prenote/stats for monitoring prenote retry statistics
 func (h *PrenoteRetryHandler) Stats(w http.ResponseWriter, r *http.Request) {
-	if !h.authenticateRequest(r) {
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
 	ctx := r.Context()
 
 	// Get prenote status counts

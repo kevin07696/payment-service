@@ -70,6 +70,23 @@ type keyExchangeAdapter struct {
 
 // NewKeyExchangeAdapter creates a new EPX Key Exchange adapter
 func NewKeyExchangeAdapter(config *KeyExchangeConfig, logger *zap.Logger) ports.KeyExchangeAdapter {
+	// SECURITY: Fail-safe guard against InsecureSkipVerify in production
+	// Production EPX URLs use epxnow.com domain (not secure.epxuap.com sandbox)
+	if config.InsecureSkipVerify {
+		isProductionURL := strings.Contains(config.BaseURL, "epxnow.com") &&
+			!strings.Contains(config.BaseURL, "sandbox")
+		if isProductionURL {
+			logger.Fatal("SECURITY VIOLATION: InsecureSkipVerify cannot be enabled for production EPX endpoints",
+				zap.String("base_url", config.BaseURL),
+			)
+		}
+		// Log clear warning for sandbox usage (audit trail)
+		logger.Warn("TLS certificate verification disabled - SANDBOX MODE ONLY",
+			zap.String("base_url", config.BaseURL),
+			zap.Bool("insecure_skip_verify", true),
+		)
+	}
+
 	// Configure HTTP client with HTTP/2, connection pooling, and TLS settings
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{

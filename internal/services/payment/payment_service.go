@@ -502,7 +502,7 @@ func (s *paymentService) Authorize(ctx context.Context, req *ports.AuthorizeRequ
 // Capture completes a previously authorized payment
 // Uses WAL-based state computation and row-level locking for consistency
 func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest) (*domain.Transaction, error) {
-	// Validate inputs first (fail-fast)
+	// Validate inputs first (fail-fast) - before any DB or external calls
 	if s.serverPost == nil {
 		return nil, domain.ErrInternalError.WithDetail("reason", "server_post_adapter_not_initialized")
 	}
@@ -516,16 +516,14 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "transaction_id")
 	}
 
-	// Get original AUTH transaction first to validate access
-	originalTx, err := s.queries.GetTransactionByID(ctx, originalTxID)
-	if err != nil {
-		return nil, domain.ErrTxnNotFound
+	// Parse CAPTURE transaction ID from idempotency key (required)
+	if req.IdempotencyKey == nil {
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "idempotency_key")
 	}
 
-	// Validate transaction access
-	domainTx := sqlcTransactionToDomain(&originalTx)
-	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, domainTx); err != nil {
-		return nil, err
+	txID, err := uuid.Parse(*req.IdempotencyKey)
+	if err != nil {
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
 	}
 
 	// Validate amount if provided
@@ -535,15 +533,16 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 		}
 	}
 
-	// Generate or parse CAPTURE transaction ID for idempotency
-	var txID uuid.UUID
-	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
-		txID, err = uuid.Parse(*req.IdempotencyKey)
-		if err != nil {
-			return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
-		}
-	} else {
-		txID = uuid.New()
+	// Get original AUTH transaction to validate access
+	originalTx, err := s.queries.GetTransactionByID(ctx, originalTxID)
+	if err != nil {
+		return nil, domain.ErrTxnNotFound
+	}
+
+	// Validate transaction access
+	domainTx := sqlcTransactionToDomain(&originalTx)
+	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, domainTx); err != nil {
+		return nil, err
 	}
 
 	// Check idempotency - CAPTURE transaction already exists?
@@ -775,7 +774,7 @@ func (s *paymentService) Capture(ctx context.Context, req *ports.CaptureRequest)
 // Void cancels an authorized or captured payment
 // Uses WAL-based state computation for consistency
 func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*domain.Transaction, error) {
-	// Validate inputs first (fail-fast)
+	// Validate inputs first (fail-fast) - before any DB or external calls
 	if s.serverPost == nil {
 		return nil, domain.ErrInternalError.WithDetail("reason", "server_post_adapter_not_initialized")
 	}
@@ -787,6 +786,16 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	parentTxID, err := uuid.Parse(req.ParentTransactionID)
 	if err != nil {
 		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "parent_transaction_id")
+	}
+
+	// Parse VOID transaction ID from idempotency key (required)
+	if req.IdempotencyKey == nil {
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "idempotency_key")
+	}
+
+	txID, err := uuid.Parse(*req.IdempotencyKey)
+	if err != nil {
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
 	}
 
 	// Get parent transaction to validate access
@@ -805,17 +814,6 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 	firstTx := sqlcTransactionToDomain(&parentTx)
 	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, firstTx); err != nil {
 		return nil, err
-	}
-
-	// Generate or parse transaction ID for idempotency
-	var txID uuid.UUID
-	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
-		txID, err = uuid.Parse(*req.IdempotencyKey)
-		if err != nil {
-			return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
-		}
-	} else {
-		txID = uuid.New()
 	}
 
 	// Check idempotency - VOID transaction already exists?
@@ -1043,7 +1041,7 @@ func (s *paymentService) Void(ctx context.Context, req *ports.VoidRequest) (*dom
 // Refund returns funds to the customer
 // Uses WAL-based state computation for consistency
 func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (*domain.Transaction, error) {
-	// Validate inputs first (fail-fast)
+	// Validate inputs first (fail-fast) - before any DB or external calls
 	if s.serverPost == nil {
 		return nil, domain.ErrInternalError.WithDetail("reason", "server_post_adapter_not_initialized")
 	}
@@ -1055,6 +1053,25 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	parentTxID, err := uuid.Parse(req.ParentTransactionID)
 	if err != nil {
 		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "parent_transaction_id")
+	}
+
+	// Parse REFUND transaction ID from idempotency key (required)
+	if req.IdempotencyKey == nil {
+		return nil, domain.ErrValidationMissingField.WithDetail("field", "idempotency_key")
+	}
+
+	txID, err := uuid.Parse(*req.IdempotencyKey)
+	if err != nil {
+		return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
+	}
+
+	// Validate amount if provided
+	var refundAmountCents int64
+	if req.AmountCents != nil {
+		refundAmountCents = *req.AmountCents
+		if refundAmountCents <= 0 {
+			return nil, domain.ErrValidationAmountInvalid.WithDetail("reason", "amount_must_be_positive")
+		}
 	}
 
 	// Get parent transaction to validate access
@@ -1073,26 +1090,6 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 	firstTx := sqlcTransactionToDomain(&parentTx)
 	if err := s.merchantAuthService.ValidateTransactionAccess(ctx, firstTx); err != nil {
 		return nil, err
-	}
-
-	// Validate amount if provided
-	var refundAmountCents int64
-	if req.AmountCents != nil {
-		refundAmountCents = *req.AmountCents
-		if refundAmountCents <= 0 {
-			return nil, domain.ErrValidationAmountInvalid.WithDetail("reason", "amount_must_be_positive")
-		}
-	}
-
-	// Generate or parse transaction ID for idempotency
-	var txID uuid.UUID
-	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
-		txID, err = uuid.Parse(*req.IdempotencyKey)
-		if err != nil {
-			return nil, domain.ErrValidationInvalidUUID.WithDetail("field", "idempotency_key")
-		}
-	} else {
-		txID = uuid.New()
 	}
 
 	// Check idempotency - REFUND transaction already exists?

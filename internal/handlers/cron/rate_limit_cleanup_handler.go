@@ -13,21 +13,18 @@ import (
 
 // RateLimitCleanupHandler handles cron job for cleaning up old rate limit buckets
 type RateLimitCleanupHandler struct {
-	queries    sqlc.Querier
-	logger     *zap.Logger
-	cronSecret string // Secret token for authenticating cron requests
+	queries sqlc.Querier
+	logger  *zap.Logger
 }
 
 // NewRateLimitCleanupHandler creates a new rate limit cleanup cron handler
 func NewRateLimitCleanupHandler(
 	queries sqlc.Querier,
 	logger *zap.Logger,
-	cronSecret string,
 ) *RateLimitCleanupHandler {
 	return &RateLimitCleanupHandler{
-		queries:    queries,
-		logger:     logger,
-		cronSecret: cronSecret,
+		queries: queries,
+		logger:  logger,
 	}
 }
 
@@ -54,14 +51,7 @@ func (h *RateLimitCleanupHandler) CleanupRateLimitBuckets(w http.ResponseWriter,
 		return
 	}
 
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.logger.Warn("Unauthorized cron request",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
+	// Note: Authentication is handled by cronAuthMiddleware in main.go
 
 	// Execute cleanup with timeout
 	// Short timeout - UNLOGGED table deletes are fast
@@ -108,16 +98,8 @@ func (h *RateLimitCleanupHandler) HealthCheck(w http.ResponseWriter, r *http.Req
 }
 
 // Stats returns statistics about rate limit buckets
+// Note: Authentication is handled by cronAuthMiddleware in main.go
 func (h *RateLimitCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) {
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.logger.Warn("Unauthorized stats request",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
@@ -134,12 +116,6 @@ func (h *RateLimitCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) 
 }
 
 // Helper methods
-
-func (h *RateLimitCleanupHandler) authenticateRequest(r *http.Request) bool {
-	// Check X-Cron-Secret header (consistent with other cron endpoints)
-	secret := r.Header.Get("X-Cron-Secret")
-	return secret == h.cronSecret
-}
 
 func (h *RateLimitCleanupHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")

@@ -19,7 +19,6 @@ type ACHVerificationHandler struct {
 	queries           sqlc.Querier
 	businessReporting ports.BusinessReportingAdapter // For checking ACH returns
 	logger            *zap.Logger
-	cronSecret        string // Secret token for authenticating cron requests
 }
 
 // NewACHVerificationHandler creates a new ACH verification cron handler
@@ -27,13 +26,11 @@ func NewACHVerificationHandler(
 	queries sqlc.Querier,
 	businessReporting ports.BusinessReportingAdapter,
 	logger *zap.Logger,
-	cronSecret string,
 ) *ACHVerificationHandler {
 	return &ACHVerificationHandler{
 		queries:           queries,
 		businessReporting: businessReporting,
 		logger:            logger,
-		cronSecret:        cronSecret,
 	}
 }
 
@@ -66,15 +63,6 @@ func (h *ACHVerificationHandler) VerifyACH(w http.ResponseWriter, r *http.Reques
 	// Verify request method
 	if r.Method != http.MethodPost {
 		h.respondError(w, http.StatusMethodNotAllowed, "only POST method is allowed")
-		return
-	}
-
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.logger.Warn("Unauthorized cron request",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -255,27 +243,6 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 	return verified, skipped, errs
 }
 
-// authenticateRequest verifies the cron request is authorized
-func (h *ACHVerificationHandler) authenticateRequest(r *http.Request) bool {
-	// Check X-Cron-Secret header
-	cronSecret := r.Header.Get("X-Cron-Secret")
-	if cronSecret != "" && cronSecret == h.cronSecret {
-		return true
-	}
-
-	// Check Authorization header (Bearer token)
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "Bearer "+h.cronSecret {
-		return true
-	}
-
-	// Note: Google Cloud Scheduler OIDC token validation can be added here
-	// for production environments that require additional security.
-	// The X-Cron-Secret header is the primary authentication method.
-
-	return false
-}
-
 // respondError sends an error response
 func (h *ACHVerificationHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -308,12 +275,6 @@ func (h *ACHVerificationHandler) HealthCheck(w http.ResponseWriter, r *http.Requ
 
 // Stats handles GET /cron/ach/stats for monitoring ACH verification statistics
 func (h *ACHVerificationHandler) Stats(w http.ResponseWriter, r *http.Request) {
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
 	// Extract context from request
 	ctx := r.Context()
 

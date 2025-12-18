@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -71,10 +69,10 @@ func main() {
 	tracingConfig := observability.TracingConfig{
 		ServiceName:    "payment-service",
 		ServiceVersion: "0.1.0",
-		Environment:    getEnv("ENVIRONMENT", "development"),
-		Endpoint:       getEnv("OTLP_ENDPOINT", "localhost:4318"),
-		Enabled:        getEnv("TRACING_ENABLED", "false") == "true",
-		SampleRate:     getTracingSampleRate(),
+		Environment:    cfg.Environment,
+		Endpoint:       cfg.OTLPEndpoint,
+		Enabled:        cfg.TracingEnabled,
+		SampleRate:     cfg.TracingSampleRate,
 	}
 
 	_, shutdownTracing, err := observability.InitTracing(context.Background(), tracingConfig)
@@ -97,8 +95,6 @@ func main() {
 	}
 
 	// Metrics server will be started after database initialization
-	metricsPort := getEnv("METRICS_PORT", "9090")
-	metricsEnabled := getEnv("METRICS_ENABLED", "true") == "true"
 	var metricsServer *http.Server
 
 	// Initialize database connection pool
@@ -113,11 +109,11 @@ func main() {
 	)
 
 	// Initialize Prometheus metrics server (after database so health checks work)
-	if metricsEnabled {
+	if cfg.MetricsEnabled {
 		healthChecker := observability.NewHealthChecker(dbPool)
-		metricsServer = observability.StartMetricsServer(metricsPort, healthChecker)
+		metricsServer = observability.StartMetricsServer(cfg.MetricsPort, healthChecker)
 		logger.Info("Prometheus metrics server started",
-			zap.String("port", metricsPort),
+			zap.String("port", cfg.MetricsPort),
 			zap.String("metrics_endpoint", "/metrics"),
 			zap.String("health_endpoint", "/health"),
 		)
@@ -136,11 +132,12 @@ func main() {
 	var authInterceptor *authMiddleware.AuthInterceptor
 	if cfg.AuthEnabled {
 		var err error
-		authInterceptor, err = authMiddleware.NewAuthInterceptor(queries, logger)
+		authInterceptor, err = authMiddleware.NewAuthInterceptor(queries, logger, cfg.TrustedProxies)
 		if err != nil {
 			logger.Fatal("Failed to initialize auth interceptor", zap.Error(err))
 		}
-		logger.Info("Authentication enabled")
+		logger.Info("Authentication enabled",
+			zap.Int("trusted_proxies", len(cfg.TrustedProxies)))
 	} else {
 		logger.Warn("Authentication is DISABLED - for development only!")
 	}
@@ -249,7 +246,7 @@ func main() {
 	// 2. Each merchant has their own MAC secret (per-merchant validation)
 	// 3. Browser Post redirects come from user's browser, not EPX servers
 
-	// Cron endpoints with authentication
+	// Cron endpoints with authentication (timing-safe comparison)
 	cronAuthMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			// Skip auth if disabled
@@ -258,9 +255,8 @@ func main() {
 				return
 			}
 
-			// Check cron secret
-			secret := r.Header.Get("X-Cron-Secret")
-			if secret != cfg.CronSecret {
+			// Check cron secret using timing-safe comparison
+			if !cronHandler.AuthenticateCronRequest(r, cfg.CronSecret) {
 				logger.Warn("Unauthorized cron request",
 					zap.String("path", r.URL.Path),
 					zap.String("remote_addr", r.RemoteAddr))
@@ -325,7 +321,7 @@ func main() {
 	mux.HandleFunc("/internal/e2e/cleanup", deps.e2eHandler.Cleanup)
 
 	// Initialize security headers middleware
-	isDevelopment := getEnv("ENVIRONMENT", "development") != "production"
+	isDevelopment := cfg.Environment != "production"
 	securityHeaders := authMiddleware.NewSecurityHeaders(isDevelopment)
 
 	// Initialize compression middleware (P2-4) - 40-60% bandwidth reduction
@@ -352,13 +348,14 @@ func main() {
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
 		// Middleware chain (innermost to outermost):
-		// 1. mux (ConnectRPC + REST routes)
-		// 2. h2c.NewHandler (HTTP/2 cleartext)
-		// 3. compressionMiddleware (gzip)
-		// 4. securityHeaders (CSP, HSTS, etc.)
-		// 5. serverTracker (in-flight request tracking + draining)
-		// 6. MaxBytesHandler (request size limit)
-		Handler:           http.MaxBytesHandler(serverTracker.Middleware(securityHeaders.Middleware(compressionMiddleware(h2c.NewHandler(mux, &http2.Server{})))), maxRequestBodySize),
+		// 1. RemoteAddrMiddleware (captures r.RemoteAddr for X-Forwarded-For validation)
+		// 2. mux (ConnectRPC + REST routes)
+		// 3. h2c.NewHandler (HTTP/2 cleartext)
+		// 4. compressionMiddleware (gzip)
+		// 5. securityHeaders (CSP, HSTS, etc.)
+		// 6. serverTracker (in-flight request tracking + draining)
+		// 7. MaxBytesHandler (request size limit)
+		Handler:           http.MaxBytesHandler(serverTracker.Middleware(securityHeaders.Middleware(compressionMiddleware(h2c.NewHandler(authMiddleware.RemoteAddrMiddleware(mux), &http2.Server{})))), maxRequestBodySize),
 		ReadTimeout:       65 * time.Second, // Slightly longer than handler timeout (60s)
 		WriteTimeout:      65 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -450,57 +447,6 @@ func main() {
 	shutdownMgr.WaitForShutdown()
 }
 
-// Config holds application configuration
-type Config struct {
-	Port int // Server port for all endpoints (ConnectRPC + REST)
-
-	// Database
-	DBHost     string
-	DBPort     int
-	DBUser     string
-	DBPassword string
-	DBName     string
-	DBSSLMode  string
-	MaxConns   int32
-	MinConns   int32
-
-	// EPX Payment Gateway - endpoints configured via environment variables in adapters
-	// Requires: EPX_SERVER_POST_ENDPOINT, EPX_SERVER_POST_SOCKET_ENDPOINT,
-	//           EPX_BROWSER_POST_ENDPOINT, EPX_KEY_EXCHANGE_ENDPOINT
-	EPXTimeout     int
-	EPXCustNbr     string
-	EPXMerchNbr    string
-	EPXDBAnbr      string
-	EPXTerminalNbr string
-
-	// North Merchant Reporting API (for disputes/chargebacks)
-	NorthMerchantReportingURL string
-	NorthTimeout              int
-
-	// Browser Post Configuration
-	CallbackBaseURL string
-
-	// Cron configuration
-	CronSecret            string
-	CronJobTimeoutSeconds int
-	CronDefaultBatchSize  int
-	CronMaxBatchSize      int
-
-	// Subscription configuration
-	SubscriptionDefaultMaxRetries  int
-	SubscriptionDefaultGracePeriod int
-	SubscriptionRetryBaseDelaySecs int
-	SubscriptionRetryMaxDelaySecs  int
-	SubscriptionRetryMultiplier    float64
-
-	// Authentication
-	AuthSaltPrefix string
-	EPXMacSecret   string
-	AuthEnabled    bool
-
-	// Rate Limiting
-	TrustedProxies []string // List of trusted proxy IPs for X-Forwarded-For header
-}
 
 // Dependencies holds all initialized services and handlers
 type Dependencies struct {
@@ -524,96 +470,11 @@ type Dependencies struct {
 	authInterceptor             *authMiddleware.AuthInterceptor
 }
 
-// loadConfig loads configuration from environment variables
-// All environment variables are required - no defaults to avoid configuration confusion
-func loadConfig(logger *zap.Logger) *Config {
-	cfg := &Config{
-		// Port (unified for ConnectRPC + REST)
-		Port: requireEnvInt("PORT", logger),
-
-		// Database
-		DBHost:     requireEnv("DB_HOST", logger),
-		DBPort:     requireEnvInt("DB_PORT", logger),
-		DBUser:     requireEnv("DB_USER", logger),
-		DBPassword: requireEnv("DB_PASSWORD", logger),
-		DBName:     requireEnv("DB_NAME", logger),
-		DBSSLMode:  requireEnv("DB_SSL_MODE", logger),
-		MaxConns:   int32(requireEnvInt("DB_MAX_CONNS", logger)),
-		MinConns:   int32(requireEnvInt("DB_MIN_CONNS", logger)),
-
-		// EPX configuration (endpoints configured in adapters via EPX_*_ENDPOINT env vars)
-		EPXTimeout:     requireEnvInt("EPX_TIMEOUT", logger),
-		EPXCustNbr:     requireEnv("EPX_CUST_NBR", logger),
-		EPXMerchNbr:    requireEnv("EPX_MERCH_NBR", logger),
-		EPXDBAnbr:      requireEnv("EPX_DBA_NBR", logger),
-		EPXTerminalNbr: requireEnv("EPX_TERMINAL_NBR", logger),
-
-		// North Reporting API
-		NorthMerchantReportingURL: requireEnv("NORTH_MERCHANT_REPORTING_URL", logger),
-		NorthTimeout:              requireEnvInt("NORTH_TIMEOUT", logger),
-
-		// Browser POST callback
-		CallbackBaseURL: requireEnv("CALLBACK_BASE_URL", logger),
-
-		// Cron configuration
-		CronSecret:            requireEnv("CRON_SECRET", logger),
-		CronJobTimeoutSeconds: requireEnvInt("CRON_JOB_TIMEOUT_SECONDS", logger),
-		CronDefaultBatchSize:  requireEnvInt("CRON_DEFAULT_BATCH_SIZE", logger),
-		CronMaxBatchSize:      requireEnvInt("CRON_MAX_BATCH_SIZE", logger),
-
-		// Subscription configuration
-		SubscriptionDefaultMaxRetries:  requireEnvInt("SUBSCRIPTION_DEFAULT_MAX_RETRIES", logger),
-		SubscriptionDefaultGracePeriod: requireEnvInt("SUBSCRIPTION_DEFAULT_GRACE_PERIOD_DAYS", logger),
-		SubscriptionRetryBaseDelaySecs: requireEnvInt("SUBSCRIPTION_RETRY_BASE_DELAY_SECS", logger),
-		SubscriptionRetryMaxDelaySecs:  requireEnvInt("SUBSCRIPTION_RETRY_MAX_DELAY_SECS", logger),
-		SubscriptionRetryMultiplier:    requireEnvFloat("SUBSCRIPTION_RETRY_MULTIPLIER", logger),
-
-		// Authentication
-		AuthSaltPrefix: requireEnv("AUTH_SALT_PREFIX", logger),
-		EPXMacSecret:   getEnv("EPX_SANDBOX_MAC", ""), // Optional: Merchant Authorization Code for sandbox callback auth
-		AuthEnabled:    requireEnvBool("AUTH_ENABLED", logger),
-
-		// Rate Limiting - comma-separated list of trusted proxy IPs
-		// Only requests from these IPs will have X-Forwarded-For headers trusted
-		TrustedProxies: parseTrustedProxies(getEnv("TRUSTED_PROXIES", "")),
-	}
-
-	// Validate CRON_SECRET security requirements
-	// Empty check - redundant with requireEnv but explicit for test verification
-	if cfg.CronSecret == "" {
-		logger.Fatal("CRON_SECRET environment variable is required",
-			zap.String("suggestion", "Generate with: openssl rand -base64 32"),
-		)
-	}
-
-	// Default value check - prevent production use of placeholder
-	if cfg.CronSecret == "change-me-in-production" {
-		logger.Fatal("CRON_SECRET must be changed from default value",
-			zap.String("suggestion", "Generate with: openssl rand -base64 32"),
-		)
-	}
-
-	// Minimum length check - ensure sufficient entropy (256 bits recommended)
-	if len(cfg.CronSecret) < 32 {
-		logger.Fatal("CRON_SECRET must be at least 32 characters for sufficient entropy",
-			zap.Int("current_length", len(cfg.CronSecret)),
-			zap.Int("required_length", 32),
-			zap.String("suggestion", "Generate with: openssl rand -base64 32"),
-		)
-	}
-
-	logger.Info("Configuration loaded",
-		zap.Int("port", cfg.Port),
-		zap.String("db_host", cfg.DBHost),
-		zap.Int("db_port", cfg.DBPort),
-	)
-
-	return cfg
-}
 
 // initLogger initializes the logger
+// Note: Uses os.Getenv directly since this runs before config loading
 func initLogger() *zap.Logger {
-	env := getEnv("ENVIRONMENT", "development")
+	env := os.Getenv("ENVIRONMENT")
 
 	if env == "production" {
 		zapCfg := zap.NewProductionConfig()
@@ -622,6 +483,7 @@ func initLogger() *zap.Logger {
 		return logger
 	}
 
+	// Development mode for non-production (including empty/unset)
 	logger, _ := zap.NewDevelopment()
 	return logger
 }
@@ -688,7 +550,7 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 
 	// Initialize EPX adapters with environment-specific configuration
 	epxEnv := "sandbox"
-	if getEnv("ENVIRONMENT", "development") == "production" {
+	if cfg.Environment == "production" {
 		epxEnv = "production"
 	}
 
@@ -721,8 +583,8 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	businessReportingCfg.DBAnbr = cfg.EPXDBAnbr
 	businessReportingCfg.Timeout = time.Duration(cfg.NorthTimeout) * time.Second
 	// API credentials will be needed from environment if using API key auth
-	businessReportingCfg.APIKey = getEnv("EPX_API_KEY", "")
-	businessReportingCfg.APISecret = getEnv("EPX_API_SECRET", "")
+	businessReportingCfg.APIKey = cfg.EPXAPIKey
+	businessReportingCfg.APISecret = cfg.EPXAPISecret
 	businessReporting := epx.NewBusinessReportingAdapter(businessReportingCfg, logger)
 
 	// Initialize secret manager based on environment
@@ -851,17 +713,17 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	merchantHdlr := merchantHandler.NewConnectHandler(merchantSvc, logger)
 
 	// Initialize cron handlers (for HTTP endpoints)
+	// Note: Cron auth is handled by cronAuthMiddleware (timing-safe)
 	billingCronHdlr := cronHandler.NewBillingHandler(subscriptionSvc, queries, logger, cronHandler.BillingHandlerConfig{
-		CronSecret:       cfg.CronSecret,
 		JobTimeoutSecs:   cfg.CronJobTimeoutSeconds,
 		DefaultBatchSize: cfg.CronDefaultBatchSize,
 		MaxBatchSize:     cfg.CronMaxBatchSize,
 	})
-	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger, cfg.CronSecret)
-	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(queries, businessReporting, logger, cfg.CronSecret)
-	prenoteRetryCronHdlr := cronHandler.NewPrenoteRetryHandler(queries, serverPost, logger, cfg.CronSecret)
-	auditCleanupCronHdlr := cronHandler.NewAuditCleanupHandler(queries, logger, cfg.CronSecret)
-	rateLimitCleanupCronHdlr := cronHandler.NewRateLimitCleanupHandler(queries, logger, cfg.CronSecret)
+	disputeSyncCronHdlr := cronHandler.NewDisputeSyncHandler(merchantReporting, dbAdapter, webhookSvc, logger)
+	achVerificationCronHdlr := cronHandler.NewACHVerificationHandler(queries, businessReporting, logger)
+	prenoteRetryCronHdlr := cronHandler.NewPrenoteRetryHandler(queries, serverPost, logger)
+	auditCleanupCronHdlr := cronHandler.NewAuditCleanupHandler(queries, logger)
+	rateLimitCleanupCronHdlr := cronHandler.NewRateLimitCleanupHandler(queries, logger)
 
 	// Initialize Browser Post service and handler
 	browserPostSvc := browserpostService.NewBrowserPostService(
@@ -889,10 +751,12 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		merchantAuthSvc,
 		templateRenderer,
 		logger,
+		cfg.AllowedReturnDomains,
 	)
 
 	// Initialize E2E test handler (only active in non-production environments)
-	e2eHdlr := e2eHandler.NewHandler(queries, secretManager, logger)
+	// Pass cfg.Environment to ensure production guard uses the same env variable as the rest of the app
+	e2eHdlr := e2eHandler.NewHandler(queries, secretManager, logger, cfg.Environment)
 
 	return &Dependencies{
 		dbAdapter:                   dbAdapter,
@@ -916,105 +780,6 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 	}
 }
 
-// Helper functions
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// parseTrustedProxies parses a comma-separated list of trusted proxy IPs
-// Example: "10.0.0.1,10.0.0.2,192.168.1.100"
-func parseTrustedProxies(value string) []string {
-	if value == "" {
-		return nil
-	}
-	proxies := strings.Split(value, ",")
-	result := make([]string, 0, len(proxies))
-	for _, proxy := range proxies {
-		trimmed := strings.TrimSpace(proxy)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
-}
-
-// getTracingSampleRate returns the tracing sample rate from environment
-// Default is 0.1 (10%) for production, can be set to 1.0 for full sampling in dev
-func getTracingSampleRate() float64 {
-	value := os.Getenv("TRACING_SAMPLE_RATE")
-	if value == "" {
-		return 0.1 // Default 10% sampling
-	}
-	rate, err := strconv.ParseFloat(value, 64)
-	if err != nil || rate < 0 || rate > 1 {
-		return 0.1 // Invalid value, use default
-	}
-	return rate
-}
-
-// requireEnv returns the environment variable value or fails if not set
-func requireEnv(key string, logger *zap.Logger) string {
-	value := os.Getenv(key)
-	if value == "" {
-		logger.Fatal("Required environment variable not set", zap.String("variable", key))
-	}
-	return value
-}
-
-// requireEnvInt returns the environment variable as int or fails if not set/invalid
-func requireEnvInt(key string, logger *zap.Logger) int {
-	value := os.Getenv(key)
-	if value == "" {
-		logger.Fatal("Required environment variable not set", zap.String("variable", key))
-	}
-	intValue, err := strconv.Atoi(value)
-	if err != nil {
-		logger.Fatal("Environment variable must be an integer",
-			zap.String("variable", key),
-			zap.String("value", value),
-		)
-	}
-	return intValue
-}
-
-// requireEnvFloat returns the environment variable as float64 or fails if not set/invalid
-func requireEnvFloat(key string, logger *zap.Logger) float64 {
-	value := os.Getenv(key)
-	if value == "" {
-		logger.Fatal("Required environment variable not set", zap.String("variable", key))
-	}
-	floatValue, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		logger.Fatal("Environment variable must be a float",
-			zap.String("variable", key),
-			zap.String("value", value),
-		)
-	}
-	return floatValue
-}
-
-// requireEnvBool returns the environment variable as bool or fails if not set/invalid
-func requireEnvBool(key string, logger *zap.Logger) bool {
-	value := os.Getenv(key)
-	if value == "" {
-		logger.Fatal("Required environment variable not set", zap.String("variable", key))
-	}
-	if value == "true" || value == "1" {
-		return true
-	}
-	if value == "false" || value == "0" {
-		return false
-	}
-	logger.Fatal("Environment variable must be 'true', 'false', '1', or '0'",
-		zap.String("variable", key),
-		zap.String("value", value),
-	)
-	return false
-}
 
 // serveBrowserPostDemo serves the Browser Post demo HTML form
 // Serving from the server avoids CORS issues with file:// protocol

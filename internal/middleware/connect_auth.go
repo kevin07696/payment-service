@@ -39,6 +39,7 @@ type AuthInterceptor struct {
 	queries         sqlc.Querier
 	publicKeys      map[string]*rsa.PublicKey // service_id -> public key
 	keysMu          sync.RWMutex              // Mutex for thread-safe public key access
+	trustedProxies  map[string]bool           // Trusted proxy IPs for X-Forwarded-For validation
 	logger          *zap.Logger
 	stopCh          chan struct{}             // Channel to signal goroutine shutdown
 	rateLimitCB     *gobreaker.CircuitBreaker // Circuit breaker for rate limit DB calls
@@ -47,7 +48,8 @@ type AuthInterceptor struct {
 }
 
 // NewAuthInterceptor creates a new authentication interceptor
-func NewAuthInterceptor(queries sqlc.Querier, logger *zap.Logger) (*AuthInterceptor, error) {
+// trustedProxies is a list of IP addresses that are allowed to set X-Forwarded-For headers
+func NewAuthInterceptor(queries sqlc.Querier, logger *zap.Logger, trustedProxies []string) (*AuthInterceptor, error) {
 	// Configure circuit breaker for rate limit DB calls
 	// After 5 consecutive failures, open circuit for 30 seconds
 	cbSettings := gobreaker.Settings{
@@ -66,9 +68,16 @@ func NewAuthInterceptor(queries sqlc.Querier, logger *zap.Logger) (*AuthIntercep
 		},
 	}
 
+	// Build trusted proxies map for O(1) lookup
+	proxyMap := make(map[string]bool, len(trustedProxies))
+	for _, proxy := range trustedProxies {
+		proxyMap[strings.TrimSpace(proxy)] = true
+	}
+
 	ai := &AuthInterceptor{
 		queries:         queries,
 		publicKeys:      make(map[string]*rsa.PublicKey),
+		trustedProxies:  proxyMap,
 		logger:          logger,
 		stopCh:          make(chan struct{}),
 		rateLimitCB:     gobreaker.NewCircuitBreaker(cbSettings),
@@ -245,8 +254,10 @@ func (ai *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 		}
 		ctx = context.WithValue(ctx, auth.RequestIDKey, requestID)
 
-		// Extract client IP from headers
-		clientIP := extractClientIP(req.Header())
+		// Extract client IP with proxy validation
+		// RemoteAddr should be set by RemoteAddrMiddleware before reaching ConnectRPC
+		remoteAddr, _ := ctx.Value(auth.RemoteAddrKey).(string)
+		clientIP := ai.extractClientIP(req.Header(), remoteAddr)
 		if clientIP != "" {
 			ctx = context.WithValue(ctx, auth.ClientIPKey, clientIP)
 		}
@@ -594,6 +605,15 @@ func (ai *AuthInterceptor) logAuth(ctx context.Context, success bool, errorMsg s
 	}
 }
 
+// RemoteAddrMiddleware adds the TCP remote address to the context
+// This must be used before ConnectRPC handlers so they can validate X-Forwarded-For headers
+func RemoteAddrMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), auth.RemoteAddrKey, r.RemoteAddr)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // HTTPAuthMiddleware wraps an HTTP handler with JWT authentication
 // This is used for standard HTTP endpoints (not ConnectRPC) that need auth
 func (ai *AuthInterceptor) HTTPAuthMiddleware(next http.Handler) http.Handler {
@@ -607,8 +627,8 @@ func (ai *AuthInterceptor) HTTPAuthMiddleware(next http.Handler) http.Handler {
 		}
 		ctx = context.WithValue(ctx, auth.RequestIDKey, requestID)
 
-		// Extract client IP from headers
-		clientIP := extractClientIP(r.Header)
+		// Extract client IP with proxy validation
+		clientIP := ai.extractClientIP(r.Header, r.RemoteAddr)
 		if clientIP != "" {
 			ctx = context.WithValue(ctx, auth.ClientIPKey, clientIP)
 		}
@@ -661,26 +681,59 @@ func generateRequestID() string {
 	return uuid.New().String()
 }
 
-// extractClientIP extracts client IP from HTTP headers (for ConnectRPC)
-func extractClientIP(headers http.Header) string {
-	// Check X-Forwarded-For header first (standard proxy header)
-	xff := headers.Get("X-Forwarded-For")
-	if xff != "" {
-		// X-Forwarded-For can contain multiple IPs, take the first (client)
-		ips := strings.Split(xff, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
+// extractClientIP extracts client IP from HTTP headers, validating proxy headers
+// only when the request comes from a trusted proxy.
+// remoteAddr is the TCP connection address (may include port like "192.168.1.1:12345")
+func (ai *AuthInterceptor) extractClientIP(headers http.Header, remoteAddr string) string {
+	// Extract IP from remoteAddr (strip port if present)
+	remoteIP := remoteAddr
+	if host, _, err := splitHostPort(remoteAddr); err == nil {
+		remoteIP = host
+	}
+
+	// Only trust proxy headers if request comes from a trusted proxy
+	if ai.trustedProxies[remoteIP] {
+		// Check X-Forwarded-For header first (standard proxy header)
+		xff := headers.Get("X-Forwarded-For")
+		if xff != "" {
+			// X-Forwarded-For can contain multiple IPs, take the first (client)
+			ips := strings.Split(xff, ",")
+			if len(ips) > 0 {
+				return strings.TrimSpace(ips[0])
+			}
+		}
+
+		// Check X-Real-IP (nginx proxy header)
+		xri := headers.Get("X-Real-IP")
+		if xri != "" {
+			return xri
 		}
 	}
 
-	// Check X-Real-IP (nginx proxy header)
-	xri := headers.Get("X-Real-IP")
-	if xri != "" {
-		return xri
-	}
+	// If not from trusted proxy or no proxy headers, use the remote address
+	return remoteIP
+}
 
-	// ConnectRPC doesn't provide RemoteAddr in headers
-	// If neither proxy header is present, IP extraction may require
-	// additional middleware at the HTTP layer
-	return ""
+// splitHostPort wraps net.SplitHostPort with IPv6 handling
+func splitHostPort(addr string) (host string, port string, err error) {
+	// Handle case where addr is just an IP without port
+	if !strings.Contains(addr, ":") {
+		return addr, "", nil
+	}
+	// Handle IPv6 addresses
+	if strings.HasPrefix(addr, "[") {
+		// IPv6 with port: [::1]:8080
+		idx := strings.LastIndex(addr, "]:")
+		if idx != -1 {
+			return addr[1:idx], addr[idx+2:], nil
+		}
+		// IPv6 without port: [::1]
+		return strings.Trim(addr, "[]"), "", nil
+	}
+	// IPv4 with port: 192.168.1.1:8080
+	idx := strings.LastIndex(addr, ":")
+	if idx != -1 {
+		return addr[:idx], addr[idx+1:], nil
+	}
+	return addr, "", nil
 }

@@ -14,21 +14,18 @@ import (
 
 // AuditCleanupHandler handles cron job for cleaning up old audit logs
 type AuditCleanupHandler struct {
-	queries    sqlc.Querier
-	logger     *zap.Logger
-	cronSecret string // Secret token for authenticating cron requests
+	queries sqlc.Querier
+	logger  *zap.Logger
 }
 
 // NewAuditCleanupHandler creates a new audit cleanup cron handler
 func NewAuditCleanupHandler(
 	queries sqlc.Querier,
 	logger *zap.Logger,
-	cronSecret string,
 ) *AuditCleanupHandler {
 	return &AuditCleanupHandler{
-		queries:    queries,
-		logger:     logger,
-		cronSecret: cronSecret,
+		queries: queries,
+		logger:  logger,
 	}
 }
 
@@ -57,15 +54,6 @@ func (h *AuditCleanupHandler) CleanupAuditLogs(w http.ResponseWriter, r *http.Re
 	// Verify request method
 	if r.Method != http.MethodPost {
 		h.respondError(w, http.StatusMethodNotAllowed, "only POST method is allowed")
-		return
-	}
-
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.logger.Warn("Unauthorized cron request",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -178,16 +166,8 @@ func (h *AuditCleanupHandler) HealthCheck(w http.ResponseWriter, r *http.Request
 }
 
 // Stats returns statistics about audit log cleanup
+// Note: Authentication is handled by cronAuthMiddleware in main.go
 func (h *AuditCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) {
-	// Authenticate the request
-	if !h.authenticateRequest(r) {
-		h.logger.Warn("Unauthorized stats request",
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
 	// Get total audit log count
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -215,12 +195,6 @@ func (h *AuditCleanupHandler) Stats(w http.ResponseWriter, r *http.Request) {
 }
 
 // Helper methods
-
-func (h *AuditCleanupHandler) authenticateRequest(r *http.Request) bool {
-	// Check X-Cron-Secret header (consistent with other cron endpoints)
-	secret := r.Header.Get("X-Cron-Secret")
-	return secret == h.cronSecret
-}
 
 func (h *AuditCleanupHandler) respondError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")

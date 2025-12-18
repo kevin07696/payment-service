@@ -73,6 +73,23 @@ type businessReportingAdapter struct {
 
 // NewBusinessReportingAdapter creates a new EPX Business Reporting adapter
 func NewBusinessReportingAdapter(config *BusinessReportingConfig, logger *zap.Logger) ports.BusinessReportingAdapter {
+	// SECURITY: Fail-safe guard against InsecureSkipVerify in production
+	// Production EPX URLs use epxnow.com domain (not secure.epxuap.com sandbox)
+	if config.InsecureSkipVerify {
+		isProductionURL := strings.Contains(config.BaseURL, "epxnow.com") &&
+			!strings.Contains(config.BaseURL, "sandbox")
+		if isProductionURL {
+			logger.Fatal("SECURITY VIOLATION: InsecureSkipVerify cannot be enabled for production EPX endpoints",
+				zap.String("base_url", config.BaseURL),
+			)
+		}
+		// Log clear warning for sandbox usage (audit trail)
+		logger.Warn("TLS certificate verification disabled - SANDBOX MODE ONLY",
+			zap.String("base_url", config.BaseURL),
+			zap.Bool("insecure_skip_verify", true),
+		)
+	}
+
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: config.InsecureSkipVerify,
