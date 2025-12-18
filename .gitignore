@@ -19,8 +19,8 @@ bin/
 
 # Claude Code
 .claude
-# Never commit secrets directory
-secrets/
+# Never commit secrets directory (root-level only, not internal/adapters/secrets/)
+/secrets/
 
 # Test coverage files
 coverage.out
@@ -80,9 +80,9 @@ terraform.tfstate.backup
 .terraform/
 .terraform.lock.hcl
 
-# Temporary secrets
-secrets/
-tmp-secrets/
+# Temporary secrets (root-level only)
+/secrets/
+/tmp-secrets/
 *.secret
 
 # Auth tokens
