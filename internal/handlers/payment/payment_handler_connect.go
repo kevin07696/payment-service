@@ -340,4 +340,3 @@ func (h *ConnectHandler) ListTransactions(
 // The adapter layer (determineTransactionType) automatically translates
 // Operation + PaymentMethod to the correct EPX transaction type.
 // No separate ACH-specific endpoints are needed.
-

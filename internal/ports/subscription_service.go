@@ -42,10 +42,10 @@ type CancelSubscriptionRequest struct {
 
 // ExpiredPastDueResult contains the result of processing expired past_due subscriptions.
 type ExpiredPastDueResult struct {
-	Processed int      // Total subscriptions processed
-	Cancelled int      // Successfully cancelled
-	Failed    int      // Failed to cancel
-	Errors    []error  // Errors encountered
+	Processed int     // Total subscriptions processed
+	Cancelled int     // Successfully cancelled
+	Failed    int     // Failed to cancel
+	Errors    []error // Errors encountered
 }
 
 // SubscriptionService defines the port for subscription operations.

@@ -409,4 +409,3 @@ func (h *BrowserPostCallbackHandler) renderTemplate(w http.ResponseWriter, name 
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
-

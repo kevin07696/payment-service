@@ -66,7 +66,7 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 		// We should use the FIRST IP (original client) when from trusted proxy
 
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.RemoteAddr = "10.0.0.1:12345" // Trusted proxy
+		req.RemoteAddr = "10.0.0.1:12345"                                    // Trusted proxy
 		req.Header.Set("X-Forwarded-For", "203.0.113.5, 10.0.0.2, 10.0.0.3") // Client, Proxy1, Proxy2
 
 		rec := httptest.NewRecorder()
@@ -141,7 +141,7 @@ func TestRateLimiter_IPExtraction(t *testing.T) {
 		// Attacker tries to spoof X-Forwarded-For
 		for i := 0; i < 25; i++ {
 			req := httptest.NewRequest("GET", "/test", nil)
-			req.RemoteAddr = "192.168.1.1:12345"                         // UNTRUSTED proxy
+			req.RemoteAddr = "192.168.1.1:12345"                          // UNTRUSTED proxy
 			req.Header.Set("X-Forwarded-For", fmt.Sprintf("1.2.3.%d", i)) // Spoofed IPs
 
 			rec := httptest.NewRecorder()

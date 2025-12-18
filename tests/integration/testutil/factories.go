@@ -370,9 +370,9 @@ type TransactionBuilder struct {
 	authGUID      string
 	authResp      *string // NULL = pending/failed, "00" = approved, other = declined
 	authCode      string
-	orderID       *string              // Groups related transactions (replaced group_id)
-	parentID      *string              // parent_transaction_id for CAPTURE/REFUND/VOID
-	processedAt   bool                 // true = NOW(), false = NULL (for status generation)
+	orderID       *string // Groups related transactions (replaced group_id)
+	parentID      *string // parent_transaction_id for CAPTURE/REFUND/VOID
+	processedAt   bool    // true = NOW(), false = NULL (for status generation)
 }
 
 // NewTransaction starts building a new transaction

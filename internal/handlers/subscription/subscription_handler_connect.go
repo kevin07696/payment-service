@@ -304,4 +304,3 @@ func (h *ConnectHandler) ListSubscriptions(
 
 	return connect.NewResponse(response), nil
 }
-

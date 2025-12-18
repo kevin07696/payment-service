@@ -55,15 +55,15 @@ type FactoryConfig struct {
 	AWSEndpoint string // For LocalStack testing
 
 	// Vault-specific configuration
-	VaultAddr       string
-	VaultAuthMethod string // "token", "approle", "kubernetes"
-	VaultToken      string
-	VaultRoleID     string
-	VaultSecretID   string
-	VaultNamespace  string
-	VaultMountPath  string
-	VaultKVVersion  string
-	VaultK8sRole    string
+	VaultAddr         string
+	VaultAuthMethod   string // "token", "approle", "kubernetes"
+	VaultToken        string
+	VaultRoleID       string
+	VaultSecretID     string
+	VaultNamespace    string
+	VaultMountPath    string
+	VaultKVVersion    string
+	VaultK8sRole      string
 	VaultK8sTokenPath string
 
 	// Local-specific configuration
@@ -85,15 +85,15 @@ func NewFactoryConfigFromEnv() *FactoryConfig {
 		AWSEndpoint: os.Getenv("AWS_SECRETS_ENDPOINT"),
 
 		// Vault
-		VaultAddr:       os.Getenv("VAULT_ADDR"),
-		VaultAuthMethod: getEnv("VAULT_AUTH_METHOD", "token"),
-		VaultToken:      os.Getenv("VAULT_TOKEN"),
-		VaultRoleID:     os.Getenv("VAULT_ROLE_ID"),
-		VaultSecretID:   os.Getenv("VAULT_SECRET_ID"),
-		VaultNamespace:  os.Getenv("VAULT_NAMESPACE"),
-		VaultMountPath:  getEnv("VAULT_MOUNT_PATH", "secret"),
-		VaultKVVersion:  getEnv("VAULT_KV_VERSION", "v2"),
-		VaultK8sRole:    os.Getenv("VAULT_K8S_ROLE"),
+		VaultAddr:         os.Getenv("VAULT_ADDR"),
+		VaultAuthMethod:   getEnv("VAULT_AUTH_METHOD", "token"),
+		VaultToken:        os.Getenv("VAULT_TOKEN"),
+		VaultRoleID:       os.Getenv("VAULT_ROLE_ID"),
+		VaultSecretID:     os.Getenv("VAULT_SECRET_ID"),
+		VaultNamespace:    os.Getenv("VAULT_NAMESPACE"),
+		VaultMountPath:    getEnv("VAULT_MOUNT_PATH", "secret"),
+		VaultKVVersion:    getEnv("VAULT_KV_VERSION", "v2"),
+		VaultK8sRole:      os.Getenv("VAULT_K8S_ROLE"),
 		VaultK8sTokenPath: getEnv("VAULT_K8S_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token"),
 
 		// Local

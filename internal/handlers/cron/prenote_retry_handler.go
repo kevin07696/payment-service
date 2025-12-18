@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
-	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/epxutil"
+	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"go.uber.org/zap"
 )
@@ -46,13 +46,13 @@ type PrenoteRetryRequest struct {
 
 // PrenoteRetryResponse represents the response from prenote retry
 type PrenoteRetryResponse struct {
-	Success      bool     `json:"success"`
-	Processed    int      `json:"processed"`
-	Succeeded    int      `json:"succeeded"`
-	Failed       int      `json:"failed"`
-	MaxRetries   int      `json:"max_retries"`
-	Errors       []string `json:"errors,omitempty"`
-	ProcessedAt  string   `json:"processed_at"`
+	Success     bool     `json:"success"`
+	Processed   int      `json:"processed"`
+	Succeeded   int      `json:"succeeded"`
+	Failed      int      `json:"failed"`
+	MaxRetries  int      `json:"max_retries"`
+	Errors      []string `json:"errors,omitempty"`
+	ProcessedAt string   `json:"processed_at"`
 }
 
 // MaxPrenoteAttempts is the maximum number of prenote retry attempts
@@ -248,22 +248,22 @@ func (h *PrenoteRetryHandler) processSinglePrenote(ctx context.Context, pm sqlc.
 func (h *PrenoteRetryHandler) handleSuccess(ctx context.Context, pm sqlc.GetACHNeedingPrenoteRetryRow, prenoteID uuid.UUID, prenoteTranNbr string, prenoteResp *ports.ServerPostResponse) (prenoteResult, error) {
 	// Create prenote transaction record
 	_, err := h.queries.CreateTransaction(ctx, sqlc.CreateTransactionParams{
-		ID:                prenoteID,
-		MerchantID:        pm.MerchantID,
-		CustomerID:        pgtype.Text{String: pm.CustomerID, Valid: true},
-		AmountCents:       0,
-		Currency:          "USD",
-		Type:              "PRENOTE",
-		PaymentMethodType: "ach",
-		PaymentMethodID:   pgtype.UUID{Bytes: pm.ID, Valid: true},
-		TranNbr:           pgtype.Text{String: prenoteTranNbr, Valid: true},
-		AuthGuid:          pgtype.Text{String: prenoteResp.AuthGUID, Valid: true},
-		AuthResp:          pgtype.Text{String: prenoteResp.AuthResp, Valid: true},
-		AuthCode:          pgtype.Text{String: prenoteResp.AuthCode, Valid: true},
-		AuthCardType:      pgtype.Text{},
-		Metadata:          []byte("{}"),
+		ID:                  prenoteID,
+		MerchantID:          pm.MerchantID,
+		CustomerID:          pgtype.Text{String: pm.CustomerID, Valid: true},
+		AmountCents:         0,
+		Currency:            "USD",
+		Type:                "PRENOTE",
+		PaymentMethodType:   "ach",
+		PaymentMethodID:     pgtype.UUID{Bytes: pm.ID, Valid: true},
+		TranNbr:             pgtype.Text{String: prenoteTranNbr, Valid: true},
+		AuthGuid:            pgtype.Text{String: prenoteResp.AuthGUID, Valid: true},
+		AuthResp:            pgtype.Text{String: prenoteResp.AuthResp, Valid: true},
+		AuthCode:            pgtype.Text{String: prenoteResp.AuthCode, Valid: true},
+		AuthCardType:        pgtype.Text{},
+		Metadata:            []byte("{}"),
 		ParentTransactionID: pgtype.UUID{},
-		ProcessedAt:       pgtype.Timestamptz{},
+		ProcessedAt:         pgtype.Timestamptz{},
 	})
 	if err != nil {
 		h.logger.Error("Failed to create prenote transaction", zap.Error(err))
@@ -316,8 +316,8 @@ func (h *PrenoteRetryHandler) handleTransientFailure(ctx context.Context, pmID u
 	)
 
 	updateErr := h.queries.UpdatePrenoteStatusFailed(ctx, sqlc.UpdatePrenoteStatusFailedParams{
-		ID:              pmID,
-		NextRetryAt:     pgtype.Timestamptz{Time: nextRetryAt, Valid: true},
+		ID:          pmID,
+		NextRetryAt: pgtype.Timestamptz{Time: nextRetryAt, Valid: true},
 	})
 	if updateErr != nil {
 		h.logger.Error("Failed to update failed status", zap.Error(updateErr))

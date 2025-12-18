@@ -107,7 +107,7 @@ func TestListChargebacks_Validation(t *testing.T) {
 	}{
 		{
 			name:          "Missing merchant_id",
-			merchantID:   "",
+			merchantID:    "",
 			expectedCode:  connect.CodeInvalidArgument,
 			expectedError: "merchant_id is required",
 		},

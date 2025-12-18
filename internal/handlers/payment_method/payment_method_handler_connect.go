@@ -217,7 +217,6 @@ func (h *ConnectHandler) SetDefaultPaymentMethod(
 	return connect.NewResponse(paymentMethodToResponse(pm)), nil
 }
 
-
 // UpdatePaymentMethod updates payment method metadata (billing info, nickname)
 //
 // NOTE: Not yet implemented - requires schema migration to add billing fields:
@@ -239,4 +238,3 @@ func (h *ConnectHandler) UpdatePaymentMethod(
 ) (*connect.Response[paymentmethodv1.PaymentMethodResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("UpdatePaymentMethod requires billing fields schema migration"))
 }
-

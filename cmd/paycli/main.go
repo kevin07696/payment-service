@@ -44,9 +44,9 @@ type PayCLI struct {
 
 func main() {
 	var (
-		dbURL    = flag.String("db", getDefaultDBURL(), "Database URL")
-		action   = flag.String("action", "", "Action to perform")
-		jsonFile = flag.String("json", "", "JSON file with service/merchant details")
+		dbURL      = flag.String("db", getDefaultDBURL(), "Database URL")
+		action     = flag.String("action", "", "Action to perform")
+		jsonFile   = flag.String("json", "", "JSON file with service/merchant details")
 		credsFile  = flag.String("credentials", "", "Service credentials JSON file (for generate-token)")
 		credsShort = flag.String("c", "", "Service credentials JSON file (shorthand)")
 		expires    = flag.String("expires", "1h", "Token expiry duration (e.g., 5m, 1h, 24h)")

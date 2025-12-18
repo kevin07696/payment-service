@@ -40,7 +40,6 @@ const (
 	PlaceholderPaymentMethodID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 )
 
-
 // Config holds the seed configuration derived from EPX environment variables.
 type Config struct {
 	// Merchant identification (auto-generated for sandbox)
@@ -446,4 +445,3 @@ func generateFingerprint(publicKeyPEM []byte) string {
 	h.Write(publicKeyPEM)
 	return fmt.Sprintf("SHA256:%x", h.Sum(nil))[:50]
 }
-

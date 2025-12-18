@@ -259,4 +259,3 @@ func (h *ConnectHandler) RotateMAC(
 
 	return connect.NewResponse(response), nil
 }
-

@@ -413,9 +413,9 @@ func TestParseRequestTransactionType(t *testing.T) {
 		{"ach_storage_c", RequestTransactionTypeACHStorageC},
 		{"ACH_STORAGE_S", RequestTransactionTypeACHStorageS},
 		{"ach_storage_s", RequestTransactionTypeACHStorageS},
-		{"", RequestTransactionTypeSale},           // default
-		{"INVALID", RequestTransactionTypeSale},   // unknown defaults to SALE
-		{"REFUND", RequestTransactionTypeSale},    // not a request type
+		{"", RequestTransactionTypeSale},        // default
+		{"INVALID", RequestTransactionTypeSale}, // unknown defaults to SALE
+		{"REFUND", RequestTransactionTypeSale},  // not a request type
 	}
 
 	for _, tt := range tests {

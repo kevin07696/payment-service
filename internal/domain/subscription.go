@@ -31,10 +31,10 @@ const (
 type CancellationReason string
 
 const (
-	CancellationReasonUserRequested     CancellationReason = "user_requested"
-	CancellationReasonPaymentFailed     CancellationReason = "payment_failed"
+	CancellationReasonUserRequested      CancellationReason = "user_requested"
+	CancellationReasonPaymentFailed      CancellationReason = "payment_failed"
 	CancellationReasonGracePeriodExpired CancellationReason = "grace_period_expired"
-	CancellationReasonAdmin             CancellationReason = "admin"
+	CancellationReasonAdmin              CancellationReason = "admin"
 )
 
 // Subscription represents a recurring billing subscription

@@ -16,9 +16,9 @@ import (
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/epxutil"
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
-	"github.com/kevin07696/payment-service/internal/epxutil"
 	"github.com/kevin07696/payment-service/pkg/observability"
 	"github.com/kevin07696/payment-service/pkg/timeutil"
 	"github.com/shopspring/decimal"
@@ -27,14 +27,14 @@ import (
 
 // BillingRetryConfig holds configuration for billing retry backoff
 type BillingRetryConfig struct {
-	BaseDelaySecs   int     // Base delay in seconds (default: 300 = 5 min)
-	MaxDelaySecs    int     // Max delay in seconds (default: 7200 = 2 hr)
-	Multiplier      float64 // Backoff multiplier (default: 2.0)
-	Jitter          float64 // Jitter factor 0.0-1.0 (default: 0.1 = ±10%)
+	BaseDelaySecs int     // Base delay in seconds (default: 300 = 5 min)
+	MaxDelaySecs  int     // Max delay in seconds (default: 7200 = 2 hr)
+	Multiplier    float64 // Backoff multiplier (default: 2.0)
+	Jitter        float64 // Jitter factor 0.0-1.0 (default: 0.1 = ±10%)
 	// RSWindowDays: Window for retrying a failed recurring billing transaction with ACI_EXT=RS.
 	// COMPLIANCE: Visa/MC/Discover require RS retries within 30 days of original decline.
-	RSWindowDays int
-	DefaultACHClass string  // Default STD_ENTRY_CLASS for ACH (default: "WEB")
+	RSWindowDays    int
+	DefaultACHClass string // Default STD_ENTRY_CLASS for ACH (default: "WEB")
 }
 
 // DefaultBillingRetryConfig returns sensible defaults for subscription billing retries
@@ -55,10 +55,10 @@ func DefaultBillingRetryConfig() BillingRetryConfig {
 	}
 
 	return BillingRetryConfig{
-		BaseDelaySecs:   300,            // 5 minutes
-		MaxDelaySecs:    7200,           // 2 hours
+		BaseDelaySecs:   300,  // 5 minutes
+		MaxDelaySecs:    7200, // 2 hours
 		Multiplier:      2.0,
-		Jitter:          0.1,            // ±10%
+		Jitter:          0.1, // ±10%
 		RSWindowDays:    rsWindowDays,
 		DefaultACHClass: defaultACHClass,
 	}

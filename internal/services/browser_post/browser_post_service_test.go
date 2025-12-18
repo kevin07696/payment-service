@@ -239,10 +239,10 @@ func TestBuildRedirectURL_InjectionPrevention(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		customerID    string
-		shouldEncode  string
-		description   string
+		name         string
+		customerID   string
+		shouldEncode string
+		description  string
 	}{
 		{
 			name:         "ampersand_injection",

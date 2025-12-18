@@ -200,4 +200,3 @@ func stringPtrToString(s *string) string {
 	}
 	return *s
 }
-

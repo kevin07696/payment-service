@@ -12,10 +12,10 @@ import (
 	"github.com/kevin07696/payment-service/internal/converters"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/epxutil"
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
 	merchantsvc "github.com/kevin07696/payment-service/internal/services/merchant"
-	"github.com/kevin07696/payment-service/internal/epxutil"
 	"go.uber.org/zap"
 )
 
@@ -1308,7 +1308,6 @@ func (s *paymentService) Refund(ctx context.Context, req *ports.RefundRequest) (
 
 	return transaction, nil
 }
-
 
 // PaymentTokenInfo contains resolved payment token information
 type PaymentTokenInfo struct {

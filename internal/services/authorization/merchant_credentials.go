@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/ports"
 	merchantsvc "github.com/kevin07696/payment-service/internal/services/merchant"
 	"go.uber.org/zap"
 )
@@ -22,7 +22,7 @@ type MerchantCredentials struct {
 // Falls back to direct queries for transactional operations
 type MerchantCredentialResolver struct {
 	cache         *merchantsvc.MerchantCredentialCache
-	queries       sqlc.Querier                      // Fallback for transactions
+	queries       sqlc.Querier               // Fallback for transactions
 	secretManager ports.SecretManagerAdapter // Fallback for transactions
 	logger        *zap.Logger
 }

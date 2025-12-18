@@ -231,4 +231,3 @@ var (
 
 	ErrWebhookDeliveryFailed = NewDomainError(ErrorCodeWebhookDeliveryFailed, "webhook delivery failed")
 )
-

@@ -22,7 +22,6 @@ import (
 	"github.com/kevin07696/payment-service/internal/adapters/epx"
 	"github.com/kevin07696/payment-service/internal/adapters/north"
 	"github.com/kevin07696/payment-service/internal/adapters/secrets"
-	"github.com/kevin07696/payment-service/internal/services/seeder"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	chargebackHandler "github.com/kevin07696/payment-service/internal/handlers/chargeback"
 	cronHandler "github.com/kevin07696/payment-service/internal/handlers/cron"
@@ -37,6 +36,7 @@ import (
 	merchantService "github.com/kevin07696/payment-service/internal/services/merchant"
 	paymentService "github.com/kevin07696/payment-service/internal/services/payment"
 	paymentmethodService "github.com/kevin07696/payment-service/internal/services/payment_method"
+	"github.com/kevin07696/payment-service/internal/services/seeder"
 	subscriptionService "github.com/kevin07696/payment-service/internal/services/subscription"
 	webhookService "github.com/kevin07696/payment-service/internal/services/webhook"
 	pkghttp "github.com/kevin07696/payment-service/pkg/http"
@@ -447,7 +447,6 @@ func main() {
 	shutdownMgr.WaitForShutdown()
 }
 
-
 // Dependencies holds all initialized services and handlers
 type Dependencies struct {
 	dbAdapter                   *database.PostgreSQLAdapter
@@ -469,7 +468,6 @@ type Dependencies struct {
 	e2eHandler                  *e2eHandler.Handler
 	authInterceptor             *authMiddleware.AuthInterceptor
 }
-
 
 // initLogger initializes the logger
 // Note: Uses os.Getenv directly since this runs before config loading
@@ -779,7 +777,6 @@ func initDependencies(dbPool *pgxpool.Pool, sqlDB *sql.DB, queries *sqlc.Queries
 		authInterceptor:             authInterceptor,
 	}
 }
-
 
 // serveBrowserPostDemo serves the Browser Post demo HTML form
 // Serving from the server avoids CORS issues with file:// protocol

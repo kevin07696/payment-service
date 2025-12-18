@@ -92,11 +92,11 @@ func (t ACHAccountType) IsValid() bool {
 type PaymentMethodStatus string
 
 const (
-	PaymentMethodStatusPending  PaymentMethodStatus = "pending"  // ACH awaiting verification (prenote period)
-	PaymentMethodStatusActive   PaymentMethodStatus = "active"   // Verified and usable
-	PaymentMethodStatusFailed   PaymentMethodStatus = "failed"   // Verification failed (ACH returns, max retries)
-	PaymentMethodStatusExpired  PaymentMethodStatus = "expired"  // Credit card past expiration date
-	PaymentMethodStatusRevoked  PaymentMethodStatus = "revoked"  // Manually deactivated by merchant/customer
+	PaymentMethodStatusPending PaymentMethodStatus = "pending" // ACH awaiting verification (prenote period)
+	PaymentMethodStatusActive  PaymentMethodStatus = "active"  // Verified and usable
+	PaymentMethodStatusFailed  PaymentMethodStatus = "failed"  // Verification failed (ACH returns, max retries)
+	PaymentMethodStatusExpired PaymentMethodStatus = "expired" // Credit card past expiration date
+	PaymentMethodStatusRevoked PaymentMethodStatus = "revoked" // Manually deactivated by merchant/customer
 )
 
 // IsValid returns true if the status is a known valid value
@@ -126,15 +126,15 @@ func (s PaymentMethodStatus) IsTerminal() bool {
 
 // Status change reasons (constants for audit trail)
 const (
-	StatusReasonACHVerified        = "ach_verified"          // 3-day period passed, no returns
-	StatusReasonACHReturnDetected  = "ach_return_detected"   // ACH return file detected
-	StatusReasonPrenoteMaxRetries  = "prenote_max_retries"   // Prenote failed after max attempts
-	StatusReasonCardExpired        = "card_expired"          // Credit card past expiration
-	StatusReasonManualRevoke       = "manual_revoke"         // Merchant/customer requested deactivation
-	StatusReasonFraudSuspected     = "fraud_suspected"       // Fraud detection triggered
-	StatusReasonAccountClosed      = "account_closed"        // Bank account closed
-	StatusReasonInsufficientFunds  = "insufficient_funds"    // Repeated NSF returns
-	StatusReasonInvalidAccount     = "invalid_account"       // Invalid account number
+	StatusReasonACHVerified       = "ach_verified"        // 3-day period passed, no returns
+	StatusReasonACHReturnDetected = "ach_return_detected" // ACH return file detected
+	StatusReasonPrenoteMaxRetries = "prenote_max_retries" // Prenote failed after max attempts
+	StatusReasonCardExpired       = "card_expired"        // Credit card past expiration
+	StatusReasonManualRevoke      = "manual_revoke"       // Merchant/customer requested deactivation
+	StatusReasonFraudSuspected    = "fraud_suspected"     // Fraud detection triggered
+	StatusReasonAccountClosed     = "account_closed"      // Bank account closed
+	StatusReasonInsufficientFunds = "insufficient_funds"  // Repeated NSF returns
+	StatusReasonInvalidAccount    = "invalid_account"     // Invalid account number
 )
 
 // No grace period - ACH accounts must be fully verified before use
@@ -158,20 +158,20 @@ type PaymentMethod struct {
 	CustomerID   string              `json:"customer_id"`
 	PaymentToken string              `json:"payment_token"`
 	LastFour     string              `json:"last_four"`
-	PaymentType  PaymentMethodType   `json:"payment_type"`   // card, ach
-	Status       PaymentMethodStatus `json:"status"`         // pending, active, failed, expired, revoked
+	PaymentType  PaymentMethodType   `json:"payment_type"` // card, ach
+	Status       PaymentMethodStatus `json:"status"`       // pending, active, failed, expired, revoked
 
 	// Pointers to time.Time (8 bytes each)
 	LastUsedAt      *time.Time `json:"last_used_at"`
-	VerifiedAt      *time.Time `json:"verified_at"`        // When ACH was verified (3-day period passed)
-	StatusChangedAt *time.Time `json:"status_changed_at"`  // When status last changed
+	VerifiedAt      *time.Time `json:"verified_at"`       // When ACH was verified (3-day period passed)
+	StatusChangedAt *time.Time `json:"status_changed_at"` // When status last changed
 
 	// Pointers to strings (8 bytes each)
 	CardBrand     *string `json:"card_brand"`
 	BankName      *string `json:"bank_name"`
 	AccountType   *string `json:"account_type"`
-	PrenoteStatus *string `json:"prenote_status"`  // Internal: not_required, pending, sent, failed, max_retries
-	StatusReason  *string `json:"status_reason"`   // Why status changed (for audit trail)
+	PrenoteStatus *string `json:"prenote_status"` // Internal: not_required, pending, sent, failed, max_retries
+	StatusReason  *string `json:"status_reason"`  // Why status changed (for audit trail)
 
 	// Pointers to int (8 bytes each)
 	ReturnCount     *int `json:"return_count"`

@@ -11,9 +11,9 @@ import (
 	"github.com/kevin07696/payment-service/internal/adapters/database"
 	"github.com/kevin07696/payment-service/internal/db/sqlc"
 	"github.com/kevin07696/payment-service/internal/domain"
+	"github.com/kevin07696/payment-service/internal/epxutil"
 	"github.com/kevin07696/payment-service/internal/ports"
 	"github.com/kevin07696/payment-service/internal/services/authorization"
-	"github.com/kevin07696/payment-service/internal/epxutil"
 	"github.com/kevin07696/payment-service/pkg/observability"
 	"go.uber.org/zap"
 )
@@ -445,7 +445,7 @@ func (s *paymentMethodService) SaveCreditCardFromCallback(ctx context.Context, r
 		BankName:      pgtype.Text{},
 		AccountType:   pgtype.Text{},
 		IsDefault:     pgtype.Bool{Bool: false, Valid: true},
-		Status:        string(domain.PaymentMethodStatusActive), // Credit cards are immediately active
+		Status:        string(domain.PaymentMethodStatusActive),         // Credit cards are immediately active
 		PrenoteStatus: pgtype.Text{String: "not_required", Valid: true}, // Credit cards don't need prenote
 	})
 	if err != nil {
@@ -494,19 +494,19 @@ func (s *paymentMethodService) SaveACHFromCallback(ctx context.Context, req *por
 
 	pmID := uuid.New()
 	dbPM, err := s.queries.CreatePaymentMethod(ctx, sqlc.CreatePaymentMethodParams{
-		ID:                 pmID,
-		MerchantID:         merchantID,
-		CustomerID:         req.CustomerID,
-		Bric:               req.BRIC,
-		PaymentType:        string(domain.PaymentMethodTypeACH),
-		LastFour:           lastFour,
-		CardBrand:          pgtype.Text{},
-		CardExpMonth:       pgtype.Int4{},
-		CardExpYear:        pgtype.Int4{},
+		ID:            pmID,
+		MerchantID:    merchantID,
+		CustomerID:    req.CustomerID,
+		Bric:          req.BRIC,
+		PaymentType:   string(domain.PaymentMethodTypeACH),
+		LastFour:      lastFour,
+		CardBrand:     pgtype.Text{},
+		CardExpMonth:  pgtype.Int4{},
+		CardExpYear:   pgtype.Int4{},
 		BankName:      pgtype.Text{},
 		AccountType:   pgtype.Text{String: accountType, Valid: true},
 		IsDefault:     pgtype.Bool{Bool: false, Valid: true},
-		Status:        string(domain.PaymentMethodStatusPending), // ACH starts pending verification
+		Status:        string(domain.PaymentMethodStatusPending),   // ACH starts pending verification
 		PrenoteStatus: pgtype.Text{String: "pending", Valid: true}, // Prenote needs to be sent
 	})
 	if err != nil {
@@ -664,4 +664,3 @@ func (s *paymentMethodService) SendPrenote(ctx context.Context, req *ports.SendP
 
 	return nil
 }
-

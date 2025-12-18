@@ -1223,7 +1223,7 @@ func TestProcessTransaction_WithOperation_HTTPLayer(t *testing.T) {
 			MerchNbr:         "900300",
 			DBAnbr:           "2",
 			TerminalNbr:      "77",
-			Operation:        ports.OperationRefund,  // Use Operation field
+			Operation:        ports.OperationRefund, // Use Operation field
 			PaymentType:      ports.PaymentMethodTypeACH,
 			Amount:           "50.00",
 			TranNbr:          generateTranNbr(),

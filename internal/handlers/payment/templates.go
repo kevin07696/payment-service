@@ -21,10 +21,10 @@ type TemplateRenderer struct {
 type TemplateName string
 
 const (
-	TemplateReceipt                 TemplateName = "receipt"
-	TemplatePaymentMethodCreditCard TemplateName = "payment_method_credit_card"
+	TemplateReceipt                  TemplateName = "receipt"
+	TemplatePaymentMethodCreditCard  TemplateName = "payment_method_credit_card"
 	TemplatePaymentMethodBankAccount TemplateName = "payment_method_bank_account"
-	TemplateError                   TemplateName = "error"
+	TemplateError                    TemplateName = "error"
 )
 
 // NewTemplateRenderer creates a new template renderer with parsed templates
@@ -87,16 +87,16 @@ func (e templateError) Error() string {
 
 // ReceiptData contains data for the receipt template
 type ReceiptData struct {
-	Approved     bool
-	Amount       string
-	Currency     string
-	CardType     string
-	MaskedCard   string
-	AuthCode     string
-	AuthRespText string
+	Approved      bool
+	Amount        string
+	Currency      string
+	CardType      string
+	MaskedCard    string
+	AuthCode      string
+	AuthRespText  string
 	TransactionID string
-	TranNbr      string
-	ReturnURL    string
+	TranNbr       string
+	ReturnURL     string
 }
 
 // CreditCardData contains data for the credit card payment method template

@@ -559,8 +559,8 @@ func TestStatusGeneration(t *testing.T) {
 		processedAt bool // true = NOW(), false = NULL
 		expected    string
 	}{
-		{"pending", nil, false, "pending"},         // auth_resp=NULL, processed_at=NULL
-		{"failed", nil, true, "failed"},            // auth_resp=NULL, processed_at=NOW()
+		{"pending", nil, false, "pending"},           // auth_resp=NULL, processed_at=NULL
+		{"failed", nil, true, "failed"},              // auth_resp=NULL, processed_at=NOW()
 		{"approved", strPtr("00"), true, "approved"}, // auth_resp='00', processed_at=NOW()
 		{"declined", strPtr("05"), true, "declined"}, // auth_resp='05', processed_at=NOW()
 	}
