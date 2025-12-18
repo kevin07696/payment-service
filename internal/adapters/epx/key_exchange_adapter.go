@@ -146,9 +146,11 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 	formData := a.buildFormData(req)
 
 	formDataEncoded := formData.Encode()
+	// SECURITY: Do not log request body - contains MAC secret
 	a.logger.Info("EPX Key Exchange request",
 		zap.String("url", a.config.BaseURL),
-		zap.String("request_body", formDataEncoded),
+		zap.String("tran_nbr", req.TranNbr),
+		zap.String("tran_group", req.TranGroup),
 	)
 
 	// Create HTTP request
@@ -190,20 +192,21 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	// SECURITY: Do not log response body - contains TAC token
 	a.logger.Info("Received Key Exchange response",
 		zap.Int("status_code", httpResp.StatusCode),
 		zap.Duration("elapsed", duration),
-		zap.String("response_body", string(body)),
 	)
 
 	// Check HTTP status code
 	if httpResp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("EPX returned status %d: %s", httpResp.StatusCode, string(body))
+		// SECURITY: Do not include body in error - may contain sensitive data
+		err := fmt.Errorf("EPX returned status %d", httpResp.StatusCode)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "EPX returned error status")
 		a.logger.Error("EPX Key Exchange returned error",
 			zap.Int("status_code", httpResp.StatusCode),
-			zap.String("body", string(body)),
+			zap.Int("response_length", len(body)),
 		)
 		return nil, err
 	}
@@ -213,21 +216,23 @@ func (a *keyExchangeAdapter) GetTAC(ctx context.Context, req *ports.KeyExchangeR
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to parse response")
+		// SECURITY: Do not log response body - may contain partial TAC
 		a.logger.Error("Failed to parse Key Exchange response",
 			zap.Error(err),
-			zap.String("body", string(body)),
+			zap.Int("response_length", len(body)),
 		)
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// Record success attributes
-	span.SetAttributes(attribute.String("epx.tac", response.TAC))
+	// SECURITY: Do not include TAC in traces - it's a sensitive auth token
+	span.SetAttributes(attribute.Bool("epx.tac_obtained", true))
 	span.SetStatus(codes.Ok, "TAC obtained successfully")
 
+	// SECURITY: Do not log TAC token - it's sensitive authentication data
 	a.logger.Info("Successfully obtained TAC",
 		zap.String("merchant_id", req.MerchantID),
 		zap.String("tran_nbr", response.TranNbr),
-		zap.String("tac", response.TAC),
 		zap.Time("expires_at", response.ExpiresAt),
 	)
 

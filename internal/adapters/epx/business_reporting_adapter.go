@@ -136,7 +136,8 @@ func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID 
 		return nil, err
 	}
 
-	a.logger.Info("Querying transaction details",
+	// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+	a.logger.Debug("Querying transaction details",
 		zap.String("auth_guid", authGUID),
 	)
 
@@ -181,9 +182,10 @@ func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID 
 			a.logger.Warn("Failed to read error response body", zap.Error(readErr))
 			body = []byte("(failed to read response)")
 		}
+		// SECURITY: Do not log full response - may contain sensitive data
 		a.logger.Error("Business Reporting API error",
 			zap.Int("status_code", resp.StatusCode),
-			zap.String("response", string(body)),
+			zap.Int("response_length", len(body)),
 		)
 
 		if resp.StatusCode == http.StatusNotFound {
@@ -217,7 +219,8 @@ func (a *businessReportingAdapter) GetTransaction(ctx context.Context, authGUID 
 	)
 	span.SetStatus(codes.Ok, "transaction retrieved")
 
-	a.logger.Info("Transaction retrieved successfully",
+	// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+	a.logger.Debug("Transaction retrieved successfully",
 		zap.String("auth_guid", txn.AuthGUID),
 		zap.String("status", string(txn.Status)),
 		zap.Bool("is_ach_return", txn.IsACHReturn),

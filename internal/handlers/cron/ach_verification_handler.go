@@ -225,7 +225,8 @@ func (h *ACHVerificationHandler) processACHVerification(ctx context.Context, ver
 			)
 			skipped++
 		} else {
-			h.logger.Info("ACH account verified successfully",
+			// SECURITY: BRIC at DEBUG level - contains sensitive token reference
+			h.logger.Debug("ACH account verified successfully",
 				zap.String("payment_method_id", pm.ID.String()),
 				zap.String("bric", pm.Bric),
 			)

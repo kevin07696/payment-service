@@ -212,10 +212,11 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 	formData := a.buildFormData(req)
 	requestBody := formData.Encode()
 
-	// Log full request for certification/debugging (mask sensitive fields)
+	// SECURITY: Do not log request body - contains MAC and credentials
 	a.logger.Info("EPX Server Post request",
 		zap.String("url", a.config.BaseURL),
-		zap.String("request_body", requestBody),
+		zap.String("tran_nbr", req.TranNbr),
+		zap.Int("request_length", len(requestBody)),
 	)
 
 	// Create HTTP request
@@ -276,24 +277,26 @@ func (a *serverPostAdapter) ProcessTransaction(ctx context.Context, req *ports.S
 				return fmt.Errorf("failed to read response: %w", err)
 			}
 
+			// SECURITY: Do not log response body - contains AUTH_GUID and sensitive data
 			a.logger.Info("Received Server Post response",
 				zap.Int("status_code", httpResp.StatusCode),
 				zap.Duration("elapsed", time.Since(startTime)),
 				zap.Int("body_length", len(body)),
-				zap.String("response_body", string(body)),
 			)
 
 			// Parse response
 			parsedResp, err := a.parseResponse(body, req)
 			if err != nil {
+				// SECURITY: Do not log response body - may contain partial sensitive data
 				a.logger.Error("Failed to parse Server Post response",
 					zap.Error(err),
-					zap.String("body", string(body)),
+					zap.Int("body_length", len(body)),
 				)
 				return fmt.Errorf("failed to parse response: %w", err)
 			}
 
-			a.logger.Info("Successfully processed Server Post transaction",
+			// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+			a.logger.Debug("Successfully processed Server Post transaction",
 				zap.String("auth_guid", parsedResp.AuthGUID),
 				zap.String("auth_resp", parsedResp.AuthResp),
 				zap.String("auth_resp_text", parsedResp.AuthRespText),
@@ -419,14 +422,16 @@ func (a *serverPostAdapter) ProcessTransactionViaSocket(ctx context.Context, req
 		// Parse XML response
 		parsedResp, err := a.parseXMLResponse(responseXML, req)
 		if err != nil {
+			// SECURITY: Do not log XML response - may contain sensitive data
 			a.logger.Error("Failed to parse Socket response",
 				zap.Error(err),
-				zap.String("xml", string(responseXML)),
+				zap.Int("xml_length", len(responseXML)),
 			)
 			return fmt.Errorf("failed to parse response: %w", err)
 		}
 
-		a.logger.Info("Successfully processed Socket transaction",
+		// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+		a.logger.Debug("Successfully processed Socket transaction",
 			zap.String("auth_guid", parsedResp.AuthGUID),
 			zap.String("auth_resp", parsedResp.AuthResp),
 			zap.Bool("is_approved", parsedResp.IsApproved),
@@ -476,7 +481,8 @@ func (a *serverPostAdapter) ValidateToken(ctx context.Context, authGUID string) 
 	)
 	defer span.End()
 
-	a.logger.Info("Validating BRIC token", zap.String("auth_guid", authGUID))
+	// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+	a.logger.Debug("Validating BRIC token", zap.String("auth_guid", authGUID))
 
 	// Get request from pool for reduced allocations
 	req := pool.GetServerPostRequest()
@@ -505,7 +511,8 @@ func (a *serverPostAdapter) ValidateToken(ctx context.Context, authGUID string) 
 	}
 
 	span.SetStatus(codes.Ok, "token validated")
-	a.logger.Info("Token validation successful", zap.String("auth_guid", authGUID))
+	// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+	a.logger.Debug("Token validation successful", zap.String("auth_guid", authGUID))
 	return nil
 }
 

@@ -73,7 +73,8 @@ func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (
 	authResp := getValue("AUTH_RESP")
 	authRespText := getValue("AUTH_RESP_TEXT")
 
-	a.logger.Info("Parsing Browser Post redirect response",
+	// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+	a.logger.Debug("Parsing Browser Post redirect response",
 		zap.String("auth_guid", authGUID),
 		zap.String("auth_resp", authResp),
 	)
@@ -123,7 +124,8 @@ func (a *browserPostAdapter) ParseRedirectResponse(params map[string][]string) (
 		RawParams:    rawParams,
 	}
 
-	a.logger.Info("Parsed Browser Post response",
+	// SECURITY: auth_guid at DEBUG level - contains sensitive token reference
+	a.logger.Debug("Parsed Browser Post response",
 		zap.String("auth_guid", response.AuthGUID),
 		zap.String("auth_resp", response.AuthResp),
 		zap.Bool("is_approved", response.IsApproved),
